@@ -761,7 +761,9 @@ declare namespace App {
           dimensionLabel: Record<string, string>;
           addExperience: string;
           editExperience: string;
-          categoryLabel: string;
+          domainLabel: string;
+          eventTypeLabel: string;
+          importanceLabel: string;
           titleField: string;
           titlePlaceholder: string;
           titleRequired: string;
@@ -779,21 +781,51 @@ declare namespace App {
           deleteSuccess: string;
           deleteConfirmTitle: string;
           deleteConfirm: string;
-          category: {
-            identity: string;
-            goal: string;
+          domain: {
+            career: string;
+            education: string;
             project: string;
             skill: string;
-            preference: string;
+            technology: string;
+            finance: string;
+            health: string;
+            lifestyle: string;
+            relationship: string;
+            community: string;
+            legal: string;
+            travel: string;
+            hobby: string;
             habit: string;
-            experience: string;
+            personality: string;
+            preference: string;
+            achievement: string;
             challenge: string;
-            decision: string;
+            other: string;
+          };
+          eventType: {
+            start: string;
+            ongoing: string;
+            complete: string;
+            achieve: string;
+            fail: string;
+            abandon: string;
+            decide: string;
+            change: string;
+            participate: string;
+            publish: string;
+            compete: string;
+            volunteer: string;
+            relocate: string;
+            recover: string;
+            experiment: string;
+            maintain: string;
           };
           status: {
+            planned: string;
             ongoing: string;
             completed: string;
             abandoned: string;
+            paused: string;
             unknown: string;
           };
           memoryLevel: {

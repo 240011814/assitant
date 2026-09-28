@@ -15,9 +15,11 @@ const (
 
 // 经历进度状态
 const (
+	ExperienceStatusPlanned   = "planned"
 	ExperienceStatusOngoing   = "ongoing"
 	ExperienceStatusCompleted = "completed"
 	ExperienceStatusAbandoned = "abandoned"
+	ExperienceStatusPaused    = "paused"
 	ExperienceStatusUnknown   = "unknown"
 )
 
@@ -49,18 +51,20 @@ func (f *ProfileFact) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// UserExperience 用户经历, 与聊天会话一对一(history_id 唯一)
+// UserExperience 用户经历, 一段会话可对应多条(按 history_id + title 去重)
 type UserExperience struct {
 	ID           uint       `json:"id" gorm:"primaryKey"`
 	UserID       uint       `json:"user_id" gorm:"index"`
-	HistoryID    *uint      `json:"history_id" gorm:"uniqueIndex"`
-	Category     string     `json:"category" gorm:"size:32"`
+	HistoryID    *uint      `json:"history_id" gorm:"index"`
+	Domain       string     `json:"domain" gorm:"size:32"`
+	EventType    string     `json:"event_type" gorm:"size:32"`
 	Title        string     `json:"title" gorm:"size:255"`
 	Content      string     `json:"content" gorm:"type:text"`
 	TimeRange    string     `json:"time_range" gorm:"size:64"`
 	OccurredAt   *time.Time `json:"occurred_at"`
 	Tags         string     `json:"tags" gorm:"type:json"` // JSON array
 	Confidence   float64    `json:"confidence"`
+	Importance   int        `json:"importance" gorm:"default:3"`
 	MemoryLevel  string     `json:"memory_level" gorm:"size:20;default:long_term"`
 	Evidence     string     `json:"evidence" gorm:"type:text"`
 	Status       string     `json:"status" gorm:"size:20;default:unknown"`
@@ -74,7 +78,8 @@ func (UserExperience) TableName() string {
 }
 
 type CreateUserExperienceRequest struct {
-	Category    string     `json:"category"`
+	Domain      string     `json:"domain"`
+	EventType   string     `json:"event_type"`
 	Title       string     `json:"title" binding:"required"`
 	Content     string     `json:"content"`
 	TimeRange   string     `json:"time_range"`
@@ -83,10 +88,12 @@ type CreateUserExperienceRequest struct {
 	MemoryLevel string     `json:"memory_level"`
 	Evidence    string     `json:"evidence"`
 	Status      string     `json:"status"`
+	Importance  int        `json:"importance"`
 }
 
 type UpdateUserExperienceRequest struct {
-	Category    *string    `json:"category"`
+	Domain      *string    `json:"domain"`
+	EventType   *string    `json:"event_type"`
 	Title       *string    `json:"title"`
 	Content     *string    `json:"content"`
 	TimeRange   *string    `json:"time_range"`
@@ -95,4 +102,5 @@ type UpdateUserExperienceRequest struct {
 	MemoryLevel *string    `json:"memory_level"`
 	Evidence    *string    `json:"evidence"`
 	Status      *string    `json:"status"`
+	Importance  *int       `json:"importance"`
 }

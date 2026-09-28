@@ -31,13 +31,15 @@ type portraitView struct {
 type experienceView struct {
 	ID           uint       `json:"id"`
 	HistoryID    *uint      `json:"history_id"`
-	Category     string     `json:"category"`
+	Domain       string     `json:"domain"`
+	EventType    string     `json:"event_type"`
 	Title        string     `json:"title"`
 	Content      string     `json:"content"`
 	TimeRange    string     `json:"time_range"`
 	Tags         []string   `json:"tags"`
 	OccurredAt   *time.Time `json:"occurred_at"`
 	Confidence   float64    `json:"confidence"`
+	Importance   int        `json:"importance"`
 	MemoryLevel  string     `json:"memory_level"`
 	Evidence     string     `json:"evidence"`
 	Status       string     `json:"status"`
@@ -80,13 +82,15 @@ func toExperienceViews(list []model.UserExperience) []experienceView {
 		views = append(views, experienceView{
 			ID:           e.ID,
 			HistoryID:    e.HistoryID,
-			Category:     e.Category,
+			Domain:       e.Domain,
+			EventType:    e.EventType,
 			Title:        e.Title,
 			Content:      e.Content,
 			TimeRange:    e.TimeRange,
 			Tags:         tags,
 			OccurredAt:   e.OccurredAt,
 			Confidence:   e.Confidence,
+			Importance:   e.Importance,
 			MemoryLevel:  e.MemoryLevel,
 			Evidence:     e.Evidence,
 			Status:       e.Status,
@@ -159,10 +163,10 @@ func (h *UserPortraitHandler) ListExperiences(c *gin.Context) {
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
-	category := c.Query("category")
+	domain := c.Query("domain")
 	keyword := c.Query("keyword")
 
-	total, list, err := h.svc.ListExperiences(userID, page, pageSize, category, keyword)
+	total, list, err := h.svc.ListExperiences(userID, page, pageSize, domain, keyword)
 	if err != nil {
 		SendError(c, "500", "获取经历失败: "+err.Error())
 		return

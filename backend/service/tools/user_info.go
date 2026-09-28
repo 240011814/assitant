@@ -143,11 +143,13 @@ type userInfoEditTool struct{}
 
 type userInfoEditRequest struct {
 	Action      string              `json:"action" jsonschema:"description=操作类型: add_experience 记录经历, update_profile 更新画像"`
-	Category    string              `json:"category,omitempty" jsonschema:"description=经历分类: identity/goal/project/skill/preference/habit/experience/challenge/decision"`
+	Domain      string              `json:"domain,omitempty" jsonschema:"description=经历领域: career/education/project/skill/technology/finance/health/lifestyle/relationship/community/legal/travel/hobby/habit/personality/preference/achievement/challenge/other"`
+	EventType   string              `json:"event_type,omitempty" jsonschema:"description=事件类型: start/ongoing/complete/achieve/fail/abandon/decide/change/participate/publish/compete/volunteer/relocate/recover/experiment/maintain"`
 	Title       string              `json:"title,omitempty" jsonschema:"description=经历标题（add_experience 时必填）"`
 	Content     string              `json:"content,omitempty" jsonschema:"description=经历内容（add_experience 时使用）"`
 	TimeRange   string              `json:"time_range,omitempty" jsonschema:"description=经历时间段（add_experience 时使用, 如 2026）"`
-	Status      string              `json:"status,omitempty" jsonschema:"description=进度状态: ongoing/completed/abandoned/unknown"`
+	Status      string              `json:"status,omitempty" jsonschema:"description=进度状态: planned/ongoing/completed/abandoned/paused/unknown"`
+	Importance  int                 `json:"importance,omitempty" jsonschema:"description=重要度 1~5"`
 	MemoryLevel string              `json:"memory_level,omitempty" jsonschema:"description=记忆等级: core/long_term/temporary"`
 	Evidence    string              `json:"evidence,omitempty" jsonschema:"description=用户原话摘要"`
 	Tags        []string            `json:"tags,omitempty" jsonschema:"description=经历标签"`
@@ -164,9 +166,13 @@ func (t *userInfoEditTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 				Desc:     "操作类型: add_experience 记录经历, update_profile 更新画像",
 				Required: true,
 			},
-			"category": {
+			"domain": {
 				Type: schema.String,
-				Desc: "经历分类: identity/goal/project/skill/preference/habit/experience/challenge/decision",
+				Desc: "经历领域: career/education/project/skill/technology/finance/health/lifestyle/relationship/community/legal/travel/hobby/habit/personality/preference/achievement/challenge/other",
+			},
+			"event_type": {
+				Type: schema.String,
+				Desc: "事件类型: start/ongoing/complete/achieve/fail/abandon/decide/change/participate/publish/compete/volunteer/relocate/recover/experiment/maintain",
 			},
 			"title": {
 				Type: schema.String,
@@ -182,7 +188,11 @@ func (t *userInfoEditTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 			},
 			"status": {
 				Type: schema.String,
-				Desc: "进度状态: ongoing/completed/abandoned/unknown",
+				Desc: "进度状态: planned/ongoing/completed/abandoned/paused/unknown",
+			},
+			"importance": {
+				Type: schema.Integer,
+				Desc: "重要度 1~5",
 			},
 			"memory_level": {
 				Type: schema.String,
@@ -224,11 +234,13 @@ func (t *userInfoEditTool) InvokableRun(ctx context.Context, arguments string, _
 		}
 		tags, _ := json.Marshal(req.Tags)
 		exp, err := userMemorySvc.AddExperience(userID, &model.UserExperience{
-			Category:    req.Category,
+			Domain:      req.Domain,
+			EventType:   req.EventType,
 			Title:       req.Title,
 			Content:     req.Content,
 			TimeRange:   req.TimeRange,
 			Status:      req.Status,
+			Importance:  req.Importance,
 			MemoryLevel: req.MemoryLevel,
 			Evidence:    req.Evidence,
 			Tags:        string(tags),
@@ -256,11 +268,13 @@ func (t *userInfoEditTool) InvokableRun(ctx context.Context, arguments string, _
 
 type experienceView struct {
 	ID          uint        `json:"id"`
-	Category    string      `json:"category"`
+	Domain      string      `json:"domain"`
+	EventType   string      `json:"event_type"`
 	Title       string      `json:"title"`
 	Content     string      `json:"content"`
 	TimeRange   string      `json:"time_range"`
 	Status      string      `json:"status"`
+	Importance  int         `json:"importance"`
 	MemoryLevel string      `json:"memory_level"`
 	Tags        []string    `json:"tags"`
 	OccurredAt  interface{} `json:"occurred_at"`
@@ -273,11 +287,13 @@ func toExperienceViews(list []model.UserExperience) []experienceView {
 		_ = json.Unmarshal([]byte(e.Tags), &tags)
 		views = append(views, experienceView{
 			ID:          e.ID,
-			Category:    e.Category,
+			Domain:      e.Domain,
+			EventType:   e.EventType,
 			Title:       e.Title,
 			Content:     e.Content,
 			TimeRange:   e.TimeRange,
 			Status:      e.Status,
+			Importance:  e.Importance,
 			MemoryLevel: e.MemoryLevel,
 			Tags:        tags,
 			OccurredAt:  e.OccurredAt,

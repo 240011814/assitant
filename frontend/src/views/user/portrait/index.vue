@@ -27,30 +27,69 @@ const savingExperience = ref(false);
 const portrait = ref<UserPortrait | null>(null);
 const experiences = ref<UserExperience[]>([]);
 
-const categoryOptions = computed(() => [
-  { label: $t('page.userPortrait.category.identity'), value: 'identity' },
-  { label: $t('page.userPortrait.category.goal'), value: 'goal' },
-  { label: $t('page.userPortrait.category.project'), value: 'project' },
-  { label: $t('page.userPortrait.category.skill'), value: 'skill' },
-  { label: $t('page.userPortrait.category.preference'), value: 'preference' },
-  { label: $t('page.userPortrait.category.habit'), value: 'habit' },
-  { label: $t('page.userPortrait.category.experience'), value: 'experience' },
-  { label: $t('page.userPortrait.category.challenge'), value: 'challenge' },
-  { label: $t('page.userPortrait.category.decision'), value: 'decision' }
+const domainOptions = computed(() => [
+  { label: $t('page.userPortrait.domain.career'), value: 'career' },
+  { label: $t('page.userPortrait.domain.education'), value: 'education' },
+  { label: $t('page.userPortrait.domain.project'), value: 'project' },
+  { label: $t('page.userPortrait.domain.skill'), value: 'skill' },
+  { label: $t('page.userPortrait.domain.technology'), value: 'technology' },
+  { label: $t('page.userPortrait.domain.finance'), value: 'finance' },
+  { label: $t('page.userPortrait.domain.health'), value: 'health' },
+  { label: $t('page.userPortrait.domain.lifestyle'), value: 'lifestyle' },
+  { label: $t('page.userPortrait.domain.relationship'), value: 'relationship' },
+  { label: $t('page.userPortrait.domain.community'), value: 'community' },
+  { label: $t('page.userPortrait.domain.legal'), value: 'legal' },
+  { label: $t('page.userPortrait.domain.travel'), value: 'travel' },
+  { label: $t('page.userPortrait.domain.hobby'), value: 'hobby' },
+  { label: $t('page.userPortrait.domain.habit'), value: 'habit' },
+  { label: $t('page.userPortrait.domain.personality'), value: 'personality' },
+  { label: $t('page.userPortrait.domain.preference'), value: 'preference' },
+  { label: $t('page.userPortrait.domain.achievement'), value: 'achievement' },
+  { label: $t('page.userPortrait.domain.challenge'), value: 'challenge' },
+  { label: $t('page.userPortrait.domain.other'), value: 'other' }
 ]);
 
-const categoryLabelMap = computed<Record<string, string>>(() => {
+const domainLabelMap = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {};
-  categoryOptions.value.forEach(item => {
+  domainOptions.value.forEach(item => {
+    map[item.value] = item.label;
+  });
+  return map;
+});
+
+const eventTypeOptions = computed(() => [
+  { label: $t('page.userPortrait.eventType.start'), value: 'start' },
+  { label: $t('page.userPortrait.eventType.ongoing'), value: 'ongoing' },
+  { label: $t('page.userPortrait.eventType.complete'), value: 'complete' },
+  { label: $t('page.userPortrait.eventType.achieve'), value: 'achieve' },
+  { label: $t('page.userPortrait.eventType.fail'), value: 'fail' },
+  { label: $t('page.userPortrait.eventType.abandon'), value: 'abandon' },
+  { label: $t('page.userPortrait.eventType.decide'), value: 'decide' },
+  { label: $t('page.userPortrait.eventType.change'), value: 'change' },
+  { label: $t('page.userPortrait.eventType.participate'), value: 'participate' },
+  { label: $t('page.userPortrait.eventType.publish'), value: 'publish' },
+  { label: $t('page.userPortrait.eventType.compete'), value: 'compete' },
+  { label: $t('page.userPortrait.eventType.volunteer'), value: 'volunteer' },
+  { label: $t('page.userPortrait.eventType.relocate'), value: 'relocate' },
+  { label: $t('page.userPortrait.eventType.recover'), value: 'recover' },
+  { label: $t('page.userPortrait.eventType.experiment'), value: 'experiment' },
+  { label: $t('page.userPortrait.eventType.maintain'), value: 'maintain' }
+]);
+
+const eventTypeLabelMap = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {};
+  eventTypeOptions.value.forEach(item => {
     map[item.value] = item.label;
   });
   return map;
 });
 
 const statusOptions = computed(() => [
+  { label: $t('page.userPortrait.status.planned'), value: 'planned' },
   { label: $t('page.userPortrait.status.ongoing'), value: 'ongoing' },
   { label: $t('page.userPortrait.status.completed'), value: 'completed' },
   { label: $t('page.userPortrait.status.abandoned'), value: 'abandoned' },
+  { label: $t('page.userPortrait.status.paused'), value: 'paused' },
   { label: $t('page.userPortrait.status.unknown'), value: 'unknown' }
 ]);
 
@@ -78,12 +117,19 @@ const memoryLevelLabelMap = computed<Record<string, string>>(() => {
 
 const dimensionLabelMap = computed<Record<string, string>>(() => ({
   identity: $t('page.userPortrait.dimensionLabel.identity'),
+  background: $t('page.userPortrait.dimensionLabel.background'),
   goals: $t('page.userPortrait.dimensionLabel.goals'),
   skills: $t('page.userPortrait.dimensionLabel.skills'),
   projects: $t('page.userPortrait.dimensionLabel.projects'),
+  learning_topics: $t('page.userPortrait.dimensionLabel.learning_topics'),
+  interests: $t('page.userPortrait.dimensionLabel.interests'),
   preferences: $t('page.userPortrait.dimensionLabel.preferences'),
   habits: $t('page.userPortrait.dimensionLabel.habits'),
-  learning_topics: $t('page.userPortrait.dimensionLabel.learning_topics'),
+  communication_style: $t('page.userPortrait.dimensionLabel.communication_style'),
+  language: $t('page.userPortrait.dimensionLabel.language'),
+  values: $t('page.userPortrait.dimensionLabel.values'),
+  risk_preference: $t('page.userPortrait.dimensionLabel.risk_preference'),
+  decision_style: $t('page.userPortrait.dimensionLabel.decision_style'),
   constraints: $t('page.userPortrait.dimensionLabel.constraints')
 }));
 
@@ -100,6 +146,7 @@ function statusTagType(status: string): TagType {
   if (status === 'completed') return 'success';
   if (status === 'ongoing') return 'info';
   if (status === 'abandoned') return 'error';
+  if (status === 'planned') return 'warning';
   return 'default';
 }
 
@@ -176,11 +223,13 @@ async function savePortrait() {
 const experienceModalVisible = ref(false);
 const editingExperienceId = ref<number | null>(null);
 const experienceForm = reactive({
-  category: 'experience',
+  domain: '',
+  eventType: '',
   title: '',
   content: '',
   timeRange: '',
   status: 'unknown',
+  importance: 3,
   memoryLevel: 'long_term',
   evidence: '',
   tags: [] as string[],
@@ -189,11 +238,13 @@ const experienceForm = reactive({
 
 function openCreateExperience() {
   editingExperienceId.value = null;
-  experienceForm.category = 'experience';
+  experienceForm.domain = '';
+  experienceForm.eventType = '';
   experienceForm.title = '';
   experienceForm.content = '';
   experienceForm.timeRange = '';
   experienceForm.status = 'unknown';
+  experienceForm.importance = 3;
   experienceForm.memoryLevel = 'long_term';
   experienceForm.evidence = '';
   experienceForm.tags = [];
@@ -203,11 +254,13 @@ function openCreateExperience() {
 
 function openEditExperience(item: UserExperience) {
   editingExperienceId.value = item.id;
-  experienceForm.category = item.category || 'experience';
+  experienceForm.domain = item.domain || '';
+  experienceForm.eventType = item.event_type || '';
   experienceForm.title = item.title;
   experienceForm.content = item.content;
   experienceForm.timeRange = item.time_range || '';
   experienceForm.status = item.status || 'unknown';
+  experienceForm.importance = item.importance || 3;
   experienceForm.memoryLevel = item.memory_level || 'long_term';
   experienceForm.evidence = item.evidence || '';
   experienceForm.tags = [...(item.tags || [])];
@@ -221,11 +274,13 @@ async function saveExperience() {
     return;
   }
   const payload = {
-    category: experienceForm.category,
+    domain: experienceForm.domain,
+    event_type: experienceForm.eventType,
     title: experienceForm.title,
     content: experienceForm.content,
     time_range: experienceForm.timeRange,
     status: experienceForm.status,
+    importance: experienceForm.importance,
     memory_level: experienceForm.memoryLevel,
     evidence: experienceForm.evidence,
     tags: experienceForm.tags,
@@ -321,13 +376,15 @@ onMounted(loadData);
                   <template #header>
                     <div class="flex flex-wrap items-center gap-8px">
                       <span class="font-medium">{{ item.title }}</span>
-                      <NTag size="tiny" type="info">{{ categoryLabelMap[item.category] || item.category || $t('page.userPortrait.category.experience') }}</NTag>
+                      <NTag v-if="item.domain" size="tiny" type="info">{{ domainLabelMap[item.domain] || item.domain }}</NTag>
+                      <NTag v-if="item.event_type" size="tiny">{{ eventTypeLabelMap[item.event_type] || item.event_type }}</NTag>
                       <NTag v-if="item.status" size="tiny" :type="statusTagType(item.status)">
                         {{ statusLabelMap[item.status] || item.status }}
                       </NTag>
                       <NTag v-if="item.memory_level" size="tiny" :type="memoryLevelTagType(item.memory_level)">
                         {{ memoryLevelLabelMap[item.memory_level] || item.memory_level }}
                       </NTag>
+                      <NTag v-if="item.importance" size="tiny" type="warning">★{{ item.importance }}</NTag>
                       <span v-if="item.time_range" class="text-12px op-60">{{ item.time_range }}</span>
                     </div>
                   </template>
@@ -369,10 +426,26 @@ onMounted(loadData);
         </NFormItem>
         <NFormItem :label="$t('page.userPortrait.dimensions')">
           <div class="w-full">
-            <div v-for="(dim, index) in portraitForm.dimensions" :key="index" class="mb-8px flex items-center gap-8px">
-              <NInput v-model:value="dim.key" :placeholder="$t('page.userPortrait.keyPlaceholder')" />
-              <NInput v-model:value="dim.value" :placeholder="$t('page.userPortrait.valuePlaceholder')" />
-              <NButton text type="error" @click="removeDimension(index)">{{ $t('page.userPortrait.delete') }}</NButton>
+            <div
+              v-for="(dim, index) in portraitForm.dimensions"
+              :key="index"
+              class="mb-12px rounded border border-gray-200 p-8px dark:border-gray-700"
+            >
+              <div class="mb-8px flex items-center gap-8px">
+                <NInput
+                  v-model:value="dim.key"
+                  type="textarea"
+                  :autosize="{ minRows: 1, maxRows: 2 }"
+                  :placeholder="$t('page.userPortrait.keyPlaceholder')"
+                />
+                <NButton text type="error" @click="removeDimension(index)">{{ $t('page.userPortrait.delete') }}</NButton>
+              </div>
+              <NInput
+                v-model:value="dim.value"
+                type="textarea"
+                :autosize="{ minRows: 2, maxRows: 8 }"
+                :placeholder="$t('page.userPortrait.valuePlaceholder')"
+              />
             </div>
             <NButton size="small" dashed @click="addDimension">{{ $t('page.userPortrait.addDimension') }}</NButton>
           </div>
@@ -394,11 +467,17 @@ onMounted(loadData);
       class="w-600px max-w-90vw"
     >
       <NForm label-placement="top">
-        <NFormItem :label="$t('page.userPortrait.categoryLabel')">
-          <NSelect v-model:value="experienceForm.category" :options="categoryOptions" />
+        <NFormItem :label="$t('page.userPortrait.domainLabel')">
+          <NSelect v-model:value="experienceForm.domain" :options="domainOptions" clearable />
+        </NFormItem>
+        <NFormItem :label="$t('page.userPortrait.eventTypeLabel')">
+          <NSelect v-model:value="experienceForm.eventType" :options="eventTypeOptions" clearable />
         </NFormItem>
         <NFormItem :label="$t('page.userPortrait.statusLabel')">
           <NSelect v-model:value="experienceForm.status" :options="statusOptions" />
+        </NFormItem>
+        <NFormItem :label="$t('page.userPortrait.importanceLabel')">
+          <NInputNumber v-model:value="experienceForm.importance" :min="1" :max="5" class="w-full" />
         </NFormItem>
         <NFormItem :label="$t('page.userPortrait.memoryLevelLabel')">
           <NSelect v-model:value="experienceForm.memoryLevel" :options="memoryLevelOptions" />

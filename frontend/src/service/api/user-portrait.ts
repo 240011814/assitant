@@ -13,13 +13,15 @@ export interface UserPortrait {
 export interface UserExperience {
   id: number;
   history_id: number | null;
-  category: string;
+  domain: string;
+  event_type: string;
   title: string;
   content: string;
   time_range: string;
   tags: string[];
   occurred_at: string | null;
   confidence: number;
+  importance: number;
   memory_level: string;
   evidence: string;
   status: string;
@@ -35,7 +37,7 @@ export interface UserPortraitResponse {
 export interface ListUserExperienceParams {
   page: number;
   pageSize: number;
-  category?: string;
+  domain?: string;
   keyword?: string;
 }
 
@@ -52,24 +54,28 @@ export interface UpdateUserPortraitParams {
 }
 
 export interface CreateUserExperienceParams {
-  category?: string;
+  domain?: string;
+  event_type?: string;
   title: string;
   content?: string;
   time_range?: string;
   occurred_at?: string | null;
   tags?: string[];
+  importance?: number;
   memory_level?: string;
   evidence?: string;
   status?: string;
 }
 
 export interface UpdateUserExperienceParams {
-  category?: string;
+  domain?: string;
+  event_type?: string;
   title?: string;
   content?: string;
   time_range?: string;
   occurred_at?: string | null;
   tags?: string[];
+  importance?: number;
   memory_level?: string;
   evidence?: string;
   status?: string;
