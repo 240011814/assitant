@@ -1,19 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
-import { useMessage, useDialog } from 'naive-ui';
+import { computed, onMounted, reactive, ref } from "vue";
+import { useMessage, useDialog } from "naive-ui";
 import {
   fetchCreateUserExperience,
   fetchDeleteUserExperience,
   fetchGetUserPortrait,
   fetchTriggerPortraitExtract,
   fetchUpdateUserExperience,
-  fetchUpdateUserPortrait
-} from '@/service/api';
-import type { UserExperience, UserPortrait } from '@/service/api';
-import { useAppStore } from '@/store/modules/app';
-import { $t } from '@/locales';
+  fetchUpdateUserPortrait,
+} from "@/service/api";
+import type { UserExperience, UserPortrait } from "@/service/api";
+import { useAppStore } from "@/store/modules/app";
+import { $t } from "@/locales";
 
-defineOptions({ name: 'UserPortrait' });
+defineOptions({ name: "UserPortrait" });
 
 const message = useMessage();
 const dialog = useDialog();
@@ -28,132 +28,132 @@ const portrait = ref<UserPortrait | null>(null);
 const experiences = ref<UserExperience[]>([]);
 
 const domainOptions = computed(() => [
-  { label: $t('page.userPortrait.domain.career'), value: 'career' },
-  { label: $t('page.userPortrait.domain.education'), value: 'education' },
-  { label: $t('page.userPortrait.domain.project'), value: 'project' },
-  { label: $t('page.userPortrait.domain.skill'), value: 'skill' },
-  { label: $t('page.userPortrait.domain.technology'), value: 'technology' },
-  { label: $t('page.userPortrait.domain.finance'), value: 'finance' },
-  { label: $t('page.userPortrait.domain.health'), value: 'health' },
-  { label: $t('page.userPortrait.domain.lifestyle'), value: 'lifestyle' },
-  { label: $t('page.userPortrait.domain.relationship'), value: 'relationship' },
-  { label: $t('page.userPortrait.domain.community'), value: 'community' },
-  { label: $t('page.userPortrait.domain.legal'), value: 'legal' },
-  { label: $t('page.userPortrait.domain.travel'), value: 'travel' },
-  { label: $t('page.userPortrait.domain.hobby'), value: 'hobby' },
-  { label: $t('page.userPortrait.domain.habit'), value: 'habit' },
-  { label: $t('page.userPortrait.domain.personality'), value: 'personality' },
-  { label: $t('page.userPortrait.domain.preference'), value: 'preference' },
-  { label: $t('page.userPortrait.domain.achievement'), value: 'achievement' },
-  { label: $t('page.userPortrait.domain.challenge'), value: 'challenge' },
-  { label: $t('page.userPortrait.domain.other'), value: 'other' }
+  { label: $t("page.userPortrait.domain.career"), value: "career" },
+  { label: $t("page.userPortrait.domain.education"), value: "education" },
+  { label: $t("page.userPortrait.domain.project"), value: "project" },
+  { label: $t("page.userPortrait.domain.skill"), value: "skill" },
+  { label: $t("page.userPortrait.domain.technology"), value: "technology" },
+  { label: $t("page.userPortrait.domain.finance"), value: "finance" },
+  { label: $t("page.userPortrait.domain.health"), value: "health" },
+  { label: $t("page.userPortrait.domain.lifestyle"), value: "lifestyle" },
+  { label: $t("page.userPortrait.domain.relationship"), value: "relationship" },
+  { label: $t("page.userPortrait.domain.community"), value: "community" },
+  { label: $t("page.userPortrait.domain.legal"), value: "legal" },
+  { label: $t("page.userPortrait.domain.travel"), value: "travel" },
+  { label: $t("page.userPortrait.domain.hobby"), value: "hobby" },
+  { label: $t("page.userPortrait.domain.habit"), value: "habit" },
+  { label: $t("page.userPortrait.domain.personality"), value: "personality" },
+  { label: $t("page.userPortrait.domain.preference"), value: "preference" },
+  { label: $t("page.userPortrait.domain.achievement"), value: "achievement" },
+  { label: $t("page.userPortrait.domain.challenge"), value: "challenge" },
+  { label: $t("page.userPortrait.domain.other"), value: "other" },
 ]);
 
 const domainLabelMap = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {};
-  domainOptions.value.forEach(item => {
+  domainOptions.value.forEach((item) => {
     map[item.value] = item.label;
   });
   return map;
 });
 
 const eventTypeOptions = computed(() => [
-  { label: $t('page.userPortrait.eventType.start'), value: 'start' },
-  { label: $t('page.userPortrait.eventType.ongoing'), value: 'ongoing' },
-  { label: $t('page.userPortrait.eventType.complete'), value: 'complete' },
-  { label: $t('page.userPortrait.eventType.achieve'), value: 'achieve' },
-  { label: $t('page.userPortrait.eventType.fail'), value: 'fail' },
-  { label: $t('page.userPortrait.eventType.abandon'), value: 'abandon' },
-  { label: $t('page.userPortrait.eventType.decide'), value: 'decide' },
-  { label: $t('page.userPortrait.eventType.change'), value: 'change' },
-  { label: $t('page.userPortrait.eventType.participate'), value: 'participate' },
-  { label: $t('page.userPortrait.eventType.publish'), value: 'publish' },
-  { label: $t('page.userPortrait.eventType.compete'), value: 'compete' },
-  { label: $t('page.userPortrait.eventType.volunteer'), value: 'volunteer' },
-  { label: $t('page.userPortrait.eventType.relocate'), value: 'relocate' },
-  { label: $t('page.userPortrait.eventType.recover'), value: 'recover' },
-  { label: $t('page.userPortrait.eventType.experiment'), value: 'experiment' },
-  { label: $t('page.userPortrait.eventType.maintain'), value: 'maintain' }
+  { label: $t("page.userPortrait.eventType.start"), value: "start" },
+  { label: $t("page.userPortrait.eventType.ongoing"), value: "ongoing" },
+  { label: $t("page.userPortrait.eventType.complete"), value: "complete" },
+  { label: $t("page.userPortrait.eventType.achieve"), value: "achieve" },
+  { label: $t("page.userPortrait.eventType.fail"), value: "fail" },
+  { label: $t("page.userPortrait.eventType.abandon"), value: "abandon" },
+  { label: $t("page.userPortrait.eventType.decide"), value: "decide" },
+  { label: $t("page.userPortrait.eventType.change"), value: "change" },
+  { label: $t("page.userPortrait.eventType.participate"), value: "participate" },
+  { label: $t("page.userPortrait.eventType.publish"), value: "publish" },
+  { label: $t("page.userPortrait.eventType.compete"), value: "compete" },
+  { label: $t("page.userPortrait.eventType.volunteer"), value: "volunteer" },
+  { label: $t("page.userPortrait.eventType.relocate"), value: "relocate" },
+  { label: $t("page.userPortrait.eventType.recover"), value: "recover" },
+  { label: $t("page.userPortrait.eventType.experiment"), value: "experiment" },
+  { label: $t("page.userPortrait.eventType.maintain"), value: "maintain" },
 ]);
 
 const eventTypeLabelMap = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {};
-  eventTypeOptions.value.forEach(item => {
+  eventTypeOptions.value.forEach((item) => {
     map[item.value] = item.label;
   });
   return map;
 });
 
 const statusOptions = computed(() => [
-  { label: $t('page.userPortrait.status.planned'), value: 'planned' },
-  { label: $t('page.userPortrait.status.ongoing'), value: 'ongoing' },
-  { label: $t('page.userPortrait.status.completed'), value: 'completed' },
-  { label: $t('page.userPortrait.status.abandoned'), value: 'abandoned' },
-  { label: $t('page.userPortrait.status.paused'), value: 'paused' },
-  { label: $t('page.userPortrait.status.unknown'), value: 'unknown' }
+  { label: $t("page.userPortrait.status.planned"), value: "planned" },
+  { label: $t("page.userPortrait.status.ongoing"), value: "ongoing" },
+  { label: $t("page.userPortrait.status.completed"), value: "completed" },
+  { label: $t("page.userPortrait.status.abandoned"), value: "abandoned" },
+  { label: $t("page.userPortrait.status.paused"), value: "paused" },
+  { label: $t("page.userPortrait.status.unknown"), value: "unknown" },
 ]);
 
 const statusLabelMap = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {};
-  statusOptions.value.forEach(item => {
+  statusOptions.value.forEach((item) => {
     map[item.value] = item.label;
   });
   return map;
 });
 
 const memoryLevelOptions = computed(() => [
-  { label: $t('page.userPortrait.memoryLevel.core'), value: 'core' },
-  { label: $t('page.userPortrait.memoryLevel.long_term'), value: 'long_term' },
-  { label: $t('page.userPortrait.memoryLevel.temporary'), value: 'temporary' }
+  { label: $t("page.userPortrait.memoryLevel.core"), value: "core" },
+  { label: $t("page.userPortrait.memoryLevel.long_term"), value: "long_term" },
+  { label: $t("page.userPortrait.memoryLevel.temporary"), value: "temporary" },
 ]);
 
 const memoryLevelLabelMap = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {};
-  memoryLevelOptions.value.forEach(item => {
+  memoryLevelOptions.value.forEach((item) => {
     map[item.value] = item.label;
   });
   return map;
 });
 
 const dimensionLabelMap = computed<Record<string, string>>(() => ({
-  identity: $t('page.userPortrait.dimensionLabel.identity'),
-  background: $t('page.userPortrait.dimensionLabel.background'),
-  goals: $t('page.userPortrait.dimensionLabel.goals'),
-  skills: $t('page.userPortrait.dimensionLabel.skills'),
-  projects: $t('page.userPortrait.dimensionLabel.projects'),
-  learning_topics: $t('page.userPortrait.dimensionLabel.learning_topics'),
-  interests: $t('page.userPortrait.dimensionLabel.interests'),
-  preferences: $t('page.userPortrait.dimensionLabel.preferences'),
-  habits: $t('page.userPortrait.dimensionLabel.habits'),
-  communication_style: $t('page.userPortrait.dimensionLabel.communication_style'),
-  language: $t('page.userPortrait.dimensionLabel.language'),
-  values: $t('page.userPortrait.dimensionLabel.values'),
-  risk_preference: $t('page.userPortrait.dimensionLabel.risk_preference'),
-  decision_style: $t('page.userPortrait.dimensionLabel.decision_style'),
-  constraints: $t('page.userPortrait.dimensionLabel.constraints')
+  identity: $t("page.userPortrait.dimensionLabel.identity"),
+  background: $t("page.userPortrait.dimensionLabel.background"),
+  goals: $t("page.userPortrait.dimensionLabel.goals"),
+  skills: $t("page.userPortrait.dimensionLabel.skills"),
+  projects: $t("page.userPortrait.dimensionLabel.projects"),
+  learning_topics: $t("page.userPortrait.dimensionLabel.learning_topics"),
+  interests: $t("page.userPortrait.dimensionLabel.interests"),
+  preferences: $t("page.userPortrait.dimensionLabel.preferences"),
+  habits: $t("page.userPortrait.dimensionLabel.habits"),
+  communication_style: $t("page.userPortrait.dimensionLabel.communication_style"),
+  language: $t("page.userPortrait.dimensionLabel.language"),
+  values: $t("page.userPortrait.dimensionLabel.values"),
+  risk_preference: $t("page.userPortrait.dimensionLabel.risk_preference"),
+  decision_style: $t("page.userPortrait.dimensionLabel.decision_style"),
+  constraints: $t("page.userPortrait.dimensionLabel.constraints"),
 }));
 
 function formatTime(value: string | null | undefined) {
-  if (!value) return '-';
+  if (!value) return "-";
   const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '-';
+  if (Number.isNaN(d.getTime())) return "-";
   return d.toLocaleString();
 }
 
-type TagType = 'default' | 'error' | 'info' | 'primary' | 'success' | 'warning';
+type TagType = "default" | "error" | "info" | "primary" | "success" | "warning";
 
 function statusTagType(status: string): TagType {
-  if (status === 'completed') return 'success';
-  if (status === 'ongoing') return 'info';
-  if (status === 'abandoned') return 'error';
-  if (status === 'planned') return 'warning';
-  return 'default';
+  if (status === "completed") return "success";
+  if (status === "ongoing") return "info";
+  if (status === "abandoned") return "error";
+  if (status === "planned") return "warning";
+  return "default";
 }
 
 function memoryLevelTagType(level: string): TagType {
-  if (level === 'core') return 'warning';
-  if (level === 'temporary') return 'default';
-  return 'info';
+  if (level === "core") return "warning";
+  if (level === "temporary") return "default";
+  return "info";
 }
 
 async function loadData() {
@@ -171,7 +171,9 @@ async function handleExtract() {
   const { data, error } = await fetchTriggerPortraitExtract();
   extracting.value = false;
   if (!error) {
-    message.success($t('page.userPortrait.extractSuccess', { count: data?.extracted ?? 0 }));
+    message.success(
+      $t("page.userPortrait.extractSuccess", { count: data?.extracted ?? 0 })
+    );
     await loadData();
   }
 }
@@ -179,13 +181,13 @@ async function handleExtract() {
 // ===== 画像编辑 =====
 const portraitModalVisible = ref(false);
 const portraitForm = reactive({
-  summary: '',
+  summary: "",
   tags: [] as string[],
-  dimensions: [] as { key: string; value: string }[]
+  dimensions: [] as { key: string; value: string }[],
 });
 
 function openPortraitModal() {
-  portraitForm.summary = portrait.value?.summary || '';
+  portraitForm.summary = portrait.value?.summary || "";
   portraitForm.tags = [...(portrait.value?.tags || [])];
   const dims = portrait.value?.dimensions || {};
   portraitForm.dimensions = Object.entries(dims).map(([key, value]) => ({ key, value }));
@@ -193,7 +195,7 @@ function openPortraitModal() {
 }
 
 function addDimension() {
-  portraitForm.dimensions.push({ key: '', value: '' });
+  portraitForm.dimensions.push({ key: "", value: "" });
 }
 
 function removeDimension(index: number) {
@@ -202,18 +204,18 @@ function removeDimension(index: number) {
 
 async function savePortrait() {
   const dimensions: Record<string, string> = {};
-  portraitForm.dimensions.forEach(item => {
+  portraitForm.dimensions.forEach((item) => {
     if (item.key.trim()) dimensions[item.key.trim()] = item.value;
   });
   savingPortrait.value = true;
   const { error } = await fetchUpdateUserPortrait({
     summary: portraitForm.summary,
     tags: portraitForm.tags,
-    dimensions
+    dimensions,
   });
   savingPortrait.value = false;
   if (!error) {
-    message.success($t('page.userPortrait.saveSuccess'));
+    message.success($t("page.userPortrait.saveSuccess"));
     portraitModalVisible.value = false;
     await loadData();
   }
@@ -223,30 +225,30 @@ async function savePortrait() {
 const experienceModalVisible = ref(false);
 const editingExperienceId = ref<number | null>(null);
 const experienceForm = reactive({
-  domain: '',
-  eventType: '',
-  title: '',
-  content: '',
-  timeRange: '',
-  status: 'unknown',
+  domain: "",
+  eventType: "",
+  title: "",
+  content: "",
+  timeRange: "",
+  status: "unknown",
   importance: 3,
-  memoryLevel: 'long_term',
-  evidence: '',
+  memoryLevel: "long_term",
+  evidence: "",
   tags: [] as string[],
-  occurredAt: null as number | null
+  occurredAt: null as number | null,
 });
 
 function openCreateExperience() {
   editingExperienceId.value = null;
-  experienceForm.domain = '';
-  experienceForm.eventType = '';
-  experienceForm.title = '';
-  experienceForm.content = '';
-  experienceForm.timeRange = '';
-  experienceForm.status = 'unknown';
+  experienceForm.domain = "";
+  experienceForm.eventType = "";
+  experienceForm.title = "";
+  experienceForm.content = "";
+  experienceForm.timeRange = "";
+  experienceForm.status = "unknown";
   experienceForm.importance = 3;
-  experienceForm.memoryLevel = 'long_term';
-  experienceForm.evidence = '';
+  experienceForm.memoryLevel = "long_term";
+  experienceForm.evidence = "";
   experienceForm.tags = [];
   experienceForm.occurredAt = null;
   experienceModalVisible.value = true;
@@ -254,23 +256,25 @@ function openCreateExperience() {
 
 function openEditExperience(item: UserExperience) {
   editingExperienceId.value = item.id;
-  experienceForm.domain = item.domain || '';
-  experienceForm.eventType = item.event_type || '';
+  experienceForm.domain = item.domain || "";
+  experienceForm.eventType = item.event_type || "";
   experienceForm.title = item.title;
   experienceForm.content = item.content;
-  experienceForm.timeRange = item.time_range || '';
-  experienceForm.status = item.status || 'unknown';
+  experienceForm.timeRange = item.time_range || "";
+  experienceForm.status = item.status || "unknown";
   experienceForm.importance = item.importance || 3;
-  experienceForm.memoryLevel = item.memory_level || 'long_term';
-  experienceForm.evidence = item.evidence || '';
+  experienceForm.memoryLevel = item.memory_level || "long_term";
+  experienceForm.evidence = item.evidence || "";
   experienceForm.tags = [...(item.tags || [])];
-  experienceForm.occurredAt = item.occurred_at ? new Date(item.occurred_at).getTime() : null;
+  experienceForm.occurredAt = item.occurred_at
+    ? new Date(item.occurred_at).getTime()
+    : null;
   experienceModalVisible.value = true;
 }
 
 async function saveExperience() {
   if (!experienceForm.title.trim()) {
-    message.warning($t('page.userPortrait.titleRequired'));
+    message.warning($t("page.userPortrait.titleRequired"));
     return;
   }
   const payload = {
@@ -284,7 +288,9 @@ async function saveExperience() {
     memory_level: experienceForm.memoryLevel,
     evidence: experienceForm.evidence,
     tags: experienceForm.tags,
-    occurred_at: experienceForm.occurredAt ? new Date(experienceForm.occurredAt).toISOString() : null
+    occurred_at: experienceForm.occurredAt
+      ? new Date(experienceForm.occurredAt).toISOString()
+      : null,
   };
   savingExperience.value = true;
   const { error } =
@@ -293,7 +299,7 @@ async function saveExperience() {
       : await fetchUpdateUserExperience(editingExperienceId.value, payload);
   savingExperience.value = false;
   if (!error) {
-    message.success($t('page.userPortrait.saveSuccess'));
+    message.success($t("page.userPortrait.saveSuccess"));
     experienceModalVisible.value = false;
     await loadData();
   }
@@ -301,17 +307,17 @@ async function saveExperience() {
 
 function handleDeleteExperience(item: UserExperience) {
   dialog.warning({
-    title: $t('page.userPortrait.deleteConfirmTitle'),
-    content: $t('page.userPortrait.deleteConfirm'),
-    positiveText: $t('page.userPortrait.confirm'),
-    negativeText: $t('page.userPortrait.cancel'),
+    title: $t("page.userPortrait.deleteConfirmTitle"),
+    content: $t("page.userPortrait.deleteConfirm"),
+    positiveText: $t("page.userPortrait.confirm"),
+    negativeText: $t("page.userPortrait.cancel"),
     onPositiveClick: async () => {
       const { error } = await fetchDeleteUserExperience(item.id);
       if (!error) {
-        message.success($t('page.userPortrait.deleteSuccess'));
+        message.success($t("page.userPortrait.deleteSuccess"));
         await loadData();
       }
-    }
+    },
   });
 }
 
@@ -328,33 +334,68 @@ onMounted(loadData);
             <template #header-extra>
               <NSpace>
                 <NButton size="small" :loading="extracting" @click="handleExtract">
-                  {{ $t('page.userPortrait.extract') }}
+                  {{ $t("page.userPortrait.extract") }}
                 </NButton>
                 <NButton size="small" type="primary" @click="openPortraitModal">
-                  {{ $t('page.userPortrait.edit') }}
+                  {{ $t("page.userPortrait.edit") }}
                 </NButton>
               </NSpace>
             </template>
 
-            <template v-if="portrait && (portrait.summary || Object.keys(portrait.dimensions || {}).length || portrait.tags.length)">
+            <template
+              v-if="
+                portrait &&
+                  (portrait.summary ||
+                    Object.keys(portrait.dimensions || {}).length ||
+                    portrait.tags.length)
+              "
+            >
               <div class="mb-12px">
-                <NTag size="small" :type="portrait.extraction_enabled ? 'success' : 'default'">
-                  {{ portrait.extraction_enabled ? $t('page.userPortrait.extractionOn') : $t('page.userPortrait.extractionOff') }}
+                <NTag
+                  size="small"
+                  :type="portrait.extraction_enabled ? 'success' : 'default'"
+                >
+                  {{
+                    portrait.extraction_enabled
+                      ? $t("page.userPortrait.extractionOn")
+                      : $t("page.userPortrait.extractionOff")
+                  }}
                 </NTag>
                 <NTag v-if="portrait.is_user_edited" size="small" class="ml-8px">
-                  {{ $t('page.userPortrait.edited') }}
+                  {{ $t("page.userPortrait.edited") }}
                 </NTag>
               </div>
-              <p v-if="portrait.summary" class="mb-12px whitespace-pre-wrap">{{ portrait.summary }}</p>
-              <NDescriptions v-if="Object.keys(portrait.dimensions || {}).length" :column="1" label-placement="left" size="small">
-                <NDescriptionsItem v-for="(value, key) in portrait.dimensions" :key="key" :label="dimensionLabelMap[String(key)] || String(key)">
+              <p v-if="portrait.summary" class="mb-12px whitespace-pre-wrap">
+                {{ portrait.summary }}
+              </p>
+              <NDescriptions
+                v-if="Object.keys(portrait.dimensions || {}).length"
+                :column="1"
+                label-placement="left"
+                size="small"
+              >
+                <NDescriptionsItem
+                  v-for="(value, key) in portrait.dimensions"
+                  :key="key"
+                  :label="dimensionLabelMap[String(key)] || String(key)"
+                >
                   {{ value }}
                 </NDescriptionsItem>
               </NDescriptions>
               <div v-if="portrait.tags.length" class="mt-12px">
-                <NTag v-for="tag in portrait.tags" :key="tag" size="small" class="mr-8px mb-8px">{{ tag }}</NTag>
+                <NTag
+                  v-for="tag in portrait.tags"
+                  :key="tag"
+                  size="small"
+                  class="mr-8px mb-8px"
+                >
+                  {{ tag }}
+                </NTag>
               </div>
-              <div class="mt-8px text-12px op-60">{{ $t('page.userPortrait.updatedAt') }}: {{ formatTime(portrait.updated_at) }}</div>
+              <div class="mt-8px text-12px op-60">
+                {{ $t("page.userPortrait.updatedAt") }}:
+                {{ formatTime(portrait.updated_at) }}
+              </div>
             </template>
             <NEmpty v-else :description="$t('page.userPortrait.noPortrait')" />
           </NCard>
@@ -365,41 +406,80 @@ onMounted(loadData);
           <NCard :title="$t('page.userPortrait.experiences')" size="small" class="h-full">
             <template #header-extra>
               <NButton size="small" type="primary" @click="openCreateExperience">
-                {{ $t('page.userPortrait.addExperience') }}
+                {{ $t("page.userPortrait.addExperience") }}
               </NButton>
             </template>
 
-            <NEmpty v-if="!experiences.length" :description="$t('page.userPortrait.noExperience')" />
+            <NEmpty
+              v-if="!experiences.length"
+              :description="$t('page.userPortrait.noExperience')"
+            />
             <NList v-else hoverable>
               <NListItem v-for="item in experiences" :key="item.id">
                 <NThing>
                   <template #header>
                     <div class="flex flex-wrap items-center gap-8px">
                       <span class="font-medium">{{ item.title }}</span>
-                      <NTag v-if="item.domain" size="tiny" type="info">{{ domainLabelMap[item.domain] || item.domain }}</NTag>
-                      <NTag v-if="item.event_type" size="tiny">{{ eventTypeLabelMap[item.event_type] || item.event_type }}</NTag>
-                      <NTag v-if="item.status" size="tiny" :type="statusTagType(item.status)">
+                      <NTag v-if="item.domain" size="tiny" type="info">
+                        {{ domainLabelMap[item.domain] || item.domain }}
+                      </NTag>
+                      <NTag v-if="item.event_type" size="tiny">
+                        {{ eventTypeLabelMap[item.event_type] || item.event_type }}
+                      </NTag>
+                      <NTag
+                        v-if="item.status"
+                        size="tiny"
+                        :type="statusTagType(item.status)"
+                      >
                         {{ statusLabelMap[item.status] || item.status }}
                       </NTag>
-                      <NTag v-if="item.memory_level" size="tiny" :type="memoryLevelTagType(item.memory_level)">
+                      <NTag
+                        v-if="item.memory_level"
+                        size="tiny"
+                        :type="memoryLevelTagType(item.memory_level)"
+                      >
                         {{ memoryLevelLabelMap[item.memory_level] || item.memory_level }}
                       </NTag>
-                      <NTag v-if="item.importance" size="tiny" type="warning">★{{ item.importance }}</NTag>
-                      <span v-if="item.time_range" class="text-12px op-60">{{ item.time_range }}</span>
+                      <NTag v-if="item.importance" size="tiny" type="warning">
+                        ★{{ item.importance }}
+                      </NTag>
+                      <span v-if="item.time_range" class="text-12px op-60">{{
+                        item.time_range
+                      }}</span>
                     </div>
                   </template>
                   <template #description>
                     <div class="whitespace-pre-wrap">{{ item.content }}</div>
-                    <div v-if="item.evidence" class="mt-4px text-12px op-60">{{ $t('page.userPortrait.evidenceLabel') }}: {{ item.evidence }}</div>
+                    <div v-if="item.evidence" class="mt-4px text-12px op-60">
+                      {{ $t("page.userPortrait.evidenceLabel") }}: {{ item.evidence }}
+                    </div>
                     <div class="mt-4px">
-                      <NTag v-for="tag in item.tags" :key="tag" size="tiny" class="mr-4px">{{ tag }}</NTag>
+                      <NTag
+                        v-for="tag in item.tags"
+                        :key="tag"
+                        size="tiny"
+                        class="mr-4px"
+                      >
+                        {{ tag }}
+                      </NTag>
                     </div>
                   </template>
                   <template #action>
                     <NSpace>
-                      <span class="text-12px op-60">{{ formatTime(item.occurred_at) }}</span>
-                      <NButton size="tiny" text @click="openEditExperience(item)">{{ $t('page.userPortrait.edit') }}</NButton>
-                      <NButton size="tiny" text type="error" @click="handleDeleteExperience(item)">{{ $t('page.userPortrait.delete') }}</NButton>
+                      <span class="text-12px op-60">{{
+                        formatTime(item.occurred_at)
+                      }}</span>
+                      <NButton size="tiny" text @click="openEditExperience(item)">
+                        {{ $t("page.userPortrait.edit") }}
+                      </NButton>
+                      <NButton
+                        size="tiny"
+                        text
+                        type="error"
+                        @click="handleDeleteExperience(item)"
+                      >
+                        {{ $t("page.userPortrait.delete") }}
+                      </NButton>
                     </NSpace>
                   </template>
                 </NThing>
@@ -419,10 +499,22 @@ onMounted(loadData);
     >
       <NForm label-placement="top">
         <NFormItem :label="$t('page.userPortrait.summary')">
-          <NInput v-model:value="portraitForm.summary" type="textarea" :rows="3" :placeholder="$t('page.userPortrait.summaryPlaceholder')" />
+          <NInput
+            v-model:value="portraitForm.summary"
+            type="textarea"
+            :rows="8"
+            :placeholder="$t('page.userPortrait.summaryPlaceholder')"
+          />
         </NFormItem>
         <NFormItem :label="$t('page.userPortrait.tags')">
-          <NSelect v-model:value="portraitForm.tags" multiple filterable tag :options="[]" :placeholder="$t('page.userPortrait.tagsPlaceholder')" />
+          <NSelect
+            v-model:value="portraitForm.tags"
+            multiple
+            filterable
+            tag
+            :options="[]"
+            :placeholder="$t('page.userPortrait.tagsPlaceholder')"
+          />
         </NFormItem>
         <NFormItem :label="$t('page.userPortrait.dimensions')">
           <div class="w-full">
@@ -435,26 +527,34 @@ onMounted(loadData);
                 <NInput
                   v-model:value="dim.key"
                   type="textarea"
-                  :autosize="{ minRows: 1, maxRows: 2 }"
+                  :rows="2"
                   :placeholder="$t('page.userPortrait.keyPlaceholder')"
                 />
-                <NButton text type="error" @click="removeDimension(index)">{{ $t('page.userPortrait.delete') }}</NButton>
+                <NButton text type="error" @click="removeDimension(index)">
+                  {{ $t("page.userPortrait.delete") }}
+                </NButton>
               </div>
               <NInput
                 v-model:value="dim.value"
                 type="textarea"
-                :autosize="{ minRows: 2, maxRows: 8 }"
+                :rows="4"
                 :placeholder="$t('page.userPortrait.valuePlaceholder')"
               />
             </div>
-            <NButton size="small" dashed @click="addDimension">{{ $t('page.userPortrait.addDimension') }}</NButton>
+            <NButton size="small" dashed @click="addDimension">
+              {{ $t("page.userPortrait.addDimension") }}
+            </NButton>
           </div>
         </NFormItem>
       </NForm>
       <template #footer>
         <NSpace justify="end">
-          <NButton @click="portraitModalVisible = false">{{ $t('page.userPortrait.cancel') }}</NButton>
-          <NButton type="primary" :loading="savingPortrait" @click="savePortrait">{{ $t('page.userPortrait.save') }}</NButton>
+          <NButton @click="portraitModalVisible = false">
+            {{ $t("page.userPortrait.cancel") }}
+          </NButton>
+          <NButton type="primary" :loading="savingPortrait" @click="savePortrait">
+            {{ $t("page.userPortrait.save") }}
+          </NButton>
         </NSpace>
       </template>
     </NModal>
@@ -463,48 +563,89 @@ onMounted(loadData);
     <NModal
       v-model:show="experienceModalVisible"
       preset="card"
-      :title="editingExperienceId === null ? $t('page.userPortrait.addExperience') : $t('page.userPortrait.editExperience')"
+      :title="
+        editingExperienceId === null
+          ? $t('page.userPortrait.addExperience')
+          : $t('page.userPortrait.editExperience')
+      "
       class="w-600px max-w-90vw"
     >
       <NForm label-placement="top">
         <NFormItem :label="$t('page.userPortrait.domainLabel')">
-          <NSelect v-model:value="experienceForm.domain" :options="domainOptions" clearable />
+          <NSelect
+            v-model:value="experienceForm.domain"
+            :options="domainOptions"
+            clearable
+          />
         </NFormItem>
         <NFormItem :label="$t('page.userPortrait.eventTypeLabel')">
-          <NSelect v-model:value="experienceForm.eventType" :options="eventTypeOptions" clearable />
+          <NSelect
+            v-model:value="experienceForm.eventType"
+            :options="eventTypeOptions"
+            clearable
+          />
         </NFormItem>
         <NFormItem :label="$t('page.userPortrait.statusLabel')">
           <NSelect v-model:value="experienceForm.status" :options="statusOptions" />
         </NFormItem>
         <NFormItem :label="$t('page.userPortrait.importanceLabel')">
-          <NInputNumber v-model:value="experienceForm.importance" :min="1" :max="5" class="w-full" />
+          <NInputNumber
+            v-model:value="experienceForm.importance"
+            :min="1"
+            :max="5"
+            class="w-full"
+          />
         </NFormItem>
         <NFormItem :label="$t('page.userPortrait.memoryLevelLabel')">
-          <NSelect v-model:value="experienceForm.memoryLevel" :options="memoryLevelOptions" />
+          <NSelect
+            v-model:value="experienceForm.memoryLevel"
+            :options="memoryLevelOptions"
+          />
         </NFormItem>
         <NFormItem :label="$t('page.userPortrait.titleField')">
-          <NInput v-model:value="experienceForm.title" :placeholder="$t('page.userPortrait.titlePlaceholder')" />
+          <NInput
+            v-model:value="experienceForm.title"
+            :placeholder="$t('page.userPortrait.titlePlaceholder')"
+          />
         </NFormItem>
         <NFormItem :label="$t('page.userPortrait.content')">
           <NInput v-model:value="experienceForm.content" type="textarea" :rows="4" />
         </NFormItem>
         <NFormItem :label="$t('page.userPortrait.timeRange')">
-          <NInput v-model:value="experienceForm.timeRange" :placeholder="$t('page.userPortrait.timeRangePlaceholder')" />
+          <NInput
+            v-model:value="experienceForm.timeRange"
+            :placeholder="$t('page.userPortrait.timeRangePlaceholder')"
+          />
         </NFormItem>
         <NFormItem :label="$t('page.userPortrait.evidenceLabel')">
           <NInput v-model:value="experienceForm.evidence" type="textarea" :rows="2" />
         </NFormItem>
         <NFormItem :label="$t('page.userPortrait.tags')">
-          <NSelect v-model:value="experienceForm.tags" multiple filterable tag :options="[]" />
+          <NSelect
+            v-model:value="experienceForm.tags"
+            multiple
+            filterable
+            tag
+            :options="[]"
+          />
         </NFormItem>
         <NFormItem :label="$t('page.userPortrait.occurredAt')">
-          <NDatePicker v-model:value="experienceForm.occurredAt" type="datetime" clearable class="w-full" />
+          <NDatePicker
+            v-model:value="experienceForm.occurredAt"
+            type="datetime"
+            clearable
+            class="w-full"
+          />
         </NFormItem>
       </NForm>
       <template #footer>
         <NSpace justify="end">
-          <NButton @click="experienceModalVisible = false">{{ $t('page.userPortrait.cancel') }}</NButton>
-          <NButton type="primary" :loading="savingExperience" @click="saveExperience">{{ $t('page.userPortrait.save') }}</NButton>
+          <NButton @click="experienceModalVisible = false">
+            {{ $t("page.userPortrait.cancel") }}
+          </NButton>
+          <NButton type="primary" :loading="savingExperience" @click="saveExperience">
+            {{ $t("page.userPortrait.save") }}
+          </NButton>
         </NSpace>
       </template>
     </NModal>
