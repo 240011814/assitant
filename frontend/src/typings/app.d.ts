@@ -758,6 +758,7 @@ declare namespace App {
           addDimension: string;
           keyPlaceholder: string;
           valuePlaceholder: string;
+          dimensionLabel: Record<string, string>;
           addExperience: string;
           editExperience: string;
           categoryLabel: string;
@@ -765,7 +766,12 @@ declare namespace App {
           titlePlaceholder: string;
           titleRequired: string;
           content: string;
+          timeRange: string;
+          timeRangePlaceholder: string;
           occurredAt: string;
+          memoryLevelLabel: string;
+          evidenceLabel: string;
+          statusLabel: string;
           save: string;
           cancel: string;
           confirm: string;
@@ -774,12 +780,26 @@ declare namespace App {
           deleteConfirmTitle: string;
           deleteConfirm: string;
           category: {
-            work: string;
+            identity: string;
+            goal: string;
             project: string;
-            study: string;
-            achievement: string;
+            skill: string;
+            preference: string;
+            habit: string;
+            experience: string;
             challenge: string;
-            other: string;
+            decision: string;
+          };
+          status: {
+            ongoing: string;
+            completed: string;
+            abandoned: string;
+            unknown: string;
+          };
+          memoryLevel: {
+            core: string;
+            long_term: string;
+            temporary: string;
           };
         };
         userProfile: {

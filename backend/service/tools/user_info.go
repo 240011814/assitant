@@ -142,12 +142,16 @@ func (t *userInfoQueryTool) InvokableRun(ctx context.Context, arguments string, 
 type userInfoEditTool struct{}
 
 type userInfoEditRequest struct {
-	Action   string   `json:"action" jsonschema:"description=操作类型: add_experience 记录经历, update_profile 更新画像"`
-	Category string   `json:"category,omitempty" jsonschema:"description=经历分类: work/project/study/achievement/challenge/other"`
-	Title    string   `json:"title,omitempty" jsonschema:"description=经历标题（add_experience 时必填）"`
-	Content  string   `json:"content,omitempty" jsonschema:"description=经历内容（add_experience 时使用）"`
-	Tags     []string `json:"tags,omitempty" jsonschema:"description=经历标签"`
-	Facts    []string `json:"facts,omitempty" jsonschema:"description=要合并进画像的新事实（update_profile 时必填）"`
+	Action      string              `json:"action" jsonschema:"description=操作类型: add_experience 记录经历, update_profile 更新画像"`
+	Category    string              `json:"category,omitempty" jsonschema:"description=经历分类: identity/goal/project/skill/preference/habit/experience/challenge/decision"`
+	Title       string              `json:"title,omitempty" jsonschema:"description=经历标题（add_experience 时必填）"`
+	Content     string              `json:"content,omitempty" jsonschema:"description=经历内容（add_experience 时使用）"`
+	TimeRange   string              `json:"time_range,omitempty" jsonschema:"description=经历时间段（add_experience 时使用, 如 2026）"`
+	Status      string              `json:"status,omitempty" jsonschema:"description=进度状态: ongoing/completed/abandoned/unknown"`
+	MemoryLevel string              `json:"memory_level,omitempty" jsonschema:"description=记忆等级: core/long_term/temporary"`
+	Evidence    string              `json:"evidence,omitempty" jsonschema:"description=用户原话摘要"`
+	Tags        []string            `json:"tags,omitempty" jsonschema:"description=经历标签"`
+	Facts       []model.ProfileFact `json:"facts,omitempty" jsonschema:"description=要合并进画像的新事实（update_profile 时必填）, 每项含 content/memory_level/confidence/evidence"`
 }
 
 func (t *userInfoEditTool) Info(_ context.Context) (*schema.ToolInfo, error) {
@@ -162,7 +166,7 @@ func (t *userInfoEditTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 			},
 			"category": {
 				Type: schema.String,
-				Desc: "经历分类: work/project/study/achievement/challenge/other",
+				Desc: "经历分类: identity/goal/project/skill/preference/habit/experience/challenge/decision",
 			},
 			"title": {
 				Type: schema.String,
@@ -172,13 +176,29 @@ func (t *userInfoEditTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 				Type: schema.String,
 				Desc: "经历内容（add_experience 时使用）",
 			},
+			"time_range": {
+				Type: schema.String,
+				Desc: "经历时间段（add_experience 时使用, 如 2026）",
+			},
+			"status": {
+				Type: schema.String,
+				Desc: "进度状态: ongoing/completed/abandoned/unknown",
+			},
+			"memory_level": {
+				Type: schema.String,
+				Desc: "记忆等级: core/long_term/temporary",
+			},
+			"evidence": {
+				Type: schema.String,
+				Desc: "用户原话摘要",
+			},
 			"tags": {
 				Type: schema.Array,
 				Desc: "经历标签",
 			},
 			"facts": {
 				Type: schema.Array,
-				Desc: "要合并进画像的新事实（update_profile 时必填）",
+				Desc: "要合并进画像的新事实（update_profile 时必填）, 每项含 content/memory_level/confidence/evidence",
 			},
 		}),
 	}, nil
@@ -204,10 +224,14 @@ func (t *userInfoEditTool) InvokableRun(ctx context.Context, arguments string, _
 		}
 		tags, _ := json.Marshal(req.Tags)
 		exp, err := userMemorySvc.AddExperience(userID, &model.UserExperience{
-			Category: req.Category,
-			Title:    req.Title,
-			Content:  req.Content,
-			Tags:     string(tags),
+			Category:    req.Category,
+			Title:       req.Title,
+			Content:     req.Content,
+			TimeRange:   req.TimeRange,
+			Status:      req.Status,
+			MemoryLevel: req.MemoryLevel,
+			Evidence:    req.Evidence,
+			Tags:        string(tags),
 		})
 		if err != nil {
 			return "", fmt.Errorf("记录经历失败: %w", err)
@@ -231,12 +255,15 @@ func (t *userInfoEditTool) InvokableRun(ctx context.Context, arguments string, _
 // ============ 辅助 ============
 
 type experienceView struct {
-	ID         uint        `json:"id"`
-	Category   string      `json:"category"`
-	Title      string      `json:"title"`
-	Content    string      `json:"content"`
-	Tags       []string    `json:"tags"`
-	OccurredAt interface{} `json:"occurred_at"`
+	ID          uint        `json:"id"`
+	Category    string      `json:"category"`
+	Title       string      `json:"title"`
+	Content     string      `json:"content"`
+	TimeRange   string      `json:"time_range"`
+	Status      string      `json:"status"`
+	MemoryLevel string      `json:"memory_level"`
+	Tags        []string    `json:"tags"`
+	OccurredAt  interface{} `json:"occurred_at"`
 }
 
 func toExperienceViews(list []model.UserExperience) []experienceView {
@@ -245,12 +272,15 @@ func toExperienceViews(list []model.UserExperience) []experienceView {
 		var tags []string
 		_ = json.Unmarshal([]byte(e.Tags), &tags)
 		views = append(views, experienceView{
-			ID:         e.ID,
-			Category:   e.Category,
-			Title:      e.Title,
-			Content:    e.Content,
-			Tags:       tags,
-			OccurredAt: e.OccurredAt,
+			ID:          e.ID,
+			Category:    e.Category,
+			Title:       e.Title,
+			Content:     e.Content,
+			TimeRange:   e.TimeRange,
+			Status:      e.Status,
+			MemoryLevel: e.MemoryLevel,
+			Tags:        tags,
+			OccurredAt:  e.OccurredAt,
 		})
 	}
 	return views

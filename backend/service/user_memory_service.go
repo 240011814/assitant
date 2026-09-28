@@ -106,16 +106,48 @@ func (s *UserMemoryService) BuildProfilePrompt(userID uint) string {
 	if strings.TrimSpace(p.Summary) != "" {
 		b.WriteString(strings.TrimSpace(p.Summary) + "\n")
 	}
-	for k, v := range dims {
-		if strings.TrimSpace(v) != "" {
-			b.WriteString(fmt.Sprintf("- %s：%s\n", k, v))
+	written := make(map[string]bool, len(dims))
+	for _, k := range dimensionOrder {
+		if v, ok := dims[k]; ok && strings.TrimSpace(v) != "" {
+			b.WriteString(fmt.Sprintf("- %s：%s\n", dimensionLabel(k), strings.TrimSpace(v)))
+			written[k] = true
 		}
+	}
+	for k, v := range dims {
+		if written[k] || strings.TrimSpace(v) == "" {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("- %s：%s\n", k, strings.TrimSpace(v)))
 	}
 	if len(tags) > 0 {
 		b.WriteString("标签：" + strings.Join(tags, "、") + "\n")
 	}
 
 	return b.String()
+}
+
+// dimensionOrder 固定画像维度顺序
+var dimensionOrder = []string{
+	"identity", "goals", "skills", "projects",
+	"preferences", "habits", "learning_topics", "constraints",
+}
+
+var dimensionLabels = map[string]string{
+	"identity":        "身份",
+	"goals":           "目标",
+	"skills":          "技能",
+	"projects":        "项目",
+	"preferences":     "偏好",
+	"habits":          "习惯",
+	"learning_topics": "学习主题",
+	"constraints":     "约束",
+}
+
+func dimensionLabel(key string) string {
+	if label, ok := dimensionLabels[key]; ok {
+		return label
+	}
+	return key
 }
 
 func (s *UserMemoryService) UpdatePortrait(userID uint, req model.UpdateUserPortraitRequest) error {
@@ -175,7 +207,7 @@ func (s *UserMemoryService) SearchExperiences(userID uint, query string, page, p
 	if pageSize <= 0 || pageSize > 50 {
 		pageSize = 10
 	}
-	q := DB.Model(&model.UserExperience{}).Where("user_id = ? AND status = ?", userID, "active")
+	q := DB.Model(&model.UserExperience{}).Where("user_id = ? AND memory_level <> ?", userID, model.MemoryLevelTemporary)
 	if query != "" {
 		like := "%" + query + "%"
 		q = q.Where("title LIKE ? OR content LIKE ? OR tags LIKE ?", like, like, like)
@@ -194,7 +226,12 @@ func (s *UserMemoryService) SearchExperiences(userID uint, query string, page, p
 func (s *UserMemoryService) AddExperience(userID uint, exp *model.UserExperience) (*model.UserExperience, error) {
 	exp.ID = 0
 	exp.UserID = userID
-	exp.Status = "active"
+	if exp.MemoryLevel == "" {
+		exp.MemoryLevel = model.MemoryLevelLongTerm
+	}
+	if exp.Status == "" {
+		exp.Status = model.ExperienceStatusUnknown
+	}
 	exp.IsUserEdited = true
 	if exp.OccurredAt == nil {
 		now := time.Now()
@@ -209,13 +246,16 @@ func (s *UserMemoryService) AddExperience(userID uint, exp *model.UserExperience
 func (s *UserMemoryService) CreateExperience(userID uint, req model.CreateUserExperienceRequest) (*model.UserExperience, error) {
 	tags, _ := json.Marshal(req.Tags)
 	exp := &model.UserExperience{
-		UserID:     userID,
-		Category:   req.Category,
-		Title:      req.Title,
-		Content:    req.Content,
-		OccurredAt: req.OccurredAt,
-		Tags:       string(tags),
-		Status:     "active",
+		UserID:      userID,
+		Category:    req.Category,
+		Title:       req.Title,
+		Content:     req.Content,
+		TimeRange:   req.TimeRange,
+		OccurredAt:  req.OccurredAt,
+		Tags:        string(tags),
+		MemoryLevel: req.MemoryLevel,
+		Evidence:    req.Evidence,
+		Status:      req.Status,
 	}
 	return s.AddExperience(userID, exp)
 }
@@ -231,12 +271,21 @@ func (s *UserMemoryService) UpdateExperience(userID, id uint, req model.UpdateUs
 	if req.Content != nil {
 		updates["content"] = *req.Content
 	}
+	if req.TimeRange != nil {
+		updates["time_range"] = *req.TimeRange
+	}
 	if req.OccurredAt != nil {
 		updates["occurred_at"] = *req.OccurredAt
 	}
 	if req.Tags != nil {
 		b, _ := json.Marshal(*req.Tags)
 		updates["tags"] = string(b)
+	}
+	if req.MemoryLevel != nil {
+		updates["memory_level"] = *req.MemoryLevel
+	}
+	if req.Evidence != nil {
+		updates["evidence"] = *req.Evidence
 	}
 	if req.Status != nil {
 		updates["status"] = *req.Status
@@ -275,17 +324,21 @@ type eligibleSession struct {
 }
 
 type extractedExperience struct {
-	Category   string   `json:"category"`
-	Title      string   `json:"title"`
-	Content    string   `json:"content"`
-	Tags       []string `json:"tags"`
-	Confidence float64  `json:"confidence"`
+	Category    string   `json:"category"`
+	Title       string   `json:"title"`
+	Content     string   `json:"content"`
+	TimeRange   string   `json:"time_range"`
+	Status      string   `json:"status"`
+	Tags        []string `json:"tags"`
+	MemoryLevel string   `json:"memory_level"`
+	Confidence  float64  `json:"confidence"`
+	Evidence    string   `json:"evidence"`
 }
 
 type extractionResult struct {
 	IsSubstantial bool                 `json:"is_substantial"`
 	Experience    *extractedExperience `json:"experience"`
-	ProfileFacts  []string             `json:"profile_facts"`
+	ProfileFacts  []model.ProfileFact  `json:"profile_facts"`
 }
 
 // RunExtraction 定时任务: 扫描满足条件的会话并抽取
@@ -455,9 +508,24 @@ func (s *UserMemoryService) extractSession(sess eligibleSession, cfg MemoryExtra
 }
 
 func (s *UserMemoryService) upsertSessionExperience(sess eligibleSession, exp *extractedExperience) error {
+	normalizeExtractedExperience(exp)
+
 	hid := sess.HistoryID
 	tags, _ := json.Marshal(exp.Tags)
 	occurred := sess.CreatedAt
+
+	fields := map[string]interface{}{
+		"category":     exp.Category,
+		"title":        exp.Title,
+		"content":      exp.Content,
+		"time_range":   exp.TimeRange,
+		"tags":         string(tags),
+		"confidence":   exp.Confidence,
+		"memory_level": exp.MemoryLevel,
+		"evidence":     exp.Evidence,
+		"occurred_at":  occurred,
+		"status":       exp.Status,
+	}
 
 	var existing model.UserExperience
 	err := DB.Where("history_id = ?", hid).First(&existing).Error
@@ -465,32 +533,75 @@ func (s *UserMemoryService) upsertSessionExperience(sess eligibleSession, exp *e
 		if existing.IsUserEdited {
 			return nil
 		}
-		return DB.Model(&model.UserExperience{}).Where("id = ?", existing.ID).Updates(map[string]interface{}{
-			"category":    exp.Category,
-			"title":       exp.Title,
-			"content":     exp.Content,
-			"tags":        string(tags),
-			"confidence":  exp.Confidence,
-			"occurred_at": occurred,
-			"status":      "active",
-		}).Error
+		return DB.Model(&model.UserExperience{}).Where("id = ?", existing.ID).Updates(fields).Error
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
 
 	record := &model.UserExperience{
-		UserID:     sess.UserID,
-		HistoryID:  &hid,
-		Category:   exp.Category,
-		Title:      exp.Title,
-		Content:    exp.Content,
-		OccurredAt: &occurred,
-		Tags:       string(tags),
-		Confidence: exp.Confidence,
-		Status:     "active",
+		UserID:      sess.UserID,
+		HistoryID:   &hid,
+		Category:    exp.Category,
+		Title:       exp.Title,
+		Content:     exp.Content,
+		TimeRange:   exp.TimeRange,
+		OccurredAt:  &occurred,
+		Tags:        string(tags),
+		Confidence:  exp.Confidence,
+		MemoryLevel: exp.MemoryLevel,
+		Evidence:    exp.Evidence,
+		Status:      exp.Status,
 	}
 	return DB.Create(record).Error
+}
+
+// normalizeExtractedExperience 校正 LLM 输出: 合法分类/进度状态/记忆等级, 置信度范围
+func normalizeExtractedExperience(exp *extractedExperience) {
+	if !validExperienceStatus(exp.Status) {
+		exp.Status = model.ExperienceStatusUnknown
+	}
+	if !validMemoryLevel(exp.MemoryLevel) {
+		exp.MemoryLevel = model.MemoryLevelLongTerm
+	}
+	if !validCategory(exp.Category) {
+		exp.Category = "experience"
+	}
+	if exp.Confidence < 0 {
+		exp.Confidence = 0
+	}
+	if exp.Confidence > 1 {
+		exp.Confidence = 1
+	}
+	if exp.Tags == nil {
+		exp.Tags = []string{}
+	}
+}
+
+func validExperienceStatus(s string) bool {
+	switch s {
+	case model.ExperienceStatusOngoing, model.ExperienceStatusCompleted,
+		model.ExperienceStatusAbandoned, model.ExperienceStatusUnknown:
+		return true
+	}
+	return false
+}
+
+func validMemoryLevel(s string) bool {
+	switch s {
+	case model.MemoryLevelCore, model.MemoryLevelLongTerm, model.MemoryLevelTemporary:
+		return true
+	}
+	return false
+}
+
+func validCategory(s string) bool {
+	switch s {
+	case "identity", "goal", "project", "skill", "preference",
+		"habit", "experience", "challenge", "decision":
+		return true
+	}
+	return false
 }
 
 func (s *UserMemoryService) setState(historyID, userID uint, status string, lastSort int, errMsg string) {
@@ -527,32 +638,98 @@ func (s *UserMemoryService) setState(historyID, userID uint, status string, last
 
 // ============ LLM ============
 
-const extractSystemPrompt = `你是一个用户记忆抽取助手。请从一段用户与 AI 的对话中，抽取可用于构建长期用户画像的信息，并判断这段对话是否构成一段"值得记录的用户经历"。
+const extractSystemPrompt = `你是用户长期记忆抽取助手，负责从「用户与 AI 的一段对话」中判断是否值得写入长期记忆，并抽取用户经历与稳定画像事实。
 
-要求：
-1. 只输出一个 JSON 对象，不要输出解释，也不要使用 markdown 代码块。
-2. JSON 结构：
+【最高原则】
+1. 只记录关于「用户本人」的信息，绝不记录 AI 提供的信息、解释或建议。
+2. 不记录一次性的问答需求、知识咨询、假设性讨论、寒暄。
+3. 不根据上下文猜测用户身份，一切以用户明确表达为准。
+4. 只输出一个 JSON 对象，不要解释，不要 markdown 代码块。
+
+【一、is_substantial：是否构成可记录的用户经历】
+true（满足其一）：
+- 用户已经发生或正在进行中的项目 / 工作
+- 用户长期或明确的学习目标
+- 用户明确的技能、能力
+- 用户的长期兴趣、习惯
+- 用户做出的重要决策，或正在面对的困难
+false（满足其一）：
+- 单纯询问知识、请求解释概念
+- 请求建议、方案对比，但没有行动
+- 假设性讨论（例如「如果…会怎样」）
+- 只是好奇/感兴趣，但没有行动或计划
+- 寒暄、纯事实问答
+关键区分：只有「已发生、正在持续、或用户明确计划执行」的事才算经历；提问/咨询/感兴趣不算。
+- 正例：「我最近开始用 Go 写股票选股工具」→ 经历
+- 反例：「Go 适合做量化吗？」→ 咨询，不是经历
+- 反例：「怎么学习英语？」→ 咨询，不是经历
+
+【二、memory_level：记忆等级】
+- core：长期稳定、基本不变，如职业身份、技术栈、长期目标、沟通偏好
+- long_term：预计保留半年以上，如正在进行的项目/学习、中期目标
+- temporary：临时信息（今天想买什么、这周关注什么、当前任务上下文），不进入画像
+
+【三、experience：is_substantial 为 true 时输出，否则为 null】
+{
+  "category": "identity|goal|project|skill|preference|habit|experience|challenge|decision",
+  "title": "不超过20字，概括这段经历",
+  "content": "客观总结2~4句，只写用户做了什么、进展、结果",
+  "time_range": "时间范围，如 2026 / 2026-03~2026-05；不确定则为空字符串",
+  "status": "ongoing|completed|abandoned|unknown",
+  "memory_level": "core|long_term|temporary",
+  "tags": ["关键词"],
+  "confidence": 0.8,
+  "evidence": "最能代表这条经历的用户原话摘要（不超过50字）"
+}
+category 取值：identity 身份 / goal 长期目标 / project 项目 / skill 技能 / preference 偏好 / habit 习惯 / experience 一般经历 / challenge 困难 / decision 重大决策。
+
+【四、profile_facts：稳定画像事实（数组，可为空）】
+只记录满足以下之一、且与用户本人相关的信息：
+1. 用户明确表达，如「我喜欢…」「我的目标是…」「我长期使用…」「我习惯…」「我是…」
+2. 在对话中反复出现且前后一致的事实
+不要记录：一次性需求、当前任务上下文、AI 的推测、临时状态。
+- 反例：「用户最近研究股票」（临时/上下文）
+- 正例：「用户正在学习股票投资，并计划开发选股工具」（有明确目标）
+每条格式：
+{"content":"一句关于用户的稳定事实","memory_level":"core|long_term|temporary","confidence":0.9,"evidence":"用户原话摘要"}
+
+【五、confidence 规则】
+- 0.9~1.0：用户明确陈述
+- 0.7~0.9：多轮推断但较可靠
+- 0.4~0.7：弱推断
+- 小于 0.4：不要记录
+
+【六、输出】
 {
   "is_substantial": true,
-  "experience": {
-    "category": "work|project|study|achievement|challenge|other",
-    "title": "不超过20字、能概括这段经历的标题",
-    "content": "对该经历的客观总结，2~4句",
-    "tags": ["关键词"],
-    "confidence": 0.8
-  },
-  "profile_facts": ["关于用户的稳定事实或偏好，例如职业、目标、技能水平、兴趣、习惯"]
-}
-3. is_substantial 表示对话是否包含实质内容(项目/学习/工作/决策/成就/困难等)；寒暄、纯事实问答、无实质信息时为 false，此时 experience 为 null。
-4. profile_facts 只记录与"用户本人"相关的信息，没有则为空数组。`
+  "experience": { ... } 或 null,
+  "profile_facts": [ ... ]
+}`
 
-const mergeSystemPrompt = `你是用户画像维护助手。给定【当前画像】和【新增事实】，请合并成最新画像。
+const mergeSystemPrompt = `你是用户画像维护助手。给定【当前画像】和【新增事实】，请合并生成最新的长期用户画像，重点防止画像膨胀与漂移。
 
-要求：
-1. 只输出一个 JSON 对象，不要输出解释，也不要使用 markdown 代码块。
-2. JSON 结构：
-{"summary":"一段话整体画像，不超过200字","dimensions":{"维度名":"值"},"tags":["标签"],"confidence":0.8}
-3. 保留仍然有效的信息，用新增事实修正冲突项，不要编造不存在的信息。`
+【合并规则】
+1. 只保留关于用户本人的、长期有效的信息，不要编造不存在的信息。
+2. 信息优先级：长期稳定事实 > 当前项目/学习 > 临时状态。
+3. 删除：已过期、重复、一次性需求、AI 推测、临时状态的信息。
+4. 冲突处理：
+   - 新事实明确改变旧状态 → 用新事实更新，例如「以前用 Python，现在主要用 Go」
+   - 新事实只是补充 → 合并保留
+   - 无法判断 → 保留旧信息，并适当降低 confidence
+5. 无法归入固定维度的信息，写进 summary，不要新增维度键。
+
+【dimensions 固定维度】（没有内容则省略该键，不要新增其它键；多值用「、」连接为一个字符串）
+- identity：身份（职业、角色）
+- goals：目标
+- skills：技能
+- projects：项目
+- preferences：偏好
+- habits：习惯
+- learning_topics：学习主题
+- constraints：约束/限制
+
+【输出】只输出 JSON，不要解释，不要 markdown 代码块：
+{"summary":"一段话整体画像，不超过200字","dimensions":{"identity":"","goals":"","skills":"","projects":"","preferences":"","habits":"","learning_topics":"","constraints":""},"tags":["标签"],"confidence":0.8}`
 
 func (s *UserMemoryService) extractWithLLM(title, transcript, modelOverride string) (*extractionResult, error) {
 	userPrompt := fmt.Sprintf("会话标题：%s\n\n对话内容：\n%s", title, transcript)
@@ -568,7 +745,9 @@ func (s *UserMemoryService) extractWithLLM(title, transcript, modelOverride stri
 }
 
 // MergeProfileFacts 将新增事实合并进用户画像; 用户手动编辑过的画像不覆盖
-func (s *UserMemoryService) MergeProfileFacts(userID uint, facts []string) error {
+// temporary 记忆等级的事实会被丢弃, 不进入画像
+func (s *UserMemoryService) MergeProfileFacts(userID uint, facts []model.ProfileFact) error {
+	facts = filterPortraitFacts(facts)
 	if len(facts) == 0 {
 		return nil
 	}
@@ -601,15 +780,21 @@ func (s *UserMemoryService) MergeProfileFacts(userID uint, facts []string) error
 		return err
 	}
 	var merged struct {
-		Summary    string            `json:"summary"`
-		Dimensions map[string]string `json:"dimensions"`
-		Tags       []string          `json:"tags"`
-		Confidence float64           `json:"confidence"`
+		Summary    string                     `json:"summary"`
+		Dimensions map[string]json.RawMessage `json:"dimensions"`
+		Tags       []string                   `json:"tags"`
+		Confidence float64                    `json:"confidence"`
 	}
 	if err := json.Unmarshal([]byte(extractJSON(raw)), &merged); err != nil {
 		return fmt.Errorf("解析画像合并结果失败: %w", err)
 	}
-	dims, _ := json.Marshal(merged.Dimensions)
+	dimsMap := make(map[string]string, len(merged.Dimensions))
+	for k, v := range merged.Dimensions {
+		if s := normalizeDimensionValue(v); s != "" {
+			dimsMap[k] = s
+		}
+	}
+	dims, _ := json.Marshal(dimsMap)
 	tags, _ := json.Marshal(merged.Tags)
 
 	return DB.Model(&model.UserPortrait{}).Where("user_id = ?", userID).Updates(map[string]interface{}{
@@ -618,6 +803,57 @@ func (s *UserMemoryService) MergeProfileFacts(userID uint, facts []string) error
 		"tags":       string(tags),
 		"confidence": merged.Confidence,
 	}).Error
+}
+
+// filterPortraitFacts 过滤画像事实: 去掉空内容与 temporary 等级
+func filterPortraitFacts(facts []model.ProfileFact) []model.ProfileFact {
+	out := make([]model.ProfileFact, 0, len(facts))
+	for _, f := range facts {
+		content := strings.TrimSpace(f.Content)
+		if content == "" {
+			continue
+		}
+		if f.MemoryLevel == model.MemoryLevelTemporary {
+			continue
+		}
+		if !validMemoryLevel(f.MemoryLevel) {
+			f.MemoryLevel = model.MemoryLevelLongTerm
+		}
+		f.Content = content
+		out = append(out, f)
+	}
+	return out
+}
+
+// normalizeDimensionValue 兼容 LLM 输出字符串或字符串数组, 数组用「、」连接
+func normalizeDimensionValue(raw json.RawMessage) string {
+	s := strings.TrimSpace(string(raw))
+	if s == "" || s == "null" {
+		return ""
+	}
+	switch s[0] {
+	case '"':
+		var v string
+		if err := json.Unmarshal(raw, &v); err == nil {
+			return strings.TrimSpace(v)
+		}
+	case '[':
+		var arr []string
+		if err := json.Unmarshal(raw, &arr); err == nil {
+			return strings.TrimSpace(strings.Join(arr, "、"))
+		}
+		var anys []any
+		if err := json.Unmarshal(raw, &anys); err == nil {
+			parts := make([]string, 0, len(anys))
+			for _, a := range anys {
+				if str, ok := a.(string); ok && strings.TrimSpace(str) != "" {
+					parts = append(parts, strings.TrimSpace(str))
+				}
+			}
+			return strings.TrimSpace(strings.Join(parts, "、"))
+		}
+	}
+	return ""
 }
 
 // ============ 定时任务 ============

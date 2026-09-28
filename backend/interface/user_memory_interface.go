@@ -7,5 +7,5 @@ type UserMemoryService interface {
 	BuildProfilePrompt(userID uint) string
 	SearchExperiences(userID uint, query string, page, pageSize int) (int64, []model.UserExperience, error)
 	AddExperience(userID uint, exp *model.UserExperience) (*model.UserExperience, error)
-	MergeProfileFacts(userID uint, facts []string) error
+	MergeProfileFacts(userID uint, facts []model.ProfileFact) error
 }

@@ -34,9 +34,12 @@ type experienceView struct {
 	Category     string     `json:"category"`
 	Title        string     `json:"title"`
 	Content      string     `json:"content"`
+	TimeRange    string     `json:"time_range"`
 	Tags         []string   `json:"tags"`
 	OccurredAt   *time.Time `json:"occurred_at"`
 	Confidence   float64    `json:"confidence"`
+	MemoryLevel  string     `json:"memory_level"`
+	Evidence     string     `json:"evidence"`
 	Status       string     `json:"status"`
 	IsUserEdited bool       `json:"is_user_edited"`
 	CreatedAt    time.Time  `json:"created_at"`
@@ -80,9 +83,12 @@ func toExperienceViews(list []model.UserExperience) []experienceView {
 			Category:     e.Category,
 			Title:        e.Title,
 			Content:      e.Content,
+			TimeRange:    e.TimeRange,
 			Tags:         tags,
 			OccurredAt:   e.OccurredAt,
 			Confidence:   e.Confidence,
+			MemoryLevel:  e.MemoryLevel,
+			Evidence:     e.Evidence,
 			Status:       e.Status,
 			IsUserEdited: e.IsUserEdited,
 			CreatedAt:    e.CreatedAt,

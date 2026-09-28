@@ -686,7 +686,17 @@ const local: App.I18n.Schema = {
       dimensions: "Dimensions",
       addDimension: "Add dimension",
       keyPlaceholder: "Dimension name, e.g. Occupation",
-      valuePlaceholder: "Dimension value",
+      valuePlaceholder: "Dimension value, separate multiple with、",
+      dimensionLabel: {
+        identity: "Identity",
+        goals: "Goals",
+        skills: "Skills",
+        projects: "Projects",
+        preferences: "Preferences",
+        habits: "Habits",
+        learning_topics: "Learning Topics",
+        constraints: "Constraints"
+      },
       addExperience: "Add Experience",
       editExperience: "Edit Experience",
       categoryLabel: "Category",
@@ -694,7 +704,12 @@ const local: App.I18n.Schema = {
       titlePlaceholder: "Enter experience title",
       titleRequired: "Please enter a title",
       content: "Content",
+      timeRange: "Time Range",
+      timeRangePlaceholder: "e.g. 2026 / 2026-03~2026-05",
       occurredAt: "Occurred at",
+      memoryLevelLabel: "Memory Level",
+      evidenceLabel: "Evidence",
+      statusLabel: "Progress",
       save: "Save",
       cancel: "Cancel",
       confirm: "Confirm",
@@ -703,12 +718,26 @@ const local: App.I18n.Schema = {
       deleteConfirmTitle: "Delete Experience",
       deleteConfirm: "Are you sure to delete this experience?",
       category: {
-        work: "Work",
+        identity: "Identity",
+        goal: "Goal",
         project: "Project",
-        study: "Study",
-        achievement: "Achievement",
+        skill: "Skill",
+        preference: "Preference",
+        habit: "Habit",
+        experience: "Experience",
         challenge: "Challenge",
-        other: "Other"
+        decision: "Decision"
+      },
+      status: {
+        ongoing: "Ongoing",
+        completed: "Completed",
+        abandoned: "Abandoned",
+        unknown: "Unknown"
+      },
+      memoryLevel: {
+        core: "Core",
+        long_term: "Long-term",
+        temporary: "Temporary"
       }
     },
     userProfile: {

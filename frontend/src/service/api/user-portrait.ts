@@ -16,9 +16,12 @@ export interface UserExperience {
   category: string;
   title: string;
   content: string;
+  time_range: string;
   tags: string[];
   occurred_at: string | null;
   confidence: number;
+  memory_level: string;
+  evidence: string;
   status: string;
   is_user_edited: boolean;
   created_at: string;
@@ -52,16 +55,23 @@ export interface CreateUserExperienceParams {
   category?: string;
   title: string;
   content?: string;
+  time_range?: string;
   occurred_at?: string | null;
   tags?: string[];
+  memory_level?: string;
+  evidence?: string;
+  status?: string;
 }
 
 export interface UpdateUserExperienceParams {
   category?: string;
   title?: string;
   content?: string;
+  time_range?: string;
   occurred_at?: string | null;
   tags?: string[];
+  memory_level?: string;
+  evidence?: string;
   status?: string;
 }
 

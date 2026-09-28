@@ -28,12 +28,15 @@ const portrait = ref<UserPortrait | null>(null);
 const experiences = ref<UserExperience[]>([]);
 
 const categoryOptions = computed(() => [
-  { label: $t('page.userPortrait.category.work'), value: 'work' },
+  { label: $t('page.userPortrait.category.identity'), value: 'identity' },
+  { label: $t('page.userPortrait.category.goal'), value: 'goal' },
   { label: $t('page.userPortrait.category.project'), value: 'project' },
-  { label: $t('page.userPortrait.category.study'), value: 'study' },
-  { label: $t('page.userPortrait.category.achievement'), value: 'achievement' },
+  { label: $t('page.userPortrait.category.skill'), value: 'skill' },
+  { label: $t('page.userPortrait.category.preference'), value: 'preference' },
+  { label: $t('page.userPortrait.category.habit'), value: 'habit' },
+  { label: $t('page.userPortrait.category.experience'), value: 'experience' },
   { label: $t('page.userPortrait.category.challenge'), value: 'challenge' },
-  { label: $t('page.userPortrait.category.other'), value: 'other' }
+  { label: $t('page.userPortrait.category.decision'), value: 'decision' }
 ]);
 
 const categoryLabelMap = computed<Record<string, string>>(() => {
@@ -44,11 +47,66 @@ const categoryLabelMap = computed<Record<string, string>>(() => {
   return map;
 });
 
+const statusOptions = computed(() => [
+  { label: $t('page.userPortrait.status.ongoing'), value: 'ongoing' },
+  { label: $t('page.userPortrait.status.completed'), value: 'completed' },
+  { label: $t('page.userPortrait.status.abandoned'), value: 'abandoned' },
+  { label: $t('page.userPortrait.status.unknown'), value: 'unknown' }
+]);
+
+const statusLabelMap = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {};
+  statusOptions.value.forEach(item => {
+    map[item.value] = item.label;
+  });
+  return map;
+});
+
+const memoryLevelOptions = computed(() => [
+  { label: $t('page.userPortrait.memoryLevel.core'), value: 'core' },
+  { label: $t('page.userPortrait.memoryLevel.long_term'), value: 'long_term' },
+  { label: $t('page.userPortrait.memoryLevel.temporary'), value: 'temporary' }
+]);
+
+const memoryLevelLabelMap = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {};
+  memoryLevelOptions.value.forEach(item => {
+    map[item.value] = item.label;
+  });
+  return map;
+});
+
+const dimensionLabelMap = computed<Record<string, string>>(() => ({
+  identity: $t('page.userPortrait.dimensionLabel.identity'),
+  goals: $t('page.userPortrait.dimensionLabel.goals'),
+  skills: $t('page.userPortrait.dimensionLabel.skills'),
+  projects: $t('page.userPortrait.dimensionLabel.projects'),
+  preferences: $t('page.userPortrait.dimensionLabel.preferences'),
+  habits: $t('page.userPortrait.dimensionLabel.habits'),
+  learning_topics: $t('page.userPortrait.dimensionLabel.learning_topics'),
+  constraints: $t('page.userPortrait.dimensionLabel.constraints')
+}));
+
 function formatTime(value: string | null | undefined) {
   if (!value) return '-';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '-';
   return d.toLocaleString();
+}
+
+type TagType = 'default' | 'error' | 'info' | 'primary' | 'success' | 'warning';
+
+function statusTagType(status: string): TagType {
+  if (status === 'completed') return 'success';
+  if (status === 'ongoing') return 'info';
+  if (status === 'abandoned') return 'error';
+  return 'default';
+}
+
+function memoryLevelTagType(level: string): TagType {
+  if (level === 'core') return 'warning';
+  if (level === 'temporary') return 'default';
+  return 'info';
 }
 
 async function loadData() {
@@ -118,18 +176,26 @@ async function savePortrait() {
 const experienceModalVisible = ref(false);
 const editingExperienceId = ref<number | null>(null);
 const experienceForm = reactive({
-  category: 'other',
+  category: 'experience',
   title: '',
   content: '',
+  timeRange: '',
+  status: 'unknown',
+  memoryLevel: 'long_term',
+  evidence: '',
   tags: [] as string[],
   occurredAt: null as number | null
 });
 
 function openCreateExperience() {
   editingExperienceId.value = null;
-  experienceForm.category = 'other';
+  experienceForm.category = 'experience';
   experienceForm.title = '';
   experienceForm.content = '';
+  experienceForm.timeRange = '';
+  experienceForm.status = 'unknown';
+  experienceForm.memoryLevel = 'long_term';
+  experienceForm.evidence = '';
   experienceForm.tags = [];
   experienceForm.occurredAt = null;
   experienceModalVisible.value = true;
@@ -137,9 +203,13 @@ function openCreateExperience() {
 
 function openEditExperience(item: UserExperience) {
   editingExperienceId.value = item.id;
-  experienceForm.category = item.category || 'other';
+  experienceForm.category = item.category || 'experience';
   experienceForm.title = item.title;
   experienceForm.content = item.content;
+  experienceForm.timeRange = item.time_range || '';
+  experienceForm.status = item.status || 'unknown';
+  experienceForm.memoryLevel = item.memory_level || 'long_term';
+  experienceForm.evidence = item.evidence || '';
   experienceForm.tags = [...(item.tags || [])];
   experienceForm.occurredAt = item.occurred_at ? new Date(item.occurred_at).getTime() : null;
   experienceModalVisible.value = true;
@@ -154,6 +224,10 @@ async function saveExperience() {
     category: experienceForm.category,
     title: experienceForm.title,
     content: experienceForm.content,
+    time_range: experienceForm.timeRange,
+    status: experienceForm.status,
+    memory_level: experienceForm.memoryLevel,
+    evidence: experienceForm.evidence,
     tags: experienceForm.tags,
     occurred_at: experienceForm.occurredAt ? new Date(experienceForm.occurredAt).toISOString() : null
   };
@@ -218,7 +292,7 @@ onMounted(loadData);
               </div>
               <p v-if="portrait.summary" class="mb-12px whitespace-pre-wrap">{{ portrait.summary }}</p>
               <NDescriptions v-if="Object.keys(portrait.dimensions || {}).length" :column="1" label-placement="left" size="small">
-                <NDescriptionsItem v-for="(value, key) in portrait.dimensions" :key="key" :label="String(key)">
+                <NDescriptionsItem v-for="(value, key) in portrait.dimensions" :key="key" :label="dimensionLabelMap[String(key)] || String(key)">
                   {{ value }}
                 </NDescriptionsItem>
               </NDescriptions>
@@ -245,13 +319,21 @@ onMounted(loadData);
               <NListItem v-for="item in experiences" :key="item.id">
                 <NThing>
                   <template #header>
-                    <div class="flex items-center gap-8px">
+                    <div class="flex flex-wrap items-center gap-8px">
                       <span class="font-medium">{{ item.title }}</span>
-                      <NTag size="tiny" type="info">{{ categoryLabelMap[item.category] || item.category || $t('page.userPortrait.category.other') }}</NTag>
+                      <NTag size="tiny" type="info">{{ categoryLabelMap[item.category] || item.category || $t('page.userPortrait.category.experience') }}</NTag>
+                      <NTag v-if="item.status" size="tiny" :type="statusTagType(item.status)">
+                        {{ statusLabelMap[item.status] || item.status }}
+                      </NTag>
+                      <NTag v-if="item.memory_level" size="tiny" :type="memoryLevelTagType(item.memory_level)">
+                        {{ memoryLevelLabelMap[item.memory_level] || item.memory_level }}
+                      </NTag>
+                      <span v-if="item.time_range" class="text-12px op-60">{{ item.time_range }}</span>
                     </div>
                   </template>
                   <template #description>
                     <div class="whitespace-pre-wrap">{{ item.content }}</div>
+                    <div v-if="item.evidence" class="mt-4px text-12px op-60">{{ $t('page.userPortrait.evidenceLabel') }}: {{ item.evidence }}</div>
                     <div class="mt-4px">
                       <NTag v-for="tag in item.tags" :key="tag" size="tiny" class="mr-4px">{{ tag }}</NTag>
                     </div>
@@ -315,11 +397,23 @@ onMounted(loadData);
         <NFormItem :label="$t('page.userPortrait.categoryLabel')">
           <NSelect v-model:value="experienceForm.category" :options="categoryOptions" />
         </NFormItem>
+        <NFormItem :label="$t('page.userPortrait.statusLabel')">
+          <NSelect v-model:value="experienceForm.status" :options="statusOptions" />
+        </NFormItem>
+        <NFormItem :label="$t('page.userPortrait.memoryLevelLabel')">
+          <NSelect v-model:value="experienceForm.memoryLevel" :options="memoryLevelOptions" />
+        </NFormItem>
         <NFormItem :label="$t('page.userPortrait.titleField')">
           <NInput v-model:value="experienceForm.title" :placeholder="$t('page.userPortrait.titlePlaceholder')" />
         </NFormItem>
         <NFormItem :label="$t('page.userPortrait.content')">
           <NInput v-model:value="experienceForm.content" type="textarea" :rows="4" />
+        </NFormItem>
+        <NFormItem :label="$t('page.userPortrait.timeRange')">
+          <NInput v-model:value="experienceForm.timeRange" :placeholder="$t('page.userPortrait.timeRangePlaceholder')" />
+        </NFormItem>
+        <NFormItem :label="$t('page.userPortrait.evidenceLabel')">
+          <NInput v-model:value="experienceForm.evidence" type="textarea" :rows="2" />
         </NFormItem>
         <NFormItem :label="$t('page.userPortrait.tags')">
           <NSelect v-model:value="experienceForm.tags" multiple filterable tag :options="[]" />

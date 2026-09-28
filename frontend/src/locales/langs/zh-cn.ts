@@ -680,7 +680,17 @@ const local: App.I18n.Schema = {
       dimensions: "画像维度",
       addDimension: "添加维度",
       keyPlaceholder: "维度名，如 职业",
-      valuePlaceholder: "维度值",
+      valuePlaceholder: "维度值，多个用、分隔",
+      dimensionLabel: {
+        identity: "身份",
+        goals: "目标",
+        skills: "技能",
+        projects: "项目",
+        preferences: "偏好",
+        habits: "习惯",
+        learning_topics: "学习主题",
+        constraints: "约束"
+      },
       addExperience: "新增经历",
       editExperience: "编辑经历",
       categoryLabel: "分类",
@@ -688,7 +698,12 @@ const local: App.I18n.Schema = {
       titlePlaceholder: "请输入经历标题",
       titleRequired: "请输入经历标题",
       content: "内容",
+      timeRange: "时间段",
+      timeRangePlaceholder: "如 2026 / 2026-03~2026-05",
       occurredAt: "发生时间",
+      memoryLevelLabel: "记忆等级",
+      evidenceLabel: "原话依据",
+      statusLabel: "进度",
       save: "保存",
       cancel: "取消",
       confirm: "确定",
@@ -697,12 +712,26 @@ const local: App.I18n.Schema = {
       deleteConfirmTitle: "删除经历",
       deleteConfirm: "确认删除该经历吗？",
       category: {
-        work: "工作",
+        identity: "身份",
+        goal: "目标",
         project: "项目",
-        study: "学习",
-        achievement: "成就",
+        skill: "技能",
+        preference: "偏好",
+        habit: "习惯",
+        experience: "经历",
         challenge: "挑战",
-        other: "其它"
+        decision: "决策"
+      },
+      status: {
+        ongoing: "进行中",
+        completed: "已完成",
+        abandoned: "已放弃",
+        unknown: "未知"
+      },
+      memoryLevel: {
+        core: "核心",
+        long_term: "长期",
+        temporary: "临时"
       }
     },
     userProfile: {
