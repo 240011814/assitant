@@ -902,7 +902,7 @@ func (s *UserMemoryService) extractWithLLM(title, transcript string, sessionTime
 	return &res, nil
 }
 
-// MergeProfileFacts 将新增事实合并进用户画像; 用户手动编辑过的画像不覆盖
+// MergeProfileFacts 将新增事实合并进用户画像; 用户手动编辑过的画像仍会被 AI 继续维护
 // temporary 记忆等级的事实会被丢弃, 不进入画像
 func (s *UserMemoryService) MergeProfileFacts(userID uint, facts []model.ProfileFact) error {
 	facts = filterPortraitFacts(facts)
@@ -919,9 +919,6 @@ func (s *UserMemoryService) MergeProfileFacts(userID uint, facts []model.Profile
 	p, err := s.GetOrCreatePortrait(userID)
 	if err != nil {
 		return err
-	}
-	if p.IsUserEdited {
-		return nil
 	}
 
 	current := map[string]interface{}{
