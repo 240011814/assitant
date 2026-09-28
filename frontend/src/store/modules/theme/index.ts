@@ -235,10 +235,19 @@ export const useThemeStore = defineStore(SetupStoreId.Theme, () => {
     localStg.set('themeSettings', settings.value);
   }
 
+  /** JSON of the theme settings known to be persisted, used to skip redundant writes */
+  let lastSavedJson = '';
+
   /** Save theme settings to backend (debounced) */
   const saveToServer = useDebounceFn(async () => {
+    const currentJson = JSON.stringify(settings.value);
+
+    // skip when nothing changed since the last successful save
+    if (currentJson === lastSavedJson) return;
+
     try {
       await fetchSaveThemePreference(settings.value);
+      lastSavedJson = currentJson;
     } catch {
       // silent fail — localStorage still serves as fallback
     }
@@ -246,8 +255,11 @@ export const useThemeStore = defineStore(SetupStoreId.Theme, () => {
 
   /** Save theme settings to backend immediately (for manual save) */
   async function saveToServerImmediate() {
+    const currentJson = JSON.stringify(settings.value);
+
     try {
       await fetchSaveThemePreference(settings.value);
+      lastSavedJson = currentJson;
       return true;
     } catch {
       return false;
@@ -263,6 +275,9 @@ export const useThemeStore = defineStore(SetupStoreId.Theme, () => {
         Object.assign(settings.value, defu(data, settings.value));
         // Persist to localStorage as well
         localStg.set('themeSettings', settings.value);
+        // Reassigning nested refs triggers the deep watcher above; mark the merged
+        // result as already persisted so it won't write the same payload back.
+        lastSavedJson = JSON.stringify(settings.value);
       }
     } catch {
       // silent fail — use local settings as fallback
