@@ -477,7 +477,7 @@ func (s *UserMemoryService) extractSession(sess eligibleSession, cfg MemoryExtra
 	s.setState(sess.HistoryID, sess.UserID, model.MemoryExtractionStatusProcessing, 0, "")
 
 	transcript := buildTranscript(msgs)
-	res, err := s.extractWithLLM(sess.Title, transcript, cfg.Model)
+	res, err := s.extractWithLLM(sess.Title, transcript, sess.CreatedAt, cfg.Model)
 	if err != nil {
 		s.setState(sess.HistoryID, sess.UserID, model.MemoryExtractionStatusFailed, 0, err.Error())
 		return err
@@ -513,6 +513,9 @@ func (s *UserMemoryService) upsertSessionExperience(sess eligibleSession, exp *e
 	hid := sess.HistoryID
 	tags, _ := json.Marshal(exp.Tags)
 	occurred := sess.CreatedAt
+	if strings.TrimSpace(exp.TimeRange) == "" && !occurred.IsZero() {
+		exp.TimeRange = occurred.Format("2006")
+	}
 
 	fields := map[string]interface{}{
 		"category":     exp.Category,
@@ -669,7 +672,12 @@ false（满足其一）：
 - long_term：预计保留半年以上，如正在进行的项目/学习、中期目标
 - temporary：临时信息（今天想买什么、这周关注什么、当前任务上下文），不进入画像
 
-【三、experience：is_substantial 为 true 时输出，否则为 null】
+【三、时间信息】
+- 输入会给出「当前日期」「会话开始时间」，且对话内容每行带日期前缀。
+- experience.time_range 必须尽量填写：优先用户明确提到的时间，其次会话时间/消息日期，格式如 "2026"、"2026-03"、"2026-03~2026-05"。
+- 只有在对话完全没有任何时间线索时才留空字符串。
+
+【四、experience：is_substantial 为 true 时输出，否则为 null】
 {
   "category": "identity|goal|project|skill|preference|habit|experience|challenge|decision",
   "title": "不超过20字，概括这段经历",
@@ -683,7 +691,7 @@ false（满足其一）：
 }
 category 取值：identity 身份 / goal 长期目标 / project 项目 / skill 技能 / preference 偏好 / habit 习惯 / experience 一般经历 / challenge 困难 / decision 重大决策。
 
-【四、profile_facts：稳定画像事实（数组，可为空）】
+【五、profile_facts：稳定画像事实（数组，可为空）】
 只记录满足以下之一、且与用户本人相关的信息：
 1. 用户明确表达，如「我喜欢…」「我的目标是…」「我长期使用…」「我习惯…」「我是…」
 2. 在对话中反复出现且前后一致的事实
@@ -693,13 +701,13 @@ category 取值：identity 身份 / goal 长期目标 / project 项目 / skill �
 每条格式：
 {"content":"一句关于用户的稳定事实","memory_level":"core|long_term|temporary","confidence":0.9,"evidence":"用户原话摘要"}
 
-【五、confidence 规则】
+【六、confidence 规则】
 - 0.9~1.0：用户明确陈述
 - 0.7~0.9：多轮推断但较可靠
 - 0.4~0.7：弱推断
 - 小于 0.4：不要记录
 
-【六、输出】
+【七、输出】
 {
   "is_substantial": true,
   "experience": { ... } 或 null,
@@ -731,8 +739,14 @@ const mergeSystemPrompt = `你是用户画像维护助手。给定【当前画�
 【输出】只输出 JSON，不要解释，不要 markdown 代码块：
 {"summary":"一段话整体画像，不超过200字","dimensions":{"identity":"","goals":"","skills":"","projects":"","preferences":"","habits":"","learning_topics":"","constraints":""},"tags":["标签"],"confidence":0.8}`
 
-func (s *UserMemoryService) extractWithLLM(title, transcript, modelOverride string) (*extractionResult, error) {
-	userPrompt := fmt.Sprintf("会话标题：%s\n\n对话内容：\n%s", title, transcript)
+func (s *UserMemoryService) extractWithLLM(title, transcript string, sessionTime time.Time, modelOverride string) (*extractionResult, error) {
+	userPrompt := fmt.Sprintf(
+		"会话标题：%s\n当前日期：%s\n会话开始时间：%s\n\n对话内容：\n%s",
+		title,
+		time.Now().Format("2006-01-02"),
+		sessionTime.Format("2006-01-02 15:04"),
+		transcript,
+	)
 	raw, err := s.agentSvc.GenerateText(modelOverride, extractSystemPrompt, userPrompt)
 	if err != nil {
 		return nil, err
@@ -879,6 +893,9 @@ func buildTranscript(msgs []model.TrainingMessage) string {
 		role := "用户"
 		if m.Role == "assistant" {
 			role = "AI"
+		}
+		if !m.CreatedAt.IsZero() {
+			b.WriteString("[" + m.CreatedAt.Format("2006-01-02") + "] ")
 		}
 		b.WriteString(role + "：" + m.Content + "\n")
 	}
