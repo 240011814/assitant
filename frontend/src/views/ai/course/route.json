@@ -4,6 +4,7 @@
     "i18nKey": "route.ai_course",
     "icon": "mdi:book-education",
     "order": 5,
-    "permissions": ["ai:course:view"]
+    "permissions": ["ai:course:view"],
+    "keepAlive": true
   }
 }

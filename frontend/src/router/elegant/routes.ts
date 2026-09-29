@@ -59,7 +59,8 @@ export const generatedRoutes: GeneratedRoute[] = [
           i18nKey: 'route.ai_course',
           icon: 'mdi:book-education',
           permissions: ['ai:course:view'],
-          order: 5
+          order: 5,
+          keepAlive: true
         }
       },
       {

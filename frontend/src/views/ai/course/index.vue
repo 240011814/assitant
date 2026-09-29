@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onActivated } from 'vue'
+import { ref, onMounted, onActivated } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, NCard, NButton, NTag, NEmpty, NSpin, NModal, NForm, NFormItem, NInput, NSwitch, NSpace, NPopconfirm, NPagination, NSelect } from 'naive-ui'
 import { fetchCourseList, fetchCreateCourse, fetchUpdateCourse, fetchDeleteCourse, fetchTrainingStatus, fetchUpdateTrainingStatus, type Course, type UserCourseTraining } from '@/service/api'
@@ -207,9 +207,19 @@ const goToEdit = (id: number) => {
   router.push({ name: 'ai_course-detail', params: { id } })
 }
 
-// KeepAlive 缓存下 onActivated 激活时加载, 避免与 onMounted 双触发
-onActivated(() => {
+// 首次挂载即加载（无论是否被 KeepAlive 缓存都生效，避免路由未配 keepAlive 时不显示）
+onMounted(() => {
   loadCourses()
+})
+
+// KeepAlive 缓存下再次激活时刷新；首次激活已由 onMounted 负责，跳过避免重复请求
+let hasActivated = false
+onActivated(() => {
+  if (hasActivated) {
+    loadCourses()
+  } else {
+    hasActivated = true
+  }
 })
 </script>
 
