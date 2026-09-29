@@ -58,6 +58,7 @@ export function fetchResetUserPrompt(agentId: number) {
 /**
  * Chat streaming API - direct fetch with proper auth interceptors
  * Returns raw Response object with ReadableStream for SSE handling
+ * `signal` 用于中断流式请求(停止生成), 不会序列化进请求体
  */
 export async function fetchChatStream(data: {
   history_id: number;
@@ -66,7 +67,9 @@ export async function fetchChatStream(data: {
   agent_id: number;
   model: string;
   messages: { role: string; content: string }[];
+  signal?: AbortSignal;
 }): Promise<Response> {
+  const { signal, ...payload } = data;
   const isHttpProxy =
     import.meta.env.DEV && import.meta.env.VITE_HTTP_PROXY === "Y";
   const { baseURL } = getServiceBaseURL(import.meta.env, isHttpProxy);
@@ -79,7 +82,8 @@ export async function fetchChatStream(data: {
       "Content-Type": "application/json",
       Authorization: Authorization || "",
     },
-    body: JSON.stringify(data),
+    body: JSON.stringify(payload),
+    signal,
   });
 
   // Handle token expiration - check first chunk for error codes
@@ -109,7 +113,8 @@ export async function fetchChatStream(data: {
                 "Content-Type": "application/json",
                 Authorization: Authorization || "",
               },
-              body: JSON.stringify(data),
+              body: JSON.stringify(payload),
+              signal,
             });
           }
         }

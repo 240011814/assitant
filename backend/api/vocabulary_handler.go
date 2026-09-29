@@ -2,6 +2,7 @@ package api
 
 import (
 	"strconv"
+	"strings"
 
 	"backend/model"
 	"backend/service"
@@ -34,9 +35,27 @@ func (h *VocabularyHandler) HandleAddWord(c *gin.Context) {
 	SendSuccess(c, res)
 }
 
-// HandleListWords 获取生词列表
+// HandleListWords 获取生词列表 (支持 ids=1,2,3 按主键过滤)
 func (h *VocabularyHandler) HandleListWords(c *gin.Context) {
 	userId := GetUserID(c)
+
+	// 按 id 列表查询: 错题按词练习等场景只取指定词, 避免拉全量
+	if idsStr := c.Query("ids"); idsStr != "" {
+		var ids []uint
+		for _, part := range strings.Split(idsStr, ",") {
+			if id, err := strconv.ParseUint(strings.TrimSpace(part), 10, 32); err == nil {
+				ids = append(ids, uint(id))
+			}
+		}
+		list, err := h.svc.GetVocabularyByIDs(userId, ids)
+		if err != nil {
+			SendError(c, "500", "获取列表失败: "+err.Error())
+			return
+		}
+		SendSuccess(c, list)
+		return
+	}
+
 	keyword := c.Query("keyword")
 	isMasteredStr := c.Query("isMastered")
 
@@ -69,6 +88,52 @@ func (h *VocabularyHandler) HandleDeleteWord(c *gin.Context) {
 	}
 
 	SendSuccess(c, nil)
+}
+
+// HandleGetDueWords 今日到期复习词 (SRS)
+func (h *VocabularyHandler) HandleGetDueWords(c *gin.Context) {
+	userId := GetUserID(c)
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	list, err := h.svc.GetDueWords(userId, limit)
+	if err != nil {
+		SendError(c, "500", "获取复习词失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, list)
+}
+
+// HandleGetReviewStats 复习概况 (到期数/学习中/盒子分布)
+func (h *VocabularyHandler) HandleGetReviewStats(c *gin.Context) {
+	userId := GetUserID(c)
+	stats, err := h.svc.GetReviewStats(userId)
+	if err != nil {
+		SendError(c, "500", "获取复习统计失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, stats)
+}
+
+// HandleSubmitReview 提交复习结果 {known: bool}
+func (h *VocabularyHandler) HandleSubmitReview(c *gin.Context) {
+	userId := GetUserID(c)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		SendError(c, "400", "生词 ID 不合法")
+		return
+	}
+	var req struct {
+		Known bool `json:"known"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请求参数错误")
+		return
+	}
+	word, err := h.svc.SubmitReview(userId, uint(id), req.Known)
+	if err != nil {
+		SendError(c, "500", "提交复习结果失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, word)
 }
 
 // HandleGetRandomWords 随机获取指定数量的生词

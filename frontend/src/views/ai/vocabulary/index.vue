@@ -8,6 +8,9 @@ import {
   fetchGetVocabularyList,
   fetchUpdateVocabulary,
   fetchGetRandomVocabulary,
+  fetchGetDueVocabulary,
+  fetchGetVocabularyReviewStats,
+  fetchSubmitVocabularyReview,
 } from "@/service/api";
 import { onKeyStroke } from "@vueuse/core";
 import { speak } from "@/utils/tts";
@@ -257,8 +260,80 @@ const handleRandomPractice = async () => {
   }
 };
 
+// ===================== SRS 今日复习 =====================
+const reviewStats = ref<Api.Vocabulary.ReviewStats | null>(null);
+const showReviewModal = ref(false);
+const reviewLoading = ref(false);
+const reviewSubmitting = ref(false);
+const reviewList = ref<Api.Vocabulary.Item[]>([]);
+const reviewIndex = ref(0);
+const reviewFlipped = ref(false);
+const reviewDone = ref(false);
+const reviewKnownCount = ref(0);
+const reviewForgottenCount = ref(0);
+const lastReviewBox = ref<{ word: string; srsBox: number } | null>(null);
+
+const currentReviewWord = computed(() => reviewList.value[reviewIndex.value] || null);
+
+const loadReviewStats = async () => {
+  const { data, error } = await fetchGetVocabularyReviewStats();
+  if (error) {
+    // 静默失败: 徽标保持不展示
+    return;
+  }
+  reviewStats.value = data;
+};
+
+const startReview = async () => {
+  showReviewModal.value = true;
+  reviewDone.value = false;
+  reviewIndex.value = 0;
+  reviewFlipped.value = false;
+  reviewKnownCount.value = 0;
+  reviewForgottenCount.value = 0;
+  lastReviewBox.value = null;
+  reviewLoading.value = true;
+  const { data, error } = await fetchGetDueVocabulary({ limit: 20 });
+  reviewLoading.value = false;
+  if (error) {
+    message.error($t("page.ai.vocabulary.reviewLoadFailed"));
+    return;
+  }
+  reviewList.value = data || [];
+};
+
+const handleReview = async (known: boolean) => {
+  const current = currentReviewWord.value;
+  if (!current || reviewSubmitting.value) return;
+  reviewSubmitting.value = true;
+  const { data, error } = await fetchSubmitVocabularyReview(current.id, known);
+  reviewSubmitting.value = false;
+  if (error) {
+    message.error($t("page.ai.vocabulary.reviewSubmitFailed"));
+    return;
+  }
+  if (known) {
+    reviewKnownCount.value += 1;
+  } else {
+    reviewForgottenCount.value += 1;
+  }
+  // 展示提交后的新盒子
+  if (data) {
+    lastReviewBox.value = { word: data.word, srsBox: data.srsBox };
+  }
+  if (reviewIndex.value + 1 >= reviewList.value.length) {
+    reviewDone.value = true;
+    loadReviewStats();
+    loadData();
+  } else {
+    reviewIndex.value += 1;
+    reviewFlipped.value = false;
+  }
+};
+
 onMounted(() => {
   loadData();
+  loadReviewStats();
 });
 </script>
 
@@ -335,6 +410,16 @@ onMounted(() => {
                   <IconMdiPlayCircleOutline class="text-icon" />
                 </template>
               </NButton>
+              <NBadge
+                :value="reviewStats?.dueCount ?? 0"
+                :show="!!reviewStats && reviewStats.dueCount > 0"
+              >
+                <NButton type="warning" size="small" @click="startReview">
+                  <template #icon>
+                    <IconMdiRestart class="text-icon" />
+                  </template>
+                </NButton>
+              </NBadge>
             </div>
             <ButtonIcon
               icon="mdi:refresh"
@@ -386,6 +471,17 @@ onMounted(() => {
                 </template>
                 {{ $t("page.ai.vocabulary.startPractice") }}
               </NButton>
+              <NBadge
+                :value="reviewStats?.dueCount ?? 0"
+                :show="!!reviewStats && reviewStats.dueCount > 0"
+              >
+                <NButton type="warning" @click="startReview">
+                  <template #icon>
+                    <IconMdiRestart class="text-icon" />
+                  </template>
+                  {{ $t("page.ai.vocabulary.todayReview") }}
+                </NButton>
+              </NBadge>
               <ButtonIcon
                 icon="mdi:refresh"
                 :tooltip-content="$t('common.refresh')"
@@ -483,6 +579,85 @@ onMounted(() => {
         <NButton @click="showRandomPractice = false">取消</NButton>
         <NButton type="primary" @click="showRandomPractice = false; handleRandomPractice()">开始练习</NButton>
       </template>
+    </NModal>
+
+    <!-- SRS Daily Review Dialog -->
+    <NModal
+      v-model:show="showReviewModal"
+      preset="card"
+      :title="$t('page.ai.vocabulary.reviewTitle')"
+      :style="{ width: appStore.isMobile ? '92%' : '480px' }"
+    >
+      <NSpin :show="reviewLoading">
+        <!-- 全部完成: 本次统计 -->
+        <div v-if="reviewDone" class="flex flex-col items-center gap-6 py-10">
+          <span class="text-lg font-bold">{{ $t('page.ai.vocabulary.reviewComplete') }}</span>
+          <div class="flex gap-10">
+            <div class="flex flex-col items-center gap-1">
+              <span class="text-2xl font-bold text-primary">{{ reviewKnownCount + reviewForgottenCount }}</span>
+              <span class="text-xs text-gray-400">{{ $t('page.ai.vocabulary.reviewedCount') }}</span>
+            </div>
+            <div class="flex flex-col items-center gap-1">
+              <span class="text-2xl font-bold text-success">{{ reviewKnownCount }}</span>
+              <span class="text-xs text-gray-400">{{ $t('page.ai.vocabulary.knownCount') }}</span>
+            </div>
+            <div class="flex flex-col items-center gap-1">
+              <span class="text-2xl font-bold text-error">{{ reviewForgottenCount }}</span>
+              <span class="text-xs text-gray-400">{{ $t('page.ai.vocabulary.forgottenCount') }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 无到期词汇 -->
+        <NEmpty v-else-if="!currentReviewWord" class="py-10" :description="$t('page.ai.vocabulary.reviewNoDue')" />
+
+        <!-- 复习卡片 -->
+        <div v-else class="flex flex-col gap-4">
+          <div class="text-center text-xs text-gray-400">
+            {{ reviewIndex + 1 }} / {{ reviewList.length }}
+          </div>
+          <div
+            v-if="lastReviewBox"
+            class="text-center text-12px text-success"
+          >
+            {{ lastReviewBox.word }} → {{ $t('page.ai.vocabulary.nextBox') }} {{ lastReviewBox.srsBox }}
+          </div>
+          <div
+            class="min-h-200px rounded-lg border border-gray-200 p-6 flex flex-col items-center justify-center cursor-pointer select-none dark:border-gray-700"
+            @click="reviewFlipped = !reviewFlipped"
+          >
+            <template v-if="!reviewFlipped">
+              <div class="flex items-center gap-2">
+                <span class="text-3xl font-bold text-primary">{{ currentReviewWord.word }}</span>
+                <NButton circle size="small" quaternary type="primary" @click.stop="handlePlay(currentReviewWord.word)">
+                  <template #icon>
+                    <SvgIcon icon="mdi:volume-high" class="text-20px" />
+                  </template>
+                </NButton>
+              </div>
+              <div class="mt-2 text-sm text-gray-400">{{ currentReviewWord.phonetic }}</div>
+            </template>
+            <template v-else>
+              <div class="text-lg text-gray-700 dark:text-gray-200">{{ currentReviewWord.definition }}</div>
+              <div v-if="currentReviewWord.example" class="mt-3 text-sm text-gray-500 italic">
+                {{ currentReviewWord.example }}
+              </div>
+              <div v-if="currentReviewWord.confusingWords" class="mt-2 text-xs text-gray-400">
+                {{ $t('page.ai.vocabulary.confusing') }}: {{ currentReviewWord.confusingWords }}
+              </div>
+            </template>
+            <div class="mt-4 text-xs text-gray-300">{{ $t('page.ai.vocabulary.reviewFlipHint') }}</div>
+          </div>
+          <div class="flex justify-center gap-6">
+            <NButton type="error" size="large" :loading="reviewSubmitting" @click="handleReview(false)">
+              {{ $t('page.ai.vocabulary.reviewForgot') }}
+            </NButton>
+            <NButton type="success" size="large" :loading="reviewSubmitting" @click="handleReview(true)">
+              {{ $t('page.ai.vocabulary.reviewKnow') }}
+            </NButton>
+          </div>
+        </div>
+      </NSpin>
     </NModal>
   </div>
 </template>

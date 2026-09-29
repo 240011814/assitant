@@ -160,5 +160,63 @@ declare namespace Api {
       createdAt: string
       updatedAt: string
     }
+
+    type StockAlertRuleType = 'price_above' | 'price_below' | 'change_pct_above' | 'change_pct_below'
+
+    interface StockAlert {
+      id: number
+      user_id: number
+      code: string
+      name: string
+      rule_type: StockAlertRuleType
+      threshold: number
+      enabled: boolean
+      last_triggered_at: string | null
+      last_triggered_value: number | null
+      created_at: string
+      updated_at: string
+    }
+
+    type BacktestField = 'price' | 'changePct' | 'turnoverRate' | 'amount' | 'peTtm' | 'pb'
+
+    type BacktestOperator = 'gt' | 'gte' | 'lt' | 'lte' | 'between'
+
+    interface BacktestCondition {
+      field: BacktestField
+      operator: BacktestOperator
+      value: number | [number, number]
+    }
+
+    interface BacktestRequest {
+      conditions: BacktestCondition[]
+      startYear?: number
+      endYear?: number
+      holdDays?: number
+      maxStocks?: number
+    }
+
+    interface BacktestPeriod {
+      rebalanceDate: string
+      sellDate: string
+      stockCount: number
+      return: number | null
+    }
+
+    interface BacktestSummary {
+      periodCount: number
+      meanReturn: number | null
+      medianReturn: number | null
+      winRate: number | null
+      bestReturn: number | null
+      worstReturn: number | null
+      cumulativeRet: number | null
+    }
+
+    interface BacktestResponse {
+      params: Record<string, unknown>
+      periods: BacktestPeriod[]
+      summary: BacktestSummary
+      skipped: number
+    }
   }
 }

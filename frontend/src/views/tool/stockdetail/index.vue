@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
+import { ref, onMounted, onUnmounted, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   stockDetail,
@@ -12,7 +12,9 @@ import {
 } from "@/service/api";
 import WatchlistAddDialog from "@/components/custom/watchlist-add-dialog.vue";
 import { useMessage, NButton, NDataTable, NTag, NSpin, NTabs, NTabPane } from "naive-ui";
-import * as echarts from "echarts";
+import { useEcharts } from '@/hooks/common/echarts';
+import type { ECOption } from '@/hooks/common/echarts';
+import type { BarSeriesOption, LineSeriesOption } from 'echarts/charts';
 
 defineOptions({ name: "ToolStockdetail" });
 
@@ -42,11 +44,27 @@ const financeLoading = ref(false);
 const financeChartGroup = ref<"profit" | "growth" | "operation" | "solvency">("profit");
 const syncState = ref<Api.Stock.SyncState | null>(null);
 
-const chartRef = ref<HTMLElement | null>(null);
-let chartInstance: echarts.ECharts | null = null;
+// 两个图表均由 useEcharts hook 托管(domRef + updateOptions, 自带 resize 监听/主题跟随/销毁)
+const { domRef: chartRef, updateOptions: updateFinanceChart } = useEcharts<ECOption>(() => ({
+  tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+  legend: { data: [], top: 0, textStyle: { fontSize: 12 } },
+  grid: { left: 50, right: 20, top: 40, bottom: 30 },
+  xAxis: { type: 'category', data: [], axisLabel: { fontSize: 11 } },
+  yAxis: [{ type: 'value', name: '', axisLabel: { fontSize: 11 } }],
+  series: []
+}));
 
-const klineChartRef = ref<HTMLElement | null>(null);
-let klineChartInstance: echarts.ECharts | null = null;
+const { domRef: klineChartRef, updateOptions: updateKlineChart } = useEcharts<ECOption>(() => ({
+  tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+  legend: { data: [], top: 0, textStyle: { fontSize: 12 } },
+  grid: { left: 50, right: 50, top: 40, bottom: 30 },
+  xAxis: { type: 'category', data: [], axisLabel: { fontSize: 11, rotate: 30 } },
+  yAxis: [
+    { type: 'value', name: '价格', position: 'left', axisLabel: { fontSize: 11 } },
+    { type: 'value', name: '涨跌%', position: 'right', show: false, axisLabel: { fontSize: 11 } }
+  ],
+  series: []
+}));
 
 const allKlineColumns = [
   { title: "日期", key: "date", width: 100, fixed: "left" as const },
@@ -746,7 +764,7 @@ const financeChartGroups: Record<
   },
 };
 
-function getChartOption() {
+function getChartOption(): ECOption {
   const data = [...financeHistory.value].reverse();
   const dates = data.map((d) => d.reportDate?.slice(0, 10) || "");
   const group = financeChartGroups[financeChartGroup.value] || financeChartGroups.profit;
@@ -783,10 +801,10 @@ function getChartOption() {
   };
 }
 
-function getKlineChartOption() {
+function getKlineChartOption(): ECOption {
   const data = [...klineData.value];
   const dates = data.map((d) => d.date || "");
-  const closeSeries = {
+  const closeSeries: LineSeriesOption = {
     name: "收盘价",
     type: "line",
     data: data.map((d) => d.close),
@@ -796,7 +814,7 @@ function getKlineChartOption() {
   };
   // 小时线无涨跌幅, 改为叠加均线
   const hourly = isHourly.value;
-  const series = hourly
+  const series: (LineSeriesOption | BarSeriesOption)[] = hourly
     ? [
         closeSeries,
         {
@@ -871,65 +889,56 @@ function getKlineChartOption() {
   };
 }
 
+// updateOptions 内部先 clear 再 setOption, 等价于原来的 notMerge 全量替换;
+// 若图表尚未渲染(domRef 尺寸为 0), option 会先缓存, 由 hook 在尺寸变化时渲染
 function renderChart() {
-  if (!chartRef.value || financeHistory.value.length === 0) return;
-  // 区块因 v-if 重建后 DOM 会更换, 实例绑定的旧 DOM 已分离, 需要重新初始化
-  if (!chartInstance || chartInstance.getDom() !== chartRef.value) {
-    chartInstance?.dispose();
-    chartInstance = echarts.init(chartRef.value);
-  }
-  // notMerge 完全替换, 避免分组切换时新旧 series 合并残留
-  chartInstance.setOption(getChartOption(), { notMerge: true });
+  if (financeHistory.value.length === 0) return;
+  updateFinanceChart(() => getChartOption());
 }
 
 function renderKlineChart() {
-  if (!klineChartRef.value || klineData.value.length === 0) return;
-  if (!klineChartInstance || klineChartInstance.getDom() !== klineChartRef.value) {
-    klineChartInstance?.dispose();
-    klineChartInstance = echarts.init(klineChartRef.value);
-  }
-  klineChartInstance.setOption(getKlineChartOption(), { notMerge: true });
+  if (klineData.value.length === 0) return;
+  updateKlineChart(() => getKlineChartOption());
 }
 
 watch(financeViewMode, (val) => {
   if (val === "chart") {
-    nextTick(() => renderChart());
+    renderChart();
   }
 });
 
 watch(klineViewMode, (val) => {
   if (val === "chart") {
-    nextTick(() => renderKlineChart());
+    renderKlineChart();
   }
 });
 
 watch(financeHistory, () => {
   if (financeViewMode.value === "chart") {
-    nextTick(() => renderChart());
+    renderChart();
   }
 });
 
 watch(financeChartGroup, () => {
   if (financeViewMode.value === "chart") {
-    nextTick(() => renderChart());
+    renderChart();
   }
 });
 
 // detail 加载完成后整个内容区块才挂载, 若数据先于 detail 到位需要补一次图表渲染
+// (updateOptions 内部已等待 nextTick 并在未渲染时缓存 option)
 watch(detail, () => {
-  nextTick(() => {
-    if (financeHistory.value.length > 0 && financeViewMode.value === "chart") {
-      renderChart();
-    }
-    if (klineData.value.length > 0 && klineViewMode.value === "chart") {
-      renderKlineChart();
-    }
-  });
+  if (financeHistory.value.length > 0 && financeViewMode.value === "chart") {
+    renderChart();
+  }
+  if (klineData.value.length > 0 && klineViewMode.value === "chart") {
+    renderKlineChart();
+  }
 });
 
 watch(klineData, () => {
   if (klineViewMode.value === "chart") {
-    nextTick(() => renderKlineChart());
+    renderKlineChart();
   }
 });
 
@@ -951,11 +960,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopSyncPolling();
-  // 释放 echarts 实例, 防止内存泄漏
-  chartInstance?.dispose();
-  chartInstance = null;
-  klineChartInstance?.dispose();
-  klineChartInstance = null;
+  // echarts 实例由 useEcharts hook 在作用域销毁时自动 dispose, 无需手动释放
 });
 </script>
 
@@ -1125,9 +1130,9 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <!-- K线数据 -->
+            <!-- K线数据 (v-show 保持图表 DOM 稳定, 由 useEcharts 托管) -->
             <div
-              v-if="klineData.length > 0 || klineEmpty"
+              v-show="klineData.length > 0 || klineEmpty"
               class="mt-4 p-4 bg-white rounded-lg shadow"
             >
               <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -1158,13 +1163,13 @@ onUnmounted(() => {
 
               <NSpin :show="klineLoading">
                 <div
-                  v-if="klineData.length === 0"
+                  v-show="klineData.length === 0"
                   class="py-10 text-center text-gray-400"
                 >
                   <div class="text-14px">该周期暂无数据</div>
                   <div class="text-12px mt-1">请先同步该股票的K线数据</div>
                 </div>
-                <template v-else>
+                <div v-show="klineData.length > 0">
                   <!-- 图表模式 -->
                   <div
                     v-show="klineViewMode === 'chart'"
@@ -1188,13 +1193,13 @@ onUnmounted(() => {
                   >
                     仅显示最近20条, 图表模式可查看全部 {{ klineData.length }} 条
                   </div>
-                </template>
+                </div>
               </NSpin>
             </div>
 
-            <!-- 历史财务数据 (指数/ETF无财务, 不显示) -->
+            <!-- 历史财务数据 (指数/ETF无财务, 不显示; v-show 保持图表 DOM 稳定) -->
             <div
-              v-if="!noFinance && financeHistory.length > 0"
+              v-show="!noFinance && financeHistory.length > 0"
               class="mt-4 p-4 bg-white rounded-lg shadow"
             >
               <div class="flex items-center justify-between mb-3 flex-wrap gap-2">

@@ -51,8 +51,10 @@ declare module "@elegant-router/types" {
     "system_skill": "/system/skill";
     "system_user": "/system/user";
     "tool": "/tool";
+    "tool_backtest": "/tool/backtest";
     "tool_calendar": "/tool/calendar";
     "tool_macro": "/tool/macro";
+    "tool_stock-alert": "/tool/stock-alert";
     "tool_stockdetail": "/tool/stockdetail";
     "tool_stockscreen": "/tool/stockscreen";
     "tool_watchlist": "/tool/watchlist";
@@ -149,8 +151,10 @@ declare module "@elegant-router/types" {
     | "system_permission"
     | "system_skill"
     | "system_user"
+    | "tool_backtest"
     | "tool_calendar"
     | "tool_macro"
+    | "tool_stock-alert"
     | "tool_stockdetail"
     | "tool_stockscreen"
     | "tool_watchlist"

@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"time"
 
 	"backend/api"
 	"backend/config"
+	"backend/model"
 	"backend/service"
 	"backend/service/tools"
 
@@ -132,11 +134,22 @@ func main() {
 	stockService := service.NewStockService()
 	stockHandler := api.NewStockHandler(stockService, cfg.Baostock.URL)
 
+	// 自选股预警 (基于最新收盘评估, Telegram/邮件推送)
+	stockAlertService := service.NewStockAlertService(emailNotifier, telegramService)
+	stockAlertHandler := api.NewStockAlertHandler(stockAlertService)
+
+	// 策略回测 (ClickHouse 只读副本)
+	backtestHandler := api.NewBacktestHandler(service.NewBacktestService())
+
 	// Job Handler + 注册后台可调度的定时任务
 	jobHandler := api.NewJobHandler(jobScheduler)
 	if jobScheduler != nil {
 		stockHandler.RegisterCronTasks(jobScheduler)
 		userMemoryService.RegisterCronTasks(jobScheduler)
+		jobScheduler.RegisterTask("stock.evaluate_alerts", "评估自选股预警规则并推送 (建议每个交易日收盘后)", json.RawMessage(`{}`), func(_ *model.JobDefinition, _ json.RawMessage) error {
+			_, err := stockAlertService.EvaluateAll()
+			return err
+		})
 	}
 
 	r.GET("/api/health", func(c *gin.Context) {
@@ -209,6 +222,9 @@ func main() {
 			vocabGroup.POST("", api.RequirePermission("ai:vocabulary:add"), vocabHandler.HandleAddWord)
 			vocabGroup.GET("", vocabHandler.HandleListWords)
 			vocabGroup.GET("/random", vocabHandler.HandleGetRandomWords)
+			vocabGroup.GET("/review/due", vocabHandler.HandleGetDueWords)
+			vocabGroup.GET("/review/stats", vocabHandler.HandleGetReviewStats)
+			vocabGroup.POST("/review/:id", api.RequirePermission("ai:vocabulary:edit"), vocabHandler.HandleSubmitReview)
 			vocabGroup.PUT("/:id", api.RequirePermission("ai:vocabulary:edit"), vocabHandler.HandleUpdateWord)
 			vocabGroup.DELETE("/:id", api.RequirePermission("ai:vocabulary:delete"), vocabHandler.HandleDeleteWord)
 		}
@@ -372,6 +388,15 @@ func main() {
 			stockGroup.GET("/watchlist/groups", api.RequirePermission("stock:watchlist:view"), stockHandler.HandleListWatchlistGroups)
 			stockGroup.GET("/watchlist/codes", api.RequirePermission("stock:watchlist:view"), stockHandler.HandleListWatchlistCodes)
 			stockGroup.DELETE("/watchlist/:id", api.RequirePermission("stock:watchlist:edit"), stockHandler.HandleDeleteWatchlist)
+
+			// 自选股预警 (复用 watchlist 权限)
+			stockGroup.GET("/alerts", api.RequirePermission("stock:watchlist:view"), stockAlertHandler.HandleListAlerts)
+			stockGroup.POST("/alerts", api.RequirePermission("stock:watchlist:edit"), stockAlertHandler.HandleCreateAlert)
+			stockGroup.PUT("/alerts/:id", api.RequirePermission("stock:watchlist:edit"), stockAlertHandler.HandleUpdateAlert)
+			stockGroup.DELETE("/alerts/:id", api.RequirePermission("stock:watchlist:edit"), stockAlertHandler.HandleDeleteAlert)
+
+			// 策略回测 (ClickHouse 只读副本)
+			stockGroup.POST("/backtest", api.RequirePermission("stock:screen:view"), backtestHandler.HandleRun)
 
 			// 数据同步(管理员)
 			stockGroup.POST("/sync/stock-list", api.RequirePermission("stock:sync:execute"), stockHandler.HandleSyncStockList)

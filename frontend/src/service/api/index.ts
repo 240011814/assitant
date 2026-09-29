@@ -15,6 +15,8 @@ export * from './course';
 export * from './error-book';
 export * from './reminder';
 export * from './stock';
+export * from './stock-alert';
+export * from './backtest';
 export * from './macro';
 export * from './job';
 export * from './skill';

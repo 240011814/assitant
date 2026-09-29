@@ -736,6 +736,77 @@ declare namespace App {
           };
           exercise: Record<string, string>;
         };
+        tool: {
+          stockAlert: {
+            title: string;
+            addRule: string;
+            code: string;
+            codePlaceholder: string;
+            codeInvalid: string;
+            name: string;
+            namePlaceholder: string;
+            ruleTypeLabel: string;
+            ruleType: {
+              price_above: string;
+              price_below: string;
+              change_pct_above: string;
+              change_pct_below: string;
+            };
+            threshold: string;
+            thresholdRequired: string;
+            priceHint: string;
+            pctHint: string;
+            enabled: string;
+            lastTriggeredAt: string;
+            actions: string;
+            loadFailed: string;
+            updateFailed: string;
+            deleteFailed: string;
+            createFailed: string;
+            createSuccess: string;
+            emptyTip: string;
+            addFirstRule: string;
+          };
+          backtest: {
+            title: string;
+            conditions: string;
+            addCondition: string;
+            conditionsTip: string;
+            params: string;
+            startYear: string;
+            endYear: string;
+            holdDays: string;
+            maxStocks: string;
+            run: string;
+            running: string;
+            runFailed: string;
+            yearInvalid: string;
+            emptyTip: string;
+            periodCount: string;
+            meanReturn: string;
+            medianReturn: string;
+            winRate: string;
+            bestReturn: string;
+            worstReturn: string;
+            cumulativeRet: string;
+            skipped: string;
+            periodChart: string;
+            periodTable: string;
+            rebalanceDate: string;
+            sellDate: string;
+            stockCount: string;
+            return: string;
+            between: string;
+            field: {
+              price: string;
+              changePct: string;
+              turnoverRate: string;
+              amount: string;
+              peTtm: string;
+              pb: string;
+            };
+          };
+        };
         userPortrait: {
           portrait: string;
           experiences: string;

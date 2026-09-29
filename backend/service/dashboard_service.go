@@ -53,19 +53,29 @@ func (s *DashboardService) GetStats(userID uint) (*model.DashboardStats, error) 
 		log.Printf("[Dashboard] 统计收藏失败 user=%d: %v", userID, err)
 	}
 
-	// 近7天消息趋势
+	// 近7天消息趋势: 一条 GROUP BY 聚合 (原循环 7 次单日 Count), 应用侧补齐无数据的日期
+	type trendRow struct {
+		Day   string `gorm:"column:day"`
+		Count int64  `gorm:"column:cnt"`
+	}
+	var trendRows []trendRow
+	if err := DB.Model(&model.TrainingMessage{}).
+		Joins("JOIN training_histories ON training_histories.id = training_messages.history_id").
+		Where("training_histories.user_id = ? AND DATE(training_messages.created_at) >= ?", userID, time.Now().AddDate(0, 0, -6).Format("2006-01-02")).
+		Select("DATE(training_messages.created_at) as day, COUNT(*) as cnt").
+		Group("day").
+		Scan(&trendRows).Error; err != nil {
+		log.Printf("[Dashboard] 统计趋势失败 user=%d: %v", userID, err)
+	}
+	trendMap := make(map[string]int64, len(trendRows))
+	for _, r := range trendRows {
+		trendMap[r.Day] = r.Count
+	}
 	for i := 6; i >= 0; i-- {
 		date := time.Now().AddDate(0, 0, -i).Format("2006-01-02")
-		var count int64
-		if err := DB.Model(&model.TrainingMessage{}).
-			Joins("JOIN training_histories ON training_histories.id = training_messages.history_id").
-			Where("training_histories.user_id = ? AND DATE(training_messages.created_at) = ?", userID, date).
-			Count(&count).Error; err != nil {
-			log.Printf("[Dashboard] 统计趋势失败 user=%d date=%s: %v", userID, date, err)
-		}
 		stats.TrainingTrend = append(stats.TrainingTrend, model.TrendItem{
 			Date:  date,
-			Count: count,
+			Count: trendMap[date],
 		})
 	}
 

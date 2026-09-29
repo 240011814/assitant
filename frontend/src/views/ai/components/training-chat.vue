@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref, computed, onBeforeUnmount, onMounted, onActivated } from "vue";
+import { nextTick, ref, shallowRef, computed, onBeforeUnmount, onMounted, onActivated } from "vue";
 import { useFullscreen } from "@vueuse/core";
 import { useMessage, NDrawer, NDrawerContent, NModal, NInput } from "naive-ui";
 import { useAppStore } from "@/store/modules/app";
@@ -185,6 +185,8 @@ const showTitleModal = ref(false);
 const editTitle = ref("");
 const inputMessage = ref("");
 const isGenerating = ref(false);
+// 当前流式请求的中断控制器(用于"停止生成"与组件卸载时中止)
+const abortController = shallowRef<AbortController | null>(null);
 const scrollbarRef = ref<any>(null);
 const message = useMessage();
 let scrollFrame = 0;
@@ -455,6 +457,23 @@ const setAssistantError = (content: string) => {
   };
 };
 
+// 停止生成: 保留已收到的部分回复并追加标注(不标记为错误)
+const markAssistantStopped = () => {
+  const lastIdx = messages.value.length - 1;
+  const lastMsg = messages.value[lastIdx];
+  const content = lastMsg.content ? `${lastMsg.content}\n\n（已停止生成）` : '已停止生成';
+  messages.value[lastIdx] = {
+    ...lastMsg,
+    content,
+    renderedContent: renderMessageContent(content),
+    isError: false,
+  };
+};
+
+const handleStopGeneration = () => {
+  abortController.value?.abort();
+};
+
 const setAssistantThinking = (thinking: string) => {
   const lastIdx = messages.value.length - 1;
   const lastMsg = messages.value[lastIdx];
@@ -501,6 +520,9 @@ const sendMessage = async () => {
   scrollToBottom();
   isGenerating.value = true;
 
+  const controller = new AbortController();
+  abortController.value = controller;
+
   try {
     const routeName = props.trainingType || (route.name as string) || "ai_agent";
     const history = messages.value
@@ -515,6 +537,7 @@ const sendMessage = async () => {
       agent_id: props.agentId,
       model: selectedModel.value,
       messages: apiMessages,
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -604,10 +627,18 @@ const sendMessage = async () => {
       }
     }
   } catch (err: any) {
-    setAssistantError(`连接 AI 服务失败: ${err?.message || "未知错误"}。`);
-    isGenerating.value = false;
+    if (controller.signal.aborted) {
+      // 用户主动停止: 保留已收到的部分回复并标注, 不作为错误处理
+      markAssistantStopped();
+    } else {
+      setAssistantError(`连接 AI 服务失败: ${err?.message || "未知错误"}。`);
+      isGenerating.value = false;
+    }
   } finally {
     isGenerating.value = false;
+    if (abortController.value === controller) {
+      abortController.value = null;
+    }
     await scrollToBottom();
     parseVocabSuggestions();
   }
@@ -618,6 +649,43 @@ const handleEnter = (event: KeyboardEvent) => {
     event.preventDefault();
     sendMessage();
   }
+};
+
+// 对话中最后一条 user 消息的下标(用于"编辑重发", -1 表示不存在)
+const lastUserMessageIndex = computed(() => {
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    if (messages.value[i].role === 'user') return i;
+  }
+  return -1;
+});
+
+// 编辑重发: 将该条 user 消息内容回填输入框, 并从该条起截断之后的全部消息; 重新发送走现有 sendMessage
+const handleEditMessage = (index: number) => {
+  if (isGenerating.value) return;
+  const msg = messages.value[index];
+  if (!msg || msg.role !== 'user') return;
+  inputMessage.value = msg.content;
+  messages.value.splice(index);
+  scrollToBottom();
+};
+
+// 失败重试: 移除错误回复及其后的消息, 以其前一条 user 消息内容重新发送
+const handleRetryMessage = (index: number) => {
+  if (isGenerating.value) return;
+  const msg = messages.value[index];
+  if (!msg || msg.role !== 'assistant' || !msg.isError) return;
+  let userIdx = -1;
+  for (let i = index - 1; i >= 0; i--) {
+    if (messages.value[i].role === 'user') {
+      userIdx = i;
+      break;
+    }
+  }
+  if (userIdx < 0) return;
+  const userContent = messages.value[userIdx].content;
+  messages.value.splice(userIdx);
+  inputMessage.value = userContent;
+  sendMessage();
 };
 
 const handleApplySuggestion = (vocab: VocabSuggestion) => {
@@ -882,6 +950,9 @@ onActivated(() => {
 });
 
 onBeforeUnmount(() => {
+  // 组件卸载时中止进行中的流式请求, 释放 AbortController
+  abortController.value?.abort();
+  abortController.value = null;
   if (scrollFrame) {
     window.cancelAnimationFrame(scrollFrame);
     scrollFrame = 0;
@@ -1058,6 +1129,20 @@ onBeforeUnmount(() => {
                       class="flex items-center gap-0.5 mt-1 justify-end opacity-0 group-hover/btn:opacity-100 transition-all duration-200"
                     >
                       <ButtonIcon
+                        v-if="msg.role === 'user' && index === lastUserMessageIndex && !isGenerating"
+                        icon="mdi:pencil-outline"
+                        class="!h-28px !w-28px text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400"
+                        tooltip-content="编辑"
+                        @click.stop="handleEditMessage(index)"
+                      />
+                      <ButtonIcon
+                        v-if="msg.role === 'assistant' && msg.isError && !isGenerating"
+                        icon="mdi:refresh"
+                        class="!h-28px !w-28px text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400"
+                        tooltip-content="重试"
+                        @click.stop="handleRetryMessage(index)"
+                      />
+                      <ButtonIcon
                         icon="mdi:content-copy"
                         class="!h-28px !w-28px text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
                         tooltip-content="复制"
@@ -1211,6 +1296,20 @@ onBeforeUnmount(() => {
                     </span>
                   </div>
                   <div v-if="msg.content" class="flex items-center gap-0.5 justify-end">
+                    <ButtonIcon
+                      v-if="msg.role === 'user' && index === lastUserMessageIndex && !isGenerating"
+                      icon="mdi:pencil-outline"
+                      class="!h-28px !w-28px text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400"
+                      tooltip-content="编辑"
+                      @click.stop="handleEditMessage(index)"
+                    />
+                    <ButtonIcon
+                      v-if="msg.role === 'assistant' && msg.isError && !isGenerating"
+                      icon="mdi:refresh"
+                      class="!h-28px !w-28px text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400"
+                      tooltip-content="重试"
+                      @click.stop="handleRetryMessage(index)"
+                    />
                     <ButtonIcon
                       icon="mdi:content-copy"
                       class="!h-28px !w-28px text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
@@ -1366,12 +1465,27 @@ onBeforeUnmount(() => {
                   </template>
                 </NButton>
               </Transition>
-              <Transition name="scale">
+              <Transition name="scale" mode="out-in">
                 <NButton
-                  v-show="inputMessage.trim() || isGenerating"
+                  v-if="isGenerating && abortController"
+                  key="stop"
+                  quaternary
+                  circle
+                  size="small"
+                  class="stop-btn"
+                  title="停止生成"
+                  @click="handleStopGeneration"
+                >
+                  <template #icon>
+                    <SvgIcon icon="mdi:stop-circle-outline" />
+                  </template>
+                </NButton>
+                <NButton
+                  v-else
+                  key="send"
+                  v-show="inputMessage.trim()"
                   type="primary"
                   size="small"
-                  :loading="isGenerating"
                   class="send-btn send-btn-active"
                   @click="sendMessage"
                 >
@@ -1422,12 +1536,27 @@ onBeforeUnmount(() => {
                     </template>
                   </NButton>
                 </Transition>
-                <Transition name="scale">
+                <Transition name="scale" mode="out-in">
                   <NButton
-                    v-show="inputMessage.trim() || isGenerating"
+                    v-if="isGenerating && abortController"
+                    key="stop"
+                    quaternary
+                    circle
+                    size="tiny"
+                    class="stop-btn"
+                    title="停止生成"
+                    @click="handleStopGeneration"
+                  >
+                    <template #icon>
+                      <SvgIcon icon="mdi:stop-circle-outline" />
+                    </template>
+                  </NButton>
+                  <NButton
+                    v-else
+                    key="send"
+                    v-show="inputMessage.trim()"
                     type="primary"
                     size="tiny"
-                    :loading="isGenerating"
                     class="send-btn-mobile send-btn-active"
                     @click="sendMessage"
                   >
@@ -1914,6 +2043,23 @@ onBeforeUnmount(() => {
   background-color: rgba(239, 68, 68, 0.08) !important;
 }
 .dark .clear-btn:hover {
+  color: #f87171;
+  background-color: rgba(248, 113, 113, 0.12) !important;
+}
+
+/* 停止生成按钮 */
+.stop-btn {
+  color: #6b7280;
+  transition: all 0.2s;
+}
+.stop-btn:hover {
+  color: #ef4444;
+  background-color: rgba(239, 68, 68, 0.08) !important;
+}
+.dark .stop-btn {
+  color: #9ca3af;
+}
+.dark .stop-btn:hover {
   color: #f87171;
   background-color: rgba(248, 113, 113, 0.12) !important;
 }

@@ -365,7 +365,8 @@ var klineFrequencies = []string{"daily", "weekly", "monthly", "60"}
 // weeklyMonthlyFreqs 普通股票逐股增量周期 (日K按日全量已覆盖, 此处补周/月/小时)
 var weeklyMonthlyFreqs = []string{"weekly", "monthly", "60"}
 
-// indexKlineFreqs 指数逐股全周期 (指数日K不在按日全量接口返回中; 指数小时线待验证 baostock 支持后加入)
+// indexKlineFreqs 指数逐股全周期 (指数日K不在按日全量接口返回中)
+// 指数小时线已实测(2026-09-29): baostock 对指数 60min 返回 error_code=0 但 0 行 (近期/历史均无数据), 无法同步
 var indexKlineFreqs = []string{"daily", "weekly", "monthly"}
 
 // KlineFrequencies 暴露全部K线周期 (供单股同步调用)
@@ -940,6 +941,10 @@ func (s *StockSyncService) storeDailyDayRows(rows []model.StockDaily, isST map[s
 			return err
 		}
 	}
+	// 刷新"每股最新日K快照" (筛选页大查询专用)
+	if err := refreshLatestSnapshot(rows); err != nil {
+		log.Printf("[StockSync] 刷新最新日K快照失败 day=%s: %v", day, err)
+	}
 
 	// 已知股票批量推进日K水位 (一次性, 不覆盖周/月列)
 	dayT, _ := parseTradeDay(day)
@@ -1152,6 +1157,12 @@ func (s *StockSyncService) SyncSingleStockDaily(code, market string, starts map[
 			}).Create(&batch).Error; err != nil {
 				s.refreshKlineState(code, freqDates, err)
 				return total, fmt.Errorf("写入 %s %s K线数据失败: %v", code, freq, err)
+			}
+		}
+		// 日K写入同步刷新"每股最新日K快照" (筛选页大查询专用; 内部带日期前进守卫)
+		if freq == "daily" {
+			if err := refreshLatestSnapshot(dailies); err != nil {
+				log.Printf("[StockSync] 刷新最新日K快照失败 code=%s: %v", code, err)
 			}
 		}
 
@@ -1657,14 +1668,17 @@ func parseIntPtr(s string) *int8 {
 
 // httpGet 发送HTTP GET请求 (复用 client 连接, 429限额错误不重试)
 func (s *StockSyncService) httpGet(url string) ([]byte, error) {
+	// 重试 3 次 (共 4 次尝试): 瞬时断连主要由 baostock 代理内层重试消化,
+	// 这里只做短兜底, 避免单个 URL 最坏拖 20 分钟占住同步串行流程
 	var lastErr error
-	for retry := 0; retry < 8; retry++ {
+	const maxAttempts = 4
+	for retry := 0; retry < maxAttempts; retry++ {
 		delay := time.Duration(3<<max(retry, 0)) * time.Second
 		if delay > 60*time.Second {
 			delay = 60 * time.Second
 		}
-		log.Printf("[StockSync] 请求 %s (重试 %d, 延迟 %v)", url, retry, delay)
 		if retry > 0 {
+			log.Printf("[StockSync] 请求 %s (重试 %d/%d, 延迟 %v)", url, retry, maxAttempts-1, delay)
 			time.Sleep(delay)
 		}
 
@@ -1703,7 +1717,7 @@ func (s *StockSyncService) httpGet(url string) ([]byte, error) {
 		return data, nil
 	}
 
-	return nil, fmt.Errorf("请求失败(重试3次): %v", lastErr)
+	return nil, fmt.Errorf("请求失败(已重试%d次): %v", maxAttempts-1, lastErr)
 }
 
 // httpGetWithDelay 带延迟的HTTP请求 (串行调用 + 成功后短暂延迟, 避免触发第三方限流)

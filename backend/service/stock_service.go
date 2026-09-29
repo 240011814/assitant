@@ -27,23 +27,22 @@ func (s *StockService) Screen(req model.StockScreenRequest) (*model.StockScreenR
 		req.PageSize = 20
 	}
 
-	// 构建基础查询：关联 stock_info + 最新行情 + 最新财务
+	// 构建基础查询：关联 stock_info + 每股最新日K快照(stock_daily_latest, 由同步链路维护) + 最新财务
+	// 原写法对每行执行 MAX(trade_date) 相关子查询且 Count/Find 跑两遍大 JOIN, 大表上不可扩展
 	query := DB.Table("stock_info AS si").
 		Select(`si.code, si.name, si.market, si.type, si.industry,
-			sd.close AS price, sd.change_pct AS change_pct, sd.turnover_rate, sd.amount,
-			CASE WHEN si.total_share > 0 THEN ROUND(sd.close * si.total_share / 10000, 2)
+			sdl.close AS price, sdl.change_pct AS change_pct, sdl.turnover_rate, sdl.amount,
+			CASE WHEN si.total_share > 0 THEN ROUND(sdl.close * si.total_share / 10000, 2)
 			     WHEN si.total_market_cap > 0 THEN ROUND(si.total_market_cap / 100000000, 2)
 			     ELSE NULL END AS market_cap,
-			CASE WHEN si.float_share > 0 THEN ROUND(sd.close * si.float_share / 10000, 2)
+			CASE WHEN si.float_share > 0 THEN ROUND(sdl.close * si.float_share / 10000, 2)
 			     WHEN si.float_market_cap > 0 THEN ROUND(si.float_market_cap / 100000000, 2)
 			     ELSE NULL END AS float_market_cap,
-			CASE WHEN sf.eps != 0 THEN ROUND(sd.close / sf.eps, 2) ELSE NULL END AS pe_ttm,
-			sd.pb_mrq AS pb,
+			COALESCE(sdl.pe_ttm, CASE WHEN sf.eps != 0 THEN ROUND(sdl.close / sf.eps, 2) ELSE NULL END) AS pe_ttm,
+			sdl.pb_mrq AS pb,
 			sf.roe, sf.revenue_yoy, sf.net_profit_yoy,
 			sf.gross_margin, sf.net_margin, sf.debt_ratio, sf.current_ratio, sf.quick_ratio`).
-		Joins(`LEFT JOIN stock_daily AS sd ON sd.code = si.code AND sd.frequency = 'daily' AND sd.trade_date = (
-			SELECT MAX(trade_date) FROM stock_daily WHERE code = si.code AND frequency = 'daily'
-		)`).
+		Joins(`LEFT JOIN stock_daily_latest AS sdl ON sdl.code = si.code`).
 		Joins(`LEFT JOIN stock_finance AS sf ON sf.code = si.code AND sf.report_date = (
 			SELECT MAX(report_date) FROM stock_finance WHERE code = si.code
 		)`)
@@ -189,21 +188,22 @@ func (s *StockService) Screen(req model.StockScreenRequest) (*model.StockScreenR
 // applyCondition 应用单个筛选条件
 func (s *StockService) applyCondition(query *gorm.DB, cond model.FilterCondition) *gorm.DB {
 	// 注意: market_cap/pe_ttm/pb 是 SELECT 里的计算别名, MySQL 不允许 WHERE 引用 SELECT 别名,
-	// 因此这里必须内联等价原始表达式 (与 SELECT 口径一致), 否则直接 SQL 1054 报错或过滤恒不生效
+	// 因此这里必须内联等价原始表达式 (与 SELECT 口径一致), 否则直接 SQL 1054 报错或过滤恒不生效;
+	// peTtm 与展示口径一致: 优先官方 pe_ttm (按日全量同步写入), 缺失时回退 close/eps 现算
 	fieldMap := map[string]string{
-		"peTtm":        "CASE WHEN sf.eps != 0 THEN ROUND(sd.close / sf.eps, 2) ELSE NULL END",
-		"pb":           "sd.pb_mrq",
+		"peTtm":        "COALESCE(sdl.pe_ttm, CASE WHEN sf.eps != 0 THEN ROUND(sdl.close / sf.eps, 2) ELSE NULL END)",
+		"pb":           "sdl.pb_mrq",
 		"roe":          "sf.roe",
 		"revenueYoy":   "sf.revenue_yoy",
 		"netProfitYoy": "sf.net_profit_yoy",
-		"price":        "sd.close",
-		"changePct":    "sd.change_pct",
-		"turnoverRate": "sd.turnover_rate",
-		"amount":       "sd.amount",
-		"marketCap": `CASE WHEN si.total_share > 0 THEN ROUND(sd.close * si.total_share / 10000, 2)
+		"price":        "sdl.close",
+		"changePct":    "sdl.change_pct",
+		"turnoverRate": "sdl.turnover_rate",
+		"amount":       "sdl.amount",
+		"marketCap": `CASE WHEN si.total_share > 0 THEN ROUND(sdl.close * si.total_share / 10000, 2)
 			WHEN si.total_market_cap > 0 THEN ROUND(si.total_market_cap / 100000000, 2)
 			ELSE NULL END`,
-		"floatMarketCap": `CASE WHEN si.float_share > 0 THEN ROUND(sd.close * si.float_share / 10000, 2)
+		"floatMarketCap": `CASE WHEN si.float_share > 0 THEN ROUND(sdl.close * si.float_share / 10000, 2)
 			WHEN si.float_market_cap > 0 THEN ROUND(si.float_market_cap / 100000000, 2)
 			ELSE NULL END`,
 	}
@@ -418,7 +418,7 @@ func (s *StockService) GetDetail(code string) (*model.StockScreenResult, error) 
 			CASE WHEN si.float_share > 0 THEN ROUND(sd.close * si.float_share / 10000, 2)
 			     WHEN si.float_market_cap > 0 THEN ROUND(si.float_market_cap / 100000000, 2)
 			     ELSE NULL END AS float_market_cap,
-			CASE WHEN sf.eps != 0 THEN ROUND(sd.close / sf.eps, 2) ELSE NULL END AS pe_ttm,
+			COALESCE(sd.pe_ttm, CASE WHEN sf.eps != 0 THEN ROUND(sd.close / sf.eps, 2) ELSE NULL END) AS pe_ttm,
 			sd.pb_mrq AS pb,
 			sf.roe, sf.revenue_yoy, sf.net_profit_yoy,
 			sf.gross_margin, sf.net_margin, sf.debt_ratio, sf.current_ratio, sf.quick_ratio,
@@ -462,7 +462,7 @@ func (s *StockService) GetDetail(code string) (*model.StockScreenResult, error) 
 		NrTurnRatio:    result.NrTurnRatio,
 		InvTurnRatio:   result.InvTurnRatio,
 		YoyEquity:      result.YoyEquity,
-YoyAsset:      result.YoyAsset,
+		YoyAsset:       result.YoyAsset,
 		CfoToOr:        result.CfoToOr,
 	}
 
@@ -702,7 +702,7 @@ func (s *StockService) ListWatchlist(userID uint) ([]model.StockWatchlistItem, e
 			CASE WHEN si.float_share > 0 THEN ROUND(sd.close * si.float_share / 10000, 2)
 			     WHEN si.float_market_cap > 0 THEN ROUND(si.float_market_cap / 100000000, 2)
 			     ELSE NULL END AS float_market_cap,
-			CASE WHEN sf.eps != 0 THEN ROUND(sd.close / sf.eps, 2) ELSE NULL END AS pe_ttm,
+			COALESCE(sd.pe_ttm, CASE WHEN sf.eps != 0 THEN ROUND(sd.close / sf.eps, 2) ELSE NULL END) AS pe_ttm,
 			sd.pb_mrq AS pb,
 			sf.roe, sf.revenue_yoy, sf.net_profit_yoy, sf.gross_margin, sf.net_margin,
 			sf.debt_ratio, sf.current_ratio, sf.quick_ratio`).

@@ -408,6 +408,16 @@ export const generatedRoutes: GeneratedRoute[] = [
     },
     children: [
       {
+        name: 'tool_backtest',
+        path: '/tool/backtest',
+        component: 'view.tool_backtest',
+        meta: {
+          title: 'tool_backtest',
+          i18nKey: 'route.tool_backtest',
+          icon: 'mdi:chart-bar'
+        }
+      },
+      {
         name: 'tool_calendar',
         path: '/tool/calendar',
         component: 'view.tool_calendar',
@@ -428,6 +438,16 @@ export const generatedRoutes: GeneratedRoute[] = [
           icon: 'mdi:bank-outline',
           permissions: ['stock:macro:view'],
           order: 13
+        }
+      },
+      {
+        name: 'tool_stock-alert',
+        path: '/tool/stock-alert',
+        component: 'view.tool_stock-alert',
+        meta: {
+          title: 'tool_stock-alert',
+          i18nKey: 'route.tool_stock-alert',
+          icon: 'mdi:bell-outline'
         }
       },
       {

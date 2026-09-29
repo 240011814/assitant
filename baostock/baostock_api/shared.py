@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
@@ -57,12 +58,19 @@ class DailyLimitExceeded(RuntimeError):
 
 
 class UsageCounter:
+    # 落盘节流间隔: 内存计数即时生效, 磁盘每 5s 写一次(原每请求 fsync 一次);
+    # 崩溃最多丢最近 5s 的计数, 只会少计不会超限, 可接受
+    PERSIST_INTERVAL_SECONDS = 5.0
+
     def __init__(self, usage_file: Path, daily_limit: int):
         self.usage_file = usage_file
         self.daily_limit = daily_limit
         self.lock = threading.Lock()
         self.usage_file.parent.mkdir(parents=True, exist_ok=True)
+        self._last_persist = 0.0
+        self._dirty = False
         self.stats = self._load_stats()
+        atexit.register(self._flush_stats)
 
     def _today(self) -> str:
         return date.today().isoformat()
@@ -106,9 +114,24 @@ class UsageCounter:
                 fh.flush()
                 os.fsync(fh.fileno())
             os.replace(tmp_file, self.usage_file)
+            self._last_persist = time.monotonic()
+            self._dirty = False
         except OSError as error:
             # 持久化失败只记日志不抛: 内存计数仍在, 不能因写盘问题影响主查询响应
             logging.error("persist %s failed: %s", self.usage_file, error)
+
+    def _save_stats_throttled(self, stats: UsageStats) -> None:
+        # 节流版: 距上次落盘不足间隔时只更新内存计数并标记 dirty, 由 atexit 补写
+        if time.monotonic() - self._last_persist < self.PERSIST_INTERVAL_SECONDS:
+            self._dirty = True
+            return
+        self._save_stats(stats)
+
+    def _flush_stats(self) -> None:
+        # 进程退出时补写节流期间未落盘的计数
+        if self._dirty:
+            with self.lock:
+                self._save_stats(self.stats)
 
     def _reset_if_needed(self, stats: UsageStats) -> UsageStats:
         today = self._today()
@@ -136,7 +159,7 @@ class UsageCounter:
                 raise DailyLimitExceeded("daily_limit_exceeded")
 
             self.stats.count += 1
-            self._save_stats(self.stats)
+            self._save_stats_throttled(self.stats)
             return UsageStats(
                 date=self.stats.date,
                 count=self.stats.count,

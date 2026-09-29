@@ -195,21 +195,20 @@ const loadData = async () => {
     }
 
     // 生词本模式
-    const { data: res } = await fetchGetVocabularyList({ isMastered: false });
-    if (res) {
-      if (mode === "all") {
-        rawWords.value = res.filter((item) => item.example);
-      } else if (ids) {
-        const { data: allRes } = await fetchGetVocabularyList();
-        if (allRes) {
-          const idList = ids.split(",").map(Number);
-          rawWords.value = allRes.filter(
-            (item) => idList.includes(item.id) && item.example
-          );
-        }
-      } else {
-        rawWords.value = res.filter((item) => item.example);
-      }
+    let vocabList: any[] | undefined;
+    if (mode === "all") {
+      const { data: res } = await fetchGetVocabularyList({ isMastered: false });
+      vocabList = res || undefined;
+    } else if (ids) {
+      // 按 ids 练习: 直接用 ids 参数查询(后端支持按主键过滤), 不再拉全量词汇表
+      const { data: res } = await fetchGetVocabularyList({ ids });
+      vocabList = res || undefined;
+    } else {
+      const { data: res } = await fetchGetVocabularyList({ isMastered: false });
+      vocabList = res || undefined;
+    }
+    if (vocabList) {
+      rawWords.value = vocabList.filter((item) => item.example);
 
       if (rawWords.value.length === 0) {
         message.warning("没找到含有例句的可练习单词");

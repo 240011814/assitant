@@ -20,9 +20,9 @@ export function fetchAddVocabulary(data: {
 
 /**
  * 获取生词列表
- * @param params 查询参数
+ * @param params 查询参数, ids 为逗号分隔的主键串(如 '1,2,3'), 后端按主键过滤
  */
-export function fetchGetVocabularyList(params?: { keyword?: string; isMastered?: boolean }) {
+export function fetchGetVocabularyList(params?: { keyword?: string; isMastered?: boolean; ids?: string }) {
   return request<any[]>({
     url: '/api/vocabulary',
     method: 'get',
@@ -68,5 +68,35 @@ export function fetchGetRandomVocabulary(params: { count?: number; isMastered?: 
     url: '/api/vocabulary/random',
     method: 'get',
     params
+  });
+}
+
+/** 获取 SRS 到期复习词汇 */
+export function fetchGetDueVocabulary(params?: { limit?: number }) {
+  return request<Api.Vocabulary.Item[]>({
+    url: '/api/vocabulary/review/due',
+    method: 'get',
+    params
+  });
+}
+
+/** 获取 SRS 复习统计: 到期数 / 复习中词数 / 各盒子分布 */
+export function fetchGetVocabularyReviewStats() {
+  return request<Api.Vocabulary.ReviewStats>({
+    url: '/api/vocabulary/review/stats',
+    method: 'get'
+  });
+}
+
+/**
+ * 提交 SRS 复习结果, 返回更新后的词汇(含新盒子)
+ * @param id 生词 ID
+ * @param known 是否认识
+ */
+export function fetchSubmitVocabularyReview(id: number, known: boolean) {
+  return request<Api.Vocabulary.Item>({
+    url: `/api/vocabulary/review/${id}`,
+    method: 'post',
+    data: { known }
   });
 }
