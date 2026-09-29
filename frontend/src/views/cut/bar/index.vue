@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed, h, onMounted, onUnmounted, ref } from 'vue';
-import { NButton, NCard, NDataTable, NInputNumber, NModal, NSpin, useMessage } from 'naive-ui';
-import { cutBar } from '@/service/api';
+import { NButton, NGi, NGrid, NInput, NInputNumber, NModal, NSelect, NSpin, NStatistic, NTooltip, useMessage } from 'naive-ui';
+import { $t } from '@/locales';
+import { addCutScraps, cutBar, fetchConsumeCutScraps, fetchCutScraps } from '@/service/api';
+import ScrapLibraryModal from '@/components/cut/ScrapLibraryModal.vue';
+import { exportBarCutPDF, exportBarCutPNG, printBarCut } from './cut-export';
+
+interface NewMaterialRow {
+  label: string;
+  length: number | null;
+}
 
 const message = useMessage();
 
@@ -10,13 +18,21 @@ const materialsData = ref<Api.Cut.BarItem[]>([]);
 
 const itemLength = ref<number | null>(null);
 const itemQty = ref<number | null>(null);
+const itemType = ref<string | null>(null);
+const matLabel = ref<string | null>(null);
 const matLength = ref<number | null>(null);
 const matQty = ref<number | null>(null);
-const newMaterialLength = ref(600);
+// 材料类型候选: 来自一维余料库存(旧料库)的类型名, 支持手动输入新类型
+const materialTypes = ref<string[]>([]);
+// 新材料多规格动态行(至少一行)
+const newMaterialRows = ref<NewMaterialRow[]>([{ label: '', length: 600 }]);
 const loss = ref(0.2);
 const utilizationWeight = ref(4);
 const group = ref(false);
+// 自动导入库存余料参与计算, 确认后自动扣减
+const useInventory = ref(false);
 const cutResult = ref<Api.Cut.BarResult[] | null>(null);
+const summaryData = ref<Api.Cut.BarSummary | null>(null);
 const loading = ref(false);
 const disabledPrint = ref(true);
 const scaleFactor = ref(1);
@@ -24,8 +40,75 @@ const saveData = ref<Api.Cut.RecordRequest | null>(null);
 const canvasWrapper = ref<HTMLDivElement | null>(null);
 const containerWidth = ref(800); // 动态容器宽度
 
+// 余料入库 / 旧料库 / 导出 / 打印状态
+const scrapModalShow = ref(false);
+const scrapStocking = ref(false);
+const scrapStockedIn = ref(false);
+const exporting = ref<'png' | 'pdf' | null>(null);
+const printing = ref(false);
+
+const canStockIn = computed(
+  () => (summaryData.value?.scrapCount ?? 0) > 0 && (cutResult.value ?? []).some(item => item.remaining > 0)
+);
+
+function fmtLen(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+// 材料类型下拉候选: 库存类型 + 表单中已出现的类型(含手动输入的新类型)
+const materialTypeOptions = computed(() => {
+  const set = new Set<string>(materialTypes.value);
+  const add = (value?: string | null) => {
+    const type = value?.trim();
+    if (type) set.add(type);
+  };
+  itemsData.value.forEach(row => add(row.label));
+  materialsData.value.forEach(row => add(row.label));
+  newMaterialRows.value.forEach(row => add(row.label));
+  add(itemType.value);
+  add(matLabel.value);
+  return [...set].map(type => ({ label: type, value: type }));
+});
+
+// 从一维余料库存(旧料库)拉取已有类型名作为候选
+async function loadMaterialTypes() {
+  const { data, error } = await fetchCutScraps({ scrapType: 1 });
+  if (error || !data) return;
+  const set = new Set<string>();
+  data.forEach(item => {
+    const type = item.label?.trim();
+    if (type) set.add(type);
+  });
+  materialTypes.value = [...set];
+}
+
+// 表格内可编辑的材料类型选择器: 支持下拉选择 + 手动输入新类型
+function renderTypeSelect(row: Api.Cut.BarItem, index: number, list: 'items' | 'materials') {
+  return h(NSelect, {
+    value: row.label ?? null,
+    options: materialTypeOptions.value,
+    filterable: true,
+    tag: true,
+    clearable: false,
+    size: 'small',
+    placeholder: $t('page.cut.materialType'),
+    onUpdateValue: (value: string | null) => {
+      const target = list === 'items' ? itemsData.value : materialsData.value;
+      target[index].label = value ?? undefined;
+    }
+  });
+}
+
 // item 表格
 const itemColumns = [
+  {
+    title: '材料类型',
+    key: 'label',
+    width: 160,
+    render(row: Api.Cut.BarItem, index: number) {
+      return renderTypeSelect(row, index, 'items');
+    }
+  },
   { title: '长度(cm)', key: 'length' },
   { title: '数量', key: 'quantity' },
   {
@@ -39,14 +122,22 @@ const itemColumns = [
           type: 'error',
           onClick: () => removeFromList('items', index)
         },
-        { default: () => '删除' }
+        { default: () => $t('common.delete') }
       );
     }
   }
 ];
 
-// material 表格
+// material 表格(类型名列可直接编辑)
 const materialColumns = [
+  {
+    title: '材料类型',
+    key: 'label',
+    width: 160,
+    render(row: Api.Cut.BarItem, index: number) {
+      return renderTypeSelect(row, index, 'materials');
+    }
+  },
   { title: '长度(cm)', key: 'length' },
   { title: '数量', key: 'quantity' },
   {
@@ -60,29 +151,33 @@ const materialColumns = [
           type: 'error',
           onClick: () => removeFromList('materials', index)
         },
-        { default: () => '删除' }
+        { default: () => $t('common.delete') }
       );
     }
   }
 ];
 
 function addItem() {
-  if (itemLength.value && itemQty.value && itemQty.value > 0) {
-    itemsData.value.push({ length: itemLength.value, quantity: itemQty.value });
+  const type = itemType.value?.trim();
+  if (type && itemLength.value && itemQty.value && itemQty.value > 0) {
+    itemsData.value.push({ label: type, length: itemLength.value, quantity: itemQty.value });
+    itemType.value = null;
     itemLength.value = null;
     itemQty.value = null;
   } else {
-    message.error('请输入有效的项目参数！');
+    message.error($t('page.cut.inputInvalid'));
   }
 }
 
 function addMaterial() {
-  if (matLength.value && matQty.value && matQty.value > 0) {
-    materialsData.value.push({ length: matLength.value, quantity: matQty.value });
+  const type = matLabel.value?.trim();
+  if (type && matLength.value && matQty.value && matQty.value > 0) {
+    materialsData.value.push({ label: type, length: matLength.value, quantity: matQty.value });
+    matLabel.value = null;
     matLength.value = null;
     matQty.value = null;
   } else {
-    message.error('请输入有效的项目参数！');
+    message.error($t('page.cut.inputInvalid'));
   }
 }
 
@@ -95,87 +190,235 @@ function clearAll() {
   itemsData.value = [];
   materialsData.value = [];
   cutResult.value = null;
+  summaryData.value = null;
   saveData.value = null;
+  scrapStockedIn.value = false;
+  itemType.value = null;
+  matLabel.value = null;
+}
+
+// 新材料多规格行操作
+function addMaterialRow() {
+  newMaterialRows.value.push({ label: '', length: null });
+}
+
+function removeMaterialRow(index: number) {
+  if (newMaterialRows.value.length > 1) {
+    newMaterialRows.value.splice(index, 1);
+  }
+}
+
+// 裁剪尺寸引用的材料类型若没有同名新材料规格, 自动补一条(使用当前新材料长度)
+function ensureSpecsForItemTypes() {
+  const defaultLength = newMaterialRows.value.find(row => row.length && row.length > 0)?.length ?? null;
+  const existing = new Set(newMaterialRows.value.map(row => row.label.trim()).filter(Boolean));
+  const required = new Set(itemsData.value.map(row => row.label?.trim()).filter(Boolean) as string[]);
+  required.forEach(type => {
+    if (!existing.has(type)) {
+      newMaterialRows.value.push({ label: type, length: defaultLength });
+      existing.add(type);
+    }
+  });
 }
 
 // 获取数据
 async function fetchData() {
+  if (itemsData.value.length === 0) {
+    message.error($t('page.cut.inputItemsRequired'));
+    return;
+  }
+  // 材料类型必填校验
+  if (itemsData.value.some(row => !row.label?.trim())) {
+    message.error($t('page.cut.itemMaterialTypeRequired'));
+    return;
+  }
+  // 多规格校验: 每行长度必须 > 0
+  const invalidRow = newMaterialRows.value.find(row => !row.length || row.length <= 0);
+  if (invalidRow) {
+    message.error($t('page.cut.newMaterialInvalid'));
+    return;
+  }
+
+  // 裁剪尺寸引用的类型若没有同名新材料规格, 自动补一条(使用当前新材料长度)
+  ensureSpecsForItemTypes();
+
+  // 零件按材料类型分组, 指定 spec 后只从同名材料规格上切
+  const items: Array<number | { length: number; spec?: string }> = itemsData.value.flatMap((i: Api.Cut.BarItem) =>
+    Array.from({ length: i.quantity }, () => ({ length: i.length, spec: i.label?.trim() }))
+  );
+  // 旧料构造为对象数组(带类型名), 空长度行过滤
+  const materials: Array<number | { label?: string; length: number }> = materialsData.value.flatMap(row => {
+    if (!row.length || row.length <= 0) return [];
+    const label = row.label?.trim();
+    return Array.from({ length: row.quantity }, () => ({ label: label ? label : undefined, length: row.length }));
+  });
+
+  // 构造多规格(不传时后端走 newMaterialLength 单规格, 这里始终传并保留 newMaterialLength 兼容)
+  const newMaterials: Api.Cut.NewMaterialSpec[] = newMaterialRows.value.map(row => ({
+    label: row.label.trim() ? row.label.trim() : undefined,
+    length: row.length as number
+  }));
+  const request: Api.Cut.BarRequest = {
+    items,
+    materials,
+    newMaterialLength: newMaterials[0]!.length,
+    newMaterials,
+    loss: loss.value,
+    utilizationWeight: utilizationWeight.value
+  };
+  if (useInventory.value) {
+    request.useInventory = true;
+  }
+
   loading.value = true;
   disabledPrint.value = true;
-  const items: number[] = itemsData.value.flatMap((i: Api.Cut.BarItem) => Array(i.quantity).fill(i.length));
-
-  const materials: number[] = materialsData.value.flatMap((i: Api.Cut.BarItem) => Array(i.quantity).fill(i.length));
   try {
-    const request = {
-      items,
-      materials,
-      newMaterialLength: newMaterialLength.value,
-      loss: loss.value,
-      utilizationWeight: utilizationWeight.value
-    };
-    const data = await cutBar(request);
-    const { data: reslut } = data;
-    cutResult.value = reslut;
+    const { data, error } = await cutBar(request);
+    if (error || !data) return;
+    cutResult.value = data.results;
+    summaryData.value = data.summary;
+    scrapStockedIn.value = false;
     saveData.value = {
       type: '1',
       request: JSON.stringify({ rowItems: itemsData.value, rowMaterials: materialsData.value, ...request }),
-      response: JSON.stringify(reslut),
+      // 序列化完整响应(results + summary), 供详情页展示
+      response: JSON.stringify(data),
       name: ``
     };
     disabledPrint.value = false;
-  } catch {
+    // 自动扣减本次计算消费的一维余料库存(失败不影响切割结果展示)
+    await consumeScrapInventory(data.consumedScrapIds ?? []);
   } finally {
     loading.value = false;
   }
 }
 
-// 统计信息
-const result = computed(() => {
-  if (!cutResult.value || cutResult.value.length === 0) {
-    return {
-      totalMaterials: 0,
-      totalLength: 0,
-      totalUsed: 0,
-      totalRemaining: 0,
-      usagePercent: '0.00'
-    };
+// 自动扣减本次计算消费的一维余料库存 (useInventory 开启时后端返回 consumedScrapIds)
+async function consumeScrapInventory(ids: number[]) {
+  if (ids.length === 0) return;
+  const { error } = await fetchConsumeCutScraps(ids);
+  if (error) {
+    message.warning('库存余料扣减失败, 请手动检查库存, 不影响本次切割结果');
+    return;
   }
+  message.success(`已扣减 ${ids.length} 条库存余料`);
+}
 
-  const totalMaterials = cutResult.value.length;
-  let totalLength = 0;
-  let totalUsed = 0;
-  let totalRemaining = 0;
+// 余料名称: 多规格新材料时, 按该根料的 totalLength 匹配规格名 -> "<规格名>余料"; 无规格名/单规格留空
+function scrapLabelFor(item: Api.Cut.BarResult): string | undefined {
+  if (newMaterialRows.value.length < 2) return undefined;
+  const spec = newMaterialRows.value.find(row => row.length && row.length === item.totalLength);
+  const name = spec?.label.trim();
+  return name ? `${name}${$t('page.cut.scrapLabelSuffix')}` : undefined;
+}
 
-  cutResult.value.forEach((item: Api.Cut.BarResult) => {
-    totalLength += item.totalLength;
-    totalUsed += item.used;
-    totalRemaining += item.remaining;
+// 余料一键入库: remaining>0 的每根料登记为一维余料
+async function stockInScraps() {
+  const scrapRows = (cutResult.value ?? []).filter(item => item.remaining > 0);
+  if (scrapRows.length === 0) return;
+  scrapStocking.value = true;
+  try {
+    const { error } = await addCutScraps(
+      scrapRows.map(item => ({
+        scrapType: 1 as const,
+        label: scrapLabelFor(item),
+        lengthValue: item.remaining,
+        quantity: 1,
+        note: $t('page.cut.scrapFromCutting')
+      }))
+    );
+    if (error) return;
+    scrapStockedIn.value = true;
+    message.success($t('page.cut.scrapStockInSuccess', { count: scrapRows.length }));
+  } finally {
+    scrapStocking.value = false;
+  }
+}
+
+// 旧料库带入表单: 库存条目转材料行(保留类型名)
+function applyScraps(rows: Api.Cut.CutScrap[]) {
+  rows.forEach(row => {
+    materialsData.value.push({
+      label: row.label?.trim() ? row.label.trim() : $t('page.cut.scrapMaterialLabel'),
+      length: row.lengthValue,
+      quantity: row.quantity
+    });
   });
+  // 库存可能新增了类型, 刷新下拉候选
+  loadMaterialTypes();
+  message.success($t('page.cut.scrapApplied', { count: rows.length }));
+}
 
-  return {
-    totalMaterials,
-    totalLength: totalLength.toFixed(2),
-    totalUsed: totalUsed.toFixed(2),
-    totalRemaining: totalRemaining.toFixed(2),
-    usagePercent: ((totalUsed / totalLength) * 100).toFixed(2)
-  };
-});
+// 导出 PNG / PDF
+async function exportPNG() {
+  if (!cutResult.value?.length) return;
+  exporting.value = 'png';
+  try {
+    await exportBarCutPNG(cutResult.value, summaryData.value);
+  } catch (e) {
+    console.error(e);
+    message.error($t('page.cut.exportFailed'));
+  } finally {
+    exporting.value = null;
+  }
+}
+
+async function exportPDF() {
+  if (!cutResult.value?.length) return;
+  exporting.value = 'pdf';
+  try {
+    await exportBarCutPDF(cutResult.value, summaryData.value);
+  } catch (e) {
+    console.error(e);
+    message.error($t('page.cut.exportFailed'));
+  } finally {
+    exporting.value = null;
+  }
+}
+
+// 直接打印切割图 (PDF autoPrint)
+async function printChart() {
+  if (!cutResult.value?.length) return;
+  printing.value = true;
+  try {
+    const opened = await printBarCut(cutResult.value, summaryData.value);
+    if (!opened) {
+      message.warning($t('page.cut.allowPopup'));
+    }
+  } catch (e) {
+    console.error(e);
+    message.error($t('page.cut.exportFailed'));
+  } finally {
+    printing.value = false;
+  }
+}
+
+// 裁剪图示排序: 同类型材料相邻展示, 类型内再按根序(聚合模式按剩余长度)排
+function compareByMaterialType(a: Api.Cut.BarResult, b: Api.Cut.BarResult) {
+  const ta = a.materialType ?? '';
+  const tb = b.materialType ?? '';
+  if (ta !== tb) return ta < tb ? -1 : 1;
+  return 0;
+}
 
 const processedResult = computed(() => {
   if (!cutResult.value) return [];
 
-  // 按 cuts + remaining 来归一化 key
-  const map = new Map<string, any>();
-
   if (group.value === false) {
-    return cutResult.value;
+    // 同类型材料排在一起, 类型内保持原根序
+    return cutResult.value
+      .slice()
+      .sort((a, b) => compareByMaterialType(a, b) || a.index - b.index);
   }
+
+  // 按 materialType + cuts + remaining 归一化 key (不同类型不合并)
+  const map = new Map<string, any>();
   cutResult.value.forEach((item: Api.Cut.BarResult) => {
     const cutsKey = item.cuts
       .slice()
       .sort((a, b) => a - b)
       .join(',');
-    const key = `${cutsKey}|${item.remaining}`;
+    const key = `${item.materialType ?? ''}|${cutsKey}|${item.remaining}`;
     if (!map.has(key)) {
       map.set(key, { ...item, count: 1 });
     } else {
@@ -183,8 +426,10 @@ const processedResult = computed(() => {
     }
   });
 
-  // 转成数组并排序 (例如按 remaining 从小到大)
-  return Array.from(map.values()).sort((a, b) => a.remaining - b.remaining);
+  // 同类型材料排在一起, 类型内按剩余长度从小到大
+  return Array.from(map.values()).sort(
+    (a, b) => compareByMaterialType(a, b) || a.remaining - b.remaining
+  );
 });
 
 // 颜色池
@@ -226,6 +471,7 @@ const handleMouseMove = (e: MouseEvent) => {
 };
 
 onMounted(() => {
+  loadMaterialTypes();
   if (canvasWrapper.value) {
     containerWidth.value = canvasWrapper.value.clientWidth;
 
@@ -255,25 +501,51 @@ onUnmounted(() => {
     <NCard title="材料裁剪可视化" size="large" class="mb-4">
       <h3>裁剪尺寸</h3>
       <div class="mb-2 flex items-center gap-2">
+        <NSelect
+          v-model:value="itemType"
+          :options="materialTypeOptions"
+          filterable
+          tag
+          :placeholder="$t('page.cut.materialType')"
+          class="w-40"
+        />
         <NInputNumber v-model:value="itemLength" placeholder="长度" class="w-40" />
         <NInputNumber v-model:value="itemQty" placeholder="数量" class="w-32" />
-        <NButton type="primary" @click="addItem">添加尺寸</NButton>
+        <NButton type="primary" @click="addItem">{{ $t('page.cut.addItem') }}</NButton>
       </div>
       <NDataTable :columns="itemColumns" :data="itemsData" />
 
       <h3 class="mt-6">材料库存</h3>
       <div class="mb-2 flex items-center gap-2">
+        <NSelect
+          v-model:value="matLabel"
+          :options="materialTypeOptions"
+          filterable
+          tag
+          :placeholder="$t('page.cut.materialType')"
+          class="w-40"
+        />
         <NInputNumber v-model:value="matLength" placeholder="长度" class="w-40" />
         <NInputNumber v-model:value="matQty" placeholder="数量" class="w-32" />
-        <NButton type="primary" @click="addMaterial">添加材料</NButton>
+        <NButton type="primary" @click="addMaterial">{{ $t('page.cut.addMaterial') }}</NButton>
+        <NButton type="info" secondary @click="scrapModalShow = true">{{ $t('page.cut.scrapLibrary') }}</NButton>
       </div>
       <NDataTable :columns="materialColumns" :data="materialsData" />
 
       <h3 class="mt-6">参数配置</h3>
-      <div class="mb-4 flex items-center gap-6">
-        <div class="flex items-center gap-2">
-          <span class="w-24">新材料长度</span>
-          <NInputNumber v-model:value="newMaterialLength" class="w-40" />
+      <div class="mb-4 flex flex-wrap items-start gap-6">
+        <div class="flex items-start gap-2">
+          <span class="w-24 pt-1">新材料规格</span>
+          <div class="flex flex-col gap-2">
+            <div v-for="(row, idx) in newMaterialRows" :key="idx" class="flex items-center gap-2">
+              <NInput v-model:value="row.label" :placeholder="$t('page.cut.newMaterialLabel')" class="w-32" />
+              <NInputNumber v-model:value="row.length" :placeholder="$t('page.cut.newMaterialLength')" class="w-40" :min="0" />
+              <NButton size="small" type="error" quaternary :disabled="newMaterialRows.length <= 1" @click="removeMaterialRow(idx)">
+                {{ $t('common.delete') }}
+              </NButton>
+            </div>
+            <NButton size="small" dashed class="w-32" @click="addMaterialRow">+ {{ $t('common.add') }}</NButton>
+          </div>
         </div>
         <div class="flex items-center gap-2">
           <span class="w-24">切割损耗</span>
@@ -287,22 +559,72 @@ onUnmounted(() => {
           <span class="w-24">聚合显示</span>
           <NSwitch v-model:value="group" class="w-40" />
         </div>
+        <div class="flex items-center gap-2">
+          <span class="w-28">自动导入库存余料</span>
+          <NTooltip trigger="hover" placement="top-start">
+            <template #trigger>
+              <NSwitch v-model:value="useInventory" />
+            </template>
+            计算时自动使用当前库存中的一维余料参与计算, 确认结果后自动扣减库存
+          </NTooltip>
+        </div>
       </div>
 
       <div class="mt-4 flex gap-2">
-        <NButton type="primary" @click="fetchData">开始裁剪</NButton>
+        <NButton type="primary" @click="fetchData">{{ $t('page.cut.startCutting') }}</NButton>
         <BarPrinter v-if="!disabledPrint" :data="cutResult" />
         <SaveCutRecord :data="saveData" @saved="saveData = null"></SaveCutRecord>
-        <NButton type="warning" @click="clearAll">清空所有</NButton>
+        <NButton type="warning" @click="clearAll">{{ $t('page.cut.clearAll') }}</NButton>
       </div>
     </NCard>
 
-    <!-- 结果统计 -->
-    <NCard title="结果统计" size="large" class="mb-4">
-      <p>
-        材料总数: {{ result.totalMaterials }} 根 | 总长度: {{ result.totalLength }} cm | 已用长度:
-        {{ result.totalUsed }} cm | 剩余长度: {{ result.totalRemaining }} cm | 使用率: {{ result.usagePercent }}%
-      </p>
+    <!-- 结果统计: 汇总卡片 + 余料入库 + 导出 -->
+    <NCard v-if="summaryData" size="large" class="mb-4">
+      <template #header>
+        {{ $t('page.cut.summaryTitle') }}
+      </template>
+      <template #header-extra>
+        <div class="flex items-center gap-2">
+          <NButton
+            size="small"
+            type="success"
+            :loading="scrapStocking"
+            :disabled="!canStockIn || scrapStockedIn"
+            @click="stockInScraps"
+          >
+            {{ scrapStockedIn ? $t('page.cut.scrapStockedIn') : $t('page.cut.scrapStockIn') }}
+          </NButton>
+          <NButton size="small" secondary type="primary" :loading="exporting === 'png'" @click="exportPNG">
+            {{ $t('page.cut.exportPng') }}
+          </NButton>
+          <NButton size="small" secondary type="primary" :loading="exporting === 'pdf'" @click="exportPDF">
+            {{ $t('page.cut.exportPdf') }}
+          </NButton>
+          <NButton size="small" secondary type="primary" :loading="printing" @click="printChart">
+            {{ $t('page.cut.printChart') }}
+          </NButton>
+        </div>
+      </template>
+      <NGrid :x-gap="12" :y-gap="12" cols="2 s:3 m:6" responsive="screen">
+        <NGi>
+          <NStatistic :label="$t('page.cut.summaryMaterialCount')" :value="summaryData.materialCount" />
+        </NGi>
+        <NGi>
+          <NStatistic :label="$t('page.cut.summaryMaterialLength')" :value="`${fmtLen(summaryData.totalMaterialLength)} cm`" />
+        </NGi>
+        <NGi>
+          <NStatistic :label="$t('page.cut.summaryCutLength')" :value="`${fmtLen(summaryData.totalCutLength)} cm`" />
+        </NGi>
+        <NGi>
+          <NStatistic :label="$t('page.cut.summaryUtilization')" :value="`${summaryData.utilization}%`" />
+        </NGi>
+        <NGi>
+          <NStatistic :label="$t('page.cut.summaryRemaining')" :value="`${fmtLen(summaryData.totalRemaining)} cm`" />
+        </NGi>
+        <NGi>
+          <NStatistic :label="$t('page.cut.summaryScrapCount')" :value="`${summaryData.scrapCount} ${$t('page.cut.unitBar')}`" />
+        </NGi>
+      </NGrid>
     </NCard>
 
     <!-- 裁剪图示 -->
@@ -312,7 +634,9 @@ onUnmounted(() => {
           <div v-for="item in processedResult" :key="item.index" class="mb-6">
             <!-- 标签 -->
             <div class="mb-1 font-bold">
-              材料 #{{ item.index }} (总长: {{ item.totalLength }}cm, 已用: {{ item.used }}cm, 剩余:
+              材料 #{{ item.index }}
+              <span class="ml-1 font-normal text-gray-500">[{{ item.materialType || '新材料' }}]</span>
+              (总长: {{ item.totalLength }}cm, 已用: {{ item.used }}cm, 剩余:
               {{ item.remaining }}cm) * {{ item.count || 1 }} 根
             </div>
 
@@ -345,11 +669,14 @@ onUnmounted(() => {
       </div>
     </NCard>
 
+    <!-- 旧料库弹窗 -->
+    <ScrapLibraryModal v-model:show="scrapModalShow" :scrap-type="1" @apply="applyScraps" />
+
     <!-- 加载中弹窗 -->
     <NModal v-model:show="loading" preset="dialog" title="计算中...">
       <div class="flex flex-col items-center justify-center p-6">
         <NSpin size="large" />
-        <div class="mt-3">{{ $t('common.loading') }}</div>
+        <div class="mt-3">{{ $t('page.cut.loading') }}</div>
       </div>
     </NModal>
   </div>

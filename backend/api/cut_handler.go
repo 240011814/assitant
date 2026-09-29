@@ -1,6 +1,8 @@
 package api
 
 import (
+	"strconv"
+
 	"backend/model"
 	"backend/service"
 
@@ -17,19 +19,36 @@ func NewCutHandler(svc *service.CutService) *CutHandler {
 
 // HandleBarCut 一维切割
 func (h *CutHandler) HandleBarCut(c *gin.Context) {
+	userID := GetUserID(c)
 	var req model.BarRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		SendError(c, "400", "请求参数错误")
 		return
 	}
 
-	result, err := h.svc.BarCut(req)
+	result, err := h.svc.BarCut(userID, req)
 	if err != nil {
 		SendError(c, "500", "切割失败: "+err.Error())
 		return
 	}
 
 	SendSuccess(c, result)
+}
+
+// HandleConsumeScraps 批量扣减库存余料 (自动导入计算确认后调用)
+func (h *CutHandler) HandleConsumeScraps(c *gin.Context) {
+	userID := GetUserID(c)
+	var req model.ConsumeScrapsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请求参数错误")
+		return
+	}
+	list, err := h.svc.ConsumeScraps(userID, req.IDs)
+	if err != nil {
+		SendError(c, "500", "扣减余料失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, list)
 }
 
 // HandlePlaneCut 平面切割
@@ -47,6 +66,49 @@ func (h *CutHandler) HandlePlaneCut(c *gin.Context) {
 	}
 
 	SendSuccess(c, result)
+}
+
+// HandleListScraps 余料库存列表
+func (h *CutHandler) HandleListScraps(c *gin.Context) {
+	userID := GetUserID(c)
+	scrapType, _ := strconv.Atoi(c.DefaultQuery("scrapType", "0"))
+	list, err := h.svc.ListScraps(userID, scrapType)
+	if err != nil {
+		SendError(c, "500", "获取余料库存失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, list)
+}
+
+// HandleAddScraps 余料批量入库 (结果页一键入库)
+func (h *CutHandler) HandleAddScraps(c *gin.Context) {
+	userID := GetUserID(c)
+	var reqs []model.AddCutScrapRequest
+	if err := c.ShouldBindJSON(&reqs); err != nil {
+		SendError(c, "400", "请求参数错误: "+err.Error())
+		return
+	}
+	rows, err := h.svc.AddScraps(userID, reqs)
+	if err != nil {
+		SendError(c, "500", "余料入库失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, rows)
+}
+
+// HandleDeleteScrap 删除余料
+func (h *CutHandler) HandleDeleteScrap(c *gin.Context) {
+	userID := GetUserID(c)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		SendError(c, "400", "余料 ID 不合法")
+		return
+	}
+	if err := h.svc.DeleteScrap(userID, uint(id)); err != nil {
+		SendError(c, "500", "删除余料失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, nil)
 }
 
 // HandleAddRecord 添加切割记录

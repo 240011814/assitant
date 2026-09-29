@@ -21,7 +21,9 @@ try {
   parsedRequest = JSON.parse(rawRequest) as Api.Cut.BinRequest & {
     rowItems: Api.Cut.Item[];
   };
-  parsedResponse = JSON.parse(rawResponse) as Api.Cut.BinResult[];
+  // 兼容新旧记录: 旧记录响应为数组, 新记录响应为 { results, unplaced, summary }
+  const raw = JSON.parse(rawResponse) as Api.Cut.BinResult[] | Api.Cut.PlaneCutResponse;
+  parsedResponse = Array.isArray(raw) ? raw : raw.results;
 } catch {
   parseError.value = true;
 }

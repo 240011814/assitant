@@ -958,6 +958,71 @@ declare namespace App {
           selectType: string;
           inputStartTime: string;
           inputEndTime: string;
+          /** 表单与操作 */
+          addItem: string;
+          addMaterial: string;
+          materialType: string;
+          itemMaterialTypeRequired: string;
+          startCutting: string;
+          clearAll: string;
+          inputInvalid: string;
+          inputMaterialInvalid: string;
+          inputItemsRequired: string;
+          noResultWarning: string;
+          newMaterialLabel: string;
+          newMaterialLength: string;
+          newMaterialInvalid: string;
+          loading: string;
+          /** 汇总卡片 */
+          summaryTitle: string;
+          summaryMaterialCount: string;
+          summaryMaterialLength: string;
+          summaryCutLength: string;
+          summaryUtilization: string;
+          summaryRemaining: string;
+          summaryScrapCount: string;
+          summaryBinCount: string;
+          summaryTotalArea: string;
+          summaryUsedArea: string;
+          summaryUnplacedCount: string;
+          unitBar: string;
+          /** 未排入件警示 */
+          unplacedAlert: string;
+          unplacedLabel: string;
+          unplacedReason: string;
+          reasonOversized: string;
+          reasonExhausted: string;
+          /** 旧料库/余料入库 */
+          scrapLibrary: string;
+          scrapStockIn: string;
+          scrapStockedIn: string;
+          scrapStockInSuccess: string;
+          scrapFromCutting: string;
+          scrapLabelSuffix: string;
+          scrapApplied: string;
+          scrapLabelName: string;
+          scrapSize: string;
+          scrapLength: string;
+          scrapWidth: string;
+          scrapHeight: string;
+          scrapQuantity: string;
+          scrapNote: string;
+          scrapNotePlaceholder: string;
+          scrapCreatedAt: string;
+          scrapAdd: string;
+          scrapAddSuccess: string;
+          scrapDeleteConfirm: string;
+          scrapDeleteSuccess: string;
+          scrapApply: string;
+          scrapApplyNone: string;
+          scrapInputInvalid: string;
+          scrapMaterialLabel: string;
+          /** 导出与打印 */
+          exportPng: string;
+          exportPdf: string;
+          printChart: string;
+          exportFailed: string;
+          allowPopup: string;
         };
         share: {
           notFound: string;

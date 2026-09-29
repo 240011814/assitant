@@ -59,6 +59,7 @@
     "echarts": "6.0.0",
     "html2canvas": "^1.4.1",
     "json5": "2.2.3",
+    "jspdf": "^4.2.1",
     "katex": "^0.17.0",
     "markdown-it": "^14.0.0",
     "markdown-it-texmath": "^1.0.0",

@@ -22,7 +22,9 @@ try {
     rowItems: Api.Cut.BarItem[];
     rowMaterials: Api.Cut.BarItem[];
   };
-  parsedResponse = JSON.parse(rawResponse) as Api.Cut.BarResult[];
+  // 兼容新旧记录: 旧记录响应为数组, 新记录响应为 { results, summary }
+  const raw = JSON.parse(rawResponse) as Api.Cut.BarResult[] | Api.Cut.BarCutResponse;
+  parsedResponse = Array.isArray(raw) ? raw : raw.results;
 } catch {
   parseError.value = true;
 }
@@ -46,12 +48,14 @@ function goBack() {
 
 // item 表格
 const itemColumns = [
+  { title: '材料类型', key: 'label' },
   { title: '长度(cm)', key: 'length' },
   { title: '数量', key: 'quantity' }
 ];
 
 // material 表格
 const materialColumns = [
+  { title: '材料类型', key: 'label' },
   { title: '长度(cm)', key: 'length' },
   { title: '数量', key: 'quantity' }
 ];
@@ -88,21 +92,32 @@ const result = computed(() => {
   };
 });
 
+// 裁剪图示排序: 同类型材料相邻展示
+function compareByMaterialType(a: Api.Cut.BarResult, b: Api.Cut.BarResult) {
+  const ta = a.materialType ?? '';
+  const tb = b.materialType ?? '';
+  if (ta !== tb) return ta < tb ? -1 : 1;
+  return 0;
+}
+
 const processedResult = computed(() => {
   if (!cutResult.value) return [];
 
-  // 按 cuts + remaining 来归一化 key
-  const map = new Map<string, any>();
-
   if (group.value === false) {
-    return cutResult.value;
+    // 同类型材料排在一起, 类型内保持原根序
+    return cutResult.value
+      .slice()
+      .sort((a, b) => compareByMaterialType(a, b) || a.index - b.index);
   }
+
+  // 按 materialType + cuts + remaining 归一化 key (不同类型不合并)
+  const map = new Map<string, any>();
   cutResult.value.forEach((item: Api.Cut.BarResult) => {
     const cutsKey = item.cuts
       .slice()
       .sort((a, b) => a - b)
       .join(',');
-    const key = `${cutsKey}|${item.remaining}`;
+    const key = `${item.materialType ?? ''}|${cutsKey}|${item.remaining}`;
     if (!map.has(key)) {
       map.set(key, { ...item, count: 1 });
     } else {
@@ -110,8 +125,10 @@ const processedResult = computed(() => {
     }
   });
 
-  // 转成数组并排序 (例如按 remaining 从小到大)
-  return Array.from(map.values()).sort((a, b) => a.remaining - b.remaining);
+  // 同类型材料排在一起, 类型内按剩余长度从小到大
+  return Array.from(map.values()).sort(
+    (a, b) => compareByMaterialType(a, b) || a.remaining - b.remaining
+  );
 });
 
 // 颜色池

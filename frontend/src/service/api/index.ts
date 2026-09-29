@@ -8,6 +8,7 @@ export * from './custom-training';
 export * from './dashboard';
 export * from './user-profile';
 export * from './cut';
+export * from './cut-scrap';
 export * from './user-preference';
 export * from './lottery';
 export * from './model-scenario';
