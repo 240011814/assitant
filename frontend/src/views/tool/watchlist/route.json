@@ -3,6 +3,7 @@
     "title": "tool_watchlist",
     "i18nKey": "route.tool_watchlist",
     "icon": "mdi:star-outline",
+    "permissions": ["stock:watchlist:view"],
     "order": 11
   }
 }

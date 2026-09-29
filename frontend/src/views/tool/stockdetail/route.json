@@ -3,6 +3,7 @@
     "title": "tool_stockdetail",
     "i18nKey": "route.tool_stockdetail",
     "icon": "mdi:chart-box-outline",
+    "permissions": ["stock:menu:view"],
     "order": 12,
     "hideInMenu": true
   }

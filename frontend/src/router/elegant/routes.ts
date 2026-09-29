@@ -415,7 +415,8 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'tool_backtest',
           i18nKey: 'route.tool_backtest',
-          icon: 'mdi:chart-bar'
+          icon: 'mdi:chart-bar',
+          permissions: ['stock:screen:view']
         }
       },
       {
@@ -448,7 +449,8 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'tool_stock-alert',
           i18nKey: 'route.tool_stock-alert',
-          icon: 'mdi:bell-outline'
+          icon: 'mdi:bell-outline',
+          permissions: ['stock:watchlist:view']
         }
       },
       {
@@ -458,6 +460,7 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'tool_stockdetail',
           i18nKey: 'route.tool_stockdetail',
+          permissions: ['stock:menu:view'],
           hideInMenu: true,
           activeMenu: 'tool_stockscreen'
         }
@@ -469,7 +472,8 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'tool_stockscreen',
           i18nKey: 'route.tool_stockscreen',
-          icon: 'mdi:chart-line'
+          icon: 'mdi:chart-line',
+          permissions: ['stock:screen:view']
         }
       },
       {
@@ -479,7 +483,8 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'tool_watchlist',
           i18nKey: 'route.tool_watchlist',
-          icon: 'mdi:star-outline'
+          icon: 'mdi:star-outline',
+          permissions: ['stock:watchlist:view']
         }
       }
     ]

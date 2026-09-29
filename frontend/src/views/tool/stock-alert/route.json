@@ -2,6 +2,7 @@
   "meta": {
     "title": "tool_stock-alert",
     "i18nKey": "route.tool_stock-alert",
-    "icon": "mdi:bell-outline"
+    "icon": "mdi:bell-outline",
+    "permissions": ["stock:watchlist:view"]
   }
 }
