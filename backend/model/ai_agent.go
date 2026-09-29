@@ -6,6 +6,7 @@ type AIAgent struct {
 	ID               uint      `json:"id" gorm:"primaryKey"`
 	UserID           uint      `json:"user_id"`
 	IsPublic         bool      `json:"is_public"`
+	PermissionCode   string    `json:"permission_code"`
 	Title            string    `json:"title"`
 	Description      string    `json:"description"`
 	Code             string    `json:"code"`

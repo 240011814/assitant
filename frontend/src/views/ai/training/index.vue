@@ -82,7 +82,8 @@ const loadAgents = async () => {
   try {
     const { data } = await fetchAIAgentList();
     if (data) {
-      agents.value = data;
+      // 公共(内置) agent 非空 permission_code 时, 需当前用户拥有该权限码才可见/可访问
+      agents.value = data.filter(canAccessAgent);
     }
   } catch (err: any) {
     console.error("loadAgents error:", err);
@@ -90,6 +91,10 @@ const loadAgents = async () => {
     loading.value = false;
   }
 };
+
+function canAccessAgent(agent: AIAgent) {
+  return !agent.is_public || !agent.permission_code || hasAuth(agent.permission_code);
+}
 
 function goToAgent(id: number) {
   router.push(`/ai/custom-training/${id}`);

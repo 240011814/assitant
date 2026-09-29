@@ -4,6 +4,7 @@ export interface AIAgent {
   id: number;
   user_id: number;
   is_public: boolean;
+  permission_code: string;
   title: string;
   description: string;
   code: string;

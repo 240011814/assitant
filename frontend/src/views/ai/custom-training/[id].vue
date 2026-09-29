@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onActivated } from "vue";
+import { computed, onActivated, ref } from "vue";
 
 defineOptions({
   name: 'AiCustomTraining'
@@ -8,12 +8,20 @@ import { useRoute } from "vue-router";
 import TrainingChat from "../components/training-chat.vue";
 import { fetchAIAgentDetail } from "@/service/api";
 import { useTabStore } from "@/store/modules/tab";
+import { useAuth } from "@/hooks/business/auth";
 
 const route = useRoute();
 const tabStore = useTabStore();
+const { hasAuth } = useAuth();
 const loading = ref(true);
 const training = ref<any>(null);
 const loadedId = ref<number | null>(null);
+
+// 公共(内置) agent 非空 permission_code 时, 需当前用户拥有该权限码才可访问
+const noPermission = computed(() => {
+  const t = training.value;
+  return Boolean(t?.is_public && t?.permission_code && !hasAuth(t.permission_code));
+});
 
 const loadTraining = async (id: string | string[]) => {
   const numId = Number(id);
@@ -52,7 +60,7 @@ onActivated(() => {
     <NSpin size="large" />
   </div>
   <TrainingChat
-    v-else-if="training"
+    v-else-if="training && !noPermission"
     :agent-id="training.id"
     :training-type="training.code || training.title"
     :custom-training-id="training.id"
@@ -69,6 +77,6 @@ onActivated(() => {
     :speech-rate="training.speech_rate || 0.95"
   />
   <div v-else class="h-full flex items-center justify-center text-gray-500">
-    训练不存在或加载失败
+    {{ noPermission ? '无权限访问该训练' : '训练不存在或加载失败' }}
   </div>
 </template>
