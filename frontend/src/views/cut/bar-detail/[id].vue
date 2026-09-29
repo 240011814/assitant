@@ -194,7 +194,6 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <!-- 参数缺失/解析失败: 显示错误态, 不白屏 -->
   <NResult
     v-if="parseError"
     status="error"
