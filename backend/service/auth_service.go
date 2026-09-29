@@ -48,7 +48,7 @@ func (s *AuthService) Register(username, password string) (*model.LoginResponseD
 		return nil, err
 	}
 
-	refreshToken, err := s.generateToken(user, 7*24*time.Hour)
+	refreshToken, err := s.generateRefreshToken(user)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func (s *AuthService) Login(username, password string) (interface{}, error) {
 		return nil, err
 	}
 
-	refreshToken, err := s.generateToken(user, 7*24*time.Hour)
+	refreshToken, err := s.generateRefreshToken(user)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,24 @@ func (s *AuthService) generateToken(user model.User, duration time.Duration) (st
 		"userId":   user.ID,
 		"userName": user.Username,
 		"role":     user.Role,
+		"typ":      "access",
 		"exp":      time.Now().Add(duration).Unix(),
+		"iat":      time.Now().Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(s.cfg.Auth.JWTSecret))
+}
+
+// generateRefreshToken 生成专用刷新令牌 (typ=refresh), 与访问令牌区分,
+// 防止 7 天有效期的 refresh token 泄露后被直接当作 access token 调用业务接口
+func (s *AuthService) generateRefreshToken(user model.User) (string, error) {
+	claims := jwt.MapClaims{
+		"userId":   user.ID,
+		"userName": user.Username,
+		"role":     user.Role,
+		"typ":      "refresh",
+		"exp":      time.Now().Add(7 * 24 * time.Hour).Unix(),
 		"iat":      time.Now().Unix(),
 	}
 
@@ -159,6 +176,11 @@ func (s *AuthService) RefreshToken(refreshTokenStr string) (*model.LoginResponse
 		return nil, errors.New("无效的令牌声明")
 	}
 
+	// 仅接受专用刷新令牌, 拒绝访问令牌混用
+	if typ, _ := claims["typ"].(string); typ != "refresh" {
+		return nil, errors.New("令牌类型错误")
+	}
+
 	userId, ok := claims["userId"].(float64)
 	if !ok {
 		return nil, errors.New("无法获取用户ID")
@@ -176,7 +198,7 @@ func (s *AuthService) RefreshToken(refreshTokenStr string) (*model.LoginResponse
 		return nil, err
 	}
 
-	newRefreshToken, err := s.generateToken(user, 7*24*time.Hour)
+	newRefreshToken, err := s.generateRefreshToken(user)
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +349,7 @@ func (s *AuthService) VerifyTOTP(userId uint, code string) (*model.LoginResponse
 		return nil, err
 	}
 
-	refreshToken, err := s.generateToken(user, 7*24*time.Hour)
+	refreshToken, err := s.generateRefreshToken(user)
 	if err != nil {
 		return nil, err
 	}
@@ -354,7 +376,7 @@ func (s *AuthService) ProxyLogin(targetUserId uint) (*model.LoginResponseData, e
 		return nil, err
 	}
 
-	refreshToken, err := s.generateToken(user, 7*24*time.Hour)
+	refreshToken, err := s.generateRefreshToken(user)
 	if err != nil {
 		return nil, err
 	}

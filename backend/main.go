@@ -22,6 +22,11 @@ func main() {
 		cfg = &config.Config{}
 	}
 
+	// JWT secret 为空或仍是默认值时 fail-fast: 空 secret 意味着任何空 key 签的 token 都能通过认证
+	if cfg.Auth.JWTSecret == "" || cfg.Auth.JWTSecret == "soybean-admin-secret" {
+		log.Fatal("JWT secret 未配置或仍为默认值, 请在 config.yaml 的 auth.jwt_secret 中设置强随机密钥")
+	}
+
 	_, err = service.InitDB(cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize Database: %v", err)
@@ -147,7 +152,7 @@ func main() {
 	authGroup := r.Group("/auth")
 	{
 		authGroup.POST("/login", api.HandleLogin(authService))
-		authGroup.POST("/register", api.HandleRegister(authService))
+		authGroup.POST("/register", api.HandleRegister(authService, systemConfigService))
 		authGroup.GET("/getUserInfo", api.HandleGetUserInfo(authService, cfg.Auth.JWTSecret))
 		authGroup.POST("/refreshToken", api.HandleRefreshToken(authService))
 		authGroup.GET("/register-status", systemConfigHandler.GetRegisterStatus)

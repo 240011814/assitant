@@ -56,8 +56,9 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 			return
 		}
 		log.Printf("[chat] user=%d agent=%d model=%s messages=%d init_ms=%d", userID.(uint), req.AgentID, req.Model, len(inputMessages), time.Since(requestStart).Milliseconds())
+		// 用户对话内容不落日志 (隐私), 仅记录角色与内容长度
 		for _, m := range inputMessages {
-			log.Printf("[chat]   [%s] %s", m.Role, m.Content)
+			log.Printf("[chat]   [%s] len=%d", m.Role, len(m.Content))
 		}
 
 		c.Header("Content-Type", "text/event-stream")

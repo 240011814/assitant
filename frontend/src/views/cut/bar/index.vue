@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue';
+import { computed, h, onMounted, onUnmounted, ref } from 'vue';
 import { NButton, NCard, NDataTable, NInputNumber, NModal, NSpin, useMessage } from 'naive-ui';
 import { cutBar } from '@/service/api';
+
+const message = useMessage();
 
 const itemsData = ref<Api.Cut.BarItem[]>([]);
 const materialsData = ref<Api.Cut.BarItem[]>([]);
@@ -70,7 +72,6 @@ function addItem() {
     itemLength.value = null;
     itemQty.value = null;
   } else {
-    const message = useMessage();
     message.error('请输入有效的项目参数！');
   }
 }
@@ -81,7 +82,6 @@ function addMaterial() {
     matLength.value = null;
     matQty.value = null;
   } else {
-    const message = useMessage();
     message.error('请输入有效的项目参数！');
   }
 }
@@ -190,38 +190,61 @@ const processedResult = computed(() => {
 // 颜色池
 const randomColors = Array.from({ length: 50 }, (_, i) => `hsl(${(i * 30) % 360}, 70%, 50%)`);
 
-// 缩放 + 拖动
+// 所有材料中的最大总长, 预计算避免模板里对每个 cut 重复展开计算(O(n²))
+const maxTotalLength = computed(() => {
+  if (!cutResult.value || cutResult.value.length === 0) return 1;
+  return Math.max(...cutResult.value.map(d => d.totalLength));
+});
+
+// 缩放 + 拖动(具名句柄, 便于卸载时移除)
+let isDragging = false;
+let startX = 0;
+let scrollLeft = 0;
+
+const handleWheel = (e: WheelEvent) => {
+  e.preventDefault();
+  scaleFactor.value += e.deltaY * -0.001;
+  scaleFactor.value = Math.min(Math.max(0.5, scaleFactor.value), 3);
+};
+const handleMouseDown = (e: MouseEvent) => {
+  isDragging = true;
+  startX = e.pageX - canvasWrapper.value!.offsetLeft;
+  scrollLeft = canvasWrapper.value!.scrollLeft;
+};
+const handleMouseUp = () => {
+  isDragging = false;
+};
+const handleMouseLeave = () => {
+  isDragging = false;
+};
+const handleMouseMove = (e: MouseEvent) => {
+  if (!isDragging) return;
+  e.preventDefault();
+  const x = e.pageX - canvasWrapper.value!.offsetLeft;
+  const walk = (x - startX) * 1.5;
+  canvasWrapper.value!.scrollLeft = scrollLeft - walk;
+};
+
 onMounted(() => {
   if (canvasWrapper.value) {
     containerWidth.value = canvasWrapper.value.clientWidth;
 
-    let isDragging = false;
-    let startX = 0;
-    let scrollLeft = 0;
+    canvasWrapper.value.addEventListener('wheel', handleWheel, { passive: false });
+    canvasWrapper.value.addEventListener('mousedown', handleMouseDown);
+    canvasWrapper.value.addEventListener('mouseup', handleMouseUp);
+    canvasWrapper.value.addEventListener('mouseleave', handleMouseLeave);
+    canvasWrapper.value.addEventListener('mousemove', handleMouseMove);
+  }
+});
 
-    canvasWrapper.value.addEventListener('wheel', (e: WheelEvent) => {
-      e.preventDefault();
-      scaleFactor.value += e.deltaY * -0.001;
-      scaleFactor.value = Math.min(Math.max(0.5, scaleFactor.value), 3);
-    });
-    canvasWrapper.value.addEventListener('mousedown', (e: MouseEvent) => {
-      isDragging = true;
-      startX = e.pageX - canvasWrapper.value!.offsetLeft;
-      scrollLeft = canvasWrapper.value!.scrollLeft;
-    });
-    canvasWrapper.value.addEventListener('mouseup', () => {
-      isDragging = false;
-    });
-    canvasWrapper.value.addEventListener('mouseleave', () => {
-      isDragging = false;
-    });
-    canvasWrapper.value.addEventListener('mousemove', (e: MouseEvent) => {
-      if (!isDragging) return;
-      e.preventDefault();
-      const x = e.pageX - canvasWrapper.value!.offsetLeft;
-      const walk = (x - startX) * 1.5;
-      canvasWrapper.value!.scrollLeft = scrollLeft - walk;
-    });
+onUnmounted(() => {
+  const el = canvasWrapper.value;
+  if (el) {
+    el.removeEventListener('wheel', handleWheel);
+    el.removeEventListener('mousedown', handleMouseDown);
+    el.removeEventListener('mouseup', handleMouseUp);
+    el.removeEventListener('mouseleave', handleMouseLeave);
+    el.removeEventListener('mousemove', handleMouseMove);
   }
 });
 </script>
@@ -300,8 +323,7 @@ onMounted(() => {
                 :key="idx"
                 class="flex items-center justify-center border border-white text-xs text-white"
                 :style="{
-                  width:
-                    Number(cut) * (containerWidth / Math.max(...(cutResult ? cutResult.map(d => d.totalLength) : [1]))) + 'px',
+                  width: Number(cut) * (containerWidth / maxTotalLength) + 'px',
                   backgroundColor: randomColors[Number(idx) % randomColors.length]
                 }"
               >
@@ -312,10 +334,7 @@ onMounted(() => {
                 v-if="item.remaining > 0"
                 class="flex items-center justify-center bg-gray-300 text-xs text-black"
                 :style="{
-                  width:
-                    item.remaining *
-                    (containerWidth / Math.max(...(cutResult ? cutResult.map(d => d.totalLength) : [1]))) +
-                    'px'
+                  width: item.remaining * (containerWidth / maxTotalLength) + 'px'
                 }"
               >
                 剩余{{ item.remaining }}cm

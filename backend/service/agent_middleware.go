@@ -156,8 +156,9 @@ type loggingMiddleware struct {
 
 func (m *loggingMiddleware) BeforeModelRewriteState(ctx context.Context, state *adk.TypedChatModelAgentState[*schema.Message], _ *adk.TypedModelContext[*schema.Message]) (context.Context, *adk.TypedChatModelAgentState[*schema.Message], error) {
 	log.Printf("[eino] chat model start: %d messages", len(state.Messages))
+	// 对话正文不落日志 (隐私), 仅记录角色与内容长度
 	for _, msg := range state.Messages {
-		log.Printf("[eino]   [%s] %s", msg.Role, msg.Content)
+		log.Printf("[eino]   [%s] len=%d", msg.Role, len(msg.Content))
 	}
 	return ctx, state, nil
 }
@@ -172,7 +173,7 @@ func (m *loggingMiddleware) AfterModelRewriteState(ctx context.Context, state *a
 					msg.ResponseMeta.Usage.TotalTokens)
 			}
 			if msg.Content != "" {
-				log.Printf("[eino] chat model end: reply=%s", msg.Content)
+				log.Printf("[eino] chat model end: reply_len=%d", len(msg.Content))
 			}
 		}
 	}

@@ -339,6 +339,11 @@ async function loadDetail() {
       loadFinance(),
       fetchStockSyncState(code.value),
     ]);
+    // flat request 永不 reject, 需显式判 error
+    if (detailRes.error || klineRes.error || syncStateRes?.error) {
+      message.error("加载失败");
+      return;
+    }
     if (detailRes.data) {
       detail.value = detailRes.data;
     }
@@ -346,8 +351,6 @@ async function loadDetail() {
       klineData.value = klineRes.data;
     }
     syncState.value = syncStateRes?.data || null;
-  } catch (e: any) {
-    message.error(e.message || "加载失败");
   } finally {
     loading.value = false;
   }
@@ -401,6 +404,11 @@ async function loadKline() {
 
 watch(klinePeriod, () => {
   loadKline();
+});
+
+// 路由复用换股时刷新详情
+watch(code, () => {
+  loadDetail();
 });
 
 const showAddDialog = ref(false);
@@ -943,6 +951,11 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopSyncPolling();
+  // 释放 echarts 实例, 防止内存泄漏
+  chartInstance?.dispose();
+  chartInstance = null;
+  klineChartInstance?.dispose();
+  klineChartInstance = null;
 });
 </script>
 

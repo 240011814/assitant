@@ -1,6 +1,8 @@
 package service
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"log"
@@ -18,7 +20,7 @@ type TelegramService struct {
 	sysCfgService *SystemConfigService
 	bot           *tgbotapi.BotAPI
 	stopCh        chan struct{}
-	mu            sync.Mutex
+	mu            sync.RWMutex // 保护 bot/running/webhookURL
 	startMu       sync.Mutex
 	webhookURL    string
 	running       bool
@@ -40,10 +42,18 @@ func (s *TelegramService) Name() string {
 // ErrBotNotStarted 表示 Telegram bot 尚未启动，调用方不应视为发送失败
 var ErrBotNotStarted = errors.New("Telegram bot 未启动")
 
+// getBot 在读锁内取 bot 指针快照, 供各处安全使用 (指针本身指向并发安全的 BotAPI)
+func (s *TelegramService) getBot() *tgbotapi.BotAPI {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.bot
+}
+
 // Send 实现 Notifier 接口，发送 Telegram 消息
 // to 参数为用户的 telegram_chat_id（字符串形式）
 func (s *TelegramService) Send(to string, msg iface.NotifyMessage) error {
-	if s.bot == nil {
+	bot := s.getBot()
+	if bot == nil {
 		return ErrBotNotStarted
 	}
 
@@ -56,11 +66,11 @@ func (s *TelegramService) Send(to string, msg iface.NotifyMessage) error {
 	tgMsg := tgbotapi.NewMessage(chatID, text)
 	tgMsg.ParseMode = "Markdown"
 
-	_, err := s.bot.Send(tgMsg)
+	_, err := bot.Send(tgMsg)
 	if err != nil {
 		// Markdown 解析失败，尝试纯文本
 		tgMsg.ParseMode = ""
-		_, err = s.bot.Send(tgMsg)
+		_, err = bot.Send(tgMsg)
 	}
 	return err
 }
@@ -93,7 +103,7 @@ func (s *TelegramService) StartBot() error {
 		return nil
 	}
 
-	log.Printf("[Telegram] Starting bot with token: %s...", token[:10])
+	log.Printf("[Telegram] Starting bot (token length=%d)", len(token))
 
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
@@ -101,7 +111,9 @@ func (s *TelegramService) StartBot() error {
 		return fmt.Errorf("failed to create bot: %w", err)
 	}
 
+	s.mu.Lock()
 	s.bot = bot
+	s.mu.Unlock()
 	bot.Debug = true
 	log.Printf("[Telegram] Bot authorized as @%s (ID: %d)", bot.Self.UserName, bot.Self.ID)
 
@@ -128,7 +140,8 @@ func (s *TelegramService) StartBot() error {
 
 // setBotCommands 设置 Bot 命令菜单
 func (s *TelegramService) setBotCommands() {
-	if s.bot == nil {
+	bot := s.getBot()
+	if bot == nil {
 		return
 	}
 
@@ -139,7 +152,7 @@ func (s *TelegramService) setBotCommands() {
 		{Command: "help", Description: "帮助信息"},
 	}
 
-	_, err := s.bot.Request(tgbotapi.NewSetMyCommands(commands...))
+	_, err := bot.Request(tgbotapi.NewSetMyCommands(commands...))
 	if err != nil {
 		log.Printf("[Telegram] Failed to set bot commands: %v", err)
 	} else {
@@ -191,7 +204,11 @@ func (s *TelegramService) RestartBot() error {
 
 // setupWebhook 设置 Webhook
 func (s *TelegramService) setupWebhook(webhookURL string) error {
-	_, err := s.bot.Request(tgbotapi.DeleteWebhookConfig{})
+	bot := s.getBot()
+	if bot == nil {
+		return fmt.Errorf("bot is nil")
+	}
+	_, err := bot.Request(tgbotapi.DeleteWebhookConfig{})
 	if err != nil {
 		log.Printf("[Telegram] Failed to delete old webhook: %v", err)
 	}
@@ -201,12 +218,12 @@ func (s *TelegramService) setupWebhook(webhookURL string) error {
 		return fmt.Errorf("failed to create webhook config: %w", err)
 	}
 
-	_, err = s.bot.Request(wh)
+	_, err = bot.Request(wh)
 	if err != nil {
 		return fmt.Errorf("failed to set webhook: %w", err)
 	}
 
-	info, err := s.bot.GetWebhookInfo()
+	info, err := bot.GetWebhookInfo()
 	if err != nil {
 		return fmt.Errorf("failed to get webhook info: %w", err)
 	}
@@ -221,20 +238,25 @@ func (s *TelegramService) setupWebhook(webhookURL string) error {
 
 // startLongPolling 启动 Long Polling 模式
 func (s *TelegramService) startLongPolling() {
+	bot := s.getBot()
+	if bot == nil {
+		log.Println("[Telegram] Bot is nil, skip long polling setup")
+		return
+	}
 	log.Println("[Telegram] Deleting webhook...")
-	_, err := s.bot.Request(tgbotapi.DeleteWebhookConfig{})
+	_, err := bot.Request(tgbotapi.DeleteWebhookConfig{})
 	if err != nil {
 		log.Printf("[Telegram] Failed to delete webhook: %v", err)
 	} else {
 		log.Println("[Telegram] Webhook deleted successfully")
 	}
 
-	go s.listenUpdates()
+	go s.listenUpdates(bot)
 }
 
 // GetBot 获取 Bot 实例（供 webhook handler 使用）
 func (s *TelegramService) GetBot() *tgbotapi.BotAPI {
-	return s.bot
+	return s.getBot()
 }
 
 // HandleWebhookUpdate 处理 Webhook 回调的 update
@@ -246,8 +268,8 @@ func (s *TelegramService) HandleWebhookUpdate(update tgbotapi.Update) {
 }
 
 // listenUpdates 监听消息更新
-func (s *TelegramService) listenUpdates() {
-	if s.bot == nil {
+func (s *TelegramService) listenUpdates(bot *tgbotapi.BotAPI) {
+	if bot == nil {
 		log.Println("[Telegram] Bot is nil, cannot listen for updates")
 		return
 	}
@@ -257,7 +279,7 @@ func (s *TelegramService) listenUpdates() {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
-	updates := s.bot.GetUpdatesChan(u)
+	updates := bot.GetUpdatesChan(u)
 	log.Println("[Telegram] Update channel created, waiting for messages...")
 
 	for {
@@ -410,18 +432,19 @@ func (s *TelegramService) handleHelp(msg *tgbotapi.Message) {
 
 // reply 发送回复消息
 func (s *TelegramService) reply(chatID int64, text string) {
-	if s.bot == nil {
+	bot := s.getBot()
+	if bot == nil {
 		log.Println("[Telegram] Bot is nil, cannot send reply")
 		return
 	}
 	log.Printf("[Telegram] Sending reply to chat %d: %s", chatID, truncateString(text, 100))
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
-	_, err := s.bot.Send(msg)
+	_, err := bot.Send(msg)
 	if err != nil {
 		log.Printf("[Telegram] Markdown parse failed, retrying as plain text: %v", err)
 		msg.ParseMode = ""
-		_, err = s.bot.Send(msg)
+		_, err = bot.Send(msg)
 		if err != nil {
 			log.Printf("[Telegram] Failed to send message: %v", err)
 		} else {
@@ -478,8 +501,8 @@ func (s *TelegramService) GenerateBindCode(userID uint) (*model.TelegramBindCode
 	}
 
 	botName := ""
-	if s.bot != nil {
-		botName = s.bot.Self.UserName
+	if bot := s.getBot(); bot != nil {
+		botName = bot.Self.UserName
 	}
 
 	return &model.TelegramBindCodeResponse{
@@ -511,6 +534,19 @@ func (s *TelegramService) GetTelegramStatus(userID uint) (*model.TelegramStatusR
 	}, nil
 }
 
+// VerifyWebhookSecret 校验 Telegram webhook 的 X-Telegram-Bot-Api-Secret-Token 请求头。
+// 未配置 telegram_webhook_secret 时返回 true (兼容未设置 secret 的存量部署), 配置后则强制校验
+func (s *TelegramService) VerifyWebhookSecret(received string) bool {
+	secret, err := s.sysCfgService.GetValue("telegram_webhook_secret")
+	if err != nil || secret == "" {
+		return true
+	}
+	if received == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(received), []byte(secret)) == 1
+}
+
 // UnbindTelegram 解绑用户的 Telegram
 func (s *TelegramService) UnbindTelegram(userID uint) error {
 	var user model.User
@@ -532,12 +568,15 @@ func (s *TelegramService) UnbindTelegram(userID uint) error {
 	return DB.Model(&user).Updates(updates).Error
 }
 
-// generateRandomCode 生成随机数字码
+// generateRandomCode 生成随机数字码 (crypto/rand, 不可预测)
 func generateRandomCode(length int) (string, error) {
 	code := make([]byte, length)
+	buf := make([]byte, length)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
 	for i := range code {
-		code[i] = byte('0' + time.Now().UnixNano()%10)
-		time.Sleep(1 * time.Nanosecond)
+		code[i] = byte('0' + buf[i]%10)
 	}
 	return string(code), nil
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onActivated } from 'vue'
+import { ref, onActivated } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, NCard, NButton, NTag, NEmpty, NSpin, NModal, NForm, NFormItem, NInput, NSwitch, NSpace, NPopconfirm, NPagination, NSelect } from 'naive-ui'
 import { fetchCourseList, fetchCreateCourse, fetchUpdateCourse, fetchDeleteCourse, fetchTrainingStatus, fetchUpdateTrainingStatus, type Course, type UserCourseTraining } from '@/service/api'
@@ -67,16 +67,15 @@ const filterOptions = [
 const publicFilterValue = ref<string>('all')
 
 const loadTrainingRecords = async () => {
-  for (const course of courses.value) {
-    try {
+  // 并发请求各课程的训练状态, 避免逐个 await 串行等待
+  await Promise.all(
+    courses.value.map(async course => {
       const { data } = await fetchTrainingStatus(course.id)
       if (data) {
         trainingRecords.value[course.id] = data
       }
-    } catch {
-      // 忽略单个课程的训练记录加载失败
-    }
-  }
+    })
+  )
 }
 
 const loadCourses = async () => {
@@ -136,14 +135,15 @@ const handleSubmit = async () => {
   }
   submitting.value = true
   try {
-    const { data } = await fetchCreateCourse(formData.value)
-    if (data) {
-      message.success('创建成功')
-      showModal.value = false
-      loadCourses()
+    const { data, error } = await fetchCreateCourse(formData.value)
+    // 失败(data 为空/error 存在)时 return, 不关闭弹窗
+    if (error || !data) {
+      message.error('创建失败')
+      return
     }
-  } catch {
-    message.error('创建失败')
+    message.success('创建成功')
+    showModal.value = false
+    loadCourses()
   } finally {
     submitting.value = false
   }
@@ -207,10 +207,7 @@ const goToEdit = (id: number) => {
   router.push({ name: 'ai_course-detail', params: { id } })
 }
 
-onMounted(() => {
-  loadCourses()
-})
-
+// KeepAlive 缓存下 onActivated 激活时加载, 避免与 onMounted 双触发
 onActivated(() => {
   loadCourses()
 })

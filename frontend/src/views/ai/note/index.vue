@@ -3,20 +3,11 @@ import { h, onMounted, ref, computed, resolveComponent } from "vue";
 import { NButton, NDropdown, useMessage, NTag } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
 import { fetchDeleteNote, fetchGetNoteList, fetchUpdateNote } from "@/service/api";
-import MarkdownIt from "markdown-it";
-import texmath from "markdown-it-texmath";
-import katex from "katex";
-import "katex/dist/katex.min.css";
+import { renderMarkdown } from "@/utils/markdown";
 import { $t } from "@/locales";
 import { useAppStore } from "@/store/modules/app";
 
 const appStore = useAppStore();
-
-const md = new MarkdownIt({
-  html: true,
-  linkify: true,
-  typographer: true,
-}).use(texmath, { engine: katex, delimiters: 'dollars' });
 
 const message = useMessage();
 const loading = ref(false);
@@ -432,7 +423,7 @@ onMounted(() => {
       <div
         class="prose dark:prose-invert max-w-none overflow-y-auto p-4 bg-gray-50/50 dark:bg-dark-100 rounded-md text-sm leading-relaxed"
         style="max-height: 70vh"
-        v-html="md.render(currentNoteContent)"
+        v-html="renderMarkdown(currentNoteContent)"
       ></div>
     </NModal>
 
@@ -475,7 +466,7 @@ onMounted(() => {
             <div
               class="prose dark:prose-invert max-w-none overflow-y-auto p-4 border border-gray-200 dark:border-gray-700 rounded-md bg-gray-50/50 dark:bg-dark-100 text-sm leading-relaxed"
               :style="appStore.isMobile ? { maxHeight: '200px' } : { height: '100%', maxHeight: '350px' }"
-              v-html="md.render(editForm.content)"
+              v-html="renderMarkdown(editForm.content)"
             ></div>
           </div>
         </NFormItem>
@@ -484,7 +475,7 @@ onMounted(() => {
         <div class="flex justify-end gap-3">
           <NButton @click="showEditModal = false">{{ $t("common.cancel") }}</NButton>
           <NButton type="primary" :loading="editLoading" @click="submitEdit">
-            {{ $t("page.ai.note.saveSuccess") }}
+            {{ $t("common.confirm") }}
           </NButton>
         </div>
       </template>

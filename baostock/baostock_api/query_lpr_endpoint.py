@@ -6,11 +6,12 @@ import akshare as ak
 import pandas as pd
 
 
-def parse_params(query: dict[str, list[str]]) -> dict[str, list[str]]:
-    return query
+def parse_params(query: dict[str, list[str]]) -> dict[str, object]:
+    # 该端点不使用查询参数; 返回扁平 dict 与其他端点签名保持一致(execute 忽略参数)
+    return {}
 
 
-def execute(params: dict[str, list[str]]) -> dict[str, object]:
+def execute(params: dict[str, object]) -> dict[str, object]:
     df: pd.DataFrame = ak.macro_china_lpr()
 
     if df.empty:

@@ -93,6 +93,8 @@ func (s *AdminService) UpdateUser(id uint, req model.UpdateUserRequest) error {
 	if result.RowsAffected == 0 {
 		return errors.New("用户不存在")
 	}
+	// 用户角色可能被修改, 失效该用户权限缓存
+	InvalidatePermissionCache(id)
 	return nil
 }
 
@@ -224,7 +226,7 @@ func (s *AdminService) UpdateRolePermissions(roleCode string, permissions []stri
 		return err
 	}
 
-	return DB.Transaction(func(tx *gorm.DB) error {
+	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("role_code = ?", roleCode).Delete(&model.RolePermission{}).Error; err != nil {
 			return err
 		}
@@ -237,6 +239,11 @@ func (s *AdminService) UpdateRolePermissions(roleCode string, permissions []stri
 		}
 		return nil
 	})
+	if err == nil {
+		// 权限变更后失效短 TTL 缓存, 立即生效
+		InvalidatePermissionCache(0)
+	}
+	return err
 }
 
 func (s *AdminService) ensureRoleExists(roleCode string) error {
@@ -252,7 +259,26 @@ func (s *AdminService) ensureRoleExists(roleCode string) error {
 func (s *AdminService) ListAIProviders() ([]model.AIProvider, error) {
 	var providers []model.AIProvider
 	err := DB.Preload("Models").Find(&providers).Error
-	return providers, err
+	if err != nil {
+		return nil, err
+	}
+	// API Key 明文不出后端: 列表只回掩码, 更新时留空表示不修改
+	for i := range providers {
+		providers[i].MaskedKey = maskAPIKey(providers[i].APIKey)
+		providers[i].APIKey = ""
+	}
+	return providers, nil
+}
+
+// maskAPIKey 生成掩码 (保留前 4 后 4), 过短时整体打码
+func maskAPIKey(key string) string {
+	if key == "" {
+		return ""
+	}
+	if len(key) <= 12 {
+		return "****"
+	}
+	return key[:4] + "****" + key[len(key)-4:]
 }
 
 func (s *AdminService) CreateAIProvider(provider model.AIProvider) error {
@@ -268,6 +294,11 @@ func (s *AdminService) CreateAIProvider(provider model.AIProvider) error {
 }
 
 func (s *AdminService) UpdateAIProvider(id int, provider model.AIProvider) error {
+	// api_key 为空表示不修改 (列表已不再返回明文, 前端编辑留空即可保留原值)
+	cols := []string{"name", "base_url", "is_active"}
+	if provider.APIKey != "" {
+		cols = append(cols, "api_key")
+	}
 	return DB.Transaction(func(tx *gorm.DB) error {
 		if provider.IsActive {
 			// 如果当前设为启用，则将其他所有提供商设为禁用
@@ -277,7 +308,7 @@ func (s *AdminService) UpdateAIProvider(id int, provider model.AIProvider) error
 		}
 		// 使用 Select 强制更新 is_active 字段，解决 GORM 忽略 false 的问题
 		return tx.Model(&model.AIProvider{}).Where("id = ?", id).
-			Select("name", "api_key", "base_url", "is_active").
+			Select(cols).
 			Updates(provider).Error
 	})
 }

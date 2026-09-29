@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"backend/service"
 	"strings"
 
@@ -19,6 +20,10 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 
 		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 		token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+			// 固定 HMAC 签名算法, 防止算法混淆
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, errors.New("unexpected signing method")
+			}
 			return []byte(jwtSecret), nil
 		})
 		if err != nil || !token.Valid {
@@ -30,6 +35,19 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
 			SendError(c, "401", "无效的 Token Claims")
+			c.Abort()
+			return
+		}
+
+		// 拒绝非访问令牌: 2FA 临时令牌 (purpose=2fa) 与刷新令牌 (typ=refresh)
+		// 不得直接调用业务接口; 旧版签发的访问令牌无 typ 字段, 保持兼容放行
+		if typ, _ := claims["typ"].(string); typ != "" && typ != "access" {
+			SendError(c, "401", "令牌类型错误")
+			c.Abort()
+			return
+		}
+		if purpose, _ := claims["purpose"].(string); purpose != "" {
+			SendError(c, "401", "令牌类型错误")
 			c.Abort()
 			return
 		}

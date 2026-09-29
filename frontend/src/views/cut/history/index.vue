@@ -113,8 +113,8 @@ function resetSearchParams() {
 }
 
 async function deleteData(id: string) {
-  const result = await deleteRecod(id);
-  if (result) {
+  const { error } = await deleteRecod(id);
+  if (!error) {
     message.success($t('common.deleteSuccess'));
     getData();
   } else {

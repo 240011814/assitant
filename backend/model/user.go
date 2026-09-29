@@ -86,7 +86,7 @@ type UserProfileResponse struct {
 // UpdateProfileRequest 更新当前用户信息请求
 type UpdateProfileRequest struct {
 	Nickname string `json:"nickname" binding:"required"`
-	Email    string `json:"email"`
+	Email    string `json:"email" binding:"omitempty,email"` // 邮箱会用于系统通知收件人, 必须是合法格式
 }
 
 // ChangePasswordRequest 修改密码请求

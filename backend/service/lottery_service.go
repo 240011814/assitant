@@ -9,6 +9,7 @@ import (
 	"backend/model"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type LotteryService struct{}
@@ -258,9 +259,10 @@ func (s *LotteryService) Draw(userID, activityID uint, userName string) (*model.
 	// 使用事务确保数据一致性
 	var result *model.LotteryPrize
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		// 1. 获取活动信息
+		// 1. 获取活动信息并锁定行 (GORM v2 正确写法; 旧写法 Set("gorm:query_option") 在 v2 下被静默忽略导致行锁失效)
+		// 锁住活动行后, 同一活动的并发抽奖事务在此串行化, 限次/库存检查不再被并发穿透
 		var activity model.LotteryActivity
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&activity, activityID).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&activity, activityID).Error; err != nil {
 			return errors.New("活动不存在")
 		}
 
@@ -379,10 +381,15 @@ func (s *LotteryService) Draw(userID, activityID uint, userName string) (*model.
 			record.PrizeName = wonPrize.Name
 			record.IsWinner = true
 
-			// 减少奖品剩余数量
-			if err := tx.Model(&model.LotteryPrize{}).Where("id = ?", wonPrize.ID).
-				Update("remaining_count", gorm.Expr("remaining_count - 1")).Error; err != nil {
+			// 减少奖品剩余数量 (条件更新兜底: 剩余不足时不减, 防止并发下超发为负数)
+			decrement := tx.Model(&model.LotteryPrize{}).
+				Where("id = ? AND remaining_count > 0", wonPrize.ID).
+				Update("remaining_count", gorm.Expr("remaining_count - 1"))
+			if decrement.Error != nil {
 				return errors.New("更新奖品数量失败")
+			}
+			if decrement.RowsAffected == 0 {
+				return errors.New("奖品已被抢完")
 			}
 
 			result = wonPrize

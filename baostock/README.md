@@ -38,13 +38,23 @@
 - `GET /query_sz50_stocks`
 - `GET /query_trade_dates`
 - `GET /query_zz500_stocks`
+- `GET /query_lhb_detail?symbol=&start_date=&end_date=`
+- `GET /query_fund_flow?stock=&market=`
+- `GET /query_north_flow?symbol=`
+- `GET /query_gdp`
+- `GET /query_cpi`
+- `GET /query_pmi`
+- `GET /query_ppi`
+- `GET /query_lpr`
+
+以上 `query_lhb_detail`、`query_fund_flow`、`query_north_flow`、`query_gdp`、`query_cpi`、`query_pmi`、`query_ppi`、`query_lpr` 共 8 个接口基于 akshare 实现，不经过 baostock，不受每日限额与串行限制。
 
 ## 特性
 
 - 本地调用计数持久化到 `data/usage.json`
 - `usage.json` 不纳入 git；服务启动时如果文件不存在，会自动生成默认内容
 - 每日自动重置
-- 单日默认限制 `100000` 次
+- 单日默认限制 `45000` 次
 
 ## 目录约定
 
@@ -79,7 +89,7 @@ http://127.0.0.1:3002
 ```bash
 BAOSTOCK_API_HOST=127.0.0.1
 BAOSTOCK_API_PORT=3002
-BAOSTOCK_API_DAILY_LIMIT=100000
+BAOSTOCK_API_DAILY_LIMIT=45000
 ```
 
 ## Docker 构建与运行
@@ -96,7 +106,7 @@ docker build -t baostock-api .
 docker run --rm -p 3002:3002 \
   -e BAOSTOCK_API_HOST=0.0.0.0 \
   -e BAOSTOCK_API_PORT=3002 \
-  -e BAOSTOCK_API_DAILY_LIMIT=100000 \
+  -e BAOSTOCK_API_DAILY_LIMIT=45000 \
   -v "$(pwd)/data:/app/data" \
   baostock-api
 ```

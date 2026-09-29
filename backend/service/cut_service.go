@@ -48,6 +48,17 @@ func (s *CutService) BarCut(req model.BarRequest) ([]model.BarResult, error) {
 	L := float64(req.NewMaterialLength)
 	kerf := math.Max(0, req.Loss)
 
+	// 入口校验: 每件零件长度必须在 (0, L] 内, 否则该件永远装不进新材料,
+	// 求解阶段会死循环 ( OOM/CPU 100%)
+	for _, item := range req.Items {
+		if item <= 0 {
+			return nil, fmt.Errorf("切割项目长度必须大于0, 存在非法项: %d", item)
+		}
+		if float64(item) > L {
+			return nil, fmt.Errorf("切割项目长度 %d 超过新材料长度 %d, 无法切割", item, req.NewMaterialLength)
+		}
+	}
+
 	// 1. 聚合项目
 	aggItems := s.aggregateItems(req.Items)
 
@@ -333,6 +344,17 @@ func (s *CutService) enumerateEfficientPatterns(items []aggItem, demand []int, L
 		maxPieces[t] = min(demand[t], int(L/items[t].length))
 	}
 
+	// 枚举空间上界 Π(maxPieces+1): 无剪枝的全组合枚举在类型多/需求大时组合爆炸,
+	// 会卡死 HTTP 请求, 超过上限直接放弃枚举 (generateInitialPatterns 的贪心/混合模式仍然可用)
+	const maxEnumSpace = 1_000_000
+	space := 1
+	for t := 0; t < types; t++ {
+		space *= maxPieces[t] + 1
+		if space > maxEnumSpace {
+			return
+		}
+	}
+
 	current := make([]int, types)
 	s.dfsEnumerate(items, L, maxPieces, demand, current, 0, patterns, seen, kerf)
 }
@@ -543,6 +565,11 @@ func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []i
 				for i := 0; i < q; i++ {
 					cutLengths = append(cutLengths, int(items[t2].length))
 				}
+			}
+
+			// 兜底守卫: 本轮一件都没放下 (入口已校验理论上不应发生), 跳过该类型防止死循环
+			if cuts == 0 {
+				break
 			}
 
 			results = append(results, model.BarResult{

@@ -3,4 +3,5 @@ __pycache__/
 *.pyc
 history_A_stock_k_data.csv
 data/usage.json
+data/usage.json.tmp
 !data/.gitkeep

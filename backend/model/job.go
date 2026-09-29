@@ -56,4 +56,8 @@ type UpdateReminderRequest struct {
 	RepeatType     string     `json:"repeatType"`
 	RepeatInterval int        `json:"repeatInterval"`
 	RepeatEndAt    *time.Time `json:"repeatEndAt"`
+	// RepeatEndAtClear 为 true 时显式清除重复结束时间。
+	// JSON 里"字段缺失"与"传 null"反序列化后都是 nil, 无法区分;
+	// 不带该标记的请求 (如仅改标题) 不会清空已有的 repeat_end_at
+	RepeatEndAtClear bool `json:"repeatEndAtClear"`
 }

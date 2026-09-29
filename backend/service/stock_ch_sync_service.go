@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"backend/model"
@@ -16,7 +17,11 @@ import (
 // MySQL 为真相源, ClickHouse 为下游只读副本(回测/分析用)
 // 增量策略: 按 updated_at 时刻水位, 幂等重放(ReplacingMergeTree 以 updated_at 为版本), 不消耗 baostock 配额
 // 覆盖场景: 按日全量重放/单股同步/手工修数 都会触发 updated_at 变化, 从而被增量捕获
-type StockChSyncService struct{}
+type StockChSyncService struct {
+	mu      sync.Mutex
+	running bool
+	task    string
+}
 
 func NewStockChSyncService() *StockChSyncService {
 	return &StockChSyncService{}
@@ -26,7 +31,31 @@ const (
 	chWatermarkDaily   = "clickhouse_stock_daily"   // CH stock_daily 复制水位(updated_at)
 	chWatermarkFinance = "clickhouse_stock_finance" // CH stock_finance 复制水位(updated_at)
 	chReadBatch        = 20000                      // MySQL 每批读取条数
+
+	chIncrementalTimeout = 30 * time.Minute  // 增量复制整体超时
+	chFullTimeout        = 6 * time.Hour     // 全量重建整体超时 (千万级行)
 )
+
+// RunExclusive CH 复制任务的独立互斥: 不占用 baostock 同步的全局锁,
+// CH 卡住/全量重建期间不会饿死行情/财务同步; 冲突返回 ErrSyncBusy 哨兵 (调度器记 skipped)
+func (s *StockChSyncService) RunExclusive(task string, fn func() error) error {
+	s.mu.Lock()
+	if s.running {
+		current := s.task
+		s.mu.Unlock()
+		return fmt.Errorf("同步任务 %s 正在运行中: %w", current, ErrSyncBusy)
+	}
+	s.running = true
+	s.task = task
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		s.running = false
+		s.mu.Unlock()
+	}()
+	return fn()
+}
 
 // ChEnabled ClickHouse 是否可用
 func ChEnabled() bool {
@@ -38,10 +67,12 @@ func (s *StockChSyncService) SyncIncremental() error {
 	if CH == nil {
 		return errors.New("ClickHouse 未启用")
 	}
-	if err := s.syncDaily(false); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), chIncrementalTimeout)
+	defer cancel()
+	if err := s.syncDaily(ctx, false); err != nil {
 		return err
 	}
-	return s.syncFinance(false)
+	return s.syncFinance(ctx, false)
 }
 
 // SyncFull 全量重建(首次初始化/数据修复): 清空 CH 两张表后全量复制
@@ -49,16 +80,17 @@ func (s *StockChSyncService) SyncFull() error {
 	if CH == nil {
 		return errors.New("ClickHouse 未启用")
 	}
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), chFullTimeout)
+	defer cancel()
 	for _, table := range []string{"stock_daily", "stock_finance"} {
 		if err := CH.Exec(ctx, "TRUNCATE TABLE "+table); err != nil {
 			return fmt.Errorf("清空 ClickHouse 表 %s 失败: %v", table, err)
 		}
 	}
-	if err := s.syncDaily(true); err != nil {
+	if err := s.syncDaily(ctx, true); err != nil {
 		return err
 	}
-	return s.syncFinance(true)
+	return s.syncFinance(ctx, true)
 }
 
 // chDailyRow stock_daily 复制行(模型未定义 updated_at, 这里显式声明)
@@ -88,8 +120,7 @@ type chDailyRow struct {
 const chDailyCols = "id, code, frequency, trade_date, open, high, low, close, preclose, volume, amount, turnover_rate, change_pct, trade_status, pe_ttm, pb_mrq, ps_ttm, pcf_ncf_ttm, amplitude, updated_at"
 
 // syncDaily 复制 stock_daily: full=true 忽略水位全量; 否则按 updated_at >= 水位
-func (s *StockChSyncService) syncDaily(full bool) error {
-	ctx := context.Background()
+func (s *StockChSyncService) syncDaily(ctx context.Context, full bool) error {
 	wm := time.Time{}
 	if !full {
 		wm = s.getWatermarkTime(chWatermarkDaily)
@@ -152,8 +183,7 @@ func (s *StockChSyncService) insertDailyBatch(ctx context.Context, rows []chDail
 }
 
 // syncFinance 复制 stock_finance
-func (s *StockChSyncService) syncFinance(full bool) error {
-	ctx := context.Background()
+func (s *StockChSyncService) syncFinance(ctx context.Context, full bool) error {
 	wm := time.Time{}
 	if !full {
 		wm = s.getWatermarkTime(chWatermarkFinance)

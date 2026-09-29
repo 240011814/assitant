@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/eino-ext/components/model/ark"
@@ -26,6 +27,7 @@ type AIAgentService struct {
 	timeoutConfig   TimeoutConfig
 	runnerCache     map[string]*adk.Runner
 	promptCache     map[string]string
+	cacheMu         sync.RWMutex // 保护 runnerCache/promptCache 及 active* 字段, gin 请求与 ReloadConfig 并发访问
 	sysCfgService   *SystemConfigService
 	checkpointStore compose.CheckPointStore
 	memoryService   *UserMemoryService
@@ -167,23 +169,29 @@ func (s *AIAgentService) DeleteAIAgent(userID uint, agentID uint) error {
 }
 
 func (s *AIAgentService) clearRunnerCache(userID uint, agentID uint) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
 	s.runnerCache = make(map[string]*adk.Runner)
 	delete(s.promptCache, fmt.Sprintf("%d_%d", userID, agentID))
 }
 
 func (s *AIAgentService) ClearRunnerCache() {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
 	s.runnerCache = make(map[string]*adk.Runner)
 }
 
 func (s *AIAgentService) ReloadConfig() error {
-
 	var provider model.AIProvider
 	if err := DB.Where("is_active = ?", true).First(&provider).Error; err != nil {
+		s.cacheMu.Lock()
 		s.activeProvider = nil
 		s.activeModel = nil
 		s.enabledModels = nil
+		s.cacheMu.Unlock()
 		return err
 	}
+	s.cacheMu.Lock()
 	s.activeProvider = &provider
 
 	var m model.AIModel
@@ -211,6 +219,7 @@ func (s *AIAgentService) ReloadConfig() error {
 	}
 
 	s.runnerCache = make(map[string]*adk.Runner)
+	s.cacheMu.Unlock()
 	return nil
 }
 
@@ -268,9 +277,12 @@ func (s *AIAgentService) TestConnection(apiKey, baseURL, modelCode string) error
 		{Role: schema.User, Content: "Hello"},
 	})
 	for {
-		_, ok := iter.Next()
+		event, ok := iter.Next()
 		if !ok {
 			break
+		}
+		if event.Err != nil {
+			return fmt.Errorf("模型返回错误: %w", event.Err)
 		}
 	}
 	return nil
@@ -299,7 +311,10 @@ func (s *AIAgentService) buildTools() []tool.BaseTool {
 
 func (s *AIAgentService) getOrCreateRunner(modelOverride string) (*adk.Runner, error) {
 	cacheKey := modelOverride
-	if runner, ok := s.runnerCache[cacheKey]; ok {
+	s.cacheMu.RLock()
+	runner, ok := s.runnerCache[cacheKey]
+	s.cacheMu.RUnlock()
+	if ok {
 		return runner, nil
 	}
 
@@ -339,21 +354,26 @@ func (s *AIAgentService) getOrCreateRunner(modelOverride string) (*adk.Runner, e
 		Handlers: handlers,
 	})
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("构建 AI Agent 失败: %w", err)
 	}
 
-	runner := adk.NewRunner(s.ctx, adk.RunnerConfig{
+	runner = adk.NewRunner(s.ctx, adk.RunnerConfig{
 		Agent:           agent,
 		EnableStreaming: true,
 		CheckPointStore: s.checkpointStore,
 	})
+	s.cacheMu.Lock()
 	s.runnerCache[cacheKey] = runner
+	s.cacheMu.Unlock()
 	return runner, nil
 }
 
 func (s *AIAgentService) getCustomPrompt(userID uint, agentID uint) string {
 	cacheKey := fmt.Sprintf("%d_%d", userID, agentID)
-	if prompt, ok := s.promptCache[cacheKey]; ok {
+	s.cacheMu.RLock()
+	prompt, ok := s.promptCache[cacheKey]
+	s.cacheMu.RUnlock()
+	if ok {
 		return prompt
 	}
 
@@ -362,7 +382,6 @@ func (s *AIAgentService) getCustomPrompt(userID uint, agentID uint) string {
 		return ""
 	}
 	var userPrompt model.UserPrompt
-	var prompt string
 	err = DB.Where("user_id = ? AND agent_id = ? AND is_active = ?", userID, agentID, true).First(&userPrompt).Error
 	if err == nil {
 		prompt = userPrompt.CustomPrompt
@@ -370,22 +389,34 @@ func (s *AIAgentService) getCustomPrompt(userID uint, agentID uint) string {
 		prompt = userAgent.SystemPrompt
 	}
 
+	s.cacheMu.Lock()
 	s.promptCache[cacheKey] = prompt
+	s.cacheMu.Unlock()
 	return prompt
 }
 
 func (s *AIAgentService) getModel(modelOverride string) (*ark.ChatModel, error) {
-	modelCode := s.activeModel.ModelCode
+	// 在锁内对 active* 做快照, 防止与 ReloadConfig 并发时的 nil/竞态问题
+	s.cacheMu.RLock()
+	activeProvider := s.activeProvider
+	activeModel := s.activeModel
+	s.cacheMu.RUnlock()
+
+	if activeProvider == nil || activeModel == nil {
+		return nil, errors.New("AI 模型未配置, 请先在系统管理中启用 AI Provider")
+	}
+
+	modelCode := activeModel.ModelCode
 	if modelOverride != "" {
 		modelCode = modelOverride
 	}
 	chatConfig := &ark.ChatModelConfig{
 		Model:   modelCode,
-		APIKey:  s.activeProvider.APIKey,
-		BaseURL: s.activeProvider.BaseURL,
+		APIKey:  activeProvider.APIKey,
+		BaseURL: activeProvider.BaseURL,
 	}
 	var configMap map[string]interface{}
-	if err := json.Unmarshal([]byte(s.activeModel.ConfigJSON), &configMap); err == nil {
+	if err := json.Unmarshal([]byte(activeModel.ConfigJSON), &configMap); err == nil {
 		if t, ok := configMap["temperature"].(float64); ok {
 			temperature := float32(t)
 			chatConfig.Temperature = &temperature
@@ -407,7 +438,7 @@ func (s *AIAgentService) getModel(modelOverride string) (*ark.ChatModel, error) 
 			chatConfig.PresencePenalty = &presencePenalty
 		}
 	} else {
-		log.Printf("AI model config_json parse failed model=%s config_json=%s err=%v", s.activeModel.ModelCode, s.activeModel.ConfigJSON, err)
+		log.Printf("AI model config_json parse failed model=%s config_json=%s err=%v", activeModel.ModelCode, activeModel.ConfigJSON, err)
 	}
 	return ark.NewChatModel(s.ctx, chatConfig)
 }

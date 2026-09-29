@@ -37,7 +37,7 @@ func InitDB(cfg *config.Config) (*gorm.DB, error) {
 		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
 		logger.Config{
 			SlowThreshold:             500 * time.Millisecond, // 慢 SQL 阈值调高到 500ms
-			LogLevel:                  logger.Info,            // 打印所有 SQL
+			LogLevel:                  logger.Warn,            // 仅告警/慢查询 (Info 会打印全部 SQL 及绑定参数, 生产泄露数据且拖性能)
 			IgnoreRecordNotFoundError: true,                   // 忽略未找到记录的错误
 			Colorful:                  true,                   // 彩色打印
 		},
@@ -55,6 +55,11 @@ func InitDB(cfg *config.Config) (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sql.DB: %v", err)
 	}
+
+	// 连接池配置 (默认无上限连接, 高并发下会打爆 MySQL)
+	sqlDB.SetMaxOpenConns(50)
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetConnMaxLifetime(time.Hour)
 
 	goose.SetBaseFS(embedMigrations)
 	if err := goose.SetDialect("mysql"); err != nil {

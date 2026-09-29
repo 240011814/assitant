@@ -23,7 +23,10 @@ func NewReminderService(jobScheduler *JobScheduler, notifiers ...iface.Notifier)
 		jobScheduler: jobScheduler,
 		notifiers:    notifiers,
 	}
-	jobScheduler.RegisterTask(model.TaskNameReminder, "用户备忘提醒", json.RawMessage(`{"title":"标题","content":"内容"}`), s.reminderTaskHandler)
+	// jobScheduler 可能为 nil (调度器创建失败时仅告警不阻断启动), 此时跳过任务注册
+	if jobScheduler != nil {
+		jobScheduler.RegisterTask(model.TaskNameReminder, "用户备忘提醒", json.RawMessage(`{"title":"标题","content":"内容"}`), s.reminderTaskHandler)
+	}
 	return s
 }
 
@@ -192,7 +195,12 @@ func (s *ReminderService) Update(userID, id uint, req model.UpdateReminderReques
 	if req.RepeatInterval > 0 {
 		updates["repeat_interval"] = req.RepeatInterval
 	}
-	updates["repeat_end_at"] = req.RepeatEndAt
+	// 仅显式传入/显式清除时才更新, 防止只改标题的请求把 repeat_end_at 清成 NULL (重复任务变无限重复)
+	if req.RepeatEndAt != nil {
+		updates["repeat_end_at"] = req.RepeatEndAt
+	} else if req.RepeatEndAtClear {
+		updates["repeat_end_at"] = nil
+	}
 	// 状态不重置 (旧逻辑: 已通知的任务不重置状态, 避免编辑后重复通知)
 
 	if err := DB.Model(&def).Updates(updates).Error; err != nil {
@@ -273,7 +281,12 @@ func (s *ReminderService) syncChainJobs(userID uint, def *model.JobDefinition, p
 		if req.RepeatInterval > 0 {
 			updates["repeat_interval"] = req.RepeatInterval
 		}
-		updates["repeat_end_at"] = req.RepeatEndAt
+		// 与本条更新语义一致: 未传不清空, 显式清除才置 NULL
+		if req.RepeatEndAt != nil {
+			updates["repeat_end_at"] = req.RepeatEndAt
+		} else if req.RepeatEndAtClear {
+			updates["repeat_end_at"] = nil
+		}
 
 		if !req.RemindAt.IsZero() && row.RunAt != nil {
 			t := req.RemindAt.In(row.RunAt.Location())

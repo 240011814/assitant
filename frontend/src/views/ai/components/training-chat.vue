@@ -14,10 +14,7 @@ import {
 import { fetchGetAIModels, fetchGetUserPrompt, fetchChatStream, fetchToolApproval } from "@/service/api/ai";
 import { fetchCourseList, fetchCreateCourseItem, type Course } from "@/service/api/course";
 import { useAuth } from "@/hooks/business/auth";
-import MarkdownIt from "markdown-it";
-import texmath from "markdown-it-texmath";
-import katex from "katex";
-import "katex/dist/katex.min.css";
+import { renderMarkdown as renderMarkdownRaw } from "@/utils/markdown";
 import { useRoute } from "vue-router";
 import PromptEditor from "./prompt-editor.vue";
 
@@ -77,18 +74,13 @@ const props = withDefaults(
   }
 );
 
-const md = new MarkdownIt({
-  html: true,
-  linkify: true,
-  typographer: true,
-}).use(texmath, { engine: katex, delimiters: "dollars" });
 const { hasAuth } = useAuth();
 const appStore = useAppStore();
 const containerRef = ref<HTMLElement>();
 const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
 
 const renderMarkdown = (content: string) => {
-  return md.render(content).trim();
+  return renderMarkdownRaw(content).trim();
 };
 
 const formatTime = (timestamp?: number) => {

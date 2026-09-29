@@ -184,6 +184,10 @@ def _handle_query(request: Request, endpoint: Any, path: str) -> JSONResponse:
                     usage_counter.get_stats(),
                 ),
             )
+        except OSError as error:
+            # usage.json 持久化失败(磁盘满/权限等): 内存计数仍然生效, 只是本次放弃写盘。
+            # 降级继续主查询, 不能让配额写盘问题把请求打成非 JSON 500
+            logging.error("usage stats persist failed, continue with in-memory count: %s", error)
 
     started = time.monotonic()
     try:
@@ -228,7 +232,9 @@ def _make_query_handler(endpoint: Any, path: str):
 
 
 for _path, _endpoint in QUERY_ENDPOINTS.items():
-    app.add_api_route(_path, _make_query_handler(_endpoint, _path), methods=["GET"], name=_path.lstrip("/"))
+    app.add_api_route(
+        _path, _make_query_handler(_endpoint, _path), methods=["GET"], name=_path.lstrip("/")
+    )
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -256,7 +262,8 @@ log_config = {
         "uvicorn.access": {
             "handlers": ["access"],
             "level": "INFO",
-            # 不向 root 传播: 否则 access 记录会同时被本 handler 和 root(basicConfig, 带 [baostock-api] 前缀)处理, 日志打印两遍
+            # 不向 root 传播: 否则 access 记录会同时被本 handler 和 root(basicConfig,
+            # 带 [baostock-api] 前缀)处理, 日志打印两遍
             "propagate": False,
         }
     }

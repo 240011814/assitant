@@ -89,10 +89,9 @@ const columns = computed<DataTableColumns<Api.Admin.AIProvider>>(() => [
     title: "API Key",
     key: "api_key",
     render(row) {
-      if (!row.api_key) return $t("page.system.aiConfig.notConfigured");
-      return row.api_key.length > 10
-        ? `${row.api_key.slice(0, 6)}***${row.api_key.slice(-4)}`
-        : "******";
+      // 后端只返回掩码形式的 masked_api_key, 不再返回明文
+      if (!row.masked_api_key) return "-";
+      return row.masked_api_key;
     },
   },
   { title: "Base URL", key: "base_url" },
@@ -234,10 +233,12 @@ function handleEditTool(row: Api.Admin.AITool) {
 async function handleSaveTool() {
   toolForm.value.config_json = JSON.stringify(toolConfigValues.value);
   if (toolForm.value.id) {
-    await fetchUpdateAITool(toolForm.value.id, toolForm.value);
+    const { error } = await fetchUpdateAITool(toolForm.value.id, toolForm.value);
+    if (error) return;
     message.success("更新成功");
   } else {
-    await fetchCreateAITool(toolForm.value);
+    const { error } = await fetchCreateAITool(toolForm.value);
+    if (error) return;
     message.success("创建成功");
   }
   showToolModal.value = false;
@@ -245,19 +246,21 @@ async function handleSaveTool() {
 }
 
 async function handleDeleteTool(id: number) {
-  await fetchDeleteAITool(id);
+  const { error } = await fetchDeleteAITool(id);
+  if (error) return;
   message.success("删除成功");
   getTools();
 }
 
 async function handleToggleToolStatus(row: Api.Admin.AITool, val: boolean) {
-  await fetchUpdateAITool(row.id, {
+  const { error } = await fetchUpdateAITool(row.id, {
     name: row.name,
     display_name: row.display_name,
     description: row.description,
     config_json: row.config_json,
     enabled: val,
   });
+  if (error) return;
   message.success(val ? "已启用" : "已禁用");
   getTools();
 }
@@ -343,16 +346,19 @@ function handleAddProvider() {
 
 function handleEditProvider(row: Api.Admin.AIProvider) {
   providerModalTitle.value = $t("page.system.aiConfig.editProvider");
-  providerForm.value = { ...row };
+  // 后端不再返回明文 api_key, 编辑时留空表示不修改
+  providerForm.value = { ...row, api_key: "" };
   showProviderModal.value = true;
 }
 
 async function handleSaveProvider() {
   if (providerForm.value.id) {
-    await fetchUpdateAIProvider(providerForm.value.id, providerForm.value);
+    const { error } = await fetchUpdateAIProvider(providerForm.value.id, providerForm.value);
+    if (error) return;
     message.success($t("page.system.aiConfig.updateSuccess"));
   } else {
-    await fetchCreateAIProvider(providerForm.value);
+    const { error } = await fetchCreateAIProvider(providerForm.value);
+    if (error) return;
     message.success($t("page.system.aiConfig.createSuccess"));
   }
   showProviderModal.value = false;
@@ -360,7 +366,8 @@ async function handleSaveProvider() {
 }
 
 async function handleToggleProviderStatus(row: Api.Admin.AIProvider, val: boolean) {
-  await fetchUpdateAIProvider(row.id, { ...row, is_active: val });
+  const { error } = await fetchUpdateAIProvider(row.id, { ...row, is_active: val });
+  if (error) return;
   message.success(
     val
       ? $t("page.system.aiConfig.enabledStatus")
@@ -370,7 +377,8 @@ async function handleToggleProviderStatus(row: Api.Admin.AIProvider, val: boolea
 }
 
 async function handleDeleteProvider(id: number) {
-  await fetchDeleteAIProvider(id);
+  const { error } = await fetchDeleteAIProvider(id);
+  if (error) return;
   message.success($t("page.system.aiConfig.deleteSuccess"));
   getProviders();
 }
@@ -471,10 +479,12 @@ function closeModelForm() {
 
 async function handleSaveModel() {
   if (modelForm.value.id) {
-    await fetchUpdateAIModel(modelForm.value.id, modelForm.value);
+    const { error } = await fetchUpdateAIModel(modelForm.value.id, modelForm.value);
+    if (error) return;
     message.success($t("page.system.aiConfig.updateSuccess"));
   } else {
-    await fetchCreateAIModel(modelForm.value as Api.Admin.AIModel);
+    const { error } = await fetchCreateAIModel(modelForm.value as Api.Admin.AIModel);
+    if (error) return;
     message.success($t("page.system.aiConfig.createSuccess"));
   }
   // Refresh data
@@ -490,7 +500,8 @@ async function handleSaveModel() {
 }
 
 async function handleDeleteModel(row: Api.Admin.AIModel) {
-  await fetchDeleteAIModel(row.id);
+  const { error } = await fetchDeleteAIModel(row.id);
+  if (error) return;
   message.success($t("page.system.aiConfig.deleteSuccess"));
   // Refresh data
   const { data } = await fetchGetAIProviders();
@@ -506,7 +517,7 @@ async function handleDeleteModel(row: Api.Admin.AIModel) {
 async function handleTestSingleModel(row: Api.Admin.AIModel) {
   const currentProvider = providers.value.find((p) => p.id === currentProviderId.value);
   if (!currentProvider?.api_key) {
-    message.error($t("page.system.aiConfig.apiKeyPlaceholder"));
+    message.warning("请先输入 API Key 再测试");
     return;
   }
   testingModelId.value = row.id;
@@ -593,7 +604,7 @@ onMounted(() => {
             v-model:value="providerForm.api_key"
             type="password"
             show-password-on="click"
-            :placeholder="$t('page.system.aiConfig.apiKeyPlaceholder')"
+            :placeholder="$t('page.system.aiConfig.apiKeyPlaceholder') + '，留空则不修改'"
           />
         </NFormItem>
         <NFormItem label="Base URL" path="base_url">

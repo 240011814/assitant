@@ -78,7 +78,12 @@ class UsageCounter:
 
         try:
             payload = json.loads(self.usage_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as error:
+            # JSONDecodeError: 上次写盘中途退出留下的截断 JSON; OSError: 读取权限等 IO 故障。
+            # 保留原有"当日计数归零"逻辑, 但必须留痕——静默归零可能突破 baostock 硬上限
+            logging.warning(
+                "load %s failed (%s), reset today's usage counter", self.usage_file, error
+            )
             stats = self._default_stats()
             self._save_stats(stats)
             return stats
@@ -91,10 +96,19 @@ class UsageCounter:
         return self._reset_if_needed(stats)
 
     def _save_stats(self, stats: UsageStats) -> None:
-        self.usage_file.write_text(
-            json.dumps(stats.to_dict(), ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        # 原子写: 先写临时文件再 os.replace, 避免写途中进程退出留下截断 JSON,
+        # 导致下次加载 JSONDecodeError 时当日配额被静默归零(可能突破 baostock 硬上限)
+        tmp_file = self.usage_file.parent / (self.usage_file.name + ".tmp")
+        payload = json.dumps(stats.to_dict(), ensure_ascii=False, indent=2) + "\n"
+        try:
+            with open(tmp_file, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp_file, self.usage_file)
+        except OSError as error:
+            # 持久化失败只记日志不抛: 内存计数仍在, 不能因写盘问题影响主查询响应
+            logging.error("persist %s failed: %s", self.usage_file, error)
 
     def _reset_if_needed(self, stats: UsageStats) -> UsageStats:
         today = self._today()
@@ -244,7 +258,8 @@ def _patched_send_msg(msg: str) -> str:
         if default_socket is None:
             raise ConnectionError("baostock socket not connected (login required)")
 
-        default_socket.send(bytes(msg + "\n", encoding="utf-8"))
+        # sendall 保证长消息全部发出; send 可能只发一半导致服务端收到的请求被截断
+        default_socket.sendall(bytes(msg + "\n", encoding="utf-8"))
 
         receive = b""
         deadline = time.monotonic() + SEND_MSG_DEADLINE_SECONDS
@@ -261,20 +276,24 @@ def _patched_send_msg(msg: str) -> str:
             if receive[-len(_MESSAGE_END):] == _MESSAGE_END:
                 break
 
-        head_bytes = receive[0:bs_cons.MESSAGE_HEADER_LENGTH]
-        head_str = bytes.decode(head_bytes)
-        head_arr = head_str.split(bs_cons.MESSAGE_SPLIT)
-        if head_arr[1] in bs_cons.COMPRESSED_MESSAGE_TYPE_TUPLE:
-            head_inner_length = int(head_arr[2])
-            body_str = bytes.decode(
-                zlib.decompress(
-                    receive[
-                        bs_cons.MESSAGE_HEADER_LENGTH:bs_cons.MESSAGE_HEADER_LENGTH + head_inner_length
-                    ]
+        # 协议响应解析段: 响应头损坏/截断(下标越界/int() 解析失败/解码失败/zlib 解压失败)
+        # 是连接层异常, 与瞬时错误一致应走 force_disconnect + 重连重试; 若让 ValueError
+        # 直接冒泡, 会被 _execute_with_retry 当成"本地参数错误"误报 400。业务参数解析的
+        # ValueError(端点 parse_params 抛出)不在此处, 不受影响。
+        try:
+            head_bytes = receive[0:bs_cons.MESSAGE_HEADER_LENGTH]
+            head_str = bytes.decode(head_bytes)
+            head_arr = head_str.split(bs_cons.MESSAGE_SPLIT)
+            if head_arr[1] in bs_cons.COMPRESSED_MESSAGE_TYPE_TUPLE:
+                body_start = bs_cons.MESSAGE_HEADER_LENGTH
+                head_inner_length = int(head_arr[2])
+                body_str = bytes.decode(
+                    zlib.decompress(receive[body_start:body_start + head_inner_length])
                 )
-            )
-            return head_str + body_str
-        return bytes.decode(receive)
+                return head_str + body_str
+            return bytes.decode(receive)
+        except (ValueError, IndexError, zlib.error) as error:
+            raise ConnectionError(f"baostock protocol response parse failed: {error}") from error
 
 
 bs_socketutil.send_msg = _patched_send_msg

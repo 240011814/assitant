@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cloudwego/eino/schema"
+	"gorm.io/gorm"
 )
 
 var (
@@ -86,7 +87,17 @@ func (s *HistoryService) UpdateTitle(userID uint, historyID uint, title string) 
 }
 
 func (s *HistoryService) DeleteHistory(userID uint, historyID uint) error {
-	return DB.Where("id = ? AND user_id = ?", historyID, userID).Delete(&model.TrainingHistory{}).Error
+	// 事务: 先校验归属, 连带清理会话消息, 避免留下孤儿 training_messages
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var history model.TrainingHistory
+		if err := tx.Where("id = ? AND user_id = ?", historyID, userID).First(&history).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("history_id = ?", historyID).Delete(&model.TrainingMessage{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&history).Error
+	})
 }
 
 func extractLastMessage(messages []model.OpenAIMessage) string {

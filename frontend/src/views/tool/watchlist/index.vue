@@ -275,6 +275,11 @@ async function handleDelete(id: number) {
     await deleteWatchlist(id)
     message.success('已删除')
     await loadWatchlist()
+    // 客户端分页: 删除后若当前页超出最大页, 回退避免空页
+    const maxPage = Math.max(1, Math.ceil(filteredList.value.length / pageSize.value))
+    if (currentPage.value > maxPage) {
+      currentPage.value = maxPage
+    }
   } catch (e: any) {
     message.error(e.message || '删除失败')
   }

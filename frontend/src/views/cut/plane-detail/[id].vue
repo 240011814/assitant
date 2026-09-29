@@ -1,21 +1,43 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
+import { NButton, NResult } from 'naive-ui';
 
 const route = useRoute();
-const request: Api.Cut.BinRequest & {
+const router = useRouter();
+
+// 解析失败/无参数时不白屏, 显示错误态
+const parseError = ref(false);
+let parsedRequest: Api.Cut.BinRequest & {
   rowItems: Api.Cut.Item[];
-} = JSON.parse(route.query.request as string) as Api.Cut.BinRequest & {
-  rowItems: Api.Cut.Item[];
-};
-const response: Api.Cut.BinResult[] = JSON.parse(route.query.response as string) as Api.Cut.BinResult[];
+} | null = null;
+let parsedResponse: Api.Cut.BinResult[] = [];
+try {
+  const rawRequest = route.query.request;
+  const rawResponse = route.query.response;
+  if (typeof rawRequest !== 'string' || !rawRequest || typeof rawResponse !== 'string' || !rawResponse) {
+    throw new Error('missing query params');
+  }
+  parsedRequest = JSON.parse(rawRequest) as Api.Cut.BinRequest & {
+    rowItems: Api.Cut.Item[];
+  };
+  parsedResponse = JSON.parse(rawResponse) as Api.Cut.BinResult[];
+} catch {
+  parseError.value = true;
+}
+const request = parsedRequest;
+const response = parsedResponse;
+
+function goBack() {
+  router.back();
+}
 
 const group = ref(false);
-const strategy = ref(request.strategy || 'Guillotine');
-const newMaterialHeight = ref(request.height || 200);
-const newMaterialWidth = ref(request.width || 200);
-const items = ref<Api.Cut.Item[]>(request.rowItems || []);
-const materials = ref<Api.Cut.Item[]>(request.materials || []);
+const strategy = ref(request?.strategy || 'Guillotine');
+const newMaterialHeight = ref(request?.height || 200);
+const newMaterialWidth = ref(request?.width || 200);
+const items = ref<Api.Cut.Item[]>(request?.rowItems || []);
+const materials = ref<Api.Cut.Item[]>(request?.materials || []);
 const results = ref<Api.Cut.BinResult[]>(response || []);
 const strategyOptions = [
   { label: '刀切法', value: 'Guillotine' },
@@ -31,7 +53,20 @@ const itemColumns = [
 </script>
 
 <template>
-  <div class="p-4">
+  <!-- 参数缺失/解析失败: 显示错误态, 不白屏 -->
+  <NResult
+    v-if="parseError"
+    status="error"
+    title="数据加载失败"
+    description="裁剪记录参数缺失或格式不正确，无法展示详情"
+    class="mt-16"
+  >
+    <template #footer>
+      <NButton type="primary" @click="goBack">返回</NButton>
+    </template>
+  </NResult>
+
+  <div v-else class="p-4">
     <NCard title="材料裁剪可视化" size="large" class="mb-4">
       <!-- 切割项目列表 -->
 

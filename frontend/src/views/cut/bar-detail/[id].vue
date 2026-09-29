@@ -1,27 +1,48 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import { useRoute } from 'vue-router';
-import { NCard, NDataTable, NInputNumber } from 'naive-ui';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { NButton, NCard, NDataTable, NInputNumber, NResult } from 'naive-ui';
 const route = useRoute();
-const request: Api.Cut.BarRequest & {
-  rowItems: Api.Cut.BarItem[];
-  rowMaterials: Api.Cut.BarItem[];
-} = JSON.parse(route.query.request as string) as Api.Cut.BarRequest & {
-  rowItems: Api.Cut.BarItem[];
-  rowMaterials: Api.Cut.BarItem[];
-};
-const response: Api.Cut.BarResult[] = JSON.parse(route.query.response as string) as Api.Cut.BarResult[];
-const itemsData = ref<Api.Cut.BarItem[]>(request.rowItems || []);
-const materialsData = ref<Api.Cut.BarItem[]>(request.rowMaterials || []);
+const router = useRouter();
 
-const newMaterialLength = ref(request.newMaterialLength || 600);
-const loss = ref(request.loss || 0);
-const utilizationWeight = ref(request.utilizationWeight || 1);
+// 解析失败/无参数时不白屏, 显示错误态
+const parseError = ref(false);
+let parsedRequest: Api.Cut.BarRequest & {
+  rowItems: Api.Cut.BarItem[];
+  rowMaterials: Api.Cut.BarItem[];
+} | null = null;
+let parsedResponse: Api.Cut.BarResult[] = [];
+try {
+  const rawRequest = route.query.request;
+  const rawResponse = route.query.response;
+  if (typeof rawRequest !== 'string' || !rawRequest || typeof rawResponse !== 'string' || !rawResponse) {
+    throw new Error('missing query params');
+  }
+  parsedRequest = JSON.parse(rawRequest) as Api.Cut.BarRequest & {
+    rowItems: Api.Cut.BarItem[];
+    rowMaterials: Api.Cut.BarItem[];
+  };
+  parsedResponse = JSON.parse(rawResponse) as Api.Cut.BarResult[];
+} catch {
+  parseError.value = true;
+}
+const request = parsedRequest;
+const response = parsedResponse;
+const itemsData = ref<Api.Cut.BarItem[]>(request?.rowItems || []);
+const materialsData = ref<Api.Cut.BarItem[]>(request?.rowMaterials || []);
+
+const newMaterialLength = ref(request?.newMaterialLength || 600);
+const loss = ref(request?.loss || 0);
+const utilizationWeight = ref(request?.utilizationWeight || 1);
 const group = ref(false);
 const cutResult = ref<Api.Cut.BarResult[] | null>(response || null);
 const scaleFactor = ref(1);
 const canvasWrapper = ref<HTMLDivElement | null>(null);
 const containerWidth = ref(800); // 动态容器宽度
+
+function goBack() {
+  router.back();
+}
 
 // item 表格
 const itemColumns = [
@@ -96,44 +117,80 @@ const processedResult = computed(() => {
 // 颜色池
 const randomColors = Array.from({ length: 50 }, (_, i) => `hsl(${(i * 30) % 360}, 70%, 50%)`);
 
-// 缩放 + 拖动
+// 所有材料中的最大总长, 预计算避免模板里对每个 cut 重复展开计算(O(n²))
+const maxTotalLength = computed(() => {
+  if (!cutResult.value || cutResult.value.length === 0) return 1;
+  return Math.max(...cutResult.value.map(d => d.totalLength));
+});
+
+// 缩放 + 拖动(具名句柄, 便于卸载时移除)
+let isDragging = false;
+let startX = 0;
+let scrollLeft = 0;
+
+const handleWheel = (e: WheelEvent) => {
+  e.preventDefault();
+  scaleFactor.value += e.deltaY * -0.001;
+  scaleFactor.value = Math.min(Math.max(0.5, scaleFactor.value), 3);
+};
+const handleMouseDown = (e: MouseEvent) => {
+  isDragging = true;
+  startX = e.pageX - canvasWrapper.value!.offsetLeft;
+  scrollLeft = canvasWrapper.value!.scrollLeft;
+};
+const handleMouseUp = () => {
+  isDragging = false;
+};
+const handleMouseLeave = () => {
+  isDragging = false;
+};
+const handleMouseMove = (e: MouseEvent) => {
+  if (!isDragging) return;
+  e.preventDefault();
+  const x = e.pageX - canvasWrapper.value!.offsetLeft;
+  const walk = (x - startX) * 1.5;
+  canvasWrapper.value!.scrollLeft = scrollLeft - walk;
+};
+
 onMounted(() => {
   if (canvasWrapper.value) {
     containerWidth.value = canvasWrapper.value.clientWidth;
 
-    let isDragging = false;
-    let startX = 0;
-    let scrollLeft = 0;
+    canvasWrapper.value.addEventListener('wheel', handleWheel, { passive: false });
+    canvasWrapper.value.addEventListener('mousedown', handleMouseDown);
+    canvasWrapper.value.addEventListener('mouseup', handleMouseUp);
+    canvasWrapper.value.addEventListener('mouseleave', handleMouseLeave);
+    canvasWrapper.value.addEventListener('mousemove', handleMouseMove);
+  }
+});
 
-    canvasWrapper.value.addEventListener('wheel', (e: WheelEvent) => {
-      e.preventDefault();
-      scaleFactor.value += e.deltaY * -0.001;
-      scaleFactor.value = Math.min(Math.max(0.5, scaleFactor.value), 3);
-    });
-    canvasWrapper.value.addEventListener('mousedown', (e: MouseEvent) => {
-      isDragging = true;
-      startX = e.pageX - canvasWrapper.value!.offsetLeft;
-      scrollLeft = canvasWrapper.value!.scrollLeft;
-    });
-    canvasWrapper.value.addEventListener('mouseup', () => {
-      isDragging = false;
-    });
-    canvasWrapper.value.addEventListener('mouseleave', () => {
-      isDragging = false;
-    });
-    canvasWrapper.value.addEventListener('mousemove', (e: MouseEvent) => {
-      if (!isDragging) return;
-      e.preventDefault();
-      const x = e.pageX - canvasWrapper.value!.offsetLeft;
-      const walk = (x - startX) * 1.5;
-      canvasWrapper.value!.scrollLeft = scrollLeft - walk;
-    });
+onUnmounted(() => {
+  const el = canvasWrapper.value;
+  if (el) {
+    el.removeEventListener('wheel', handleWheel);
+    el.removeEventListener('mousedown', handleMouseDown);
+    el.removeEventListener('mouseup', handleMouseUp);
+    el.removeEventListener('mouseleave', handleMouseLeave);
+    el.removeEventListener('mousemove', handleMouseMove);
   }
 });
 </script>
 
 <template>
-  <div class="p-4">
+  <!-- 参数缺失/解析失败: 显示错误态, 不白屏 -->
+  <NResult
+    v-if="parseError"
+    status="error"
+    title="数据加载失败"
+    description="裁剪记录参数缺失或格式不正确，无法展示详情"
+    class="mt-16"
+  >
+    <template #footer>
+      <NButton type="primary" @click="goBack">返回</NButton>
+    </template>
+  </NResult>
+
+  <div v-else class="p-4">
     <!-- 输入区域 -->
     <NCard title="材料裁剪可视化" size="large" class="mb-4">
       <h3>裁剪尺寸</h3>
@@ -192,8 +249,7 @@ onMounted(() => {
                 :key="idx"
                 class="flex items-center justify-center border border-white text-xs text-white"
                 :style="{
-                  width:
-                    Number(cut) * (containerWidth / Math.max(...(cutResult ? cutResult.map(d => d.totalLength) : [1]))) + 'px',
+                  width: Number(cut) * (containerWidth / maxTotalLength) + 'px',
                   backgroundColor: randomColors[Number(idx) % randomColors.length]
                 }"
               >
@@ -204,10 +260,7 @@ onMounted(() => {
                 v-if="item.remaining > 0"
                 class="flex items-center justify-center bg-gray-300 text-xs text-black"
                 :style="{
-                  width:
-                    item.remaining *
-                    (containerWidth / Math.max(...(cutResult ? cutResult.map(d => d.totalLength) : [1]))) +
-                    'px'
+                  width: item.remaining * (containerWidth / maxTotalLength) + 'px'
                 }"
               >
                 剩余{{ item.remaining }}cm

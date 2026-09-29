@@ -39,16 +39,23 @@ func HandleToolApproval(agentService *service.AIAgentService, historyService *se
 		}
 
 		// Parse checkpoint_id format: userID_historyID
+		// 必须与当前登录用户匹配, 防止替他人恢复/批准挂起的工具调用 (IDOR)
 		parts := strings.SplitN(req.CheckPointID, "_", 2)
-		var historyID uint
-		if len(parts) == 2 {
-			if hid, err := strconv.ParseUint(parts[1], 10, 32); err == nil {
-				historyID = uint(hid)
-			}
+		if len(parts) != 2 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid checkpoint_id"})
+			return
 		}
-		if historyID == 0 {
-			historyID = req.HistoryID
+		ownerID, err := strconv.ParseUint(parts[0], 10, 32)
+		if err != nil || uint(ownerID) != userID.(uint) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "checkpoint 不属于当前用户"})
+			return
 		}
+		hid, err := strconv.ParseUint(parts[1], 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid checkpoint_id"})
+			return
+		}
+		historyID := uint(hid)
 
 		inputMessages := make([]*schema.Message, len(req.Messages))
 		for i, m := range req.Messages {

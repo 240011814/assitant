@@ -5,12 +5,17 @@ import (
 	"backend/service"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+// stockCodePattern 完整证券代码白名单 (sh.600000 / sz.000003 / bj.430047),
+// 防止任意字符拼进 baostock 代理 URL 与落库
+var stockCodePattern = regexp.MustCompile(`^(sh|sz|bj)\.\d{6}$`)
 
 type StockHandler struct {
 	svc         *service.StockService
@@ -79,7 +84,8 @@ func (h *StockHandler) RegisterCronTasks(js *service.JobScheduler) {
 		if full {
 			task = "ClickHouse全量重建(定时)"
 		}
-		return sync.RunExclusive(task, func() error {
+		// CH 复制不消耗 baostock 配额, 用独立互斥: 卡住/全量重建期间不阻塞行情/财务同步
+		return ch.RunExclusive(task, func() error {
 			if !service.ChEnabled() {
 				return nil
 			}
@@ -353,6 +359,10 @@ func (h *StockHandler) HandleSyncSingleStock(c *gin.Context) {
 	code := c.Query("code")
 	if code == "" {
 		SendError(c, "400", "股票代码不能为空")
+		return
+	}
+	if !stockCodePattern.MatchString(code) {
+		SendError(c, "400", "股票代码格式错误, 应为 sh.XXXXXX / sz.XXXXXX / bj.XXXXXX")
 		return
 	}
 	market := c.Query("market")

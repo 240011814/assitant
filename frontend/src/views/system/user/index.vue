@@ -227,7 +227,13 @@ function openEdit(row: Api.Admin.User) {
 }
 
 async function handleSubmit() {
-  await formRef.value?.validate();
+  if (!formRef.value) return;
+  try {
+    await formRef.value.validate();
+  } catch {
+    // 校验失败直接返回, 避免产生 unhandled rejection
+    return;
+  }
   const payload = {
     password: form.password || undefined,
     nickname: form.nickname,

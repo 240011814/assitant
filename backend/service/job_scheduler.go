@@ -3,6 +3,7 @@ package service
 import (
 	"backend/model"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -357,6 +358,19 @@ func (js *JobScheduler) runDefinition(defID uint, triggerType string, attempt in
 	finishAt := time.Now()
 	run.FinishedAt = &finishAt
 	if err != nil {
+		// 任务互斥冲突 (如另一同步任务正在运行) 属于正常跳过: 记 skipped, 不重试不告警
+		if errors.Is(err, ErrSyncBusy) {
+			run.Status = model.JobRunStatusSkipped
+			run.Error = err.Error()
+			DB.Model(&model.JobRun{}).Where("id = ?", run.ID).Updates(map[string]interface{}{
+				"status":      run.Status,
+				"finished_at": finishAt,
+				"error":       run.Error,
+			})
+			log.Printf("[JobScheduler] 定时任务 %s 跳过: %v", def.Name, err)
+			return
+		}
+
 		run.Status = model.JobRunStatusFailed
 		run.Error = err.Error()
 		DB.Model(&model.JobRun{}).Where("id = ?", run.ID).Updates(map[string]interface{}{

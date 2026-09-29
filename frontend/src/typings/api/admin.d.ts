@@ -66,6 +66,7 @@ declare namespace Api {
       id: number;
       name: string;
       api_key: string;
+      masked_api_key?: string;
       base_url: string;
       is_active: boolean;
       created_at: string;

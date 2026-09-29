@@ -8,7 +8,7 @@ import {
   fetchUpdateReminder,
   fetchDeleteReminder,
 } from '@/service/api';
-import type { Reminder } from '@/service/api';
+import type { Reminder, CreateReminderParams, UpdateReminderParams } from '@/service/api';
 
 defineOptions({ name: 'ToolCalendar' });
 
@@ -20,6 +20,8 @@ const reminders = ref<Reminder[]>([]);
 const selectedDate = ref(new Date());
 const showModal = ref(false);
 const editingId = ref<number | null>(null);
+// 编辑的备忘原本是否设置了重复结束时间 (用于提交时区分"清除"与"保持为空")
+const editingHadRepeatEndAt = ref(false);
 const formRef = ref<FormInst | null>(null);
 
 const currentDate = ref(new Date());
@@ -103,6 +105,7 @@ function getDefaultRemindAt() {
 
 function openCreateModal() {
   editingId.value = null;
+  editingHadRepeatEndAt.value = false;
   form.value = {
     title: '',
     content: '',
@@ -117,6 +120,7 @@ function openCreateModal() {
 
 function openEditModal(reminder: Reminder) {
   editingId.value = reminder.id;
+  editingHadRepeatEndAt.value = !!reminder.repeatEndAt;
   form.value = {
     title: reminder.params.title,
     content: reminder.params.content,
@@ -130,16 +134,29 @@ function openEditModal(reminder: Reminder) {
 }
 
 async function handleSubmit() {
-  await formRef.value?.validate();
-  const data = {
+  if (!formRef.value) return;
+  try {
+    await formRef.value.validate();
+  } catch {
+    return;
+  }
+
+  // 编辑时区分三种语义: 有值传 ISO; 原来有值现在清空传 repeatEndAtClear;
+  // 原来就没有也保持空 (不带字段), 避免后端把已有的 repeat_end_at 清成 NULL
+  const data: CreateReminderParams & UpdateReminderParams = {
     title: form.value.title,
     content: form.value.content,
     remindAt: new Date(form.value.remindAt as number).toISOString(),
     advanceMinutes: form.value.advanceMinutes,
     repeatType: form.value.repeatType,
     repeatInterval: form.value.repeatInterval,
-    repeatEndAt: form.value.repeatEndAt ? new Date(form.value.repeatEndAt as number).toISOString() : null,
   };
+  if (form.value.repeatEndAt) {
+    data.repeatEndAt = new Date(form.value.repeatEndAt as number).toISOString();
+  } else if (editingId.value && editingHadRepeatEndAt.value) {
+    data.repeatEndAt = null;
+    data.repeatEndAtClear = true;
+  }
 
   if (editingId.value) {
     const { error } = await fetchUpdateReminder(editingId.value, data);

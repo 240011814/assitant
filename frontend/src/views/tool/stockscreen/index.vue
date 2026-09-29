@@ -48,7 +48,7 @@ const filterForm = reactive({
   securityTypes: [] as number[],
   excludeSt: true,
   sortBy: 'code',
-  sortOrder: 'asc' as 'asc' | 'desc',
+  sortOrder: 'asc' as 'asc' | 'desc' | null,
   keyword: ''
 })
 
@@ -191,7 +191,11 @@ function buildConditions(): Api.Stock.FilterCondition[] {
   return conditions
 }
 
+// 请求序号守卫: 防止旧响应覆盖新结果
+let reqSeq = 0
+
 async function doScreen() {
+  const seq = ++reqSeq
   loading.value = true
   try {
     const conditions = buildConditions()
@@ -202,27 +206,38 @@ async function doScreen() {
       markets: filterForm.markets,
       securityTypes: filterForm.securityTypes,
       excludeSt: filterForm.excludeSt,
-      sortBy: filterForm.sortBy,
-      sortOrder: filterForm.sortOrder,
+      sortBy: filterForm.sortOrder ? filterForm.sortBy : undefined,
+      sortOrder: filterForm.sortOrder || undefined,
       page: currentPage.value,
       pageSize: pageSize.value,
       keyword: filterForm.keyword || undefined
     })
+    if (seq !== reqSeq) return
     if (res) {
       results.value = res.list
       total.value = res.total
     }
   } catch (e: any) {
+    if (seq !== reqSeq) return
     message.error(e.message || '筛选失败')
   } finally {
-    loading.value = false
+    if (seq === reqSeq) {
+      loading.value = false
+    }
   }
+}
+
+// 点击"开始筛选"/回车触发: 重置到第一页
+function handleScreen() {
+  currentPage.value = 1
+  doScreen()
 }
 
 function handleSorter(options: any) {
   if (options.columnKey) {
     filterForm.sortBy = options.columnKey
-    filterForm.sortOrder = options.order === 'ascend' ? 'asc' : 'desc'
+    // 取消排序(order 为 falsy)时不带排序参数
+    filterForm.sortOrder = options.order === 'ascend' ? 'asc' : options.order === 'descend' ? 'desc' : null
     doScreen()
   }
 }
@@ -418,7 +433,7 @@ onUnmounted(() => {
               v-model:value="filterForm.keyword"
               placeholder="输入股票代码或名称"
               clearable
-              @keyup.enter="doScreen"
+              @keyup.enter="handleScreen"
             />
           </div>
 
@@ -523,7 +538,7 @@ onUnmounted(() => {
 
       <!-- 操作按钮 -->
       <div class="space-y-2">
-        <NButton type="primary" block :loading="loading" @click="doScreen">开始筛选</NButton>
+        <NButton type="primary" block :loading="loading" @click="handleScreen">开始筛选</NButton>
         <NButton v-if="hasAuth('stock:screen:save')" block @click="handleSaveFilter">保存筛选条件</NButton>
       </div>
 
@@ -598,7 +613,7 @@ onUnmounted(() => {
           :item-count="total"
           :page-sizes="[20, 50, 100]"
           show-size-picker
-          @change="handlePageChange"
+          @update:page="handlePageChange"
           @update:page-size="handlePageSizeChange"
         />
       </div>

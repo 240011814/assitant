@@ -80,6 +80,12 @@ func (h *TelegramHandler) HandleUnbindTelegram(c *gin.Context) {
 
 // HandleWebhook 处理 Telegram Webhook 回调
 func (h *TelegramHandler) HandleWebhook(c *gin.Context) {
+	// 校验 Telegram 官方 webhook secret (系统配置 telegram_webhook_secret), 防止伪造 update
+	if !h.telegramService.VerifyWebhookSecret(c.GetHeader("X-Telegram-Bot-Api-Secret-Token")) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "invalid secret token"})
+		return
+	}
+
 	bot := h.telegramService.GetBot()
 	if bot == nil {
 		log.Println("[Telegram Webhook] Bot is not initialized")

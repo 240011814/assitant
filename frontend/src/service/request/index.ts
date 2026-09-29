@@ -14,7 +14,8 @@ export const request = createFlatRequest(
   {
     baseURL,
     headers: {
-      apifoxToken: 'XL299LiMEDZ0H5h3A29PxwQXdMJqWyY2'
+      // apifox 调试 token 仅在开发环境注入, 避免随生产请求发送
+      apifoxToken: import.meta.env.DEV ? 'XL299LiMEDZ0H5h3A29PxwQXdMJqWyY2' : ''
     }
   },
   {

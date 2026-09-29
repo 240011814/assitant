@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -186,18 +188,24 @@ func (s *StockService) Screen(req model.StockScreenRequest) (*model.StockScreenR
 
 // applyCondition 应用单个筛选条件
 func (s *StockService) applyCondition(query *gorm.DB, cond model.FilterCondition) *gorm.DB {
+	// 注意: market_cap/pe_ttm/pb 是 SELECT 里的计算别名, MySQL 不允许 WHERE 引用 SELECT 别名,
+	// 因此这里必须内联等价原始表达式 (与 SELECT 口径一致), 否则直接 SQL 1054 报错或过滤恒不生效
 	fieldMap := map[string]string{
-		"peTtm":          "sf.pe_ttm",
-		"pb":             "sf.pb",
-		"roe":            "sf.roe",
-		"revenueYoy":     "sf.revenue_yoy",
-		"netProfitYoy":   "sf.net_profit_yoy",
-		"price":          "sd.close",
-		"changePct":      "sd.change_pct",
-		"turnoverRate":   "sd.turnover_rate",
-		"amount":         "sd.amount",
-		"marketCap":      "market_cap",
-		"floatMarketCap": "float_market_cap",
+		"peTtm":        "CASE WHEN sf.eps != 0 THEN ROUND(sd.close / sf.eps, 2) ELSE NULL END",
+		"pb":           "sd.pb_mrq",
+		"roe":          "sf.roe",
+		"revenueYoy":   "sf.revenue_yoy",
+		"netProfitYoy": "sf.net_profit_yoy",
+		"price":        "sd.close",
+		"changePct":    "sd.change_pct",
+		"turnoverRate": "sd.turnover_rate",
+		"amount":       "sd.amount",
+		"marketCap": `CASE WHEN si.total_share > 0 THEN ROUND(sd.close * si.total_share / 10000, 2)
+			WHEN si.total_market_cap > 0 THEN ROUND(si.total_market_cap / 100000000, 2)
+			ELSE NULL END`,
+		"floatMarketCap": `CASE WHEN si.float_share > 0 THEN ROUND(sd.close * si.float_share / 10000, 2)
+			WHEN si.float_market_cap > 0 THEN ROUND(si.float_market_cap / 100000000, 2)
+			ELSE NULL END`,
 	}
 
 	dbField, ok := fieldMap[cond.Field]
@@ -241,53 +249,104 @@ func (s *StockService) applyCondition(query *gorm.DB, cond model.FilterCondition
 	return query
 }
 
-// enrichTechIndicators 批量补充技术指标
+// senrichTechIndicators 批量补充技术指标
+// 每只股票取最近 60 根日K (UNION ALL 一次往返, 兼容 MySQL 5.7/8.0), 在应用侧计算 MA 与 RSI;
+// 旧实现的四个 MA 子查询完全相同 (都取最新一根收盘价), RSI 从未赋值, 属于假数据
 func senrichTechIndicators(list []model.StockScreenResult, codes []string) {
 	if len(codes) == 0 {
 		return
 	}
 
-	type techResult struct {
-		Code  string   `gorm:"column:code"`
-		Ma5   *float64 `gorm:"column:ma5"`
-		Ma10  *float64 `gorm:"column:ma10"`
-		Ma20  *float64 `gorm:"column:ma20"`
-		Ma60  *float64 `gorm:"column:ma60"`
-		Rsi6  *float64 `gorm:"column:rsi6"`
-		Rsi12 *float64 `gorm:"column:rsi12"`
-		Rsi24 *float64 `gorm:"column:rsi24"`
+	const barsNeeded = 60 // MA60 需要 60 根, RSI24 需要 25 根
+
+	var sb strings.Builder
+	args := make([]interface{}, 0, len(codes)*2)
+	for i, code := range codes {
+		if i > 0 {
+			sb.WriteString(" UNION ALL ")
+		}
+		sb.WriteString("(SELECT code, trade_date, close FROM stock_daily WHERE code = ? AND frequency = 'daily' ORDER BY trade_date DESC LIMIT ?)")
+		args = append(args, code, barsNeeded)
 	}
 
-	var techResults []techResult
-	// 使用子查询获取每只股票最近60条日K来计算技术指标
-	// 简化实现：直接从stock_daily取最近的数据
-	DB.Raw(`
-		SELECT code,
-			(SELECT close FROM stock_daily WHERE code = sd.code AND frequency = 'daily' ORDER BY trade_date DESC LIMIT 1) AS ma5,
-			(SELECT close FROM stock_daily WHERE code = sd.code AND frequency = 'daily' ORDER BY trade_date DESC LIMIT 1) AS ma10,
-			(SELECT close FROM stock_daily WHERE code = sd.code AND frequency = 'daily' ORDER BY trade_date DESC LIMIT 1) AS ma20,
-			(SELECT close FROM stock_daily WHERE code = sd.code AND frequency = 'daily' ORDER BY trade_date DESC LIMIT 1) AS ma60
-		FROM stock_daily sd
-		WHERE code IN ? AND sd.frequency = 'daily'
-		GROUP BY code
-	`, codes).Find(&techResults)
+	var rows []struct {
+		Code      string    `gorm:"column:code"`
+		TradeDate time.Time `gorm:"column:trade_date"`
+		Close     *float64  `gorm:"column:close"`
+	}
+	if err := DB.Raw(sb.String(), args...).Find(&rows).Error; err != nil {
+		return
+	}
 
-	techMap := make(map[string]techResult)
-	for _, t := range techResults {
-		techMap[t.Code] = t
+	// 按代码分组并按日期倒序 (最新在前), 不依赖 SQL 返回顺序
+	type bar struct {
+		date  time.Time
+		close float64
+	}
+	closesByCode := make(map[string][]bar, len(codes))
+	for _, r := range rows {
+		if r.Close == nil {
+			continue
+		}
+		closesByCode[r.Code] = append(closesByCode[r.Code], bar{date: r.TradeDate, close: *r.Close})
+	}
+	for code := range closesByCode {
+		bars := closesByCode[code]
+		sort.Slice(bars, func(i, j int) bool { return bars[i].date.After(bars[j].date) })
+		closesByCode[code] = bars
 	}
 
 	for i := range list {
-		if t, ok := techMap[list[i].Code]; ok {
-			list[i].Ma5 = t.Ma5
-			list[i].Ma10 = t.Ma10
-			list[i].Ma20 = t.Ma20
-			list[i].Ma60 = t.Ma60
-			list[i].Rsi6 = t.Rsi6
-			list[i].Rsi12 = t.Rsi12
-			list[i].Rsi24 = t.Rsi24
+		bars := closesByCode[list[i].Code]
+		if len(bars) == 0 {
+			continue
+		}
+		closes := make([]float64, len(bars))
+		for j, b := range bars {
+			closes[j] = b.close
+		}
+		list[i].Ma5 = smaOf(closes, 5)
+		list[i].Ma10 = smaOf(closes, 10)
+		list[i].Ma20 = smaOf(closes, 20)
+		list[i].Ma60 = smaOf(closes, 60)
+		list[i].Rsi6 = rsiOf(closes, 6)
+		list[i].Rsi12 = rsiOf(closes, 12)
+		list[i].Rsi24 = rsiOf(closes, 24)
+	}
+}
+
+// smaOf 计算简单移动平均 (closes 为最新在前), 样本不足时返回 nil
+func smaOf(closes []float64, n int) *float64 {
+	if len(closes) < n {
+		return nil
+	}
+	sum := 0.0
+	for i := 0; i < n; i++ {
+		sum += closes[i]
+	}
+	v := round2(sum / float64(n))
+	return &v
+}
+
+// rsiOf 计算简单 RSI (100 * 平均涨幅 / (平均涨幅 + 平均跌幅)), 样本不足时返回 nil
+func rsiOf(closes []float64, n int) *float64 {
+	if len(closes) < n+1 {
+		return nil
+	}
+	gain, loss := 0.0, 0.0
+	for i := 0; i < n; i++ {
+		diff := closes[i] - closes[i+1]
+		if diff > 0 {
+			gain += diff
+		} else {
+			loss -= diff
 		}
 	}
+	if gain+loss == 0 {
+		return nil
+	}
+	v := round2(100 * gain / (gain + loss))
+	return &v
 }
 
 // enrichConcepts 批量补充概念板块

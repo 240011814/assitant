@@ -16,23 +16,11 @@ import { fetchHistoryList, fetchHistoryDetail, fetchUpdateFavorite, fetchDeleteH
 import { $t } from "@/locales";
 import { useAppStore } from "@/store/modules/app";
 
-import MarkdownIt from "markdown-it";
-import texmath from "markdown-it-texmath";
-import katex from "katex";
-import "katex/dist/katex.min.css";
+import { renderMarkdown } from "@/utils/markdown";
 
 const appStore = useAppStore();
 
 const router = useRouter();
-const md = new MarkdownIt({
-  html: true,
-  linkify: true,
-  typographer: true,
-}).use(texmath, { engine: katex, delimiters: 'dollars' });
-
-const renderMarkdown = (content: string) => {
-  return md.render(content || "");
-};
 
 const message = useMessage();
 const loading = ref(false);
@@ -131,15 +119,19 @@ const handleToggleFavorite = async (row: any) => {
 };
 
 const handleDelete = async (row: any) => {
-  try {
-    await fetchDeleteHistory(row.id);
-    message.success($t("page.ai.history.deleteSuccess"));
-    loadData();
-  } catch (err: any) {
+  const { error } = await fetchDeleteHistory(row.id);
+  if (error) {
     message.error(
-      `${$t("page.ai.history.deleteFailed")}: ${err?.message || $t("common.error")}`
+      `${$t("page.ai.history.deleteFailed")}: ${error.message || $t("common.error")}`
     );
+    return;
   }
+  message.success($t("page.ai.history.deleteSuccess"));
+  // 末页删空后回退一页, 避免出现空页
+  if (data.value.length === 1 && pagination.value.page > 1) {
+    pagination.value.page--;
+  }
+  loadData();
 };
 
 const getShareUrl = (token: string) => {

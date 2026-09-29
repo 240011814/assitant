@@ -78,13 +78,16 @@ func (s *StockSyncService) StartTask(task string, fn func() error) bool {
 	return true
 }
 
-// RunExclusive 同步执行任务(复用同一套防重入状态, 供定时任务调用), 已有任务运行时返回错误
+// ErrSyncBusy 哨兵错误: 已有同步任务在运行, 本次触发被跳过 (调度器据此记 skipped 而非 failed, 不触发重试/告警)
+var ErrSyncBusy = errors.New("同步任务正在运行中")
+
+// RunExclusive 同步执行任务(复用同一套防重入状态, 供定时任务调用), 已有任务运行时返回包裹 ErrSyncBusy 的错误
 func (s *StockSyncService) RunExclusive(task string, fn func() error) error {
 	if !s.tryStart(task) {
 		s.mu.Lock()
 		current := s.task
 		s.mu.Unlock()
-		return fmt.Errorf("同步任务 %s 正在运行中", current)
+		return fmt.Errorf("同步任务 %s 正在运行中: %w", current, ErrSyncBusy)
 	}
 	return s.runTask(task, fn)
 }
@@ -277,7 +280,7 @@ func (s *StockSyncService) SyncStockList() error {
 			IsST:     strings.Contains(item.CodeName, "ST"),
 			IsActive: item.Status == "1",
 		}
-		if t, err := time.Parse("2006-01-02", item.IpoDate); err == nil {
+		if t, err := parseTradeDay(item.IpoDate); err == nil {
 			stock.ListDate = &t
 		}
 		if stockType == 2 {
@@ -1336,7 +1339,7 @@ func (s *StockSyncService) SyncFinanceData(code, market string) (int, error) {
 				if statDate == "" {
 					continue
 				}
-				reportDate, err := time.Parse("2006-01-02", statDate)
+				reportDate, err := parseTradeDay(statDate)
 				if err != nil {
 					continue
 				}

@@ -38,6 +38,8 @@ export interface UpdateReminderParams {
   repeatType?: string;
   repeatInterval?: number;
   repeatEndAt?: string | null;
+  // true 表示显式清除重复结束时间 (与"未传该字段"区分, 未传时后端不会清空已有值)
+  repeatEndAtClear?: boolean;
 }
 
 export function fetchGetReminders(params: { year: number; month: number }) {

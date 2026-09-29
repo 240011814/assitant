@@ -1,4 +1,8 @@
-akshare
-baostock
-fastapi
-uvicorn
+# 版本与 .venv 实装环境一致 (pip freeze 2026-09), 代码直接 import 的依赖一并固定
+akshare==1.18.97
+baostock==0.9.4
+fastapi==0.141.1
+starlette==1.7.0
+pydantic==2.13.5
+pandas==3.0.6
+uvicorn==0.54.0

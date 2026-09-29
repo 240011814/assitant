@@ -48,6 +48,8 @@ const autoPlayThreeTimes = ref(true);
 
 const elapsedSeconds = ref(0);
 let timerInterval: ReturnType<typeof setInterval> | null = null;
+// 全部答对后的延迟推进句柄, 组件卸载时清理, 避免离开页面后仍朗读/跳句
+let sentenceAdvanceTimer: ReturnType<typeof setTimeout> | null = null;
 
 const formatTime = (seconds: number) => {
   const mins = Math.floor(seconds / 60);
@@ -220,8 +222,7 @@ const loadData = async () => {
         });
       }
     }
-  } catch (err: any) {
-    console.log(err);
+  } catch {
     message.error("加载数据失败");
   } finally {
     loading.value = false;
@@ -411,7 +412,10 @@ const validateWord = (index: number, typedValue: string) => {
   // 检查整句是否全部正确
   const allCorrect = wordResults.value.every((r) => r.status === "correct");
   if (allCorrect) {
-    setTimeout(() => {
+    if (sentenceAdvanceTimer) {
+      clearTimeout(sentenceAdvanceTimer);
+    }
+    sentenceAdvanceTimer = setTimeout(() => {
       if (wordResults.value.every((r) => r.status === "correct")) {
         if (currentSentenceIndex.value < rawWords.value.length - 1) {
           currentSentenceIndex.value++;
@@ -465,6 +469,10 @@ onUnmounted(() => {
   window.speechSynthesis.cancel();
   window.removeEventListener("keydown", handleGlobalKeydown);
   stopTimer();
+  if (sentenceAdvanceTimer) {
+    clearTimeout(sentenceAdvanceTimer);
+    sentenceAdvanceTimer = null;
+  }
 });
 
 watch(

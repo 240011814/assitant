@@ -70,7 +70,9 @@ def execute(params: QueryHistoryIndexKDataPlusParams) -> dict[str, object]:
             result = bs.query_history_k_data_plus(**query_kwargs)
 
             if result.error_code != "0":
-                raise BaostockQueryError(result.error_msg or "query_history_index_k_data_plus failed")
+                raise BaostockQueryError(
+                    result.error_msg or "query_history_index_k_data_plus failed"
+                )
 
             items: list[dict[str, str]] = []
             while result.next():

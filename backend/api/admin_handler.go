@@ -366,15 +366,21 @@ func (h *AdminHandler) HandleUpdateAITool(c *gin.Context) {
 		SendError(c, "400", "请求参数错误: "+err.Error())
 		return
 	}
+	// 先读库取原有 name: 请求体可能不回传 name, 用 req.Name 判断缓存失效会落空
+	var existing model.AITool
+	if err := service.DB.First(&existing, id).Error; err != nil {
+		SendError(c, "500", "工具不存在: "+err.Error())
+		return
+	}
 	if err := service.DB.Model(&model.AITool{}).Where("id = ?", id).
 		Select("display_name", "description", "enabled", "confirm_required", "config_json").
 		Updates(req).Error; err != nil {
 		SendError(c, "500", "更新工具失败: "+err.Error())
 		return
 	}
-	service.InvalidateConfirmRequiredCache(req.Name)
+	service.InvalidateConfirmRequiredCache(existing.Name)
 	h.aiAgentSvc.ClearRunnerCache()
-	if req.Name == "mem0_memory" {
+	if existing.Name == "mem0_memory" {
 		h.mem0Service.LoadFromTool()
 	}
 	SendSuccess(c, nil)

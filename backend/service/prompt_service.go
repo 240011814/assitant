@@ -78,8 +78,9 @@ func (s *PromptService) SwitchVersion(userID uint, agentID uint, versionID uint)
 			return err
 		}
 
+		// 必须带 agent_id 约束: 防止把其他 agent 的版本切到当前 agent 下造成 active 错乱
 		return tx.Model(&model.UserPrompt{}).
-			Where("id = ? AND user_id = ?", versionID, userID).
+			Where("id = ? AND user_id = ? AND agent_id = ?", versionID, userID, agentID).
 			Update("is_active", true).Error
 	})
 	if err == nil {
@@ -105,7 +106,8 @@ func (s *PromptService) clearCache(userID uint, agentID uint) {
 func (s *PromptService) DeleteVersion(userID uint, agentID uint, versionID uint) error {
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var prompt model.UserPrompt
-		if err := tx.Where("id = ? AND user_id = ?", versionID, userID).First(&prompt).Error; err != nil {
+		// 必须带 agent_id 约束: 只能删除当前 agent 下的版本
+		if err := tx.Where("id = ? AND user_id = ? AND agent_id = ?", versionID, userID, agentID).First(&prompt).Error; err != nil {
 			return err
 		}
 

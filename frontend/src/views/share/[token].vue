@@ -5,25 +5,16 @@ import { NResult, NTag, NSpin, NButton } from "naive-ui";
 import { fetchSharedHistory } from "@/service/api";
 import type { TrainingHistory } from "@/service/api";
 import { $t } from "@/locales";
-import MarkdownIt from "markdown-it";
-import texmath from "markdown-it-texmath";
-import katex from "katex";
-import "katex/dist/katex.min.css";
+import { renderMarkdown as renderMarkdownRaw } from "@/utils/markdown";
 
 const route = useRoute();
 const token = route.params.token as string;
-
-const md = new MarkdownIt({
-  html: true,
-  linkify: true,
-  typographer: true,
-}).use(texmath, { engine: katex, delimiters: "dollars" });
 
 /** 移除 vocabs/expressions 标签和尾部空白，渲染 markdown */
 const renderMarkdown = (content: string) => {
   let cleaned = content.replace(/<vocabs>[\s\S]*?<\/vocabs>/g, "");
   cleaned = cleaned.replace(/<expressions>[\s\S]*?<\/expressions>/g, "");
-  return md.render(cleaned.trim());
+  return renderMarkdownRaw(cleaned.trim());
 };
 
 /** 获取纯文本内容（去除 vocabs/expressions 标签） */

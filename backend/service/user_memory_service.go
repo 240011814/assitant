@@ -30,7 +30,17 @@ type UserMemoryService struct {
 }
 
 func NewUserMemoryService(agentSvc *AIAgentService, sysCfg *SystemConfigService) *UserMemoryService {
-	return &UserMemoryService{agentSvc: agentSvc, sysCfg: sysCfg}
+	s := &UserMemoryService{agentSvc: agentSvc, sysCfg: sysCfg}
+	// 启动复位: 上个进程可能在 LLM 调用期间退出, processing 状态若不复位会被 collectEligible 永久跳过
+	if err := DB.Model(&model.MemoryExtractionState{}).
+		Where("status = ?", model.MemoryExtractionStatusProcessing).
+		Updates(map[string]interface{}{
+			"status": model.MemoryExtractionStatusFailed,
+			"error":  "服务重启导致抽取中断, 已复位等待重试",
+		}).Error; err != nil {
+		log.Printf("[UserMemory] 复位卡在 processing 的抽取状态失败: %v", err)
+	}
+	return s
 }
 
 func (s *UserMemoryService) getConfig() MemoryExtractionConfig {

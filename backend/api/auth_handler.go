@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -54,8 +55,14 @@ func HandleLogin(authService *service.AuthService) gin.HandlerFunc {
 }
 
 // HandleRegister 注册处理
-func HandleRegister(authService *service.AuthService) gin.HandlerFunc {
+func HandleRegister(authService *service.AuthService, configService *service.SystemConfigService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// 注册开关后端强校验 (与 GetRegisterStatus 语义一致: 未配置视为开启, 明确为 false 才关闭)
+		if val, err := configService.GetValue("register_enabled"); err == nil && val == "false" {
+			SendError(c, "403", "注册已关闭")
+			return
+		}
+
 		var req model.LoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			SendError(c, "400", "请求参数错误: "+err.Error())
@@ -88,6 +95,9 @@ func HandleGetUserInfo(authService *service.AuthService, jwtSecret string) gin.H
 
 		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 		token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, errors.New("unexpected signing method")
+			}
 			return []byte(jwtSecret), nil
 		})
 
@@ -102,8 +112,22 @@ func HandleGetUserInfo(authService *service.AuthService, jwtSecret string) gin.H
 			return
 		}
 
-		userId := uint(claims["userId"].(float64))
-		userInfo, err := authService.GetUserInfo(userId)
+		// 与 AuthMiddleware 一致: 拒绝 2FA 临时令牌 / 刷新令牌
+		if typ, _ := claims["typ"].(string); typ != "" && typ != "access" {
+			SendError(c, "401", "令牌类型错误")
+			return
+		}
+		if purpose, _ := claims["purpose"].(string); purpose != "" {
+			SendError(c, "401", "令牌类型错误")
+			return
+		}
+
+		userIdValue, ok := claims["userId"].(float64)
+		if !ok {
+			SendError(c, "401", "无效的用户信息")
+			return
+		}
+		userInfo, err := authService.GetUserInfo(uint(userIdValue))
 		if err != nil {
 			SendError(c, "1002", err.Error())
 			return
