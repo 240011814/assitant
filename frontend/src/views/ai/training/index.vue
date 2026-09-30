@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useMessage } from "naive-ui";
 import { useAuth } from "@/hooks/business/auth";
@@ -16,6 +16,9 @@ import { $t } from "@/locales";
 const router = useRouter();
 const message = useMessage();
 const { hasAuth } = useAuth();
+
+// 子Agent 统一权限码: 有它才能把 Agent 设为/编辑/删除子Agent (后端同码兜底)
+const canManageSubAgent = computed(() => hasAuth("ai:subagent:manage"));
 
 const agents = ref<AIAgent[]>([]);
 const loading = ref(false);
@@ -36,6 +39,18 @@ const form = ref({
   input_placeholder: "",
   speech_lang: "zh-CN",
   speech_rate: 0.95,
+  agent_type: "chat",
+  delegation_description: "",
+});
+
+// Agent 类型: subagent 才会出现在 Agent Studio 编排的"引用 Agent"下拉里;
+// 没有子Agent 统一权限码时不给该选项 (编辑中的子Agent 保留原值以免丢失)
+const agentTypeOptions = computed(() => {
+  const options = [{ label: "对话 Agent (仅 AI 对话/训练)", value: "chat" }];
+  if (canManageSubAgent.value || form.value.agent_type === "subagent") {
+    options.push({ label: "子 Agent (可被编排的主 Agent 委派)", value: "subagent" });
+  }
+  return options;
 });
 
 const iconOptions = [
@@ -74,6 +89,8 @@ const resetForm = () => {
     input_placeholder: "",
     speech_lang: "zh-CN",
     speech_rate: 0.95,
+    agent_type: "chat",
+    delegation_description: "",
   };
 };
 
@@ -94,6 +111,17 @@ const loadAgents = async () => {
 
 function canAccessAgent(agent: AIAgent) {
   return !agent.is_public || !agent.permission_code || hasAuth(agent.permission_code);
+}
+
+// 子Agent 的编辑/删除额外要求统一权限码; 普通对话 Agent 仍按 ai:custom-training:*
+function canEditAgent(agent: AIAgent) {
+  if (!hasAuth("ai:custom-training:edit")) return false;
+  return agent.agent_type !== "subagent" || canManageSubAgent.value;
+}
+
+function canDeleteAgent(agent: AIAgent) {
+  if (!hasAuth("ai:custom-training:delete")) return false;
+  return agent.agent_type !== "subagent" || canManageSubAgent.value;
 }
 
 function goToAgent(id: number) {
@@ -124,6 +152,8 @@ async function handleEdit(id: number) {
         input_placeholder: data.input_placeholder || "",
         speech_lang: data.speech_lang || "zh-CN",
         speech_rate: data.speech_rate || 0.95,
+        agent_type: data.agent_type || "chat",
+        delegation_description: data.delegation_description || "",
       };
     }
   } catch (err: any) {
@@ -257,6 +287,15 @@ onMounted(() => {
                 >
                   公共
                 </NTag>
+                <NTag
+                  v-if="item.agent_type === 'subagent'"
+                  size="small"
+                  type="info"
+                  :bordered="false"
+                  :title="item.delegation_description || '可被编排的主 Agent 委派'"
+                >
+                  子Agent
+                </NTag>
               </div>
               <p class="mt-1 text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
                 {{ item.description || $t("page.ai.training.noDescription") }}
@@ -268,12 +307,12 @@ onMounted(() => {
             />
           </div>
           <div
-            v-if="!item.is_public && (hasAuth('ai:custom-training:edit') || hasAuth('ai:custom-training:delete'))"
+            v-if="!item.is_public && (canEditAgent(item) || canDeleteAgent(item))"
             class="absolute bottom-3 right-3 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100"
             @click.stop
           >
             <NButton
-              v-if="hasAuth('ai:custom-training:edit')"
+              v-if="canEditAgent(item)"
               size="small"
               quaternary
               @click="handleEdit(item.id)"
@@ -283,7 +322,7 @@ onMounted(() => {
               </template>
             </NButton>
             <NPopconfirm
-              v-if="hasAuth('ai:custom-training:delete')"
+              v-if="canDeleteAgent(item)"
               @positive-click="handleDeleteAgent(item.id)"
             >
               <template #trigger>
@@ -363,6 +402,29 @@ onMounted(() => {
             <NSelect v-model:value="form.color" :options="colorOptions" />
           </NFormItem>
         </div>
+        <NFormItem label="Agent 类型" path="agent_type">
+          <div class="w-full flex flex-col gap-1">
+            <NSelect v-model:value="form.agent_type" :options="agentTypeOptions" />
+            <span class="text-11px text-gray-400 leading-4">
+              选「子 Agent」后, 该 Agent 才会出现在 Agent Studio 编排的「引用 Agent」下拉里, 供主 Agent 委派。
+            </span>
+          </div>
+        </NFormItem>
+        <NFormItem v-if="form.agent_type === 'subagent'" label="委派说明" path="delegation_description">
+          <div class="w-full flex flex-col gap-1">
+            <NInput
+              v-model:value="form.delegation_description"
+              type="textarea"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+              placeholder="供主 Agent 判断何时委派 (如: 负责联网调研资料并给出结论摘要)"
+              maxlength="500"
+              show-count
+            />
+            <span class="text-11px text-gray-400 leading-4">
+              编译时会写进主 Agent 的委派指引; 留空则退化为用简介/标题。
+            </span>
+          </div>
+        </NFormItem>
         <div class="grid grid-cols-2 gap-4">
           <NFormItem :label="$t('page.ai.training.langLabel')" path="speech_lang">
             <NSelect

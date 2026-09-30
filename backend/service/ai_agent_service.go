@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -87,18 +88,20 @@ func (s *AIAgentService) GetAIAgentByID(userID uint, agentID uint) (*model.AIAge
 
 func (s *AIAgentService) CreateAIAgent(userID uint, req model.CreateAIAgentRequest) (*model.AIAgent, error) {
 	agent := model.AIAgent{
-		UserID:           userID,
-		IsPublic:         false,
-		Title:            req.Title,
-		Description:      req.Description,
-		Code:             req.Code,
-		SystemPrompt:     req.SystemPrompt,
-		Icon:             req.Icon,
-		Color:            req.Color,
-		InitialMessage:   req.InitialMessage,
-		InputPlaceholder: req.InputPlaceholder,
-		SpeechLang:       req.SpeechLang,
-		SpeechRate:       req.SpeechRate,
+		UserID:                userID,
+		IsPublic:              false,
+		Title:                 req.Title,
+		Description:           req.Description,
+		Code:                  req.Code,
+		SystemPrompt:          req.SystemPrompt,
+		Icon:                  req.Icon,
+		Color:                 req.Color,
+		InitialMessage:        req.InitialMessage,
+		InputPlaceholder:      req.InputPlaceholder,
+		SpeechLang:            req.SpeechLang,
+		SpeechRate:            req.SpeechRate,
+		AgentType:             normalizeAgentType(req.AgentType),
+		DelegationDescription: strings.TrimSpace(req.DelegationDescription),
 	}
 
 	if agent.Icon == "" {
@@ -152,12 +155,27 @@ func (s *AIAgentService) UpdateAIAgent(userID uint, agentID uint, req model.Upda
 	if req.SpeechRate != 0 {
 		updates["speech_rate"] = req.SpeechRate
 	}
+	// 指针字段: 允许显式改回 chat / 清空委派说明
+	if req.AgentType != nil {
+		updates["agent_type"] = normalizeAgentType(*req.AgentType)
+	}
+	if req.DelegationDescription != nil {
+		updates["delegation_description"] = strings.TrimSpace(*req.DelegationDescription)
+	}
 
 	err := DB.Model(&model.AIAgent{}).Where("id = ? AND user_id = ?", agentID, userID).Updates(updates).Error
 	if err == nil {
 		s.clearRunnerCache(userID, agentID)
 	}
 	return err
+}
+
+// normalizeAgentType 规范化 Agent 类型: 只认 subagent, 其余一律 chat
+func normalizeAgentType(t string) string {
+	if model.IsSubAgentType(t) {
+		return model.AIAgentTypeSubAgent
+	}
+	return model.AIAgentTypeChat
 }
 
 func (s *AIAgentService) DeleteAIAgent(userID uint, agentID uint) error {

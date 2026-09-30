@@ -747,8 +747,8 @@ func orchDelegationGuide(subIDs []string, nameOf, titleOf, descOf func(string) s
 	return sb.String()
 }
 
-// orchSubAgentDesc 解析子Agent 节点用于提示词的职责说明:
-// 优先节点「委派说明」, 其次被引用 Agent 的简介; 都为空时回退被引用 Agent 标题或节点 id。
+// orchSubAgentDesc 解析子Agent 节点用于提示词的职责说明 (委派指引里的职责描述):
+// 优先节点「委派说明」, 其次被引用 Agent 的委派说明, 再次 Agent 简介/标题, 最后节点 id。
 // 同名子Agent 靠它区分, 否则三个都叫「子Agent」时模型无法选择。
 func (c *orchestrationCompiler) orchSubAgentDesc(id string) string {
 	n := c.nodeByID(id)
@@ -762,6 +762,9 @@ func (c *orchestrationCompiler) orchSubAgentDesc(id string) string {
 	desc := strings.TrimSpace(cfg.Description)
 	if cfg.AgentID > 0 {
 		if agent, err := c.lookupAgent(uint(cfg.AgentID)); err == nil {
+			if desc == "" {
+				desc = strings.TrimSpace(agent.DelegationDescription)
+			}
 			if desc == "" {
 				desc = strings.TrimSpace(agent.Description)
 			}

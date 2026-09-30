@@ -48,7 +48,15 @@ export interface OrchestrationValidateResult {
 export interface OrchestrationResource {
   tools: { name: string; display_name: string; description: string; confirm_required: boolean }[];
   models: { model_code: string; display_name: string; is_default: boolean }[];
-  agents: { id: number; title: string; description: string; system_prompt: string }[];
+  /** agents 仅包含允许作为编排子Agent 的 Agent (agent_type=subagent 或有委派说明) */
+  agents: {
+    id: number;
+    title: string;
+    description: string;
+    system_prompt: string;
+    agent_type?: string;
+    delegation_description?: string;
+  }[];
   skills: { name: string; description: string }[];
   node_types: { type: string; label: string; desc: string }[];
 }

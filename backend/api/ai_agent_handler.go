@@ -70,6 +70,12 @@ func (h *AIAgentHandler) CreateAIAgent(c *gin.Context) {
 		return
 	}
 
+	// 子Agent 统一权限码: 只有拥有 ai:subagent:manage 的用户才能新建子Agent
+	if model.IsSubAgentType(req.AgentType) && !HasPermission(c, model.AIAgentSubAgentPermission) {
+		SendError(c, "403", "无权限创建子Agent")
+		return
+	}
+
 	agent, err := h.aiAgentService.CreateAIAgent(userID.(uint), req)
 	if err != nil {
 		SendError(c, "500", "Failed to create agent")
@@ -99,7 +105,19 @@ func (h *AIAgentHandler) UpdateAIAgent(c *gin.Context) {
 		return
 	}
 
-	if err := h.aiAgentService.UpdateAIAgent(userID.(uint), uint(id), req); err != nil {
+	uid := userID.(uint)
+	// 子Agent 统一权限码: 编辑子Agent (含把它改成子Agent) 需要该权限
+	becomesSubAgent := req.AgentType != nil && model.IsSubAgentType(*req.AgentType)
+	isSubAgent := false
+	if existing, err := h.aiAgentService.GetAIAgentByID(uid, uint(id)); err == nil && existing != nil {
+		isSubAgent = existing.AgentType == model.AIAgentTypeSubAgent
+	}
+	if (becomesSubAgent || isSubAgent) && !HasPermission(c, model.AIAgentSubAgentPermission) {
+		SendError(c, "403", "无权限编辑子Agent")
+		return
+	}
+
+	if err := h.aiAgentService.UpdateAIAgent(uid, uint(id), req); err != nil {
 		SendError(c, "500", "Failed to update agent")
 		return
 	}
@@ -121,7 +139,16 @@ func (h *AIAgentHandler) DeleteAIAgent(c *gin.Context) {
 		return
 	}
 
-	if err := h.aiAgentService.DeleteAIAgent(userID.(uint), uint(id)); err != nil {
+	uid := userID.(uint)
+	// 子Agent 统一权限码: 删除子Agent 需要该权限
+	if existing, err := h.aiAgentService.GetAIAgentByID(uid, uint(id)); err == nil && existing != nil && existing.AgentType == model.AIAgentTypeSubAgent {
+		if !HasPermission(c, model.AIAgentSubAgentPermission) {
+			SendError(c, "403", "无权限删除子Agent")
+			return
+		}
+	}
+
+	if err := h.aiAgentService.DeleteAIAgent(uid, uint(id)); err != nil {
 		SendError(c, "500", "Failed to delete agent")
 		return
 	}

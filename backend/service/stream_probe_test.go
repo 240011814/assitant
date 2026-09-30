@@ -217,6 +217,23 @@ func probeStr(v any) string {
 	return s
 }
 
+// Agent 类型规范化: 只认 subagent, 其余一律 chat (空值/拼错都退回 chat, 避免脏数据)
+func TestNormalizeAgentType(t *testing.T) {
+	cases := map[string]string{
+		"":            coremodel.AIAgentTypeChat,
+		"chat":        coremodel.AIAgentTypeChat,
+		"subagent":    coremodel.AIAgentTypeSubAgent,
+		" subagent ":  coremodel.AIAgentTypeSubAgent,
+		"subAgent":    coremodel.AIAgentTypeChat,
+		"orchestrate": coremodel.AIAgentTypeChat,
+	}
+	for in, want := range cases {
+		if got := normalizeAgentType(in); got != want {
+			t.Fatalf("normalizeAgentType(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 // 去重回归: 链式多个模型节点各自实时下发后, 图级输出不能把前一个节点的长度算进来,
 // 否则第二个节点的最终文本会被整段跳过 (回答凭空消失)
 func TestOrchestrationStreamDedupeAcrossModelNodes(t *testing.T) {

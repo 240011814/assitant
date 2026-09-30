@@ -259,18 +259,21 @@ func (s *AIOrchestrationService) Resources() (map[string]any, error) {
 		})
 	}
 
+	// 子Agent 下拉只列"允许出现在编排里"的 Agent: agent_type='subagent'
 	var agents []model.AIAgent
-	if err := DB.Select("id, title, description, system_prompt").
+	if err := DB.Where("agent_type = ?", model.AIAgentTypeSubAgent).
 		Order("is_public DESC, created_at DESC").Limit(200).Find(&agents).Error; err != nil {
 		return nil, err
 	}
 	agentsRes := make([]map[string]any, 0, len(agents))
 	for _, a := range agents {
 		agentsRes = append(agentsRes, map[string]any{
-			"id":            a.ID,
-			"title":         a.Title,
-			"description":   a.Description,
-			"system_prompt": a.SystemPrompt,
+			"id":                     a.ID,
+			"title":                  a.Title,
+			"description":            a.Description,
+			"system_prompt":          a.SystemPrompt,
+			"agent_type":             a.AgentType,
+			"delegation_description": a.DelegationDescription,
 		})
 	}
 

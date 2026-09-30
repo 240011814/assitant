@@ -16,6 +16,10 @@ export interface AIAgent {
   speech_lang: string;
   speech_rate: number;
   is_favorite: boolean;
+  /** 类型: chat=普通对话 / subagent=可作为编排子Agent 被委派 */
+  agent_type: string;
+  /** 委派说明: 供编排的主 Agent 判断何时委派 (仅 subagent 有意义) */
+  delegation_description: string;
   created_at: string;
   updated_at: string;
 }
@@ -31,6 +35,8 @@ export interface CreateAIAgentParams {
   input_placeholder?: string;
   speech_lang?: string;
   speech_rate?: number;
+  agent_type?: string;
+  delegation_description?: string;
 }
 
 export interface UpdateAIAgentParams {
@@ -43,6 +49,8 @@ export interface UpdateAIAgentParams {
   input_placeholder?: string;
   speech_lang?: string;
   speech_rate?: number;
+  agent_type?: string;
+  delegation_description?: string;
 }
 
 export function fetchAIAgentList() {

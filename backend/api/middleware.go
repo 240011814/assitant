@@ -120,6 +120,27 @@ func RequirePermission(permissions ...string) gin.HandlerFunc {
 	}
 }
 
+// HasPermission 判断当前请求用户是否拥有指定权限中的任意一个。
+// 超级管理员始终拥有; 未登录/查询失败一律视为无权限。
+// 供"字段级/资源级"权限判断复用 (RequirePermission 是整条路由的拦截)。
+func HasPermission(c *gin.Context, permissions ...string) bool {
+	role, _ := c.Get("role")
+	if roleValue, _ := role.(string); roleValue == "R_SUPER" {
+		return true
+	}
+
+	userID, exists := c.Get("userId")
+	if !exists {
+		return false
+	}
+
+	hasPermission, err := service.CheckUserPermission(userID.(uint), permissions)
+	if err != nil {
+		return false
+	}
+	return hasPermission
+}
+
 func GetUserID(c *gin.Context) uint {
 	val, exists := c.Get("userId")
 	if !exists {

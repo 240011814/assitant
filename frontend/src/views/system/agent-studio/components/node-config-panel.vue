@@ -59,20 +59,35 @@ const otherNodeOptions = computed(() =>
   props.allNodes.filter(n => n.id !== props.nodeId).map(n => ({ label: String(n.data?.name || n.id), value: String(n.id) }))
 );
 
+// 引用 Agent 下拉: 只列出后端放行的子Agent (agent_type=subagent 或填了委派说明),
+// 标题后带委派说明便于挑选; 说明也会自动带进节点/委派工具描述
 const agentOptions = computed(() => [
   { label: '内联定义 (下方系统提示词)', value: 0 },
-  ...(props.resources?.agents || []).map(a => ({ label: `#${a.id} ${a.title}`, value: a.id }))
+  ...(props.resources?.agents || []).map(a => {
+    const hint = String(a.delegation_description || a.description || '').trim();
+    return { label: hint ? `#${a.id} ${a.title} — ${hint}` : `#${a.id} ${a.title}`, value: a.id };
+  })
 ]);
 
-// 委派说明决定主 Agent 何时调用该子Agent: 节点未填且被引用 Agent 也没简介时给出强提示
+// 委派说明决定主 Agent 何时调用该子Agent: 节点与被引用 Agent 都没写时给出强提示
 const delegateDescMissing = computed(() => {
   if (props.nodeType !== 'subagent') return false;
   if (String(localConfig.value.description || '').trim()) return false;
   const agentId = Number(localConfig.value.agent_id || 0);
   if (!agentId) return true;
   const referenced = (props.resources?.agents || []).find(a => a.id === agentId);
-  return !String(referenced?.description || '').trim() && !String(referenced?.title || '').trim();
+  return !String(referenced?.delegation_description || '').trim() && !String(referenced?.description || '').trim();
 });
+
+// 选中被引用 Agent 时把它的委派说明带进节点 (节点留空时才填, 不覆盖手填内容)
+function onAgentIdChange(id: number) {
+  if (!id) return;
+  const cfg = localConfig.value;
+  if (String(cfg.description || '').trim()) return;
+  const referenced = (props.resources?.agents || []).find(a => a.id === id);
+  const hint = String(referenced?.delegation_description || referenced?.description || '').trim();
+  if (hint) cfg.description = hint;
+}
 
 // 当前 Agent 节点是否挂载了子Agent (经委派边进来), 用于提示"委派指引会自动注入提示词"
 const hasSubAgentIncoming = computed(() => {
@@ -188,7 +203,7 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
     <template v-else-if="nodeType === 'subagent'">
       <div class="text-11px text-gray-400">从主 Agent 拉线到本节点即建立委派; 主 Agent 运行时可按需调用子 Agent。</div>
       <NFormItem label="引用 Agent" label-placement="left" label-width="72" size="small">
-        <NSelect v-model:value="localConfig.agent_id" :options="agentOptions" size="small" />
+        <NSelect v-model:value="localConfig.agent_id" :options="agentOptions" size="small" @update:value="onAgentIdChange" />
       </NFormItem>
       <NFormItem label="模型" label-placement="left" label-width="72" size="small">
         <NSelect v-model:value="localConfig.model" :options="modelOptions" size="small" />
