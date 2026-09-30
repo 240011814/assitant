@@ -7,6 +7,7 @@ import CanvasPanel from './components/canvas-panel.vue';
 import NodeConfigPanel from './components/node-config-panel.vue';
 import DebugPanel from './components/debug-panel.vue';
 import type { NodeTrace } from './components/debug-panel.vue';
+import { NODE_META, nodeTypeOptions } from './nodes/registry';
 import {
   fetchOrchestrations,
   fetchCreateOrchestration,
@@ -47,16 +48,7 @@ const debugRunning = ref(false);
 // ---------- 资源 ----------
 const resources = ref<OrchestrationResource | null>(null);
 
-const NODE_META: Record<string, { label: string; icon: string; color: string }> = {
-  agent: { label: 'Agent', icon: 'mdi:robot-outline', color: '#2080f0' },
-  tool: { label: '工具', icon: 'mdi:wrench-outline', color: '#18a058' },
-  template: { label: '模板', icon: 'mdi:text-box-edit-outline', color: '#f0a020' },
-  branch: { label: '分支', icon: 'mdi:source-branch', color: '#d03050' },
-  merge: { label: '合并', icon: 'mdi:call-merge', color: '#8a2be2' },
-  end: { label: '结束', icon: 'mdi:check-circle-outline', color: '#666' }
-};
 
-const nodeTypeOptions = Object.entries(NODE_META).map(([value, m]) => ({ label: m.label, value }));
 
 // ---------- 序列化: 画布 <-> DSL ----------
 function serializeDefinition(): string {
@@ -88,6 +80,8 @@ function loadDefinition(definition: string) {
       id: `e_${i}_${e.source}_${e.target}`,
       source: e.source,
       target: e.target,
+      sourceHandle: 'out',
+      targetHandle: 'in',
       label: e.label || undefined
     }));
   } catch {
@@ -97,27 +91,41 @@ function loadDefinition(definition: string) {
   }
 }
 
-function makeNode(nodeType: string, position: { x: number; y: number }) {
+function handleDuplicateNode(nodeId: string) {
+  const source = flowNodes.value.find(n => n.id === nodeId);
+  if (!source) return;
   const id = `n_${Date.now().toString(36)}_${Math.floor(Math.random() * 1000)}`;
-  const defaultConfig: Record<string, any> =
-    nodeType === 'agent'
-      ? { model: '', system_prompt: '', tools: [], max_iterations: 0 }
-      : nodeType === 'tool'
-        ? { tool: '' }
-        : nodeType === 'template'
-          ? { template: '{{.Input}}' }
-          : nodeType === 'branch'
-            ? { cases: [], default_target: '' }
-            : nodeType === 'merge'
-              ? { separator: '\n\n' }
-              : {};
+  flowNodes.value.push({
+    id,
+    type: 'orch',
+    position: { x: (source.position?.x ?? 0) + 40, y: (source.position?.y ?? 0) + 40 },
+    sourcePosition: 'right',
+    targetPosition: 'left',
+    data: JSON.parse(JSON.stringify(source.data))
+  });
+  selectedNodeId.value = id;
+  message.success('已复制节点');
+}
+
+function handleCanvasAddNode(nodeType: string, position: { x: number; y: number }) {
+  makeNode(nodeType, position);
+}
+
+function makeNode(nodeType: string, position: { x: number; y: number }) {
+  const meta = NODE_META[nodeType as keyof typeof NODE_META];
+  if (!meta) return;
+  const id = `n_${Date.now().toString(36)}_${Math.floor(Math.random() * 1000)}`;
   flowNodes.value.push({
     id,
     type: 'orch',
     position,
     sourcePosition: 'right',
     targetPosition: 'left',
-    data: { nodeType, name: NODE_META[nodeType]?.label || nodeType, config: defaultConfig }
+    data: {
+      nodeType,
+      name: meta.label,
+      config: JSON.parse(JSON.stringify(meta.defaultConfig))
+    }
   });
   selectedNodeId.value = id;
 }
@@ -134,8 +142,8 @@ function seedSampleDefinition() {
   makeNode('end', { x: 660, y: 140 });
   selectedNodeId.value = null;
   flowEdges.value.push(
-    { id: `e_seed_1`, source: tplId, target: agentId },
-    { id: `e_seed_2`, source: agentId, target: flowNodes.value[2].id }
+    { id: 'e_seed_1', source: tplId, target: agentId, sourceHandle: 'out', targetHandle: 'in' },
+    { id: 'e_seed_2', source: agentId, target: flowNodes.value[2].id, sourceHandle: 'out', targetHandle: 'in' }
   );
 }
 
@@ -321,7 +329,7 @@ function handleDeleteEdge(edgeId: string) {
   flowEdges.value = flowEdges.value.filter(e => e.id !== edgeId);
 }
 
-const addNodeOptions = nodeTypeOptions.map(o => ({ label: NODE_META[o.value].label, key: o.value }));
+const addNodeOptions = nodeTypeOptions().map(o => ({ label: o.label, key: o.value }));
 
 function handleAddNode(key: string | number) {
   const x = 120 + Math.random() * 220;
@@ -431,6 +439,9 @@ onMounted(() => {
           :debug-running="debugRunning"
           :refit-key="showDebug"
           @select-node="(id: string | null) => (selectedNodeId = id)"
+          @delete-node="handleDeleteNode"
+          @duplicate-node="handleDuplicateNode"
+          @add-node="handleCanvasAddNode"
           @delete-edge="handleDeleteEdge"
         />
       </NCard>

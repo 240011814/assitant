@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { NButton, NDynamicInput, NFormItem, NInput, NInputNumber, NSelect, NSpace } from 'naive-ui';
 import type { Node as FlowNode } from '@vue-flow/core';
 import type { OrchestrationResource } from '@/service/api';
+import { NODE_META, type OrchNodeType } from '../nodes/registry';
 
 const props = defineProps<{
   nodeId: string;
@@ -19,24 +20,27 @@ const emit = defineEmits<{
   delete: [id: string];
 }>();
 
+// 面板是该节点配置的唯一编辑入口: 仅在切换节点时从 props 初始化本地副本,
+// 之后不再反向同步 (否则属性回写 -> props 变化 -> 重置本地, 下拉选择会被冲掉)
+function initLocal() {
+  localName.value = props.name;
+  const cfg = JSON.parse(JSON.stringify(props.config || {}));
+  // 兼容历史数据缺省的数组/字符串字段, 避免受控组件值 undefined
+  if (props.nodeType === 'agent' && !Array.isArray(cfg.tools)) cfg.tools = [];
+  if (props.nodeType === 'branch' && !Array.isArray(cfg.cases)) cfg.cases = [];
+  localConfig.value = cfg;
+}
+
 const localName = ref(props.name);
-const localConfig = ref<Record<string, any>>({ ...props.config });
+const localConfig = ref<Record<string, any>>(JSON.parse(JSON.stringify(props.config || {})));
 
 watch(
   () => props.nodeId,
-  () => {
-    localName.value = props.name;
-    localConfig.value = { ...props.config };
-  }
-);
-watch(
-  () => props.config,
-  cfg => {
-    localConfig.value = { ...cfg };
-  }
+  () => initLocal(),
+  { immediate: true }
 );
 
-// 配置变更立即同步回画布节点 (v-model 风格)
+// 配置变更立即同步回画布节点
 watch([localName, localConfig], () => {
   emit('update:data', { name: localName.value, config: JSON.parse(JSON.stringify(localConfig.value)) });
 }, { deep: true });
@@ -68,20 +72,13 @@ const casesValue = computed({
   }
 });
 
-const TYPE_LABEL: Record<string, string> = {
-  agent: 'Agent 节点',
-  tool: '工具节点',
-  template: '模板节点',
-  branch: '分支节点',
-  merge: '合并节点',
-  end: '结束节点'
-};
+const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.label ?? props.nodeType} 节点`);
 </script>
 
 <template>
   <div class="flex flex-col gap-3">
     <div class="flex items-center justify-between">
-      <span class="text-sm font-bold">{{ TYPE_LABEL[nodeType] || nodeType }}</span>
+      <span class="text-sm font-bold">{{ typeLabel }}</span>
       <NButton size="tiny" quaternary type="error" @click="emit('delete', nodeId)">删除节点</NButton>
     </div>
 

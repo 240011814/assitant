@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useMessage } from 'naive-ui';
 import { useVueFlow, VueFlow, type Connection, type Edge as FlowEdge, type EdgeMouseEvent, type Node as FlowNode, type NodeMouseEvent } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
@@ -8,15 +8,7 @@ import '@vue-flow/core/dist/style.css';
 import '@vue-flow/core/dist/theme-default.css';
 import '@vue-flow/minimap/dist/style.css';
 import type { NodeTrace } from './debug-panel.vue';
-
-const NODE_META: Record<string, { label: string; icon: string; color: string }> = {
-  agent: { label: 'Agent', icon: 'mdi:robot-outline', color: '#2080f0' },
-  tool: { label: '工具', icon: 'mdi:wrench-outline', color: '#18a058' },
-  template: { label: '模板', icon: 'mdi:text-box-edit-outline', color: '#f0a020' },
-  branch: { label: '分支', icon: 'mdi:source-branch', color: '#d03050' },
-  merge: { label: '合并', icon: 'mdi:call-merge', color: '#8a2be2' },
-  end: { label: '结束', icon: 'mdi:check-circle-outline', color: '#666' }
-};
+import { NODE_META } from '../nodes/registry';
 
 const props = defineProps<{
   nodeTraces: Record<string, NodeTrace>;
@@ -30,12 +22,15 @@ const edges = defineModel<FlowEdge[]>('edges', { required: true });
 
 const emit = defineEmits<{
   'select-node': [id: string | null];
+  'delete-node': [id: string];
+  'duplicate-node': [id: string];
+  'add-node': [type: string, position: { x: number; y: number }];
   'delete-edge': [id: string];
 }>();
 
 const message = useMessage();
+const { fitView, screenToFlowCoordinate } = useVueFlow();
 
-const { fitView } = useVueFlow();
 // 布局变化 (调试面板展开/收起、配置面板开合) 后重新适配视口
 function refit() {
   setTimeout(() => {
@@ -52,145 +47,216 @@ watch(
 );
 
 const traceOf = computed(() => (id: string) => props.nodeTraces[id]);
+// 每种节点类型的组件由注册表提供, 画布只按类型动态渲染
+const nodeComponent = (type: string) => NODE_META[type as keyof typeof NODE_META]?.component;
 
-function nodeSummary(data: { nodeType: string; config?: Record<string, any> }): string {
-  const cfg = data.config || {};
-  switch (data.nodeType) {
-    case 'agent':
-      return [cfg.model || '默认模型', (cfg.tools || []).length ? `工具×${(cfg.tools || []).length}` : '无工具'].filter(Boolean).join(' · ');
-    case 'tool':
-      return cfg.tool || '未选择工具';
-    case 'template':
-      return cfg.template ? '模板已配置' : '未配置模板';
-    case 'branch':
-      return `条件×${(cfg.cases || []).length}`;
-    case 'merge':
-      return '多路合并';
-    default:
-      return '最终输出';
-  }
+// ---------- 连线 ----------
+// 与后端校验规则一致: 非 merge 节点单入边、非 branch 节点单出边
+function isValidConnection(connection: Connection): boolean {
+  const { source, target } = connection;
+  if (!source || !target || source === target) return false;
+  const sourceNode = nodes.value.find(n => n.id === source);
+  const targetNode = nodes.value.find(n => n.id === target);
+  if (!sourceNode || !targetNode) return false;
+  if (edges.value.some(e => e.source === source && e.target === target)) return false;
+  if (targetNode.data.nodeType !== 'merge' && edges.value.some(e => e.target === target)) return false;
+  if (sourceNode.data.nodeType !== 'branch' && edges.value.some(e => e.source === source)) return false;
+  return true;
 }
 
 function onConnect(connection: Connection) {
-  const { source, target } = connection;
-  if (!source || !target || source === target) return;
-  // 与后端校验规则一致的轻量前端校验
-  const sourceNode = nodes.value.find(n => n.id === source);
-  const targetNode = nodes.value.find(n => n.id === target);
-  if (!sourceNode || !targetNode) return;
-  const inEdges = edges.value.filter(e => e.target === target);
-  const outEdges = edges.value.filter(e => e.source === source);
-  if (inEdges.length >= 1 && targetNode.data.nodeType !== 'merge') {
-    message.warning('该节点已有一条入边 (多路合并请使用合并节点)');
+  if (!isValidConnection(connection)) {
+    const targetNode = nodes.value.find(n => n.id === connection.target);
+    const sourceNode = nodes.value.find(n => n.id === connection.source);
+    if (targetNode && targetNode.data.nodeType !== 'merge' && edges.value.some(e => e.target === connection.target)) {
+      message.warning('该节点已有一条入边 (多路合并请使用合并节点)');
+    } else if (sourceNode && sourceNode.data.nodeType !== 'branch' && edges.value.some(e => e.source === connection.source)) {
+      message.warning('该节点已有一条出边 (多路分发请使用分支节点)');
+    } else {
+      message.warning('不允许的连线');
+    }
     return;
   }
-  if (outEdges.length >= 1 && sourceNode.data.nodeType !== 'branch') {
-    message.warning('该节点已有一条出边 (多路分发请使用分支节点)');
-    return;
-  }
-  if (edges.value.some(e => e.source === source && e.target === target)) return;
-  edges.value = [...edges.value, { id: `e_${Date.now().toString(36)}`, source, target }];
+  edges.value = [...edges.value, {
+    id: `e_${Date.now().toString(36)}`,
+    source: connection.source!,
+    target: connection.target!,
+    sourceHandle: connection.sourceHandle || 'out',
+    targetHandle: connection.targetHandle || 'in'
+  }];
 }
 
-function onNodeClick(_e: NodeMouseEvent) {
-  const node = _e.node;
-  emit('select-node', node.id);
+function onNodeClick(e: NodeMouseEvent) {
+  closeCtxMenu();
+  emit('select-node', e.node.id);
 }
 
 function onPaneClick() {
+  closeCtxMenu();
   emit('select-node', null);
 }
 
 function onEdgeClick(_e: EdgeMouseEvent) {
-  const edge = _e.edge;
-  emit('delete-edge', edge.id);
-  message.info('已删除连线');
+  closeCtxMenu();
+  emit('select-node', null);
 }
 
-function nodeHeaderColor(nodeType: string, trace?: NodeTrace): string {
-  if (trace) {
-    if (trace.status === 'error') return '#d03050';
-    if (trace.status === 'success') return '#18a058';
-  }
-  return NODE_META[nodeType]?.color || '#2080f0';
+// ---------- 右键菜单 ----------
+interface CtxMenuState {
+  show: boolean;
+  x: number;
+  y: number;
+  kind: 'node' | 'edge' | 'pane';
+  id?: string;
+  nodeType?: string;
 }
+
+const ctxMenu = ref<CtxMenuState>({ show: false, x: 0, y: 0, kind: 'pane' });
+
+function closeCtxMenu() {
+  ctxMenu.value.show = false;
+}
+
+// 自定义组件事件上不能用 .prevent/.stop 修饰符 (payload 不是原生事件),
+// 在这里手动阻止默认右键菜单并阻断向 pane 的冒泡
+function openNodeMenu(e: NodeMouseEvent) {
+  const native = e.event as MouseEvent;
+  native.preventDefault();
+  native.stopPropagation();
+  ctxMenu.value = { show: true, x: native.clientX, y: native.clientY, kind: 'node', id: e.node.id, nodeType: e.node.data.nodeType };
+  emit('select-node', e.node.id);
+}
+
+function openEdgeMenu(e: EdgeMouseEvent) {
+  const native = e.event as MouseEvent;
+  native.preventDefault();
+  native.stopPropagation();
+  ctxMenu.value = { show: true, x: native.clientX, y: native.clientY, kind: 'edge', id: e.edge.id };
+}
+
+function openPaneMenu(e: MouseEvent) {
+  e.preventDefault();
+  ctxMenu.value = { show: true, x: e.clientX, y: e.clientY, kind: 'pane' };
+}
+
+function menuDeleteNode() {
+  if (ctxMenu.value.id) emit('delete-node', ctxMenu.value.id);
+  closeCtxMenu();
+}
+
+function menuDuplicateNode() {
+  if (ctxMenu.value.id) emit('duplicate-node', ctxMenu.value.id);
+  closeCtxMenu();
+}
+
+function menuDeleteEdge() {
+  if (ctxMenu.value.id) emit('delete-edge', ctxMenu.value.id);
+  closeCtxMenu();
+}
+
+function menuAddNode(type: string) {
+  const point = screenToFlowCoordinate({ x: ctxMenu.value.x, y: ctxMenu.value.y });
+  emit('add-node', type, { x: Math.round(point.x), y: Math.round(point.y) });
+  closeCtxMenu();
+}
+
 </script>
 
 <template>
-  <div class="h-full w-full">
+  <div class="h-full w-full relative" @click="closeCtxMenu">
     <VueFlow
       v-model:nodes="nodes"
       v-model:edges="edges"
       :min-zoom="0.3"
       :max-zoom="1.8"
+      :delete-key-code="['Backspace', 'Delete']"
       fit-view-on-init
       @connect="onConnect"
       @node-click="onNodeClick"
       @pane-click="onPaneClick"
       @edge-click="onEdgeClick"
+      @node-context-menu="openNodeMenu"
+      @edge-context-menu="openEdgeMenu"
+      @pane-context-menu="openPaneMenu"
     >
       <Background :gap="16" />
       <MiniMap pannable zoomable />
       <template #node-orch="nodeProps">
-        <div
-          class="orch-node"
-          :class="{
-            selected: nodeProps.id === selectedId,
-            running: traceOf(nodeProps.id)?.status === 'running'
-          }"
-          :style="{ borderColor: nodeHeaderColor(nodeProps.data.nodeType, traceOf(nodeProps.id)) }"
-        >
-          <div
-            class="orch-node-header"
-            :style="{ background: nodeHeaderColor(nodeProps.data.nodeType, traceOf(nodeProps.id)) }"
-          >
-            <SvgIcon :icon="NODE_META[nodeProps.data.nodeType]?.icon || 'mdi:circle-outline'" class="text-14px" />
-            <span class="truncate">{{ nodeProps.data.name || NODE_META[nodeProps.data.nodeType]?.label }}</span>
-          </div>
-          <div class="orch-node-body">
-            <span class="text-11px text-gray-500 truncate block">{{ nodeSummary(nodeProps.data) }}</span>
-          </div>
-        </div>
+        <component
+          :is="nodeComponent(nodeProps.data.nodeType)"
+          :data="nodeProps.data"
+          :selected="nodeProps.id === selectedId"
+          :status="traceOf(nodeProps.id)?.status ?? null"
+        />
       </template>
     </VueFlow>
+
+    <!-- 右键菜单 -->
+    <div
+      v-if="ctxMenu.show"
+      class="ctx-menu"
+      :style="{ left: `${ctxMenu.x}px`, top: `${ctxMenu.y}px` }"
+      @click.stop
+    >
+      <template v-if="ctxMenu.kind === 'node'">
+        <div class="ctx-menu-item" @click="menuDuplicateNode">
+          <SvgIcon icon="mdi:content-copy" class="text-14px" /> 复制节点
+        </div>
+        <div class="ctx-menu-item ctx-menu-danger" @click="menuDeleteNode">
+          <SvgIcon icon="mdi:trash-can-outline" class="text-14px" /> 删除节点
+        </div>
+      </template>
+      <template v-else-if="ctxMenu.kind === 'edge'">
+        <div class="ctx-menu-item ctx-menu-danger" @click="menuDeleteEdge">
+          <SvgIcon icon="mdi:minus" class="text-14px" /> 删除连线
+        </div>
+      </template>
+      <template v-else>
+        <div
+          v-for="(meta, type) in NODE_META"
+          :key="type"
+          class="ctx-menu-item"
+          @click="menuAddNode(type)"
+        >
+          <SvgIcon :icon="meta.icon" class="text-14px" /> 添加{{ meta.label }}节点
+        </div>
+      </template>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.orch-node {
-  width: 180px;
-  border: 2px solid #2080f0;
-  border-radius: 8px;
+.ctx-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 150px;
   background: #fff;
-  overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-  transition: box-shadow 0.2s;
+  border-radius: 6px;
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.15);
+  padding: 4px 0;
+  font-size: 13px;
 }
-.dark .orch-node {
-  background: #1e1e20;
+.dark .ctx-menu {
+  background: #26262a;
 }
-.orch-node.selected {
-  box-shadow: 0 0 0 3px rgba(32, 128, 240, 0.25);
-}
-.orch-node.running {
-  box-shadow: 0 0 0 4px rgba(24, 160, 88, 0.35);
-  animation: orch-pulse 1.2s ease-in-out infinite;
-}
-@keyframes orch-pulse {
-  0%, 100% { box-shadow: 0 0 0 3px rgba(24, 160, 88, 0.35); }
-  50% { box-shadow: 0 0 0 6px rgba(24, 160, 88, 0.15); }
-}
-.orch-node-header {
+.ctx-menu-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 8px;
+  gap: 8px;
+  padding: 6px 14px;
+  cursor: pointer;
+  color: #333;
 }
-.orch-node-body {
-  padding: 4px 8px;
-  min-height: 22px;
+.dark .ctx-menu-item {
+  color: #ddd;
+}
+.ctx-menu-item:hover {
+  background: #f3f3f5;
+}
+.dark .ctx-menu-item:hover {
+  background: #333338;
+}
+.ctx-menu-danger {
+  color: #d03050;
 }
 </style>
