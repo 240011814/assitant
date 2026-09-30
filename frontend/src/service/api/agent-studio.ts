@@ -180,6 +180,8 @@ export async function fetchOrchestrationChatRun(data: {
   id: number;
   input: string;
   history?: { role: string; content: string }[];
+  /** 已有会话的 history_id (0/undefined 表示新会话) */
+  historyId?: number;
   signal?: AbortSignal;
 }): Promise<Response> {
   const { signal } = data;
@@ -187,7 +189,11 @@ export async function fetchOrchestrationChatRun(data: {
   const { baseURL } = getServiceBaseURL(import.meta.env, isHttpProxy);
 
   const url = `${baseURL}/api/ai-orchestrations/${data.id}/chat`;
-  const body = JSON.stringify({ input: data.input, history: data.history });
+  const body = JSON.stringify({
+    input: data.input,
+    history: data.history,
+    history_id: data.historyId || 0,
+  });
 
   let Authorization = getAuthorization();
 

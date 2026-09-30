@@ -428,6 +428,10 @@ func TestOrchestrationAgentInjectsRuntimeContext(t *testing.T) {
 	if !strings.Contains(msgs[0].Content, "喜欢简洁回答") {
 		t.Fatalf("未向 Agent 注入用户画像: %q", msgs[0].Content)
 	}
+	// 首轮(无历史)不应出现多轮对话提示
+	if strings.Contains(msgs[0].Content, "【多轮对话】") {
+		t.Fatalf("无历史时不应注入多轮对话提示: %q", msgs[0].Content)
+	}
 }
 
 func TestOrchInjectRuntimeContext(t *testing.T) {

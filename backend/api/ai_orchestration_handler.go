@@ -3,18 +3,23 @@ package api
 import (
 	"backend/model"
 	"backend/service"
+	"log"
 	"strconv"
+	"strings"
 	"sync"
 
+	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
 )
 
 type AIOrchestrationHandler struct {
 	svc *service.AIOrchestrationService
+	// historyService 用于「编排对话」的多轮持久化 (落 training_histories)
+	historyService *service.HistoryService
 }
 
-func NewAIOrchestrationHandler(svc *service.AIOrchestrationService) *AIOrchestrationHandler {
-	return &AIOrchestrationHandler{svc: svc}
+func NewAIOrchestrationHandler(svc *service.AIOrchestrationService, historyService *service.HistoryService) *AIOrchestrationHandler {
+	return &AIOrchestrationHandler{svc: svc, historyService: historyService}
 }
 
 // HandleList 编排列表
@@ -193,8 +198,9 @@ func (h *AIOrchestrationHandler) HandleChatRun(c *gin.Context) {
 		return
 	}
 	var body struct {
-		Input   string           `json:"input" binding:"required"`
-		History []model.ChatTurn `json:"history"`
+		Input     string           `json:"input" binding:"required"`
+		History   []model.ChatTurn `json:"history"`
+		HistoryID uint             `json:"history_id"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		SendError(c, "400", "请求参数错误: "+err.Error())
@@ -205,6 +211,7 @@ func (h *AIOrchestrationHandler) HandleChatRun(c *gin.Context) {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
+	uid := userID.(uint)
 
 	orchID := int(id)
 	req := &model.DebugRunRequest{
@@ -219,13 +226,53 @@ func (h *AIOrchestrationHandler) HandleChatRun(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 
+	// 捕获最终答案与思考内容, 运行结束后落库 (供刷新/重开后继续与历史列表回放)
+	var finalOutput string
+	var thinking strings.Builder
+
 	// SSE 写串行化: 节点事件来自回调 goroutine, delta 来自主循环
 	var mu sync.Mutex
 	emit := func(event string, payload any) {
 		mu.Lock()
 		defer mu.Unlock()
+		switch event {
+		case "summary":
+			if res, ok := payload.(*service.DebugRunResult); ok {
+				finalOutput = res.Output
+			}
+		case "reasoning":
+			if m, ok := payload.(map[string]any); ok {
+				if s, _ := m["content"].(string); s != "" {
+					thinking.WriteString(s)
+				}
+			}
+		}
 		c.SSEvent(event, payload)
 	}
 
-	_ = h.svc.DebugRun(c.Request.Context(), userID.(uint), req, emit)
+	_ = h.svc.DebugRun(c.Request.Context(), uid, req, emit)
+
+	// 「编排对话」持久化: 把本轮 user + 图级最终答案写入 training_histories。
+	// 无输出 (编译/启动失败) 时不落库, 避免留下空的半截会话。
+	if h.historyService != nil && strings.TrimSpace(finalOutput) != "" {
+		inputMessages := service.OrchChatTurnsToMessages(body.History)
+		inputMessages = append(inputMessages, schema.UserMessage(body.Input))
+		customID := uint(orchID)
+		historyID, saveErr := h.historyService.SaveConversation(&service.SaveConversationParams{
+			UserID:           uid,
+			HistoryID:        body.HistoryID,
+			TrainingType:     model.TrainingTypeOrchestration,
+			CustomTrainingID: &customID,
+			InputMessages:    inputMessages,
+			AssistantReply:   finalOutput,
+			ThinkingContent:  thinking.String(),
+		})
+		if saveErr != nil {
+			log.Printf("[orchestration] save chat history failed user=%d orch=%d err=%v", uid, orchID, saveErr)
+		} else if body.HistoryID == 0 {
+			mu.Lock()
+			c.SSEvent("history_id", gin.H{"history_id": historyID, "title": "编排对话"})
+			mu.Unlock()
+		}
+	}
 }

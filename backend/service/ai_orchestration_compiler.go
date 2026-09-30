@@ -716,6 +716,14 @@ func orchBranchMatch(cs OrchBranchCase, content string) bool {
 	}
 }
 
+// orchHistoryGuide 主 Agent 多轮对话提示。
+// 历史消息已随消息序列给出, 但模型(尤其面对"省略/指代式追问")常常忽略上文并反问,
+// 例如上一轮在问天气、这一轮只说"用子agent搜索", 模型就回复"不清楚要搜索什么"。
+// 这里显式提醒它结合历史推断意图, 并把当前会话的主题列出来, 降低"上下文丢失"的错觉。
+func orchHistoryGuide() string {
+	return "\n\n【多轮对话】本次会话的历史消息已随消息序列提供。用户可能用省略或指代的方式延续上一轮的话题(例如上一轮在问天气, 这一轮只说「用子agent搜索」)。请结合历史推断其真实意图并直接执行, 不要因为这一句没有重复主题就反问; 只有在历史里确实找不到指代对象时才追问。"
+}
+
 // orchDelegationGuide 生成主 Agent 系统提示词里的"子Agent 委派"章节。
 // 委派工具只在工具表里出现 (描述为空时更是只看到工具名), 模型往往压根不调用;
 // 把子Agent 及其职责显式写进系统提示词是主管模式的必要一环。
@@ -1271,10 +1279,14 @@ func (c *orchestrationCompiler) buildAgentLambda(ctx context.Context, n *Orchest
 	}
 	// 运行时上下文 (当前时间/用户ID): 提示词没引用 {{.current_time}} 时也要让模型知道当前时间
 	systemPrompt = orchInjectRuntimeContext(systemPrompt, vars)
-	maxStep := maxStepOf(cfg)
 
 	// 多轮调试: 把历史消息拼在本轮输入之前, 让主 Agent 记得之前说过什么
 	history := c.orchChatHistoryFromVars()
+	// 历史已在消息序列里, 但模型对"省略/指代式追问"常忽略上文并反问, 显式提醒一句
+	if len(history) > 0 {
+		systemPrompt += orchHistoryGuide()
+	}
+	maxStep := maxStepOf(cfg)
 	agent, err := react.NewAgent(ctx, &react.AgentConfig{
 		ToolCallingModel: chatModel,
 		ToolsConfig: compose.ToolsNodeConfig{

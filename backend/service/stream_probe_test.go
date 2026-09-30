@@ -201,6 +201,10 @@ func TestOrchestrationChatHistoryInjected(t *testing.T) {
 	if msgs[0].Role != schema.System {
 		t.Fatalf("首条应为 system, got %s", msgs[0].Role)
 	}
+	// 有历史时应提示模型结合上文, 避免省略式追问被当作"没有上下文"
+	if !strings.Contains(msgs[0].Content, "【多轮对话】") {
+		t.Fatalf("有历史时系统提示词应包含多轮对话提示: %q", msgs[0].Content)
+	}
 	if msgs[1].Role != schema.User || msgs[1].Content != "我叫老王" {
 		t.Fatalf("第 2 条应为历史 user, got %s %q", msgs[1].Role, msgs[1].Content)
 	}

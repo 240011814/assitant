@@ -92,14 +92,16 @@ const handleView = async (row: any) => {
 };
 
 const handleContinue = (row: any) => {
-  if (row.custom_training_id) {
-    router.push({
-      path: `/ai/custom-training/${row.custom_training_id}`,
-      query: { history_id: row.id },
-    });
-  } else {
+  if (!row.custom_training_id) {
     message.error($t("page.ai.history.unknownType"));
+    return;
   }
+  // 编排对话回编排页, 普通 Agent/自定义训练回对应训练页
+  const path =
+    row.training_type === "ai_orchestration"
+      ? `/ai/orchestration/${row.custom_training_id}`
+      : `/ai/custom-training/${row.custom_training_id}`;
+  router.push({ path, query: { history_id: row.id } });
 };
 
 const handleToggleFavorite = async (row: any) => {

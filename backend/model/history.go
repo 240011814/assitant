@@ -2,6 +2,10 @@ package model
 
 import "time"
 
+// TrainingTypeOrchestration 训练中心「编排对话」的 training_type。
+// 历史记录里用它与普通 Agent 对话区分, 并据 CustomTrainingID 路由回 /ai/orchestration/:id。
+const TrainingTypeOrchestration = "ai_orchestration"
+
 type OpenAIMessage struct {
 	Role            string `json:"role"`
 	Content         string `json:"content"`

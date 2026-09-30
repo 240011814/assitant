@@ -126,7 +126,7 @@ func main() {
 	skillHandler := api.NewSkillHandler(skillService)
 
 	orchestrationService := service.NewAIOrchestrationService(aiAgentService, cfg.AI.TimeoutMinutes)
-	orchestrationHandler := api.NewAIOrchestrationHandler(orchestrationService)
+	orchestrationHandler := api.NewAIOrchestrationHandler(orchestrationService, historyService)
 
 	courseService := service.NewCourseService()
 	courseHandler := api.NewCourseHandler(courseService)
@@ -249,8 +249,8 @@ func main() {
 			historyGroup.PUT("/:id/favorite", api.RequirePermission("ai:history:favorite"), historyHandler.UpdateFavorite)
 			historyGroup.PUT("/:id/title", api.RequirePermission("ai:history:edit"), historyHandler.UpdateTitle)
 			historyGroup.DELETE("/:id", api.RequirePermission("ai:history:delete"), historyHandler.DeleteHistory)
-		historyGroup.POST("/:id/share", api.RequirePermission("ai:history:edit"), historyHandler.GenerateShare)
-		historyGroup.DELETE("/:id/share", api.RequirePermission("ai:history:edit"), historyHandler.RevokeShare)
+			historyGroup.POST("/:id/share", api.RequirePermission("ai:history:edit"), historyHandler.GenerateShare)
+			historyGroup.DELETE("/:id/share", api.RequirePermission("ai:history:edit"), historyHandler.RevokeShare)
 		}
 
 		aiAgentGroup := apiGroup.Group("/ai-agents")
