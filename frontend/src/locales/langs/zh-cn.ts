@@ -256,6 +256,7 @@ const local: App.I18n.Schema = {
     system_job: "定时任务",
     system_lottery: "抽奖管理",
     "system_model-scenario": "模型场景",
+    "system_agent-studio": "Agent 编排",
     system_skill: "Skill 管理",
     tool: "工具",
     tool_backtest: "策略回测",

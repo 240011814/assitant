@@ -188,6 +188,7 @@ const routeMap: RouteMap = {
   "lottery": "/lottery/:id",
   "share": "/share/:token",
   "system": "/system",
+  "system_agent-studio": "/system/agent-studio",
   "system_ai-config": "/system/ai-config",
   "system_config": "/system/config",
   "system_job": "/system/job",

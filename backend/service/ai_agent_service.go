@@ -13,6 +13,7 @@ import (
 
 	"github.com/cloudwego/eino-ext/components/model/ark"
 	"github.com/cloudwego/eino/adk"
+	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
@@ -441,6 +442,32 @@ func (s *AIAgentService) getModel(modelOverride string) (*ark.ChatModel, error) 
 		log.Printf("AI model config_json parse failed model=%s config_json=%s err=%v", activeModel.ModelCode, activeModel.ConfigJSON, err)
 	}
 	return ark.NewChatModel(s.ctx, chatConfig)
+}
+
+// GetToolCallingModel 按 model code 构建可工具调用的模型 (编排/技能等复用), 空串用默认模型
+func (s *AIAgentService) GetToolCallingModel(modelOverride string) (einomodel.ToolCallingChatModel, error) {
+	return s.getModel(modelOverride)
+}
+
+// BuildToolByName 按 ai_tools 表配置构建单个工具实例
+func (s *AIAgentService) BuildToolByName(name string) (tool.BaseTool, error) {
+	var dbTool model.AITool
+	if err := DB.Where("name = ? AND enabled = ?", name, true).First(&dbTool).Error; err != nil {
+		return nil, fmt.Errorf("工具不存在或未启用: %s", name)
+	}
+	return tools.CreateTool(dbTool.Name, dbTool.ConfigJSON)
+}
+
+// SessionTemplateVars 模板/系统提示词可用的变量
+func (s *AIAgentService) SessionTemplateVars(userID uint) map[string]any {
+	vars := map[string]any{
+		"current_time": time.Now().Format("2006-01-02 15:04:05"),
+		"user_id":      userID,
+	}
+	if s.memoryService != nil {
+		vars["user_profile"] = s.memoryService.BuildProfilePrompt(userID)
+	}
+	return vars
 }
 
 // GenerateText 非流式生成, 供画像/经历抽取等后台任务复用当前模型配置

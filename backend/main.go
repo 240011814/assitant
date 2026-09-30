@@ -125,6 +125,9 @@ func main() {
 	skillService := service.NewAISkillService(aiAgentService)
 	skillHandler := api.NewSkillHandler(skillService)
 
+	orchestrationService := service.NewAIOrchestrationService(aiAgentService, cfg.AI.TimeoutMinutes)
+	orchestrationHandler := api.NewAIOrchestrationHandler(orchestrationService)
+
 	courseService := service.NewCourseService()
 	courseHandler := api.NewCourseHandler(courseService)
 
@@ -321,6 +324,20 @@ func main() {
 			skillGroup.POST("", api.RequirePermission("system:skill:create"), skillHandler.HandleCreate)
 			skillGroup.PUT("/:id", api.RequirePermission("system:skill:update"), skillHandler.HandleUpdate)
 			skillGroup.DELETE("/:id", api.RequirePermission("system:skill:delete"), skillHandler.HandleDelete)
+		}
+
+		// Agent Studio 编排 APIs (Eino compose Chain/Graph/Workflow 可视化编排)
+		orchestrationGroup := apiGroup.Group("/agent-studio")
+		orchestrationGroup.Use(api.RequirePermission("system:orchestration:view"))
+		{
+			orchestrationGroup.GET("/orchestrations", orchestrationHandler.HandleList)
+			orchestrationGroup.GET("/orchestrations/:id", orchestrationHandler.HandleGet)
+			orchestrationGroup.POST("/orchestrations", api.RequirePermission("system:orchestration:create"), orchestrationHandler.HandleCreate)
+			orchestrationGroup.PUT("/orchestrations/:id", api.RequirePermission("system:orchestration:update"), orchestrationHandler.HandleUpdate)
+			orchestrationGroup.DELETE("/orchestrations/:id", api.RequirePermission("system:orchestration:delete"), orchestrationHandler.HandleDelete)
+			orchestrationGroup.POST("/orchestrations/validate", orchestrationHandler.HandleValidate)
+			orchestrationGroup.GET("/resources", orchestrationHandler.HandleResources)
+			orchestrationGroup.POST("/debug", api.RequirePermission("system:orchestration:debug"), orchestrationHandler.HandleDebugRun)
 		}
 
 		// Course APIs

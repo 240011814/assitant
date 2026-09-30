@@ -304,6 +304,18 @@ export const generatedRoutes: GeneratedRoute[] = [
     },
     children: [
       {
+        name: 'system_agent-studio',
+        path: '/system/agent-studio',
+        component: 'view.system_agent-studio',
+        meta: {
+          title: 'system_agent-studio',
+          i18nKey: 'route.system_agent-studio',
+          icon: 'mdi:sitemap-outline',
+          permissions: ['system:orchestration:view'],
+          order: 9
+        }
+      },
+      {
         name: 'system_ai-config',
         path: '/system/ai-config',
         component: 'view.system_ai-config',

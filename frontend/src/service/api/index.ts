@@ -20,5 +20,6 @@ export * from './stock-alert';
 export * from './backtest';
 export * from './macro';
 export * from './job';
+export * from './agent-studio';
 export * from './skill';
 export * from './user-portrait';

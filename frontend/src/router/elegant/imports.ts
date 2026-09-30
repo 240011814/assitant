@@ -37,6 +37,7 @@ export const views: Record<LastLevelRouteKey, RouteComponent | (() => Promise<Ro
   home: () => import("@/views/home/index.vue"),
   lottery: () => import("@/views/lottery/[id].vue"),
   share: () => import("@/views/share/[token].vue"),
+  "system_agent-studio": () => import("@/views/system/agent-studio/index.vue"),
   "system_ai-config": () => import("@/views/system/ai-config/index.vue"),
   system_config: () => import("@/views/system/config/index.vue"),
   system_job: () => import("@/views/system/job/index.vue"),
