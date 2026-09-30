@@ -1012,10 +1012,12 @@ func (c *orchestrationCompiler) buildSubReactAgent(ctx context.Context, id, pare
 	if instruction == "" {
 		return nil, fmt.Errorf("子Agent 节点 %s 缺少可用的系统提示词", id)
 	}
-	instruction, err := orchRenderTemplate(id, instruction, c.deps.sessionVars())
+	vars := c.deps.sessionVars()
+	instruction, err := orchRenderTemplate(id, instruction, vars)
 	if err != nil {
 		return nil, fmt.Errorf("子Agent 节点 %s 系统提示词渲染失败: %w", id, err)
 	}
+	instruction = orchInjectRuntimeContext(instruction, vars)
 	chatModel, err := c.deps.getModel(cfg.Model)
 	if err != nil {
 		return nil, fmt.Errorf("子Agent 节点 %s 获取模型失败: %w", id, err)
@@ -1267,6 +1269,8 @@ func (c *orchestrationCompiler) buildAgentLambda(ctx context.Context, n *Orchest
 	if len(subIDs) > 0 {
 		systemPrompt += orchDelegationGuide(subIDs, c.orchSubAgentName, c.orchSubAgentTitle, c.orchSubAgentDesc)
 	}
+	// 运行时上下文 (当前时间/用户ID): 提示词没引用 {{.current_time}} 时也要让模型知道当前时间
+	systemPrompt = orchInjectRuntimeContext(systemPrompt, vars)
 	maxStep := maxStepOf(cfg)
 
 	// 多轮调试: 把历史消息拼在本轮输入之前, 让主 Agent 记得之前说过什么
@@ -1495,6 +1499,41 @@ func orchRenderTemplate(name, tpl string, vars map[string]any) (string, error) {
 		return "", err
 	}
 	return sb.String(), nil
+}
+
+// orchInjectRuntimeContext 给系统提示词补充运行时上下文 (用户画像/当前时间/用户ID)。
+// 普通 Agent 对话的 Instruction 里本来就带「{user_profile}」和「当前时间: {current_time}」,
+// 但编排节点的系统提示词只有显式写了 {{.user_profile}}/{{.current_time}} 才会渲染出来,
+// 导致「你是我的助手」这类提示词下模型既不知道当前时间、也拿不到用户画像。
+// 与普通对话保持一致: 无论提示词有没有引用, 都自动补上; 已在提示词里出现的内容不重复追加。
+func orchInjectRuntimeContext(prompt string, vars map[string]any) string {
+	var blocks []string
+
+	// 用户画像: 与普通 Agent 对话一致, 有就带上 (提示词已引用则不重复)
+	if profile, _ := vars["user_profile"].(string); strings.TrimSpace(profile) != "" {
+		profile = strings.TrimSpace(profile)
+		if !strings.Contains(prompt, profile) {
+			blocks = append(blocks, profile)
+		}
+	}
+
+	// 当前时间 / 用户ID: 提示词已渲染出当前时间时, 视为已自带运行时上下文, 不再追加
+	if now, _ := vars["current_time"].(string); now != "" && !strings.Contains(prompt, now) {
+		runtime := []string{"当前时间: " + now}
+		if uid, ok := vars["user_id"]; ok {
+			runtime = append(runtime, fmt.Sprintf("当前用户ID: %v", uid))
+		}
+		blocks = append(blocks, strings.Join(runtime, "\n"))
+	}
+
+	if len(blocks) == 0 {
+		return prompt
+	}
+	block := strings.Join(blocks, "\n\n")
+	if strings.TrimSpace(prompt) == "" {
+		return block
+	}
+	return prompt + "\n\n" + block
 }
 
 // ---------- 调试运行追踪: 把 compose 回调事件归属到编排节点 ----------
@@ -1730,6 +1769,16 @@ func ownerKeyFor(span *orchSpan, rest []*orchSpan, nodeKeys map[string]string, s
 	return ""
 }
 
+// isSubAgentInternal 判断 span key 是否属于某个子Agent 的内部子节点 (形如 "<subID>.model")。
+// 这些模型调用由 orchSubAgentProgress 负责实时透出, 图回调不再重复推送, 避免叠字。
+// subNodes 在 handler 构造后只读, 无需加锁。
+func (h *orchTraceHandler) isSubAgentInternal(key string) bool {
+	if i := strings.LastIndex(key, "."); i > 0 {
+		return h.subNodes[key[:i]]
+	}
+	return false
+}
+
 func (h *orchTraceHandler) OnStart(ctx context.Context, info *callbacks.RunInfo, _ callbacks.CallbackInput) context.Context {
 	if info == nil {
 		return ctx
@@ -1788,8 +1837,10 @@ func (h *orchTraceHandler) OnEndWithStreamOutput(ctx context.Context, info *call
 	var mo *model.CallbackOutput
 	var rawMsg *schema.Message
 	// 模型节点的回调流是"真实时"的 (图级节点拿到的是缓冲后的副本), 在这里把增量直推前端,
-	// 用户才能在模型生成期间看到内容; 图级输出稍后到达时由 orchSkipStreamed 去重
-	directStream := span.comp == "ChatModel"
+	// 用户才能在模型生成期间看到内容; 图级输出稍后到达时由 orchSkipStreamed 去重。
+	// 子Agent 的模型增量已由其进度包装 (orchSubAgentProgress, 兼心跳) 实时透出,
+	// 这里若再推一次会与包装器的增量交错重复 (症状: "用户用户现在现在…" 叠字), 故跳过。
+	directStream := span.comp == "ChatModel" && !h.isSubAgentInternal(span.key)
 	firstDelta := true
 	for {
 		chunk, err := output.Recv()

@@ -405,6 +405,16 @@ const appendAssistantContent = (content: string) => {
   };
 };
 
+// 用最终文本替换当前助手气泡 (编排运行结束后只保留图级最终输出)
+const setAssistantContent = (content: string) => {
+  const lastIdx = messages.value.length - 1;
+  messages.value[lastIdx] = {
+    ...messages.value[lastIdx],
+    content,
+    renderedContent: renderMessageContent(content),
+  };
+};
+
 const appendUsage = (usage: TokenUsage) => {
   const lastIdx = messages.value.length - 1;
   messages.value[lastIdx] = {
@@ -553,8 +563,6 @@ const sendOrchestrationMessage = async (userText: string, controller: AbortContr
   const decoder = new TextDecoder("utf-8");
   if (!reader) throw new Error("无法获取响应流");
 
-  let gotDelta = false;
-
   const handleEvent = (eventType: string, dataStr: string) => {
     let payload: any = null;
     try {
@@ -574,7 +582,6 @@ const sendOrchestrationMessage = async (userText: string, controller: AbortContr
       }
       case "delta":
         if (payload?.content) {
-          gotDelta = true;
           appendAssistantContent(payload.content);
           scheduleScrollToBottom();
         }
@@ -586,9 +593,11 @@ const sendOrchestrationMessage = async (userText: string, controller: AbortContr
         }
         break;
       case "summary":
-        // 兜底: 若运行时未推 delta (非流式节点), 用最终输出补齐
-        if (!gotDelta && typeof payload?.output === "string" && payload.output.trim()) {
-          appendAssistantContent(payload.output);
+        // 编排运行会把"工具调用轮次的前言文本 / 子Agent 输出 / 最终答案"都混进同一个气泡,
+        // 这里用图级最终输出 (summary.output) 覆盖, 保证只保留最终答案。
+        // 停止生成时不会有 summary, 期间流式内容保留。
+        if (typeof payload?.output === "string" && payload.output.trim()) {
+          setAssistantContent(payload.output);
         }
         if (payload?.tokens) appendUsage(payload.tokens);
         scheduleScrollToBottom();

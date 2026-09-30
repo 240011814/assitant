@@ -52,7 +52,9 @@ func (f *fakeOrchModel) Stream(ctx context.Context, input []*schema.Message, opt
 	return schema.StreamReaderFromArray(chunks), nil
 }
 
-func (f *fakeOrchModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) { return f, nil }
+func (f *fakeOrchModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	return f, nil
+}
 
 type fakeOrchTool struct{}
 
@@ -80,7 +82,9 @@ func (f *capturingModel) Stream(ctx context.Context, input []*schema.Message, op
 	return schema.StreamReaderFromArray([]*schema.Message{{Role: schema.Assistant, Content: "chain step answer"}}), nil
 }
 
-func (f *capturingModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) { return f, nil }
+func (f *capturingModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	return f, nil
+}
 
 func orchTestDeps() compilerDeps {
 	return compilerDeps{
@@ -358,6 +362,110 @@ func TestOrchestrationAgentRoleNormalization(t *testing.T) {
 	}
 	if len(msgs[1].ToolCalls) != 0 {
 		t.Fatalf("转换为 user 的消息不应携带 ToolCalls")
+	}
+}
+
+// 编排节点的系统提示词必须自动带上当前时间与用户画像: 普通 Agent 对话的 Instruction 里有,
+// 但编排先前只有显式写 {{.current_time}}/{{.user_profile}} 才有, 导致"你是我的助手"这类提示词下模型拿不到。
+func TestOrchestrationAgentInjectsRuntimeContext(t *testing.T) {
+	definition := `{
+	  "version": 1,
+	  "nodes": [
+	    {"id": "agent", "type": "agent", "name": "助手", "config": {"system_prompt": "你是我的助手", "tools": []}},
+	    {"id": "out", "type": "end", "name": "输出", "config": {}}
+	  ],
+	  "edges": [
+	    {"source": "agent", "target": "out"}
+	  ]
+	}`
+	dsl, errs := validateOrchestrationDSL(definition)
+	if len(errs) > 0 {
+		t.Fatalf("validate err: %v", errs)
+	}
+	capModel := &capturingModel{}
+	deps := compilerDeps{
+		getModel:  func(string) (model.ToolCallingChatModel, error) { return capModel, nil },
+		buildTool: func(string) (tool.BaseTool, error) { return &fakeOrchTool{}, nil },
+		sessionVars: func() map[string]any {
+			return map[string]any{
+				"current_time": "2026-09-30 10:00:00",
+				"user_id":      7,
+				"user_profile": "## 用户画像（供参考，不要直接复述）\n喜欢简洁回答",
+			}
+		},
+	}
+	c := &orchestrationCompiler{dsl: dsl}
+	compiled, err := c.compile(context.Background(), deps)
+	if err != nil {
+		t.Fatalf("compile err: %v", err)
+	}
+	stream, err := compiled.runnable.Stream(context.Background(), schema.UserMessage("现在几点"))
+	if err != nil {
+		t.Fatalf("stream err: %v", err)
+	}
+	for {
+		_, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("recv err: %v", err)
+		}
+	}
+	if len(capModel.received) == 0 {
+		t.Fatalf("Agent 未被调用")
+	}
+	msgs := capModel.received[0]
+	if len(msgs) == 0 || msgs[0].Role != schema.System {
+		t.Fatalf("首条应为 system, got %v", msgs)
+	}
+	if !strings.Contains(msgs[0].Content, "你是我的助手") {
+		t.Fatalf("系统提示词丢失: %q", msgs[0].Content)
+	}
+	if !strings.Contains(msgs[0].Content, "当前时间: 2026-09-30 10:00:00") {
+		t.Fatalf("未向 Agent 注入当前时间: %q", msgs[0].Content)
+	}
+	if !strings.Contains(msgs[0].Content, "喜欢简洁回答") {
+		t.Fatalf("未向 Agent 注入用户画像: %q", msgs[0].Content)
+	}
+}
+
+func TestOrchInjectRuntimeContext(t *testing.T) {
+	vars := map[string]any{"current_time": "2026-09-30 10:00:00", "user_id": 7}
+
+	got := orchInjectRuntimeContext("你是我的助手", vars)
+	if !strings.Contains(got, "当前时间: 2026-09-30 10:00:00") {
+		t.Fatalf("未注入当前时间: %q", got)
+	}
+	if !strings.Contains(got, "你是我的助手") || !strings.Contains(got, "当前用户ID: 7") {
+		t.Fatalf("提示词/用户ID 注入异常: %q", got)
+	}
+
+	// 用户画像自动注入
+	withProfile := map[string]any{
+		"current_time": "2026-09-30 10:00:00",
+		"user_id":      7,
+		"user_profile": "## 用户画像（供参考，不要直接复述）\n喜欢简洁回答",
+	}
+	got = orchInjectRuntimeContext("你是我的助手", withProfile)
+	if !strings.Contains(got, "喜欢简洁回答") {
+		t.Fatalf("未注入用户画像: %q", got)
+	}
+	// 提示词已引用用户画像时不重复追加
+	profileOnly := "## 用户画像（供参考，不要直接复述）\n喜欢简洁回答"
+	if got := orchInjectRuntimeContext(profileOnly, withProfile); strings.Count(got, "喜欢简洁回答") != 1 {
+		t.Fatalf("用户画像不应重复注入: %q", got)
+	}
+
+	// 提示词已渲染出当前时间时不重复追加
+	rendered := "当前时间: 2026-09-30 10:00:00"
+	if got := orchInjectRuntimeContext(rendered, vars); got != rendered {
+		t.Fatalf("已包含时间时不应重复注入: %q", got)
+	}
+
+	// 空提示词只给运行时上下文, 不以空行开头
+	if got := orchInjectRuntimeContext("  ", vars); !strings.HasPrefix(got, "当前时间: ") {
+		t.Fatalf("空提示词注入应以时间开头: %q", got)
 	}
 }
 

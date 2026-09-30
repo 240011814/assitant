@@ -14,6 +14,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
+	einoagent "github.com/cloudwego/eino/flow/agent"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -210,6 +211,211 @@ func TestOrchestrationChatHistoryInjected(t *testing.T) {
 	if last.Role != schema.User || last.Content != "我叫什么" {
 		t.Fatalf("末条应为本轮输入, got %s %q", last.Role, last.Content)
 	}
+}
+
+// 子Agent 增量回归: 子Agent 的模型被 orchSubAgentProgress 包装(实时透出 + 心跳),
+// 同时又会被图回调 OnEndWithStreamOutput 看到 (comp=ChatModel)。两条路径若都 emit,
+// 前端同一段思考/正文会被交错追加两次 (线上症状: "用户用户现在现在…" 的叠字)。
+// 期望: 思考与正文各恰好下发一次。
+func TestOrchestrationSubAgentDeltasNotDuplicated(t *testing.T) {
+	definition := `{
+	  "version": 1,
+	  "nodes": [
+	    {"id": "boss", "type": "agent", "name": "主管", "config": {"system_prompt": "你是主管"}},
+	    {"id": "sub", "type": "subagent", "name": "子Agent", "config": {"system_prompt": "你是子Agent"}},
+	    {"id": "out", "type": "end", "name": "输出", "config": {}}
+	  ],
+	  "edges": [
+	    {"source": "boss", "target": "sub"},
+	    {"source": "boss", "target": "out"}
+	  ]
+	}`
+	dsl, errs := validateOrchestrationDSL(definition)
+	if len(errs) > 0 {
+		t.Fatalf("validate err: %v", errs)
+	}
+	trace := newOrchTraceHandler(orchNodeKeysOf(dsl), orchSubAgentKeysOf(dsl), nil)
+	mm := &timedModel{
+		reasoningPieces: []string{"子想一", "子想二"},
+		pieces:          []string{"子答一", "子答二"},
+		delay:           10 * time.Millisecond,
+	}
+	deps := compilerDeps{
+		getModel:    func(string) (model.ToolCallingChatModel, error) { return mm, nil },
+		buildTool:   func(string) (tool.BaseTool, error) { return nil, errors.New("no tool") },
+		sessionVars: func() map[string]any { return map[string]any{} },
+	}
+	c := &orchestrationCompiler{dsl: dsl, deps: deps, trace: trace}
+	c.nodeMap = map[string]*OrchestrationNode{}
+	for i := range dsl.Nodes {
+		c.nodeMap[dsl.Nodes[i].ID] = &dsl.Nodes[i]
+	}
+	sub, err := c.buildSubReactAgent(context.Background(), "sub", "boss", OrchSubAgentConfig{SystemPrompt: "你是子Agent"})
+	if err != nil {
+		t.Fatalf("build subagent err: %v", err)
+	}
+	var reasons, deltas []string
+	trace.setEmit(func(event string, payload any) {
+		m, _ := payload.(map[string]any)
+		switch event {
+		case "reasoning":
+			reasons = append(reasons, probeStr(m["content"]))
+		case "delta":
+			deltas = append(deltas, probeStr(m["content"]))
+		}
+	})
+	runCtx := withOrchHandler(context.Background(), trace)
+	stream, err := sub.Stream(runCtx, []*schema.Message{schema.UserMessage("干活")},
+		einoagent.WithComposeOptions(compose.WithCallbacks(trace)))
+	if err != nil {
+		t.Fatalf("stream err: %v", err)
+	}
+	for {
+		_, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("recv err: %v", err)
+		}
+	}
+	t.Logf("子Agent 思考增量: %v", reasons)
+	t.Logf("子Agent 正文增量: %v", deltas)
+	if len(reasons) != 2 {
+		t.Fatalf("子Agent 思考应恰好 2 片, 实际 %d: %v", len(reasons), reasons)
+	}
+	if got := strings.Join(deltas, ""); got != "子答一子答二" {
+		t.Fatalf("子Agent 正文重复或缺失, 累计=%q", got)
+	}
+}
+
+// 复刻线上编排形态 (模板→主Agent(带子Agent)→结束, 主Agent 真的委派子Agent) 统计事件:
+// 定位"整段回复重复 3 遍"到底来自哪条路径。
+func TestOrchestrationDelegationEmissionCount(t *testing.T) {
+	definition := `{
+	  "version": 1,
+	  "nodes": [
+	    {"id": "tpl", "type": "template", "name": "模板", "config": {"template": "请处理以下内容\n{{.Input}}"}},
+	    {"id": "boss", "type": "agent", "name": "Agent", "config": {"system_prompt": "你是我的助手"}},
+	    {"id": "sub", "type": "subagent", "name": "子Agent", "config": {"system_prompt": "你是搜索助手", "description": "支持搜索"}},
+	    {"id": "out", "type": "end", "name": "结束", "config": {}}
+	  ],
+	  "edges": [
+	    {"source": "tpl", "target": "boss"},
+	    {"source": "boss", "target": "out"},
+	    {"source": "boss", "target": "sub"}
+	  ]
+	}`
+	dsl, errs := validateOrchestrationDSL(definition)
+	if len(errs) > 0 {
+		t.Fatalf("validate err: %v", errs)
+	}
+	mainModel := &scriptedToolModel{toolName: "subagent_1", args: `{"task":"查天气"}`, finalText: "最终答案"}
+	subModel := &timedModel{reasoningPieces: []string{"子想"}, pieces: []string{"天气问候语"}, delay: 0}
+	getN := 0
+	deps := compilerDeps{
+		getModel: func(string) (model.ToolCallingChatModel, error) {
+			getN++
+			if getN == 1 {
+				return mainModel, nil
+			}
+			return subModel, nil
+		},
+		buildTool:   func(string) (tool.BaseTool, error) { return nil, errors.New("no tool") },
+		sessionVars: func() map[string]any { return map[string]any{} },
+	}
+	trace := newOrchTraceHandler(orchNodeKeysOf(dsl), orchSubAgentKeysOf(dsl), nil)
+	var reasonings, deltas []string
+	trace.setEmit(func(event string, payload any) {
+		m, _ := payload.(map[string]any)
+		switch event {
+		case "reasoning":
+			reasonings = append(reasonings, probeStr(m["content"]))
+		case "delta":
+			deltas = append(deltas, probeStr(m["content"]))
+		}
+	})
+	c := &orchestrationCompiler{dsl: dsl, trace: trace}
+	compiled, err := c.compile(context.Background(), deps)
+	if err != nil {
+		t.Fatalf("compile err: %v", err)
+	}
+	runCtx := withOrchHandler(context.Background(), trace)
+	stream, err := compiled.runnable.Stream(runCtx, schema.UserMessage("帮我查天气"), compose.WithCallbacks(trace))
+	if err != nil {
+		t.Fatalf("stream err: %v", err)
+	}
+	var graphOut strings.Builder
+	var loopDeltas []string
+	for {
+		chunk, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("recv err: %v", err)
+		}
+		if chunk == nil || chunk.Content == "" {
+			continue
+		}
+		graphOut.WriteString(chunk.Content)
+		// 复刻 DebugRun 的图级去重
+		if rest := orchSkipStreamed(trace, chunk.Content); rest != "" {
+			loopDeltas = append(loopDeltas, rest)
+		}
+	}
+	t.Logf("reasoning 事件: %v", reasonings)
+	t.Logf("回调 delta 事件: %v", deltas)
+	t.Logf("图级补发 delta: %v", loopDeltas)
+	t.Logf("图级输出: %q", graphOut.String())
+
+	all := strings.Join(append(append([]string{}, deltas...), loopDeltas...), "")
+	if len(reasonings) != 1 {
+		t.Fatalf("子Agent 思考应恰好 1 条, 实际 %d: %v", len(reasonings), reasonings)
+	}
+	if n := strings.Count(all, "天气问候语"); n != 1 {
+		t.Fatalf("子Agent 正文应恰好出现 1 次, 实际 %d 次 (delta=%v)", n, deltas)
+	}
+	if n := strings.Count(all, "最终答案"); n != 1 {
+		t.Fatalf("主 Agent 最终答案应恰好出现 1 次, 实际 %d 次 (delta=%v 补发=%v)", n, deltas, loopDeltas)
+	}
+}
+
+// scriptedToolModel 第一次 Stream 返回工具调用, 之后返回最终文本
+type scriptedToolModel struct {
+	calls     int
+	toolName  string
+	args      string
+	finalText string
+}
+
+func (m *scriptedToolModel) Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+	sr, err := m.Stream(ctx, in, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return schema.ConcatMessageStream(sr)
+}
+
+func (m *scriptedToolModel) Stream(_ context.Context, _ []*schema.Message, _ ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	m.calls++
+	if m.calls == 1 {
+		msg := &schema.Message{Role: schema.Assistant, ToolCalls: []schema.ToolCall{{
+			ID:       "call_1",
+			Function: schema.FunctionCall{Name: m.toolName, Arguments: m.args},
+		}}}
+		return schema.StreamReaderFromArray([]*schema.Message{msg}), nil
+	}
+	runes := []rune(m.finalText)
+	chunks := make([]*schema.Message, 0, len(runes))
+	for _, r := range runes {
+		chunks = append(chunks, &schema.Message{Role: schema.Assistant, Content: string(r)})
+	}
+	return schema.StreamReaderFromArray(chunks), nil
+}
+
+func (m *scriptedToolModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	return m, nil
 }
 
 func probeStr(v any) string {
