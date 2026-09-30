@@ -119,7 +119,7 @@ type compilerDeps struct {
 	getModel func(modelOverride string) (model.ToolCallingChatModel, error)
 	// buildTool 按 ai_tools 表配置构建单个工具
 	buildTool func(name string) (tool.BaseTool, error)
-	// sessionVars 供模板/系统提示词渲染 (current_time / user_id / user_profile)
+	// sessionVars 供模板/系统提示词渲染 (current_time / user_id / user_profile / chat_history)
 	sessionVars func() map[string]any
 	// lookupAgent 读取子Agent 引用的已配置 Agent; 缺省时回退查库 (便于单测替换)
 	lookupAgent func(id uint) (*coremodel.AIAgent, error)
@@ -841,6 +841,41 @@ func (c *orchestrationCompiler) modeName(hasBranch, hasMerge bool) string {
 	}
 }
 
+// orchChatHistoryFromVars 取出多轮调试传入的历史 (schema 消息序列), 无历史时返回 nil
+func (c *orchestrationCompiler) orchChatHistoryFromVars() []*schema.Message {
+	if c.deps.sessionVars == nil {
+		return nil
+	}
+	vars := c.deps.sessionVars()
+	if vars == nil {
+		return nil
+	}
+	hist, _ := vars[orchSessionVarsHistoryKey].([]*schema.Message)
+	return hist
+}
+
+// orchSessionVarsHistoryKey sessionVars 里多轮历史的键 (避免与模板变量混用)
+const orchSessionVarsHistoryKey = "chat_history"
+
+// OrchChatTurnsToMessages 把调试请求里的历史转为模型消息序列:
+// 只保留 user/assistant 文本, 丢掉空内容与非对话角色, 保证序列合法 (Ark 严格校验)
+func OrchChatTurnsToMessages(turns []coremodel.ChatTurn) []*schema.Message {
+	out := make([]*schema.Message, 0, len(turns))
+	for _, t := range turns {
+		content := strings.TrimSpace(t.Content)
+		if content == "" {
+			continue
+		}
+		switch t.Role {
+		case "user":
+			out = append(out, schema.UserMessage(content))
+		case "assistant":
+			out = append(out, schema.AssistantMessage(content, nil))
+		}
+	}
+	return out
+}
+
 // buildNodeLambda 构建单个节点的 Lambda (agent/tool/template/merge/end)
 func (c *orchestrationCompiler) buildNodeLambda(ctx context.Context, n *OrchestrationNode) (*compose.Lambda, error) {
 	switch n.Type {
@@ -1126,8 +1161,8 @@ func (t *orchDelegateTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	if json.Unmarshal([]byte(task), &args) == nil && strings.TrimSpace(args.Task) != "" {
 		task = strings.TrimSpace(args.Task)
 	}
-	orchLog("delegate start tool=%s subagent=%s(%s) task=%.80q", t.name, t.subID, t.subName, task)
-	defer func() { orchLog("delegate end tool=%s subagent=%s", t.name, t.subID) }()
+	started := time.Now()
+	orchLog("delegate 开始 tool=%s 子Agent=%s(%s) 任务=%.80q", t.name, t.subID, t.subName, task)
 	// 调试事件: 子Agent 节点本身不参与主流, 没有自己的 compose 节点 span,
 	// 由委派工具在上游 Agent 的 span 内推送 "已委派 + 任务内容"
 	t.emitEvent(map[string]any{
@@ -1135,13 +1170,10 @@ func (t *orchDelegateTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		"owner": t.parentID, "status": "running", "delegated": true, "task": task,
 	})
 	runCtx := ctx
-	t.emitEvent(map[string]any{
-		"kind": "node", "key": t.subID, "name": t.subName, "comp": "DelegateTool",
-		"owner": t.parentID, "status": "running", "delegated": true, "task": task,
-	})
 	// 走流式: 子Agent 的思考/正文可以实时透出 (Generate 不会产生任何增量)
 	sr, err := t.agent.Stream(runCtx, []*schema.Message{schema.UserMessage(task)})
 	if err != nil {
+		orchLog("delegate 失败 tool=%s 子Agent=%s 耗时=%dms err=%v", t.name, t.subID, time.Since(started).Milliseconds(), err)
 		t.emitEvent(map[string]any{
 			"kind": "node", "key": t.subID, "name": t.subName, "comp": "DelegateTool",
 			"owner": t.parentID, "status": "error", "delegated": true, "error": err.Error(),
@@ -1151,12 +1183,18 @@ func (t *orchDelegateTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	defer sr.Close()
 	msg, err := schema.ConcatMessageStream(sr)
 	if err != nil {
+		orchLog("delegate 失败 tool=%s 子Agent=%s 耗时=%dms err=%v", t.name, t.subID, time.Since(started).Milliseconds(), err)
 		t.emitEvent(map[string]any{
 			"kind": "node", "key": t.subID, "name": t.subName, "comp": "DelegateTool",
 			"owner": t.parentID, "status": "error", "delegated": true, "error": err.Error(),
 		})
 		return "", fmt.Errorf("子Agent「%s」执行失败: %w", t.subName, err)
 	}
+	resultLen := 0
+	if msg != nil {
+		resultLen = len(msg.Content)
+	}
+	orchLog("delegate 完成 tool=%s 子Agent=%s 耗时=%dms 结果长度=%d", t.name, t.subID, time.Since(started).Milliseconds(), resultLen)
 	t.emitEvent(map[string]any{
 		"kind": "node", "key": t.subID, "name": t.subName, "comp": "DelegateTool",
 		"owner": t.parentID, "status": "success", "delegated": true, "content": msg.Content,
@@ -1228,6 +1266,8 @@ func (c *orchestrationCompiler) buildAgentLambda(ctx context.Context, n *Orchest
 	}
 	maxStep := maxStepOf(cfg)
 
+	// 多轮调试: 把历史消息拼在本轮输入之前, 让主 Agent 记得之前说过什么
+	history := c.orchChatHistoryFromVars()
 	agent, err := react.NewAgent(ctx, &react.AgentConfig{
 		ToolCallingModel: chatModel,
 		ToolsConfig: compose.ToolsNodeConfig{
@@ -1237,6 +1277,10 @@ func (c *orchestrationCompiler) buildAgentLambda(ctx context.Context, n *Orchest
 		StreamToolCallChecker: orchStreamToolCallCheckerHook,
 		MessageModifier: func(_ context.Context, input []*schema.Message) []*schema.Message {
 			msgs := orchNormalizeModelInput(input)
+			if len(history) > 0 {
+				// 历史在前, 本轮在后; 每轮都按"历史+本轮"重建, 避免 ReAct 循环里重复累加
+				msgs = append(append([]*schema.Message{}, history...), msgs...)
+			}
 			if systemPrompt == "" {
 				return msgs
 			}
@@ -1822,6 +1866,13 @@ func (h *orchTraceHandler) finishSpan(span *orchSpan, rest []*orchSpan, mo *mode
 		"kind": "end", "key": span.key, "comp": span.comp, "ms": ms, "owner": ownerKey,
 	}
 	orchDebugTrace("span-end", payload)
+	// 运行日志: 工具调用与顶层节点结束这两类事件最有用, 逐条落日志
+	if span.comp == "Tool" {
+		orchLog("工具调用完成: %s 归属=%s 耗时=%dms%s", span.key, ownerKey, ms, orchErrSuffix(errMsg))
+	} else if isTop {
+		orchLog("节点完成: %s(%s) comp=%s 耗时=%dms tokens=%s 输出长度=%d%s",
+			owner.Name, owner.Key, span.comp, ms, orchTokensText(owner.Tokens), len(owner.Content), orchErrSuffix(errMsg))
+	}
 	switch {
 	case span.comp == "Tool":
 		payload["tool"] = span.key

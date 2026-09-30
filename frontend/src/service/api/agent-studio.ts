@@ -87,13 +87,15 @@ export function fetchOrchestrationResources() {
 
 /**
  * 编排调试运行 - SSE 流式返回节点级事件
- * 事件: start / node / delta / summary / error / done
+ * 事件: start / delta / reasoning / node / summary / error / done
+ * `history` 为之前轮次 (不含本轮 input), 用于多轮对话式调试
  * `signal` 用于中断调试运行
  */
 export async function fetchOrchestrationDebugRun(data: {
   id?: number;
   definition: string;
   input: string;
+  history?: { role: string; content: string }[];
   signal?: AbortSignal;
 }): Promise<Response> {
   const { signal, ...payload } = data;

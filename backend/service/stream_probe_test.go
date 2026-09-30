@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	coremodel "backend/model"
+
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
@@ -122,6 +124,91 @@ func TestOrchestrationStreamsAnswerIncrementally(t *testing.T) {
 	// 去重: 图级输出到达后不能再重复下发已推过的正文
 	if got := text.String(); got != "第一第二第三" {
 		t.Fatalf("正文重复下发或缺失, 累计=%q", got)
+	}
+}
+
+// 多轮对话回归: 历史消息要拼在本轮输入之前 (每轮按"历史+本轮"重建, 不能重复累加)
+func TestOrchestrationChatHistoryInjected(t *testing.T) {
+	history := OrchChatTurnsToMessages([]coremodel.ChatTurn{
+		{Role: "user", Content: "我叫老王"},
+		{Role: "assistant", Content: "记住了, 老王"},
+		{Role: "system", Content: "这条应被忽略"},
+		{Role: "user", Content: "   "}, // 空内容忽略
+	})
+	if len(history) != 2 {
+		t.Fatalf("历史应只保留 user/assistant 两条, got %d", len(history))
+	}
+	if history[0].Role != schema.User || history[0].Content != "我叫老王" {
+		t.Fatalf("历史首条异常: %+v", history[0])
+	}
+	if history[1].Role != schema.Assistant || history[1].Content != "记住了, 老王" {
+		t.Fatalf("历史次条异常: %+v", history[1])
+	}
+
+	definition := `{
+	  "version": 1,
+	  "nodes": [
+	    {"id": "tpl", "type": "template", "name": "入口", "config": {"template": "{{.Input}}"}},
+	    {"id": "boss", "type": "agent", "name": "主管", "config": {"system_prompt": "你是主管"}},
+	    {"id": "out", "type": "end", "name": "输出", "config": {}}
+	  ],
+	  "edges": [
+	    {"source": "tpl", "target": "boss"},
+	    {"source": "boss", "target": "out"}
+	  ]
+	}`
+	dsl, errs := validateOrchestrationDSL(definition)
+	if len(errs) > 0 {
+		t.Fatalf("validate err: %v", errs)
+	}
+	captured := &capturingModel{}
+	deps := compilerDeps{
+		getModel: func(string) (model.ToolCallingChatModel, error) { return captured, nil },
+		buildTool: func(string) (tool.BaseTool, error) {
+			return nil, errors.New("no tool")
+		},
+		sessionVars: func() map[string]any {
+			return map[string]any{orchSessionVarsHistoryKey: history}
+		},
+	}
+	c := &orchestrationCompiler{dsl: dsl}
+	compiled, err := c.compile(context.Background(), deps)
+	if err != nil {
+		t.Fatalf("compile err: %v", err)
+	}
+	stream, err := compiled.runnable.Stream(context.Background(), schema.UserMessage("我叫什么"))
+	if err != nil {
+		t.Fatalf("stream err: %v", err)
+	}
+	for {
+		_, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("recv err: %v", err)
+		}
+	}
+	if len(captured.received) == 0 {
+		t.Fatalf("模型未被调用")
+	}
+	msgs := captured.received[0]
+	if len(msgs) < 4 {
+		t.Fatalf("消息序列过短, 历史未拼入: %d", len(msgs))
+	}
+	// 期望: [system, user(老王), assistant(记住了), user(本轮)]
+	if msgs[0].Role != schema.System {
+		t.Fatalf("首条应为 system, got %s", msgs[0].Role)
+	}
+	if msgs[1].Role != schema.User || msgs[1].Content != "我叫老王" {
+		t.Fatalf("第 2 条应为历史 user, got %s %q", msgs[1].Role, msgs[1].Content)
+	}
+	if msgs[2].Role != schema.Assistant || msgs[2].Content != "记住了, 老王" {
+		t.Fatalf("第 3 条应为历史 assistant, got %s %q", msgs[2].Role, msgs[2].Content)
+	}
+	last := msgs[len(msgs)-1]
+	if last.Role != schema.User || last.Content != "我叫什么" {
+		t.Fatalf("末条应为本轮输入, got %s %q", last.Role, last.Content)
 	}
 }
 

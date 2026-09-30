@@ -38,10 +38,19 @@ type UpdateAIOrchestrationRequest struct {
 	Enabled     *bool   `json:"enabled"`
 }
 
+// ChatTurn 一轮对话 (多轮调试用)
+type ChatTurn struct {
+	// Role user / assistant
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 // DebugRunRequest 调试执行请求
-// id 为空时按 definition 草稿直接执行 (画布未保存也能调试)
+// id 为空时按 definition 草稿直接执行 (画布未保存也能调试);
+// history 为之前轮次 (不含本轮 input), 用于多轮对话式调试
 type DebugRunRequest struct {
-	ID         *int   `json:"id"`
-	Definition string `json:"definition"`
-	Input      string `json:"input" binding:"required"`
+	ID         *int       `json:"id"`
+	Definition string     `json:"definition"`
+	Input      string     `json:"input" binding:"required"`
+	History    []ChatTurn `json:"history"`
 }

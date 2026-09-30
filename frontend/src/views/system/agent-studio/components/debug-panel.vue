@@ -36,6 +36,18 @@ interface DebugEvent {
   type: 'info' | 'error' | 'success';
 }
 
+/** 一轮对话: user 输入 + assistant 输出 (含本轮思考与调试摘要) */
+interface ChatTurnItem {
+  id: number;
+  user: string;
+  assistant: string;
+  /** 本轮思考过程 (reasoning 增量) */
+  reasoning: string;
+  /** 本轮是否出错 */
+  error?: string;
+  summary?: DebugSummary | null;
+}
+
 const props = defineProps<{
   orchestrationId: number | null;
   getDefinition: () => string;
@@ -58,6 +70,10 @@ const showReasoning = ref(true);
 const events = ref<DebugEvent[]>([]);
 const summary = ref<DebugSummary | null>(null);
 const liveTraces = ref<Record<string, NodeTrace>>({});
+// 多轮对话: 每轮问答都留在列表里, 下一轮把历史一起发给后端
+const turns = ref<ChatTurnItem[]>([]);
+const showTranscript = ref(true);
+let turnSeq = 0;
 
 let abortController: AbortController | null = null;
 
@@ -134,6 +150,28 @@ function buildTraces(result: DebugSummary): Record<string, NodeTrace> {
   return map;
 }
 
+// 历史轮次 (不含本轮) 转成后端要的 {role, content}: 多轮调试直接发给编排入口
+function historyPayload(): { role: string; content: string }[] {
+  const list: { role: string; content: string }[] = [];
+  for (const turn of turns.value) {
+    if (turn.user.trim()) list.push({ role: 'user', content: turn.user });
+    if (turn.assistant.trim()) list.push({ role: 'assistant', content: turn.assistant });
+  }
+  return list;
+}
+
+// 清空会话: 下一轮从零开始 (等同"开启新会话")
+function clearConversation() {
+  turns.value = [];
+  output.value = '';
+  reasoning.value = '';
+  summary.value = null;
+  events.value = [];
+  liveTraces.value = {};
+  emit('traces-change', {});
+  message.success('已清空会话, 下一轮将作为新会话开始');
+}
+
 async function handleRun() {
   if (!props.hasNodes) {
     message.warning('画布为空, 请先添加节点');
@@ -143,8 +181,14 @@ async function handleRun() {
     message.warning('请输入调试输入');
     return;
   }
+  const userText = input.value;
+  const history = historyPayload();
+  const turn: ChatTurnItem = { id: ++turnSeq, user: userText, assistant: '', reasoning: '' };
+  turns.value = [...turns.value, turn];
+
   running.value = true;
   emit('running-change', true);
+  input.value = '';
   output.value = '';
   reasoning.value = '';
   events.value = [];
@@ -153,11 +197,17 @@ async function handleRun() {
   emit('traces-change', {});
   abortController = new AbortController();
 
+  // 本轮实时内容直接写入对应轮次, 便于边跑边看
+  const patchTurn = (patch: Partial<ChatTurnItem>) => {
+    turns.value = turns.value.map(t => (t.id === turn.id ? { ...t, ...patch } : t));
+  };
+
   try {
     const response = await fetchOrchestrationDebugRun({
       id: props.orchestrationId ?? undefined,
       definition: props.getDefinition(),
-      input: input.value,
+      input: userText,
+      history,
       signal: abortController.signal
     });
     if (!response.ok || !response.body) {
@@ -179,7 +229,7 @@ async function handleRun() {
       }
       switch (eventName) {
         case 'start':
-          pushEvent('run', `开始执行 (${payload?.mode} 编排, ${payload?.node_count} 个节点)`);
+          pushEvent('run', `开始执行 (${payload?.mode} 编排, ${payload?.node_count} 个节点${payload?.history ? `, 历史 ${payload.history} 条` : ''})`);
           break;
         case 'node': {
           if (payload?.delegated) {
@@ -206,21 +256,26 @@ async function handleRun() {
         }
         case 'delta':
           output.value += payload?.content || '';
+          patchTurn({ assistant: output.value });
           break;
         case 'reasoning':
           // 思考增量: 单独累计并展示, 不混进最终输出
           reasoning.value += payload?.content || '';
+          patchTurn({ reasoning: reasoning.value });
           break;
         case 'summary':
           summary.value = payload as DebugSummary;
           emit('traces-change', buildTraces(summary.value));
+          patchTurn({ summary: summary.value, assistant: summary.value.output || output.value });
           pushEvent('done', `执行完成 (${payload?.mode}, ${payload?.total_ms ?? 0}ms)`, 'success');
           break;
         case 'error':
           if (payload?.errors?.length) {
             payload.errors.forEach((e: string) => pushEvent('error', e, 'error'));
+            patchTurn({ error: payload.errors.join('; ') });
           } else {
             pushEvent('error', payload?.message || '执行出错', 'error');
+            patchTurn({ error: payload?.message || '执行出错' });
           }
           break;
         case 'done':
@@ -254,8 +309,10 @@ async function handleRun() {
   } catch (err: any) {
     if (err?.name === 'AbortError') {
       pushEvent('abort', '已手动中断', 'error');
+      patchTurn({ error: '已手动中断' });
     } else {
       pushEvent('error', err?.message || '调试请求异常', 'error');
+      patchTurn({ error: err?.message || '调试请求异常' });
     }
   } finally {
     running.value = false;
@@ -333,23 +390,50 @@ onBeforeUnmount(() => {
         v-model:value="input"
         type="textarea"
         :rows="2"
-        placeholder="调试输入 (将作为编排入口的用户消息)"
+        placeholder="调试输入 (回车换行, 点运行发送); 历史轮次会一起发给编排入口, 形成多轮对话"
         class="flex-1"
+        @keydown.enter.exact.prevent="handleRun"
       />
       <NSpace vertical size="small" class="shrink-0">
         <NButton type="primary" size="small" :loading="running" :disabled="!hasNodes" @click="handleRun">
           <template #icon><SvgIcon icon="mdi:play" /></template>
-          运行
+          发送
         </NButton>
         <NButton v-if="running" size="small" type="error" secondary @click="handleAbort">中断</NButton>
+        <NButton v-else size="small" secondary :disabled="turns.length === 0" @click="clearConversation">新会话</NButton>
       </NSpace>
+    </div>
+
+    <!-- 会话轮次 (多轮对话记录) -->
+    <div v-if="turns.length > 0" class="shrink-0 flex flex-col gap-1 max-h-52">
+      <div class="text-xs text-gray-500 flex items-center gap-2">
+        <span>会话 ({{ turns.length }} 轮)</span>
+        <NButton size="tiny" quaternary @click="showTranscript = !showTranscript">{{ showTranscript ? '收起' : '展开' }}</NButton>
+        <span class="text-11px text-gray-400">下一轮会带上以上历史</span>
+      </div>
+      <NScrollbar v-if="showTranscript" class="min-h-0">
+        <div v-for="t in turns" :key="t.id" class="mb-1.5 text-xs">
+          <div class="flex gap-1">
+            <span class="shrink-0 text-blue-500 font-medium">我:</span>
+            <span class="whitespace-pre-wrap break-all">{{ t.user }}</span>
+          </div>
+          <div class="flex gap-1">
+            <span class="shrink-0 font-medium" :class="t.error ? 'text-red-500' : 'text-green-600'">
+              {{ t.error ? '错误:' : 'Agent:' }}
+            </span>
+            <span class="whitespace-pre-wrap break-all" :class="t.error ? 'text-red-500' : ''">
+              {{ t.error || t.assistant || (running ? '…' : '(无输出)') }}
+            </span>
+          </div>
+        </div>
+      </NScrollbar>
     </div>
 
     <!-- 输出 + 事件流 -->
     <div class="flex-1 min-h-0 flex gap-3" :class="'flex-col md:flex-row'">
       <div class="flex-1 min-h-0 flex flex-col gap-1">
         <div class="text-xs text-gray-500 flex items-center gap-2">
-          <span>最终输出</span>
+          <span>本轮输出</span>
           <NTag v-if="summary" size="small" type="info" :bordered="false">{{ summary.mode }} · {{ summary.total_ms }}ms · {{ totalTokens }} tokens</NTag>
           <NButton v-if="reasoning" size="tiny" quaternary @click="showReasoning = !showReasoning">
             {{ showReasoning ? '隐藏思考' : '显示思考' }}

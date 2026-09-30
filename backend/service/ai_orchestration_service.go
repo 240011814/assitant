@@ -123,7 +123,7 @@ func (s *AIOrchestrationService) Validate(definition string, userID uint) *Orche
 		return result
 	}
 	// 结构合法, 尝试完整编译捕获构建期错误
-	compiled, err := s.compile(context.Background(), userID, dsl, nil)
+	compiled, err := s.compile(context.Background(), userID, dsl, nil, nil)
 	if err != nil {
 		result.Valid = false
 		result.Errors = append(result.Errors, err.Error())
@@ -200,17 +200,24 @@ func (s *AIOrchestrationService) validateDefinition(definition string) []string 
 	if len(errs) > 0 {
 		return errs
 	}
-	if _, err := s.compile(context.Background(), 0, dsl, nil); err != nil {
+	if _, err := s.compile(context.Background(), 0, dsl, nil, nil); err != nil {
 		return []string{err.Error()}
 	}
 	return nil
 }
 
-func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *OrchestrationDSL, trace *orchTraceHandler) (*compiledOrchestration, error) {
+func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *OrchestrationDSL, trace *orchTraceHandler, history []*schema.Message) (*compiledOrchestration, error) {
 	deps := compilerDeps{
-		getModel:    s.agentService.GetToolCallingModel,
-		buildTool:   s.agentService.BuildToolByName,
-		sessionVars: func() map[string]any { return s.agentService.SessionTemplateVars(userID) },
+		getModel:  s.agentService.GetToolCallingModel,
+		buildTool: s.agentService.BuildToolByName,
+		sessionVars: func() map[string]any {
+			vars := s.agentService.SessionTemplateVars(userID)
+			// 多轮调试的历史经 sessionVars 传给编译器 (模板变量不受影响)
+			if len(history) > 0 {
+				vars[orchSessionVarsHistoryKey] = history
+			}
+			return vars
+		},
 		lookupAgent: func(id uint) (*model.AIAgent, error) {
 			var agent model.AIAgent
 			if err := DB.First(&agent, id).Error; err != nil {
@@ -303,7 +310,8 @@ type DebugRunResult struct {
 }
 
 // DebugRun 调试执行一次编排, 通过 emit 推送 SSE 事件:
-// start / delta / node / summary / error / done
+// start / delta / reasoning / node / summary / error / done
+// 多轮: req.History 是之前轮次, req.Input 是本轮输入
 func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req *model.DebugRunRequest, emit func(event string, payload any)) error {
 	definition := strings.TrimSpace(req.Definition)
 	var orchID uint
@@ -329,8 +337,14 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 		orchID = uint(*req.ID)
 	}
 
+	started := time.Now()
+	history := OrchChatTurnsToMessages(req.History)
+	runTag := fmt.Sprintf("orch=%d user=%d", orchID, userID)
+	orchLog("%s 开始调试运行: 历史轮次=%d 本轮输入=%.60q 定义长度=%d", runTag, len(history), req.Input, len(definition))
+
 	dsl, errs := validateOrchestrationDSL(definition)
 	if len(errs) > 0 {
+		orchLog("%s 校验失败: %v", runTag, errs)
 		emit("error", map[string]any{"message": "编排定义校验失败", "errors": errs})
 		emit("done", map[string]any{})
 		return nil
@@ -340,16 +354,19 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 	// 事件出口 (emit) 等编译成功后再注入, 避免编译期事件写到已关闭的 SSE
 	handler := newOrchTraceHandler(orchNodeKeysOf(dsl), orchSubAgentKeysOf(dsl), nil)
 
-	compiled, err := s.compile(ctx, userID, dsl, handler)
+	compiled, err := s.compile(ctx, userID, dsl, handler, history)
 	if err != nil {
+		orchLog("%s 编译失败: %v", runTag, err)
 		emit("error", map[string]any{"message": err.Error()})
 		emit("done", map[string]any{})
 		return nil
 	}
+	orchLog("%s 编译完成: mode=%s 节点=%d 主流节点=%d", runTag, compiled.mode, len(dsl.Nodes), len(compiled.nodeKeys))
 
 	emit("start", map[string]any{
 		"mode":       compiled.mode,
 		"node_count": len(dsl.Nodes),
+		"history":    len(history),
 	})
 	handler.setEmit(emit)
 
@@ -358,9 +375,9 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 	// handler 放进 ctx: 分支判定扫描模型流时要据它把增量文本实时推给前端
 	runCtx = withOrchHandler(runCtx, handler)
 
-	started := time.Now()
 	stream, runErr := compiled.runnable.Stream(runCtx, schema.UserMessage(req.Input), compose.WithCallbacks(handler))
 	if runErr != nil {
+		orchLog("%s 启动失败: %v", runTag, runErr)
 		emit("error", map[string]any{"message": runErr.Error()})
 		emit("done", map[string]any{})
 		return nil
@@ -375,10 +392,13 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 		}
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
+				orchLog("%s 执行超时 (超时阈值 %s)", runTag, s.timeout)
 				emit("error", map[string]any{"message": "执行超时"})
 			} else if runCtx.Err() != nil {
+				orchLog("%s 执行被取消: %v", runTag, runCtx.Err())
 				emit("error", map[string]any{"message": "执行已取消"})
 			} else {
+				orchLog("%s 执行出错: %v", runTag, err)
 				emit("error", map[string]any{"message": err.Error()})
 			}
 			break
@@ -386,7 +406,7 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 		if chunk.Content == "" {
 			continue
 		}
-		// 分支判定阶段已经实时推过的内容不再重复下发 (仅影响回放, full 仍保留完整文本)
+		// 模型节点回调已实时推过的内容不再重复下发 (仅影响回放, full 仍保留完整文本)
 		content := orchSkipStreamed(handler, chunk.Content)
 		full.WriteString(chunk.Content)
 		if content == "" {
@@ -416,6 +436,12 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 	emit("summary", summary)
 	emit("done", map[string]any{})
 
+	// 运行日志: 每个节点的耗时/状态/工具调用/用量逐行落日志, 便于事后复盘
+	orchLogRunSummary(runTag, summary, time.Since(started).Milliseconds())
+	if summary.Output == "" {
+		orchLog("%s 警告: 本次运行没有产出最终文本 (检查入口节点/分支默认目标是否可达)", runTag)
+	}
+
 	// 已保存编排: 异步落最近一次调试摘要, 供列表回显
 	if orchID > 0 {
 		go func(id uint, sres *DebugRunResult) {
@@ -430,4 +456,45 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 		}(orchID, summary)
 	}
 	return nil
+}
+
+// orchLogRunSummary 输出一次调试运行的完整摘要 (逐节点 + 汇总)
+func orchLogRunSummary(runTag string, summary *DebugRunResult, totalMS int64) {
+	orchLog("%s 运行结束: mode=%s 总耗时=%dms 节点数=%d 输出长度=%d tokens=%s",
+		runTag, summary.Mode, totalMS, len(summary.Nodes), len(summary.Output), orchTokensText(summary.Tokens))
+	for _, t := range summary.Nodes {
+		if t.Comp == "DelegateTool" {
+			// 子Agent 节点: 是否被委派 + 任务 + 结果长度
+			orchLog("%s   子Agent %s(%s) status=%s 委派=%v 所属主Agent=%s 耗时=%dms 任务=%.60q 结果长度=%d",
+				runTag, t.Name, t.Key, t.Status, t.Delegated, t.Owner, t.MS, t.Task, len(t.Content))
+			continue
+		}
+		orchLog("%s   节点 %s(%s) comp=%s status=%s 耗时=%dms tokens=%s 工具=%v 输出长度=%d%s",
+			runTag, t.Name, t.Key, t.Comp, t.Status, t.MS, orchTokensText(t.Tokens), orchToolNames(t.ToolCalls), len(t.Content), orchErrSuffix(t.Error))
+	}
+}
+
+func orchTokensText(u *schema.TokenUsage) string {
+	if u == nil {
+		return "-"
+	}
+	return fmt.Sprintf("prompt=%d completion=%d total=%d", u.PromptTokens, u.CompletionTokens, u.TotalTokens)
+}
+
+func orchToolNames(calls []OrchToolTrace) []string {
+	if len(calls) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(calls))
+	for _, c := range calls {
+		names = append(names, fmt.Sprintf("%s(%dms)", c.Name, c.MS))
+	}
+	return names
+}
+
+func orchErrSuffix(errMsg string) string {
+	if errMsg == "" {
+		return ""
+	}
+	return " 错误=" + errMsg
 }
