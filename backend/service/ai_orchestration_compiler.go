@@ -634,10 +634,11 @@ func (c *orchestrationCompiler) buildAgentLambda(ctx context.Context, n *Orchest
 			Tools: agentTools,
 		},
 		MessageModifier: func(_ context.Context, input []*schema.Message) []*schema.Message {
+			msgs := orchNormalizeModelInput(input)
 			if systemPrompt == "" {
-				return input
+				return msgs
 			}
-			return append([]*schema.Message{{Role: schema.System, Content: systemPrompt}}, input...)
+			return append([]*schema.Message{{Role: schema.System, Content: systemPrompt}}, msgs...)
 		},
 		// 子图名与编排节点 key 隔离, 避免图级 end 事件与节点自身 end 事件混淆
 		GraphName:     n.ID + ".react",
@@ -792,6 +793,38 @@ func (c *orchestrationCompiler) buildMergeLambda(n *OrchestrationNode) (*compose
 		},
 		nil, nil,
 	)
+}
+
+// orchNormalizeModelInput 规范化发往模型的消息序列:
+// Ark 等模型接口要求序列以 system/user 开头且必须含 user 消息, 而编排的上游
+// 输出可能是 assistant/tool 角色 (链式 Agent/工具节点), 无 user 时把首条消息
+// 复制并转为 user 角色 (不改写共享的原消息, 遵循外部只读原则)
+func orchNormalizeModelInput(input []*schema.Message) []*schema.Message {
+	hasUser := false
+	for _, m := range input {
+		if m != nil && m.Role == schema.User {
+			hasUser = true
+			break
+		}
+	}
+	if hasUser || len(input) == 0 {
+		return input
+	}
+	msgs := make([]*schema.Message, 0, len(input))
+	for i, m := range input {
+		if m == nil {
+			continue
+		}
+		if i == 0 && m.Content != "" && m.Role != schema.User {
+			cp := *m
+			cp.Role = schema.User
+			cp.ToolCalls = nil
+			msgs = append(msgs, &cp)
+			continue
+		}
+		msgs = append(msgs, m)
+	}
+	return msgs
 }
 
 func orchIsJSONObject(s string) bool {

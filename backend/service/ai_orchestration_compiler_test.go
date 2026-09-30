@@ -60,6 +60,25 @@ func (t *fakeOrchTool) InvokableRun(_ context.Context, args string, _ ...tool.Op
 	return "tool:" + args, nil
 }
 
+// capturingModel 记录每次收到的消息序列, 用于断言发给模型的内容
+type capturingModel struct {
+	received [][]*schema.Message
+}
+
+func (f *capturingModel) Generate(_ context.Context, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+	f.received = append(f.received, input)
+	return &schema.Message{Role: schema.Assistant, Content: "chain step answer"}, nil
+}
+
+func (f *capturingModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	if _, err := f.Generate(ctx, input, opts...); err != nil {
+		return nil, err
+	}
+	return schema.StreamReaderFromArray([]*schema.Message{{Role: schema.Assistant, Content: "chain step answer"}}), nil
+}
+
+func (f *capturingModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) { return f, nil }
+
 func orchTestDeps() compilerDeps {
 	return compilerDeps{
 		getModel:  func(string) (model.ToolCallingChatModel, error) { return &fakeOrchModel{}, nil },
@@ -264,4 +283,77 @@ func TestOrchestrationTraceAttribution(t *testing.T) {
 		t.Fatalf("期望记录工具调用, got %+v", agentTrace.ToolCalls)
 	}
 	_ = events
+}
+
+// 链式 Agent: 第二个 Agent 收到的上游是 assistant 消息,
+// 发往模型的序列必须被规范化为 user 开头 (Ark 1214 场景)
+func TestOrchestrationAgentRoleNormalization(t *testing.T) {
+	definition := `{
+	  "version": 1,
+	  "nodes": [
+	    {"id": "a1", "type": "agent", "name": "一", "config": {"system_prompt": "第一跳", "tools": ["orch_echo"]}},
+	    {"id": "a2", "type": "agent", "name": "二", "config": {"system_prompt": "第二跳", "tools": ["orch_echo"]}},
+	    {"id": "out", "type": "end", "name": "输出", "config": {}}
+	  ],
+	  "edges": [
+	    {"source": "a1", "target": "a2"},
+	    {"source": "a2", "target": "out"}
+	  ]
+	}`
+	dsl, errs := validateOrchestrationDSL(definition)
+	if len(errs) > 0 {
+		t.Fatalf("validate err: %v", errs)
+	}
+	second := &capturingModel{}
+	modelBuilds := 0
+	deps := compilerDeps{
+		getModel: func(string) (model.ToolCallingChatModel, error) {
+			// getModel 在编译期为每个 agent 节点调用: 第 1 个节点用默认假模型, 第 2 个用捕获模型
+			modelBuilds++
+			if modelBuilds >= 2 {
+				return second, nil
+			}
+			return &fakeOrchModel{}, nil
+		},
+		buildTool:   func(string) (tool.BaseTool, error) { return &fakeOrchTool{}, nil },
+		sessionVars: func() map[string]any { return map[string]any{} },
+	}
+	c := &orchestrationCompiler{dsl: dsl}
+	compiled, err := c.compile(context.Background(), deps)
+	if err != nil {
+		t.Fatalf("compile err: %v", err)
+	}
+	stream, err := compiled.runnable.Stream(context.Background(), schema.UserMessage("开始"))
+	if err != nil {
+		t.Fatalf("stream err: %v", err)
+	}
+	for {
+		_, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("recv err: %v", err)
+		}
+	}
+	if len(second.received) == 0 {
+		t.Fatalf("第二个 Agent 未被调用")
+	}
+	msgs := second.received[0]
+	if len(msgs) < 2 {
+		t.Fatalf("第二个 Agent 收到消息序列过短: %d", len(msgs))
+	}
+	// 序列: [system(第二跳), user(上游 assistant 内容)] — 不能以 assistant 开头
+	if msgs[0].Role != schema.System {
+		t.Fatalf("首条应为 system, got %s", msgs[0].Role)
+	}
+	if msgs[1].Role != schema.User {
+		t.Fatalf("第二跳的输入应被规范化为 user 角色, got %s: %q", msgs[1].Role, msgs[1].Content)
+	}
+	if msgs[1].Content != "agent final answer" {
+		t.Fatalf("user 消息应携带上游内容, got %q", msgs[1].Content)
+	}
+	if len(msgs[1].ToolCalls) != 0 {
+		t.Fatalf("转换为 user 的消息不应携带 ToolCalls")
+	}
 }
