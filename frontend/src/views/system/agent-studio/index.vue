@@ -438,6 +438,7 @@ onMounted(() => {
           :selected-id="selectedNodeId"
           :debug-running="debugRunning"
           :refit-key="showDebug"
+          :resources="resources"
           @select-node="(id: string | null) => (selectedNodeId = id)"
           @delete-node="handleDeleteNode"
           @duplicate-node="handleDuplicateNode"

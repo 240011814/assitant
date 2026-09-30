@@ -8,6 +8,7 @@ import '@vue-flow/core/dist/style.css';
 import '@vue-flow/core/dist/theme-default.css';
 import '@vue-flow/minimap/dist/style.css';
 import type { NodeTrace } from './debug-panel.vue';
+import type { OrchestrationResource } from '@/service/api';
 import { NODE_META } from '../nodes/registry';
 
 const props = defineProps<{
@@ -15,6 +16,8 @@ const props = defineProps<{
   selectedId: string | null;
   debugRunning: boolean;
   refitKey?: boolean;
+  /** resources 画布可用资源 (仅用于把子Agent 显示成被引用的 Agent 标题) */
+  resources?: OrchestrationResource | null;
 }>();
 
 const nodes = defineModel<FlowNode[]>('nodes', { required: true });
@@ -49,6 +52,13 @@ watch(
 const traceOf = computed(() => (id: string) => props.nodeTraces[id]);
 // 每种节点类型的组件由注册表提供, 画布只按类型动态渲染
 const nodeComponent = (type: string) => NODE_META[type as keyof typeof NODE_META]?.component;
+
+/** 子Agent 节点被引用 Agent 的标题: 节点名默认都是「子Agent」, 画布上靠它区分 */
+function refAgentTitle(data: any): string {
+  const agentId = Number(data?.config?.agent_id || 0);
+  if (!agentId) return '';
+  return props.resources?.agents?.find(a => a.id === agentId)?.title || '';
+}
 
 // ---------- 连线 ----------
 // 与后端校验规则一致: 非 merge 节点单入边、非 branch 节点单出边 (委派边除外);
@@ -205,6 +215,8 @@ function menuAddNode(type: string) {
           :data="nodeProps.data"
           :selected="nodeProps.id === selectedId"
           :status="traceOf(nodeProps.id)?.status ?? null"
+          :delegated="traceOf(nodeProps.id)?.delegated ?? false"
+          :title="refAgentTitle(nodeProps.data)"
         />
       </template>
     </VueFlow>

@@ -75,7 +75,7 @@ func TestBarCutNormal(t *testing.T) {
 func TestBarCutEnumExplosion(t *testing.T) {
 	// 6 种长度 × 每种 50 件: 旧实现 DFS 组合数 51^6 ≈ 1.8e10, 必然卡死; 新实现应跳过枚举快速返回
 	s := NewCutService()
-	items := []int{111, 233, 457, 789, 1024, 1899}
+	items := model.IntItems(111, 233, 457, 789, 1024, 1899)
 	for i := 0; i < 5; i++ {
 		items = append(items, items...)
 	}
@@ -155,7 +155,7 @@ func TestBarCutMultiMaterial(t *testing.T) {
 	// 多材料规格: 7000 与 4000 两种新材料; 零件 4500 只能进 7000, 小件应优先用 4000 减少浪费
 	s := NewCutService()
 	resp, err := s.BarCut(1, model.BarRequest{
-		Items: []int{4500, 4500, 3500, 3500, 3500},
+		Items: model.IntItems(4500, 4500, 3500, 3500, 3500),
 		NewMaterials: []model.BarMaterial{
 			{Label: "长料", Length: 7000},
 			{Label: "短料", Length: 4000},
@@ -188,7 +188,7 @@ func TestBarCutMultiMaterialOversize(t *testing.T) {
 	// 零件超过最长材料(6500 > 6000) => 入口报错
 	s := NewCutService()
 	_, err := s.BarCut(1, model.BarRequest{
-		Items: []int{6500},
+		Items: model.IntItems(6500),
 		NewMaterials: []model.BarMaterial{
 			{Length: 6000},
 			{Length: 4000},
@@ -199,7 +199,7 @@ func TestBarCutMultiMaterialOversize(t *testing.T) {
 	}
 	// 但 4500 可以放进 6000
 	if _, err = s.BarCut(1, model.BarRequest{
-		Items: []int{4500},
+		Items: model.IntItems(4500),
 		NewMaterials: []model.BarMaterial{
 			{Length: 6000},
 			{Length: 4000},
@@ -214,7 +214,7 @@ func TestBarCutMaterialTypes(t *testing.T) {
 	// 旧料对象形态(带类型) + 多规格新材料: 每根结果的 materialType 应正确标注
 	s := NewCutService()
 	resp, err := s.BarCut(1, model.BarRequest{
-		Items: []int{3000, 3500, 3500},
+		Items: model.IntItems(3000, 3500, 3500),
 		Materials: model.BarMaterialList{
 			{Label: "旧方管", Length: 3500},
 		},
@@ -245,7 +245,7 @@ func TestBarCutMaterialTypes(t *testing.T) {
 	}
 	// 旧格式 []int 兼容: 不报错且正常出结果
 	if _, err := s.BarCut(1, model.BarRequest{
-		Items:             []int{2000},
+		Items:             model.IntItems(2000),
 		NewMaterialLength: 6000,
 	}); err != nil {
 		t.Fatalf("旧格式 materials/newMaterialLength 应兼容: %v", err)

@@ -123,7 +123,7 @@ func (s *AIOrchestrationService) Validate(definition string, userID uint) *Orche
 		return result
 	}
 	// 结构合法, 尝试完整编译捕获构建期错误
-	compiled, err := s.compile(context.Background(), userID, dsl)
+	compiled, err := s.compile(context.Background(), userID, dsl, nil)
 	if err != nil {
 		result.Valid = false
 		result.Errors = append(result.Errors, err.Error())
@@ -152,9 +152,46 @@ func orchCollectWarnings(dsl *OrchestrationDSL) []string {
 					}
 				}
 			}
+		case OrchNodeSubAgent:
+			var cfg OrchSubAgentConfig
+			if len(n.Config) > 0 && json.Unmarshal(n.Config, &cfg) != nil {
+				continue
+			}
+			// 委派说明是主 Agent 判断"何时该委派"的唯一依据: 为空时模型几乎不会主动调用该子Agent
+			if strings.TrimSpace(cfg.Description) == "" {
+				desc := ""
+				if cfg.AgentID > 0 {
+					var agent model.AIAgent
+					if err := DB.Select("description").First(&agent, cfg.AgentID).Error; err == nil {
+						desc = strings.TrimSpace(agent.Description)
+					}
+				}
+				if desc == "" {
+					warnings = append(warnings, fmt.Sprintf(
+						"子Agent 节点 %s 未填写「委派说明」(且被引用 Agent 的简介也为空), 主 Agent 只能凭节点名称判断是否委派, 很可能一直不调用它", n.ID))
+				}
+			}
 		}
 	}
 	return warnings
+}
+
+// orchNodeKeysOf 编排节点 key -> 显示名 (含子Agent 节点): 调试事件的归属表,
+// 必须在编译前拿到 (委派工具构建时需要事件通道)
+func orchNodeKeysOf(dsl *OrchestrationDSL) map[string]string {
+	keys := make(map[string]string, len(dsl.Nodes))
+	for i := range dsl.Nodes {
+		n := &dsl.Nodes[i]
+		if n.ID == "" {
+			continue
+		}
+		name := n.Name
+		if name == "" {
+			name = n.ID
+		}
+		keys[n.ID] = name
+	}
+	return keys
 }
 
 // validateDefinition 完整校验(结构+编译), 返回错误列表
@@ -163,19 +200,26 @@ func (s *AIOrchestrationService) validateDefinition(definition string) []string 
 	if len(errs) > 0 {
 		return errs
 	}
-	if _, err := s.compile(context.Background(), 0, dsl); err != nil {
+	if _, err := s.compile(context.Background(), 0, dsl, nil); err != nil {
 		return []string{err.Error()}
 	}
 	return nil
 }
 
-func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *OrchestrationDSL) (*compiledOrchestration, error) {
+func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *OrchestrationDSL, trace *orchTraceHandler) (*compiledOrchestration, error) {
 	deps := compilerDeps{
 		getModel:    s.agentService.GetToolCallingModel,
 		buildTool:   s.agentService.BuildToolByName,
 		sessionVars: func() map[string]any { return s.agentService.SessionTemplateVars(userID) },
+		lookupAgent: func(id uint) (*model.AIAgent, error) {
+			var agent model.AIAgent
+			if err := DB.First(&agent, id).Error; err != nil {
+				return nil, err
+			}
+			return &agent, nil
+		},
 	}
-	c := &orchestrationCompiler{dsl: dsl}
+	c := &orchestrationCompiler{dsl: dsl, trace: trace}
 	return c.compile(ctx, deps)
 }
 
@@ -244,6 +288,7 @@ func (s *AIOrchestrationService) Resources() (map[string]any, error) {
 			{"type": OrchNodeBranch, "label": "分支", "desc": "按条件路由到不同下游"},
 			{"type": OrchNodeMerge, "label": "合并", "desc": "汇聚多路上游输出"},
 			{"type": OrchNodeEnd, "label": "结束", "desc": "输出最终结果"},
+			{"type": OrchNodeSubAgent, "label": "子Agent", "desc": "挂载在主 Agent 下的委派子 Agent (主 Agent -> 子Agent 连线), 运行时由主 Agent 按需调用"},
 		},
 	}, nil
 }
@@ -291,7 +336,11 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 		return nil
 	}
 
-	compiled, err := s.compile(ctx, userID, dsl)
+	// 追踪 handler 必须在编译前建立: 委派工具在编译期构建并持有该实例,
+	// 事件出口 (emit) 等编译成功后再注入, 避免编译期事件写到已关闭的 SSE
+	handler := newOrchTraceHandler(orchNodeKeysOf(dsl), orchSubAgentKeysOf(dsl), nil)
+
+	compiled, err := s.compile(ctx, userID, dsl, handler)
 	if err != nil {
 		emit("error", map[string]any{"message": err.Error()})
 		emit("done", map[string]any{})
@@ -302,8 +351,8 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 		"mode":       compiled.mode,
 		"node_count": len(dsl.Nodes),
 	})
+	handler.setEmit(emit)
 
-	handler := newOrchTraceHandler(compiled.nodeKeys, emit)
 	runCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 

@@ -64,6 +64,24 @@ const agentOptions = computed(() => [
   ...(props.resources?.agents || []).map(a => ({ label: `#${a.id} ${a.title}`, value: a.id }))
 ]);
 
+// 委派说明决定主 Agent 何时调用该子Agent: 节点未填且被引用 Agent 也没简介时给出强提示
+const delegateDescMissing = computed(() => {
+  if (props.nodeType !== 'subagent') return false;
+  if (String(localConfig.value.description || '').trim()) return false;
+  const agentId = Number(localConfig.value.agent_id || 0);
+  if (!agentId) return true;
+  const referenced = (props.resources?.agents || []).find(a => a.id === agentId);
+  return !String(referenced?.description || '').trim() && !String(referenced?.title || '').trim();
+});
+
+// 当前 Agent 节点是否挂载了子Agent (经委派边进来), 用于提示"委派指引会自动注入提示词"
+const hasSubAgentIncoming = computed(() => {
+  if (props.nodeType !== 'agent') return false;
+  return (props.edges || []).some(
+    e => e.source === props.nodeId && props.allNodes.find(n => n.id === e.target)?.data?.nodeType === 'subagent'
+  );
+});
+
 const branchTypeOptions = [
   { label: '包含 (contains)', value: 'contains' },
   { label: '等于 (equals)', value: 'equals' },
@@ -94,6 +112,9 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
 
     <!-- Agent 节点 -->
     <template v-if="nodeType === 'agent'">
+      <div v-if="hasSubAgentIncoming" class="text-11px text-gray-400 mb-2 leading-5">
+        已挂载子 Agent: 它们的名称/职责会自动并入本节点的系统提示词(主管委派指引), 无需在此重复描述; 想让主 Agent 更主动委派, 可在下方提示词里写明分工。
+      </div>
       <NFormItem label="模型" label-placement="left" label-width="72" size="small">
         <NSelect v-model:value="localConfig.model" :options="modelOptions" size="small" />
       </NFormItem>
@@ -190,6 +211,9 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
           placeholder="子 Agent 的职责说明, 供主 Agent 判断何时委派 (如: 负责联网调研)"
         />
       </NFormItem>
+      <p v-if="delegateDescMissing" class="text-11px text-orange-500 leading-5 mb-2">
+        委派说明为空: 主 Agent 只能凭节点名称判断是否委派, 很可能一直不调用该子 Agent。建议填写(或给被引用 Agent 补上简介/描述)。
+      </p>
       <NFormItem label="工具" label-placement="left" label-width="72" size="small">
         <NSelect
           v-model:value="localConfig.tools"

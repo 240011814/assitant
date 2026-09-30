@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -119,18 +121,24 @@ type compilerDeps struct {
 	buildTool func(name string) (tool.BaseTool, error)
 	// sessionVars 供模板/系统提示词渲染 (current_time / user_id / user_profile)
 	sessionVars func() map[string]any
+	// lookupAgent 读取子Agent 引用的已配置 Agent; 缺省时回退查库 (便于单测替换)
+	lookupAgent func(id uint) (*coremodel.AIAgent, error)
 }
 
 type orchestrationCompiler struct {
 	deps compilerDeps
 	dsl  *OrchestrationDSL
+	// trace 调试运行的事件通道: 编译期把它注入委派工具, 让子Agent 的委派过程
+	// 也能进入调试摘要 (普通校验/生产编译为 nil)
+	trace *orchTraceHandler
 
-	adj      map[string][]string // source -> targets (全部连线, 含子Agent 委派边)
-	flowAdj  map[string][]string // source -> targets (仅主流连线, 不含子Agent)
-	inDeg    map[string]int
-	outDeg   map[string]int
-	nodeMap  map[string]*OrchestrationNode
-	topo     []string
+	adj     map[string][]string // source -> targets (全部连线, 含子Agent 委派边)
+	flowAdj map[string][]string // source -> targets (仅主流连线, 不含子Agent)
+	flowIn  map[string]int      // target -> 主流入度 (不含子Agent 委派边)
+	inDeg   map[string]int
+	outDeg  map[string]int
+	nodeMap map[string]*OrchestrationNode
+	topo    []string
 }
 
 func parseOrchestrationDSL(definition string) (*OrchestrationDSL, error) {
@@ -162,6 +170,31 @@ func validateOrchestrationDSL(definition string) (*OrchestrationDSL, []string) {
 
 func (c *orchestrationCompiler) nodeByID(id string) *OrchestrationNode {
 	return c.nodeMap[id]
+}
+
+// flowInOf / flowOutOf 主流入度/出度: 不含子Agent 委派边与子Agent 节点自身
+// (子Agent 只是主 Agent 的委派挂载, 不参与主流程的入口/出口判定)
+func (c *orchestrationCompiler) flowInOf(id string) int {
+	return c.flowIn[id]
+}
+
+func (c *orchestrationCompiler) flowOutOf(id string) int {
+	return len(c.flowAdj[id])
+}
+
+// lookupAgent 读取子Agent 引用的已有 Agent (deps 未注入时回退查库)
+func (c *orchestrationCompiler) lookupAgent(id uint) (*coremodel.AIAgent, error) {
+	if c.deps.lookupAgent != nil {
+		return c.deps.lookupAgent(id)
+	}
+	if DB == nil {
+		return nil, errors.New("数据库未初始化")
+	}
+	var agent coremodel.AIAgent
+	if err := DB.First(&agent, id).Error; err != nil {
+		return nil, err
+	}
+	return &agent, nil
 }
 
 func (c *orchestrationCompiler) validate() []string {
@@ -240,14 +273,19 @@ func (c *orchestrationCompiler) validate() []string {
 		flowNodeCount++
 	}
 	c.flowAdj = make(map[string][]string)
-	flowIn := make(map[string]int)
+	c.flowIn = make(map[string]int)
 	for src, ts := range c.adj {
+		// 子Agent 节点及其委派边完全脱离主流: 既不计入也不传递 (子Agent 无出边,
+		// 但违规出边时不能让它把下游节点带进拓扑, 否则报错信息会变成"成环")
+		if isSub[src] {
+			continue
+		}
 		for _, t := range ts {
 			if isSub[t] {
 				continue
 			}
 			c.flowAdj[src] = append(c.flowAdj[src], t)
-			flowIn[t]++
+			c.flowIn[t]++
 		}
 	}
 	c.topo = make([]string, 0, flowNodeCount)
@@ -256,7 +294,7 @@ func (c *orchestrationCompiler) validate() []string {
 		if isSub[id] {
 			continue
 		}
-		deg[id] = flowIn[id]
+		deg[id] = c.flowIn[id]
 	}
 	queue := make([]string, 0, len(deg))
 	for id, d := range deg {
@@ -264,6 +302,9 @@ func (c *orchestrationCompiler) validate() []string {
 			queue = append(queue, id)
 		}
 	}
+	// Kahn 的初始队列来自 map 迭代, 排序后拓扑序才稳定 (编译期构建顺序影响
+	// 委派工具命名与调试事件的先后, 不能随机)
+	sort.Strings(queue)
 	for len(queue) > 0 {
 		id := queue[0]
 		queue = queue[1:]
@@ -304,7 +345,7 @@ func (c *orchestrationCompiler) validate() []string {
 	inputCount, outputCount := 0, 0
 	for _, id := range c.topo {
 		n := c.nodeByID(id)
-		inDeg, outDeg := flowIn[id], len(c.flowAdj[id])
+		inDeg, outDeg := c.flowInOf(id), c.flowOutOf(id)
 		switch n.Type {
 		case OrchNodeMerge:
 			if inDeg < 2 {
@@ -479,6 +520,9 @@ type compiledOrchestration struct {
 	mode     string // chain / graph / workflow
 	// nodeKeys 参与归属的顶层节点 key -> 显示名 (不含 react 内部子节点)
 	nodeKeys map[string]string
+	// trace 本次编译注入的调试追踪 handler (委派工具持有同一实例,
+	// 因此运行前 setEmit 即可把子Agent 的委派事件推送到 SSE)
+	trace *orchTraceHandler
 }
 
 func (c *orchestrationCompiler) compile(ctx context.Context, deps compilerDeps) (*compiledOrchestration, error) {
@@ -510,6 +554,29 @@ func (c *orchestrationCompiler) compile(ctx context.Context, deps compilerDeps) 
 		lambdas[id] = lambda
 	}
 
+	// 子Agent 节点不参与主流, 但需要在调试摘要里出现 (委派事件由委派工具推送),
+	// 因此把它们的 key/名称一并登记
+	for id, n := range c.nodeMap {
+		if n.Type == OrchNodeSubAgent {
+			nodeKeys[id] = n.Name
+		}
+	}
+
+	// 编译摘要日志: 一眼看出每个 Agent 挂了几个委派子Agent、系统提示词里是否含委派指引
+	for _, id := range c.topo {
+		n := c.nodeByID(id)
+		if n.Type != OrchNodeAgent {
+			continue
+		}
+		var cfg OrchAgentConfig
+		if len(n.Config) > 0 {
+			_ = json.Unmarshal(n.Config, &cfg)
+		}
+		subs := c.subAgentIDsOf(id)
+		orchLog("compile mode=%s node=%s tools=%v subagents=%v max_step=%d",
+			c.modeName(hasBranch, hasMerge), id, cfg.Tools, subs, maxStepOf(cfg))
+	}
+
 	switch {
 	case hasMerge:
 		return c.compileWorkflow(lambdas, nodeKeys)
@@ -529,7 +596,7 @@ func (c *orchestrationCompiler) compileChain(lambdas map[string]*compose.Lambda,
 	if err != nil {
 		return nil, fmt.Errorf("Chain 编译失败: %w", err)
 	}
-	return &compiledOrchestration{runnable: runnable, mode: "chain", nodeKeys: nodeKeys}, nil
+	return &compiledOrchestration{runnable: runnable, mode: "chain", nodeKeys: nodeKeys, trace: c.trace}, nil
 }
 
 func (c *orchestrationCompiler) compileGraph(ctx context.Context, lambdas map[string]*compose.Lambda, nodeKeys map[string]string) (*compiledOrchestration, error) {
@@ -593,7 +660,7 @@ func (c *orchestrationCompiler) compileGraph(ctx context.Context, lambdas map[st
 	if err != nil {
 		return nil, fmt.Errorf("Graph 编译失败: %w", err)
 	}
-	return &compiledOrchestration{runnable: runnable, mode: "graph", nodeKeys: nodeKeys}, nil
+	return &compiledOrchestration{runnable: runnable, mode: "graph", nodeKeys: nodeKeys, trace: c.trace}, nil
 }
 
 func (c *orchestrationCompiler) compileWorkflow(lambdas map[string]*compose.Lambda, nodeKeys map[string]string) (*compiledOrchestration, error) {
@@ -631,7 +698,7 @@ func (c *orchestrationCompiler) compileWorkflow(lambdas map[string]*compose.Lamb
 	if err != nil {
 		return nil, fmt.Errorf("Workflow 编译失败: %w", err)
 	}
-	return &compiledOrchestration{runnable: runnable, mode: "workflow", nodeKeys: nodeKeys}, nil
+	return &compiledOrchestration{runnable: runnable, mode: "workflow", nodeKeys: nodeKeys, trace: c.trace}, nil
 }
 
 func orchBranchMatch(cs OrchBranchCase, content string) bool {
@@ -646,6 +713,131 @@ func orchBranchMatch(cs OrchBranchCase, content string) bool {
 		return re.MatchString(content)
 	default: // contains
 		return strings.Contains(content, cs.Value)
+	}
+}
+
+// orchDelegationGuide 生成主 Agent 系统提示词里的"子Agent 委派"章节。
+// 委派工具只在工具表里出现 (描述为空时更是只看到工具名), 模型往往压根不调用;
+// 把子Agent 及其职责显式写进系统提示词是主管模式的必要一环。
+// nameOf/titleOf/descOf 按节点 id 取显示名、被引用 Agent 标题与职责说明。
+func orchDelegationGuide(subIDs []string, nameOf, titleOf, descOf func(string) string) string {
+	if len(subIDs) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\n【子Agent 委派】\n你可以把子任务委派给以下子Agent, 由它们独立完成后把结果交回给你。")
+	sb.WriteString("当任务属于某个子Agent 的职责(或用户明确点名该角色)时, 先用对应的子Agent 完成该部分, 再基于返回结果作答; 不需要时不要调用。\n")
+	for i, id := range subIDs {
+		name := strings.TrimSpace(nameOf(id))
+		title := strings.TrimSpace(titleOf(id))
+		// 节点名多为默认的「子Agent」, 用被引用 Agent 的标题补足可辨识度
+		if title != "" && title != name {
+			name = fmt.Sprintf("%s(%s)", name, title)
+		}
+		if name == "" {
+			name = id
+		}
+		desc := strings.TrimSpace(descOf(id))
+		if desc == "" {
+			desc = "职责见其名称与系统提示词"
+		}
+		sb.WriteString(fmt.Sprintf("- 子Agent「%s」: %s (在本轮直接调用工具 subagent_%d, 参数 task 写清要它完成的具体任务; 不要只说已委派却没有调用工具)\n",
+			name, desc, i+1))
+	}
+	return sb.String()
+}
+
+// orchSubAgentDesc 解析子Agent 节点用于提示词的职责说明:
+// 优先节点「委派说明」, 其次被引用 Agent 的简介; 都为空时回退被引用 Agent 标题或节点 id。
+// 同名子Agent 靠它区分, 否则三个都叫「子Agent」时模型无法选择。
+func (c *orchestrationCompiler) orchSubAgentDesc(id string) string {
+	n := c.nodeByID(id)
+	if n == nil {
+		return ""
+	}
+	var cfg OrchSubAgentConfig
+	if len(n.Config) > 0 {
+		_ = json.Unmarshal(n.Config, &cfg)
+	}
+	desc := strings.TrimSpace(cfg.Description)
+	if cfg.AgentID > 0 {
+		if agent, err := c.lookupAgent(uint(cfg.AgentID)); err == nil {
+			if desc == "" {
+				desc = strings.TrimSpace(agent.Description)
+			}
+			if desc == "" {
+				desc = strings.TrimSpace(agent.Title)
+			}
+		}
+	}
+	if desc == "" {
+		if name := strings.TrimSpace(n.Name); name != "" && name != n.ID {
+			desc = name
+		} else {
+			desc = n.ID
+		}
+	}
+	return desc
+}
+
+// orchSubAgentTitle 被引用 Agent 的标题 (子Agent 节点名常是默认的「子Agent」, 需要它来区分)
+func (c *orchestrationCompiler) orchSubAgentTitle(id string) string {
+	n := c.nodeByID(id)
+	if n == nil {
+		return ""
+	}
+	var cfg OrchSubAgentConfig
+	if len(n.Config) > 0 {
+		_ = json.Unmarshal(n.Config, &cfg)
+	}
+	if cfg.AgentID == 0 {
+		return ""
+	}
+	agent, err := c.lookupAgent(uint(cfg.AgentID))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(agent.Title)
+}
+
+// orchSubAgentName 子Agent 节点显示名 (提示词里用)
+func (c *orchestrationCompiler) orchSubAgentName(id string) string {
+	if n := c.nodeByID(id); n != nil {
+		if name := strings.TrimSpace(n.Name); name != "" {
+			return name
+		}
+	}
+	return id
+}
+
+// orchSubAgentKeysOf 返回子Agent 节点 id 集合: 调试事件的归属要用它区分
+// "子Agent 内部事件(归子Agent)" 与 "委派工具事件(归主 Agent)"
+func orchSubAgentKeysOf(dsl *OrchestrationDSL) map[string]bool {
+	keys := make(map[string]bool)
+	for i := range dsl.Nodes {
+		if dsl.Nodes[i].Type == OrchNodeSubAgent && dsl.Nodes[i].ID != "" {
+			keys[dsl.Nodes[i].ID] = true
+		}
+	}
+	return keys
+}
+
+func maxStepOf(cfg OrchAgentConfig) int {
+	if cfg.MaxIterations > 0 {
+		return cfg.MaxIterations
+	}
+	return 25
+}
+
+// modeName 编译形态名 (日志用)
+func (c *orchestrationCompiler) modeName(hasBranch, hasMerge bool) string {
+	switch {
+	case hasMerge:
+		return "workflow"
+	case hasBranch:
+		return "graph"
+	default:
+		return "chain"
 	}
 }
 
@@ -676,7 +868,7 @@ func orchPassthroughLambda() *compose.Lambda {
 	return lambda
 }
 
-// subAgentIDsOf 返回挂载在主 Agent 下的子Agent 节点 id (按名称排序, 保证委派工具命名稳定)
+// subAgentIDsOf 返回挂载在主 Agent 下的子Agent 节点 id (按名称+id 排序, 保证委派工具命名稳定)
 func (c *orchestrationCompiler) subAgentIDsOf(parentID string) []string {
 	var ids []string
 	for _, t := range c.adj[parentID] {
@@ -684,10 +876,39 @@ func (c *orchestrationCompiler) subAgentIDsOf(parentID string) []string {
 			ids = append(ids, t)
 		}
 	}
+	// 同名节点必须再用 id 兜底: sort.Slice 不稳定, 只比名称会让同名子Agent 顺序随机
 	sort.Slice(ids, func(i, j int) bool {
-		return c.nodeByID(ids[i]).Name < c.nodeByID(ids[j]).Name
+		ni, nj := c.nodeByID(ids[i]), c.nodeByID(ids[j])
+		if ni.Name != nj.Name {
+			return ni.Name < nj.Name
+		}
+		return ids[i] < ids[j]
 	})
 	return ids
+}
+
+// orchStreamToolCallCheckerHook 供单测替换 (置 nil 可复现 eino 默认 checker 的漏判行为)
+var orchStreamToolCallCheckerHook = orchStreamToolCallChecker
+
+// orchStreamToolCallChecker 判断流式输出里是否包含工具调用。
+// eino 默认的 firstChunkStreamToolCallChecker 只看第一个分片: 第一块是文本就直接判定
+// "没有工具调用", 而 GLM/Claude 这类模型是"先输出开场白文本, 再给 tool_calls",
+// 结果委派工具永远不被执行, ReAct 一轮就结束 (线上症状: 子Agent 从不触发, 只回一句开场白)。
+// 这里扫描完整流: 任一分片带 ToolCalls 即认为要调工具。
+func orchStreamToolCallChecker(_ context.Context, sr *schema.StreamReader[*schema.Message]) (bool, error) {
+	defer sr.Close()
+	for {
+		msg, err := sr.Recv()
+		if errors.Is(err, io.EOF) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if msg != nil && len(msg.ToolCalls) > 0 {
+			return true, nil
+		}
+	}
 }
 
 // orchNewReactAgent 主 Agent 与子Agent 共用的 ReAct 构建入口
@@ -697,6 +918,8 @@ func orchNewReactAgent(ctx context.Context, key, systemPrompt string, chatModel 
 		ToolsConfig: compose.ToolsNodeConfig{
 			Tools: tools,
 		},
+		// 必须自定义: 默认实现只看首个分片, 对"先文本后 tool_calls"的模型会漏掉工具调用
+		StreamToolCallChecker: orchStreamToolCallCheckerHook,
 		MessageModifier: func(_ context.Context, input []*schema.Message) []*schema.Message {
 			msgs := orchNormalizeModelInput(input)
 			if systemPrompt == "" {
@@ -713,13 +936,15 @@ func orchNewReactAgent(ctx context.Context, key, systemPrompt string, chatModel 
 }
 
 // buildSubReactAgent 构建子Agent 执行体: 引用已有 AI Agent 或内联提示词
-func (c *orchestrationCompiler) buildSubReactAgent(ctx context.Context, id string, cfg OrchSubAgentConfig) (*react.Agent, error) {
+// parentID 是委派它的主 Agent 节点 id (进度事件的 owner)
+func (c *orchestrationCompiler) buildSubReactAgent(ctx context.Context, id, parentID string, cfg OrchSubAgentConfig) (*react.Agent, error) {
 	instruction := strings.TrimSpace(cfg.SystemPrompt)
 	desc := strings.TrimSpace(cfg.Description)
 	if cfg.AgentID > 0 {
-		var dbAgent coremodel.AIAgent
-		if err := DB.First(&dbAgent, cfg.AgentID).Error; err != nil {
-			return nil, fmt.Errorf("子Agent 节点 %s 引用的 Agent %d 不存在", id, cfg.AgentID)
+		// 经 lookupAgent 取被引用 Agent (不直接用全局 DB, 便于单测替换与失败定位)
+		dbAgent, err := c.lookupAgent(uint(cfg.AgentID))
+		if err != nil {
+			return nil, fmt.Errorf("子Agent 节点 %s 引用的 Agent %d 读取失败: %w", id, cfg.AgentID, err)
 		}
 		instruction = dbAgent.SystemPrompt
 		if desc == "" {
@@ -737,6 +962,8 @@ func (c *orchestrationCompiler) buildSubReactAgent(ctx context.Context, id strin
 	if err != nil {
 		return nil, fmt.Errorf("子Agent 节点 %s 获取模型失败: %w", id, err)
 	}
+	// 进度心跳: 子Agent 执行期间(实测可达 60s+)持续向前端推事件, 避免界面像卡死
+	chatModel = newOrchSubAgentProgress(id, c.orchSubAgentName(id), parentID, c.trace, chatModel)
 	subTools := make([]tool.BaseTool, 0, len(cfg.Tools))
 	for _, name := range cfg.Tools {
 		t, err := c.deps.buildTool(name)
@@ -755,14 +982,92 @@ func (c *orchestrationCompiler) buildSubReactAgent(ctx context.Context, id strin
 // orchDelegateTool 把子Agent 包装成主 Agent 可调用的委派工具:
 // 主 Agent 以 {"task": "..."} 传任务, 子Agent 独立 ReAct 执行后返回文本结果
 type orchDelegateTool struct {
-	name    string
-	subName string
-	desc    string
-	agent   *react.Agent
+	name     string
+	subID    string // 子Agent 节点 id, 用于调试事件归属
+	subName  string
+	desc     string
+	parentID string // 挂载它的主 Agent 节点 id (调试摘要里的 owner)
+	agent    *react.Agent
+	trace    *orchTraceHandler // 调试追踪 handler (非调试运行时为 nil)
 }
 
-func newOrchDelegateTool(name, subName, desc string, agent *react.Agent) *orchDelegateTool {
-	return &orchDelegateTool{name: name, subName: subName, desc: desc, agent: agent}
+func newOrchDelegateTool(name, subID, subName, parentID, desc string, agent *react.Agent, trace *orchTraceHandler) *orchDelegateTool {
+	return &orchDelegateTool{name: name, subID: subID, subName: subName, parentID: parentID, desc: desc, agent: agent, trace: trace}
+}
+
+// orchSubAgentProgress 子Agent 的进度通道: 子Agent 的 ReAct 内部事件现在能正确归属,
+// 但模型调用是同步 Generate (几十秒无任何分片), 所以这里额外推"心跳"事件,
+// 前端在被委派期间能看到子Agent 节点正在运行 + 心跳耗时, 不会误以为卡死。
+type orchSubAgentProgress struct {
+	subID   string
+	subName string
+	owner   string
+	trace   *orchTraceHandler
+	model   model.ToolCallingChatModel
+}
+
+func newOrchSubAgentProgress(subID, subName, owner string, trace *orchTraceHandler, inner model.ToolCallingChatModel) *orchSubAgentProgress {
+	return &orchSubAgentProgress{subID: subID, subName: subName, owner: owner, trace: trace, model: inner}
+}
+
+func (p *orchSubAgentProgress) emit(status string, extra map[string]any) {
+	if p.trace == nil {
+		return
+	}
+	payload := map[string]any{
+		"kind": "node", "key": p.subID, "name": p.subName, "comp": "DelegateTool",
+		"owner": p.owner, "delegated": true, "status": status,
+	}
+	for k, v := range extra {
+		payload[k] = v
+	}
+	p.trace.emitNodeEvent(payload)
+}
+
+// startHeartbeat 执行期间按固定间隔推 status=running 的心跳 (前端可显示已运行秒数)
+func (p *orchSubAgentProgress) startHeartbeat(ctx context.Context) func() {
+	if p.trace == nil {
+		return func() {}
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		start := time.Now()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				elapsed := time.Since(start).Milliseconds()
+				orchLog("delegate heartbeat subagent=%s elapsed=%dms", p.subID, elapsed)
+				p.emit("running", map[string]any{"ms": elapsed})
+			}
+		}
+	}()
+	return cancel
+}
+
+func (p *orchSubAgentProgress) Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+	stop := p.startHeartbeat(ctx)
+	defer stop()
+	msg, err := p.model.Generate(ctx, in, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return msg, nil
+}
+
+func (p *orchSubAgentProgress) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	return p.model.Stream(ctx, in, opts...)
+}
+
+func (p *orchSubAgentProgress) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	inner, err := p.model.WithTools(tools)
+	if err != nil {
+		return nil, err
+	}
+	return &orchSubAgentProgress{subID: p.subID, subName: p.subName, owner: p.owner, trace: p.trace, model: inner}, nil
 }
 
 func (t *orchDelegateTool) Info(_ context.Context) (*schema.ToolInfo, error) {
@@ -783,11 +1088,40 @@ func (t *orchDelegateTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	if json.Unmarshal([]byte(task), &args) == nil && strings.TrimSpace(args.Task) != "" {
 		task = strings.TrimSpace(args.Task)
 	}
-	msg, err := t.agent.Generate(ctx, []*schema.Message{schema.UserMessage(task)})
+	orchLog("delegate start tool=%s subagent=%s(%s) task=%.80q", t.name, t.subID, t.subName, task)
+	defer func() { orchLog("delegate end tool=%s subagent=%s", t.name, t.subID) }()
+	// 调试事件: 子Agent 节点本身不参与主流, 没有自己的 compose 节点 span,
+	// 由委派工具在上游 Agent 的 span 内推送 "已委派 + 任务内容"
+	t.emitEvent(map[string]any{
+		"kind": "node", "key": t.subID, "name": t.subName, "comp": "DelegateTool",
+		"owner": t.parentID, "status": "running", "delegated": true, "task": task,
+	})
+	runCtx := ctx
+	t.emitEvent(map[string]any{
+		"kind": "node", "key": t.subID, "name": t.subName, "comp": "DelegateTool",
+		"owner": t.parentID, "status": "running", "delegated": true, "task": task,
+	})
+	msg, err := t.agent.Generate(runCtx, []*schema.Message{schema.UserMessage(task)})
 	if err != nil {
+		t.emitEvent(map[string]any{
+			"kind": "node", "key": t.subID, "name": t.subName, "comp": "DelegateTool",
+			"owner": t.parentID, "status": "error", "delegated": true, "error": err.Error(),
+		})
 		return "", fmt.Errorf("子Agent「%s」执行失败: %w", t.subName, err)
 	}
+	t.emitEvent(map[string]any{
+		"kind": "node", "key": t.subID, "name": t.subName, "comp": "DelegateTool",
+		"owner": t.parentID, "status": "success", "delegated": true, "content": msg.Content,
+	})
 	return msg.Content, nil
+}
+
+// emitEvent 把委派过程并入调试事件流 (emit 由运行期注入, 未注入时只更新摘要表)
+func (t *orchDelegateTool) emitEvent(payload map[string]any) {
+	if t.trace == nil {
+		return
+	}
+	t.trace.emitNodeEvent(payload)
 }
 
 func (c *orchestrationCompiler) buildAgentLambda(ctx context.Context, n *OrchestrationNode) (*compose.Lambda, error) {
@@ -809,6 +1143,28 @@ func (c *orchestrationCompiler) buildAgentLambda(ctx context.Context, n *Orchest
 		}
 		agentTools = append(agentTools, t)
 	}
+	// 挂在主 Agent 下的子Agent 编译为委派工具: 主 Agent 的 ReAct 循环按需调用,
+	// 工具名按节点名称排序后的序号生成 (subagent_1, subagent_2 ...), 编译期稳定
+	subIDs := c.subAgentIDsOf(n.ID)
+	for i, subID := range subIDs {
+		subNode := c.nodeByID(subID)
+		var subCfg OrchSubAgentConfig
+		if len(subNode.Config) > 0 {
+			if err := json.Unmarshal(subNode.Config, &subCfg); err != nil {
+				return nil, fmt.Errorf("子Agent 节点 %s 配置解析失败: %w", subID, err)
+			}
+		}
+		subAgent, err := c.buildSubReactAgent(ctx, subID, n.ID, subCfg)
+		if err != nil {
+			return nil, err
+		}
+		toolName := fmt.Sprintf("subagent_%d", i+1)
+		desc := strings.TrimSpace(subCfg.Description)
+		if desc == "" {
+			desc = c.orchSubAgentDesc(subID)
+		}
+		agentTools = append(agentTools, newOrchDelegateTool(toolName, subID, subNode.Name, n.ID, desc, subAgent, c.trace))
+	}
 
 	vars := c.deps.sessionVars()
 	systemPrompt := cfg.SystemPrompt
@@ -818,16 +1174,19 @@ func (c *orchestrationCompiler) buildAgentLambda(ctx context.Context, n *Orchest
 			return nil, fmt.Errorf("Agent 节点 %s 系统提示词渲染失败: %w", n.ID, err)
 		}
 	}
-	maxStep := cfg.MaxIterations
-	if maxStep <= 0 {
-		maxStep = 25
+	// 主管模式: 把挂载的子Agent 及其职责写进系统提示词, 否则模型常常完全不去委派
+	if len(subIDs) > 0 {
+		systemPrompt += orchDelegationGuide(subIDs, c.orchSubAgentName, c.orchSubAgentTitle, c.orchSubAgentDesc)
 	}
+	maxStep := maxStepOf(cfg)
 
 	agent, err := react.NewAgent(ctx, &react.AgentConfig{
 		ToolCallingModel: chatModel,
 		ToolsConfig: compose.ToolsNodeConfig{
 			Tools: agentTools,
 		},
+		// 与子Agent 一致: 默认 checker 只看首个分片, 会漏掉"先文本后 tool_calls"的模型
+		StreamToolCallChecker: orchStreamToolCallCheckerHook,
 		MessageModifier: func(_ context.Context, input []*schema.Message) []*schema.Message {
 			msgs := orchNormalizeModelInput(input)
 			if systemPrompt == "" {
@@ -1064,6 +1423,12 @@ type OrchNodeTrace struct {
 	// ToolCalls agent 节点内部的工具调用记录
 	ToolCalls []OrchToolTrace `json:"tool_calls,omitempty"`
 	Error     string          `json:"error,omitempty"`
+	// Delegated 子Agent 节点是否被主 Agent 委派过 (仅子Agent 节点有意义)
+	Delegated bool `json:"delegated,omitempty"`
+	// Owner 子Agent 节点所属的主 Agent 节点 key
+	Owner string `json:"owner,omitempty"`
+	// Task 主 Agent 委派给子Agent 的任务原文
+	Task string `json:"task,omitempty"`
 }
 
 // orchSpanKey ctx key, 携带当前 goroutine 的回调调用栈
@@ -1083,6 +1448,9 @@ type orchSpan struct {
 // 顶层节点事件记入摘要表, 内部事件(model/tools/tool)归属到所在编排节点
 type orchTraceHandler struct {
 	nodeKeys map[string]string
+	// subNodes 子Agent 节点 id 集合: 子Agent 内部事件归它自己 (而不是外层主 Agent),
+	// 这样前端在被委派期间就能看到该节点在运行、以及它自己的耗时/用量
+	subNodes map[string]bool
 	owners   map[string]*OrchNodeTrace
 	order    []string
 	mu       sync.Mutex
@@ -1090,13 +1458,55 @@ type orchTraceHandler struct {
 	started  time.Time
 }
 
-func newOrchTraceHandler(nodeKeys map[string]string, emit func(event string, payload any)) *orchTraceHandler {
+// orchLog 编排调试日志: 设 ORCH_LOG=1 (或 ORCH_DEBUG=1) 后打到 stderr,
+// ORCH_LOG_FILE 可同时落文件; 用于排查"事件推了/没推、归属对不对"
+func orchLog(format string, args ...any) {
+	if os.Getenv("ORCH_LOG") == "" && os.Getenv("ORCH_DEBUG") == "" {
+		return
+	}
+	line := fmt.Sprintf("[orch] "+format, args...)
+	fmt.Fprintln(os.Stderr, line)
+	if path := os.Getenv("ORCH_LOG_FILE"); path != "" {
+		if f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+			fmt.Fprintln(f, line)
+			_ = f.Close()
+		}
+	}
+}
+
+// orchDebugTrace 打出每条事件的归属判定, 便于确认 owner 是否正确
+func orchDebugTrace(event string, payload map[string]any) {
+	if os.Getenv("ORCH_LOG") == "" && os.Getenv("ORCH_DEBUG") == "" {
+		return
+	}
+	orchLog("event=%s kind=%v key=%v owner=%v comp=%v status=%v task=%.40q content_len=%d",
+		event, payload["kind"], payload["key"], payload["owner"], payload["comp"],
+		payload["status"], toStr(payload["task"]), len(toStr(payload["content"])))
+}
+
+func toStr(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+func newOrchTraceHandler(nodeKeys map[string]string, subNodes map[string]bool, emit func(event string, payload any)) *orchTraceHandler {
+	if subNodes == nil {
+		subNodes = map[string]bool{}
+	}
 	return &orchTraceHandler{
 		nodeKeys: nodeKeys,
+		subNodes: subNodes,
 		owners:   make(map[string]*OrchNodeTrace),
 		emit:     emit,
 		started:  time.Now(),
 	}
+}
+
+// setEmit 运行前注入事件出口 (编译期先建 handler 以注入委派工具, emit 在编译成功后才有意义)
+func (h *orchTraceHandler) setEmit(emit func(event string, payload any)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.emit = emit
 }
 
 func (h *orchTraceHandler) Needed(_ context.Context, _ *callbacks.RunInfo, timing callbacks.CallbackTiming) bool {
@@ -1135,11 +1545,20 @@ func pushSpan(ctx context.Context, span *orchSpan) context.Context {
 	return context.WithValue(ctx, orchSpanKey{}, append(append([]*orchSpan{}, stack...), span))
 }
 
-// ownerKeyFor 解析 span 归属的编排节点: 自身是顶层节点则用自身,
-// 否则取剩余栈中最近的顶层节点 (react 内部子节点/工具调用都归属所在 Agent 节点)
-func ownerKeyFor(span *orchSpan, rest []*orchSpan, nodeKeys map[string]string) string {
+// ownerKeyFor 解析 span 归属的编排节点:
+//  1. 自身是顶层节点 -> 自身 (子Agent 的 <id>.react span 归子Agent 自己)
+//  2. 自身是子Agent 的 react 内部节点 (如 <subID>.model) -> 该子Agent 节点
+//  3. 否则取剩余栈中最近的顶层节点 (react 内部子节点/工具调用归所在 Agent 节点);
+//     但子Agent 的委派工具 span (subagent_N) 要归委派它的主 Agent, 不能被子Agent 抢走
+func ownerKeyFor(span *orchSpan, rest []*orchSpan, nodeKeys map[string]string, subNodes map[string]bool) string {
 	if _, ok := nodeKeys[span.key]; ok {
 		return span.key
+	}
+	// 子Agent 的 react/model/tools 子节点名形如 "<subID>.model"
+	if i := strings.LastIndex(span.key, "."); i > 0 {
+		if prefix := span.key[:i]; subNodes[prefix] {
+			return prefix
+		}
 	}
 	for i := len(rest) - 1; i >= 0; i-- {
 		if _, ok := nodeKeys[rest[i].key]; ok {
@@ -1156,7 +1575,7 @@ func (h *orchTraceHandler) OnStart(ctx context.Context, info *callbacks.RunInfo,
 	span := &orchSpan{key: info.Name, comp: string(info.Component), start: time.Now()}
 	nextCtx := pushSpan(ctx, span)
 	_, isTop := h.nodeKeys[info.Name]
-	ownerKey := ownerKeyFor(span, stackOf(nextCtx), h.nodeKeys)
+	ownerKey := ownerKeyFor(span, stackOf(nextCtx), h.nodeKeys, h.subNodes)
 	payload := map[string]any{
 		"kind": "start", "key": info.Name, "comp": string(info.Component),
 		"owner": ownerKey,
@@ -1246,7 +1665,7 @@ func (h *orchTraceHandler) OnError(ctx context.Context, info *callbacks.RunInfo,
 
 func (h *orchTraceHandler) finishSpan(span *orchSpan, rest []*orchSpan, mo *model.CallbackOutput, rawMsg *schema.Message, errMsg string) {
 	ms := time.Since(span.start).Milliseconds()
-	ownerKey := ownerKeyFor(span, rest, h.nodeKeys)
+	ownerKey := ownerKeyFor(span, rest, h.nodeKeys, h.subNodes)
 	if ownerKey == "" {
 		return
 	}
@@ -1270,6 +1689,7 @@ func (h *orchTraceHandler) finishSpan(span *orchSpan, rest []*orchSpan, mo *mode
 	payload := map[string]any{
 		"kind": "end", "key": span.key, "comp": span.comp, "ms": ms, "owner": ownerKey,
 	}
+	orchDebugTrace("span-end", payload)
 	switch {
 	case span.comp == "Tool":
 		payload["tool"] = span.key
@@ -1312,6 +1732,54 @@ func (h *orchTraceHandler) NodeTraces() []*OrchNodeTrace {
 		out = append(out, h.owners[key])
 	}
 	return out
+}
+
+// ---------- 调试事件通道: 委派工具把子Agent 事件回推到本次运行的追踪 handler ----------
+
+// emitNodeEvent 推送一条自定义 node 事件并记入摘要 (emit 未注入时静默跳过 SSE)
+func (h *orchTraceHandler) emitNodeEvent(payload map[string]any) {
+	orchDebugTrace("custom", payload)
+	// 推送与摘要更新读取同一份 payload, 持同一把锁串行化
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.emit != nil {
+		h.emit("node", payload)
+	}
+	h.recordDelegateLocked(payload)
+}
+
+// recordDelegateLocked 把委派事件并入子Agent 节点的调试摘要
+// (子Agent 不是 compose 节点, 其摘要只能由委派工具按事件填充); 调用方需持 h.mu
+func (h *orchTraceHandler) recordDelegateLocked(payload map[string]any) {
+	key, _ := payload["key"].(string)
+	if key == "" {
+		return
+	}
+	name, _ := payload["name"].(string)
+	owner, _ := payload["owner"].(string)
+	status, _ := payload["status"].(string)
+	t, ok := h.owners[key]
+	if !ok {
+		t = &OrchNodeTrace{Key: key, Name: name, Comp: "DelegateTool"}
+		h.owners[key] = t
+		h.order = append(h.order, key)
+	}
+	t.Delegated = true
+	if owner != "" {
+		t.Owner = owner
+	}
+	if content, _ := payload["content"].(string); content != "" {
+		t.Content = content
+	}
+	if errMsg, _ := payload["error"].(string); errMsg != "" {
+		t.Error = errMsg
+	}
+	if task, _ := payload["task"].(string); task != "" {
+		t.Task = task
+	}
+	if status != "" {
+		t.Status = status
+	}
 }
 
 // orchSpanContent 按框架拼接语义合并分片消息

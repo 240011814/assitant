@@ -6,7 +6,7 @@ import { request as requestInstance } from '../request';
 /** 编排 DSL 节点 */
 export interface OrchNode {
   id: string;
-  type: 'agent' | 'tool' | 'template' | 'branch' | 'merge' | 'end';
+  type: 'agent' | 'tool' | 'template' | 'branch' | 'merge' | 'end' | 'subagent';
   name: string;
   config: Record<string, any>;
   position?: { x: number; y: number };

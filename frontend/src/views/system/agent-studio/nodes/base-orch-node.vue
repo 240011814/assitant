@@ -12,6 +12,10 @@ const props = defineProps<{
   name?: string;
   selected?: boolean;
   status?: 'running' | 'success' | 'error' | null;
+  /** hideSource 隐藏右侧出线桩 (子Agent 只能被委派, 不能向外连线) */
+  hideSource?: boolean;
+  /** delegated 本次调试运行中该节点已被委派 (子Agent 节点用) */
+  delegated?: boolean;
 }>();
 
 const meta = computed(() => NODE_META[props.type]);
@@ -25,11 +29,12 @@ const headerLabel = computed(() => props.name || meta.value.label);
     <div class="orch-node-header" :style="{ background: color }">
       <SvgIcon :icon="meta.icon" class="text-14px" />
       <span class="truncate">{{ headerLabel }}</span>
+      <span v-if="delegated" class="orch-delegated" title="本次运行已被主 Agent 委派">委派</span>
     </div>
     <div class="orch-node-body">
       <slot />
     </div>
-    <Handle type="source" id="out" :position="Position.Right" class="orch-handle" />
+    <Handle v-if="!hideSource" type="source" id="out" :position="Position.Right" class="orch-handle" />
   </div>
 </template>
 
@@ -75,6 +80,15 @@ const headerLabel = computed(() => props.name || meta.value.label);
   height: 9px;
   background: #2080f0;
   border: 2px solid #fff;
+}
+.orch-delegated {
+  margin-left: auto;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.28);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 14px;
 }
 </style>
 

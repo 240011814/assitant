@@ -15,6 +15,10 @@ export interface NodeTrace {
   tokens?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null;
   tool_calls?: { name: string; ms: number }[];
   error?: string;
+  /** 子Agent 节点专用: 是否被主 Agent 委派过 / 所属主 Agent / 委派任务原文 */
+  delegated?: boolean;
+  owner?: string;
+  task?: string;
 }
 
 interface DebugSummary {
@@ -70,6 +74,32 @@ function pushEvent(kind: string, text: string, type: DebugEvent['type'] = 'info'
 // 实时归并节点事件到画布状态: 节点自身 end (key===owner) 更新状态,
 // 内部事件 (react 模型/工具) 追加工具调用记录; token 用量在 summary 阶段补全
 function applyNodeEvent(payload: any) {
+  // 子Agent 委派事件: key 是子Agent 节点 id, owner 才是触发委派的主 Agent,
+  // 不能按 owner 归并 (否则子Agent 的状态会写到主 Agent 上)
+  if (payload.delegated) {
+    const key = String(payload.key || '');
+    if (!key) return;
+    const sub: NodeTrace = liveTraces.value[key] || {
+      key,
+      name: String(payload.name || key),
+      comp: 'DelegateTool',
+      status: 'running',
+      ms: 0
+    };
+    sub.delegated = true;
+    sub.owner = String(payload.owner || sub.owner || '');
+    if (payload.task) sub.task = String(payload.task);
+    if (payload.content) sub.content = String(payload.content);
+    if (payload.error) {
+      sub.status = 'error';
+      sub.error = String(payload.error);
+    } else if (payload.status) {
+      sub.status = payload.status;
+    }
+    liveTraces.value = { ...liveTraces.value, [key]: sub };
+    emit('traces-change', liveTraces.value);
+    return;
+  }
   const owner = String(payload.owner || payload.key || '');
   if (!owner) return;
   const trace: NodeTrace = liveTraces.value[owner] || { key: owner, name: owner, comp: '', status: 'running', ms: 0 };
@@ -93,9 +123,9 @@ function applyNodeEvent(payload: any) {
   emit('traces-change', liveTraces.value);
 }
 
-function buildTraces(summary: DebugSummary): Record<string, NodeTrace> {
+function buildTraces(result: DebugSummary): Record<string, NodeTrace> {
   const map: Record<string, NodeTrace> = {};
-  for (const node of summary.nodes || []) {
+  for (const node of result.nodes || []) {
     map[node.key] = node;
   }
   return map;
@@ -148,6 +178,18 @@ async function handleRun() {
           pushEvent('run', `开始执行 (${payload?.mode} 编排, ${payload?.node_count} 个节点)`);
           break;
         case 'node': {
+          if (payload?.delegated) {
+            // 子Agent 委派: 用可读文案替代 owner/ms 形式, 便于看清"谁委派给谁做什么"
+            const task = payload?.task ? ` 「${String(payload.task).slice(0, 60)}」` : '';
+            const okText = payload?.status === 'success' ? '完成' : payload?.status === 'error' ? '失败' : '开始';
+            pushEvent(
+              'delegate',
+              `⇢ ${payload?.owner || '?'} 委派 ${payload?.name || payload?.key}${task} · ${okText}`,
+              payload?.status === 'error' ? 'error' : 'success'
+            );
+            applyNodeEvent(payload);
+            break;
+          }
           if (payload?.kind === 'start') {
             pushEvent('node', `▶ ${payload.key} (${payload.comp})`, 'info');
           } else {
@@ -236,6 +278,13 @@ const traceColumns: DataTableColumns<NodeTrace> = [
         { size: 'small', type: row.status === 'error' ? 'error' : row.status === 'success' ? 'success' : 'info', bordered: false },
         { default: () => (row.status === 'error' ? '失败' : row.status === 'success' ? '成功' : '运行中') }
       )
+  },
+  {
+    // 子Agent 节点不参与主流, 只有"是否被委派"这一个有意义的标记
+    title: '委派',
+    key: 'delegated',
+    width: 96,
+    render: row => (row.delegated ? h('span', { class: 'text-xs' }, row.owner ? `← ${row.owner}` : '已委派') : '-')
   },
   { title: '耗时', key: 'ms', width: 76, render: row => `${row.ms}ms` },
   {
