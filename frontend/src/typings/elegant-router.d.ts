@@ -28,6 +28,7 @@ declare module "@elegant-router/types" {
     "ai_exercise": "/ai/exercise";
     "ai_history": "/ai/history";
     "ai_note": "/ai/note";
+    "ai_orchestration": "/ai/orchestration/:id";
     "ai_training": "/ai/training";
     "ai_vocabulary": "/ai/vocabulary";
     "cut": "/cut";
@@ -134,6 +135,7 @@ declare module "@elegant-router/types" {
     | "ai_exercise"
     | "ai_history"
     | "ai_note"
+    | "ai_orchestration"
     | "ai_training"
     | "ai_vocabulary"
     | "cut_bar-detail"

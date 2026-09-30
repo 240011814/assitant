@@ -154,3 +154,82 @@ export async function fetchOrchestrationDebugRun(data: {
 
   return response;
 }
+
+/** 训练中心「编排对话」精简信息 */
+export interface OrchestrationChatItem {
+  id: number;
+  name: string;
+  description: string;
+}
+
+/** 训练中心可对话的编排列表 (仅已启用) */
+export function fetchOrchestrationChatList() {
+  return request<OrchestrationChatItem[]>({ url: '/api/ai-orchestrations' });
+}
+
+/** 训练中心编排详情 (精简) */
+export function fetchOrchestrationChatItem(id: number) {
+  return request<OrchestrationChatItem>({ url: `/api/ai-orchestrations/${id}` });
+}
+
+/**
+ * 训练中心「编排对话」- SSE 流式运行 (复用编排调试事件: start/delta/reasoning/node/summary/error/done)
+ * `history` 为之前轮次 (不含本轮 input), `signal` 用于中断
+ */
+export async function fetchOrchestrationChatRun(data: {
+  id: number;
+  input: string;
+  history?: { role: string; content: string }[];
+  signal?: AbortSignal;
+}): Promise<Response> {
+  const { signal } = data;
+  const isHttpProxy = import.meta.env.DEV && import.meta.env.VITE_HTTP_PROXY === 'Y';
+  const { baseURL } = getServiceBaseURL(import.meta.env, isHttpProxy);
+
+  const url = `${baseURL}/api/ai-orchestrations/${data.id}/chat`;
+  const body = JSON.stringify({ input: data.input, history: data.history });
+
+  let Authorization = getAuthorization();
+
+  let response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: Authorization || '',
+    },
+    body,
+    signal,
+  });
+
+  if (response.ok) {
+    try {
+      const contentType = response.headers.get('content-type');
+      if (contentType?.includes('text/event-stream')) {
+        return response;
+      }
+      if (contentType?.includes('application/json')) {
+        const errorData = await response.json();
+        const expiredTokenCodes = import.meta.env.VITE_SERVICE_EXPIRED_TOKEN_CODES?.split(',') || [];
+        if (expiredTokenCodes.includes(String(errorData.code))) {
+          const success = await handleExpiredRequest(requestInstance.state);
+          if (success) {
+            Authorization = getAuthorization();
+            response = await fetch(url, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: Authorization || '',
+              },
+              body,
+              signal,
+            });
+          }
+        }
+      }
+    } catch {
+      // token 检查失败不阻断流式请求
+    }
+  }
+
+  return response;
+}

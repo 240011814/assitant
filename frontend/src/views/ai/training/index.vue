@@ -9,8 +9,9 @@ import {
   fetchCreateAIAgent,
   fetchUpdateAIAgent,
   fetchDeleteAIAgent,
+  fetchOrchestrationChatList,
 } from "@/service/api";
-import type { AIAgent } from "@/service/api";
+import type { AIAgent, OrchestrationChatItem } from "@/service/api";
 import { $t } from "@/locales";
 
 const router = useRouter();
@@ -20,8 +21,48 @@ const { hasAuth } = useAuth();
 // 子Agent 统一权限码: 有它才能把 Agent 设为/编辑/删除子Agent (后端同码兜底)
 const canManageSubAgent = computed(() => hasAuth("ai:subagent:manage"));
 
+// 统一列表项: 普通/子 Agent 与「编排对话」共用同一张卡片渲染
+interface TrainingItem {
+  kind: "agent" | "orchestration";
+  id: number;
+  title: string;
+  description: string;
+  icon: string;
+  color: string;
+  is_public: boolean;
+  agent_type: string;
+  delegation_description: string;
+}
+
 const agents = ref<AIAgent[]>([]);
+const orchestrations = ref<OrchestrationChatItem[]>([]);
 const loading = ref(false);
+
+const trainingItems = computed<TrainingItem[]>(() => {
+  const agentItems: TrainingItem[] = agents.value.map((agent) => ({
+    kind: "agent",
+    id: agent.id,
+    title: agent.title,
+    description: agent.description,
+    icon: agent.icon || "mdi:robot-outline",
+    color: agent.color || "#2080f0",
+    is_public: agent.is_public,
+    agent_type: agent.agent_type || "chat",
+    delegation_description: agent.delegation_description || "",
+  }));
+  const orchestrationItems: TrainingItem[] = orchestrations.value.map((orch) => ({
+    kind: "orchestration",
+    id: orch.id,
+    title: orch.name,
+    description: orch.description,
+    icon: "mdi:graph-outline",
+    color: "#7c3aed",
+    is_public: false,
+    agent_type: "orchestration",
+    delegation_description: "",
+  }));
+  return [...agentItems, ...orchestrationItems];
+});
 
 const showModal = ref(false);
 const isEdit = ref(false);
@@ -96,17 +137,29 @@ const resetForm = () => {
 
 const loadAgents = async () => {
   loading.value = true;
-  try {
-    const { data } = await fetchAIAgentList();
+  // 并行加载 Agent 与「编排对话」, 任一失败不影响另一部分展示
+  const [agentsResult, orchestrationsResult] = await Promise.allSettled([
+    fetchAIAgentList(),
+    fetchOrchestrationChatList(),
+  ]);
+
+  if (agentsResult.status === "fulfilled") {
+    const data = agentsResult.value.data;
     if (data) {
       // 公共(内置) agent 非空 permission_code 时, 需当前用户拥有该权限码才可见/可访问
       agents.value = data.filter(canAccessAgent);
     }
-  } catch (err: any) {
-    console.error("loadAgents error:", err);
-  } finally {
-    loading.value = false;
+  } else {
+    console.error("loadAgents error:", agentsResult.reason);
   }
+
+  if (orchestrationsResult.status === "fulfilled") {
+    orchestrations.value = orchestrationsResult.value.data || [];
+  } else {
+    console.error("loadOrchestrations error:", orchestrationsResult.reason);
+  }
+
+  loading.value = false;
 };
 
 function canAccessAgent(agent: AIAgent) {
@@ -114,18 +167,25 @@ function canAccessAgent(agent: AIAgent) {
 }
 
 // 子Agent 的编辑/删除额外要求统一权限码; 普通对话 Agent 仍按 ai:custom-training:*
-function canEditAgent(agent: AIAgent) {
+// 编排为全局资源, 不在训练中心提供编辑/删除入口
+function canEditItem(item: TrainingItem) {
+  if (item.kind !== "agent") return false;
   if (!hasAuth("ai:custom-training:edit")) return false;
-  return agent.agent_type !== "subagent" || canManageSubAgent.value;
+  return item.agent_type !== "subagent" || canManageSubAgent.value;
 }
 
-function canDeleteAgent(agent: AIAgent) {
+function canDeleteItem(item: TrainingItem) {
+  if (item.kind !== "agent") return false;
   if (!hasAuth("ai:custom-training:delete")) return false;
-  return agent.agent_type !== "subagent" || canManageSubAgent.value;
+  return item.agent_type !== "subagent" || canManageSubAgent.value;
 }
 
-function goToAgent(id: number) {
-  router.push(`/ai/custom-training/${id}`);
+function goToItem(item: TrainingItem) {
+  if (item.kind === "orchestration") {
+    router.push(`/ai/orchestration/${item.id}`);
+    return;
+  }
+  router.push(`/ai/custom-training/${item.id}`);
 }
 
 function handleCreate() {
@@ -245,7 +305,7 @@ onMounted(() => {
       </div>
 
       <div
-        v-else-if="agents.length === 0"
+        v-else-if="trainingItems.length === 0"
         class="rounded-xl border border-dashed border-gray-300 p-8 text-center dark:border-gray-600"
       >
         <SvgIcon icon="mdi:robot-outline" class="text-4xl text-gray-400 mb-2" />
@@ -259,10 +319,10 @@ onMounted(() => {
 
       <div v-else class="grid grid-cols-1 gap-6 md:grid-cols-2">
         <div
-          v-for="item in agents"
-          :key="item.id"
+          v-for="item in trainingItems"
+          :key="item.kind + '-' + item.id"
           class="group relative cursor-pointer rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-all hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
-          @click="goToAgent(item.id)"
+          @click="goToItem(item)"
         >
           <div class="flex items-start gap-4">
             <div
@@ -296,6 +356,15 @@ onMounted(() => {
                 >
                   子Agent
                 </NTag>
+                <NTag
+                  v-if="item.kind === 'orchestration'"
+                  size="small"
+                  type="warning"
+                  :bordered="false"
+                  title="Agent Studio 可视化编排，可直接对话"
+                >
+                  编排
+                </NTag>
               </div>
               <p class="mt-1 text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
                 {{ item.description || $t("page.ai.training.noDescription") }}
@@ -307,12 +376,12 @@ onMounted(() => {
             />
           </div>
           <div
-            v-if="!item.is_public && (canEditAgent(item) || canDeleteAgent(item))"
+            v-if="item.kind === 'agent' && !item.is_public && (canEditItem(item) || canDeleteItem(item))"
             class="absolute bottom-3 right-3 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100"
             @click.stop
           >
             <NButton
-              v-if="canEditAgent(item)"
+              v-if="canEditItem(item)"
               size="small"
               quaternary
               @click="handleEdit(item.id)"
@@ -322,7 +391,7 @@ onMounted(() => {
               </template>
             </NButton>
             <NPopconfirm
-              v-if="canDeleteAgent(item)"
+              v-if="canDeleteItem(item)"
               @positive-click="handleDeleteAgent(item.id)"
             >
               <template #trigger>

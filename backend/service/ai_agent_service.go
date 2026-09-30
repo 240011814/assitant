@@ -69,7 +69,8 @@ func (s *AIAgentService) SetMemoryService(m *UserMemoryService) {
 
 func (s *AIAgentService) ListAvailableAgents(userID uint) ([]model.AIAgent, error) {
 	var agents []model.AIAgent
-	if err := DB.Where("is_public = ? OR user_id = ?", true, userID).
+	// 排编排 (agent_type='orchestration'): 它们由 Agent Studio / 训练中心单独接口提供
+	if err := DB.Where("(is_public = ? OR user_id = ?) AND agent_type <> ?", true, userID, model.AIAgentTypeOrchestration).
 		Order("is_public DESC, created_at DESC").
 		Find(&agents).Error; err != nil {
 		return nil, err
@@ -102,6 +103,8 @@ func (s *AIAgentService) CreateAIAgent(userID uint, req model.CreateAIAgentReque
 		SpeechRate:            req.SpeechRate,
 		AgentType:             normalizeAgentType(req.AgentType),
 		DelegationDescription: strings.TrimSpace(req.DelegationDescription),
+		// 普通 Agent 恒为启用 (enabled 列仅供编排语义使用)
+		Enabled: true,
 	}
 
 	if agent.Icon == "" {

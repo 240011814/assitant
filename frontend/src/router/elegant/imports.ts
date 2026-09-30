@@ -27,6 +27,7 @@ export const views: Record<LastLevelRouteKey, RouteComponent | (() => Promise<Ro
   ai_exercise: () => import("@/views/ai/exercise/index.vue"),
   ai_history: () => import("@/views/ai/history/index.vue"),
   ai_note: () => import("@/views/ai/note/index.vue"),
+  ai_orchestration: () => import("@/views/ai/orchestration/[id].vue"),
   ai_training: () => import("@/views/ai/training/index.vue"),
   ai_vocabulary: () => import("@/views/ai/vocabulary/index.vue"),
   "cut_bar-detail": () => import("@/views/cut/bar-detail/[id].vue"),

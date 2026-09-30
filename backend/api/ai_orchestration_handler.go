@@ -144,3 +144,88 @@ func (h *AIOrchestrationHandler) HandleDebugRun(c *gin.Context) {
 
 	_ = h.svc.DebugRun(c.Request.Context(), userID.(uint), &req, emit)
 }
+
+// HandleChatList 训练中心「编排对话」列表: 仅返回已启用编排的精简信息
+// (不暴露 definition 等画布细节, 权限仅要求登录)
+func (h *AIOrchestrationHandler) HandleChatList(c *gin.Context) {
+	items, err := h.svc.ListEnabled()
+	if err != nil {
+		SendError(c, "500", "获取编排列表失败")
+		return
+	}
+	type chatItem struct {
+		ID          int    `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	out := make([]chatItem, 0, len(items))
+	for _, it := range items {
+		out = append(out, chatItem{ID: it.ID, Name: it.Name, Description: it.Description})
+	}
+	SendSuccess(c, out)
+}
+
+// HandleChatGet 训练中心「编排对话」详情: 精简信息
+func (h *AIOrchestrationHandler) HandleChatGet(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		SendError(c, "400", "无效的编排 ID")
+		return
+	}
+	item, err := h.svc.Get(uint(id))
+	if err != nil {
+		SendError(c, "404", "编排不存在")
+		return
+	}
+	SendSuccess(c, map[string]any{
+		"id":          item.ID,
+		"name":        item.Name,
+		"description": item.Description,
+	})
+}
+
+// HandleChatRun 训练中心「编排对话」: 复用调试运行时以 SSE 流式返回,
+// 但只要求 ai:chat:send (普通训练用户可对话), 且不回写 last_debug_summary
+func (h *AIOrchestrationHandler) HandleChatRun(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		SendError(c, "400", "无效的编排 ID")
+		return
+	}
+	var body struct {
+		Input   string           `json:"input" binding:"required"`
+		History []model.ChatTurn `json:"history"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		SendError(c, "400", "请求参数错误: "+err.Error())
+		return
+	}
+	userID, exists := c.Get("userId")
+	if !exists {
+		SendError(c, "401", "Unauthorized")
+		return
+	}
+
+	orchID := int(id)
+	req := &model.DebugRunRequest{
+		ID:          &orchID,
+		Input:       body.Input,
+		History:     body.History,
+		SkipSummary: true,
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	// SSE 写串行化: 节点事件来自回调 goroutine, delta 来自主循环
+	var mu sync.Mutex
+	emit := func(event string, payload any) {
+		mu.Lock()
+		defer mu.Unlock()
+		c.SSEvent(event, payload)
+	}
+
+	_ = h.svc.DebugRun(c.Request.Context(), userID.(uint), req, emit)
+}

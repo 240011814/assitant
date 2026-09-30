@@ -135,6 +135,17 @@ export const generatedRoutes: GeneratedRoute[] = [
         }
       },
       {
+        name: 'ai_orchestration',
+        path: '/ai/orchestration/:id',
+        component: 'view.ai_orchestration',
+        meta: {
+          title: 'ai_orchestration',
+          i18nKey: 'route.ai_orchestration',
+          hideInMenu: true,
+          keepAlive: true
+        }
+      },
+      {
         name: 'ai_training',
         path: '/ai/training',
         component: 'view.ai_training',

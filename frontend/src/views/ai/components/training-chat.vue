@@ -12,6 +12,7 @@ import {
   fetchGenerateShareToken,
 } from "@/service/api";
 import { fetchGetAIModels, fetchGetUserPrompt, fetchChatStream, fetchToolApproval } from "@/service/api/ai";
+import { fetchOrchestrationChatRun } from "@/service/api";
 import { fetchCourseList, fetchCreateCourseItem, type Course } from "@/service/api/course";
 import { useAuth } from "@/hooks/business/auth";
 import { renderMarkdown as renderMarkdownRaw } from "@/utils/markdown";
@@ -62,6 +63,10 @@ const props = withDefaults(
     enableVocabulary?: boolean;
     speechLang?: string;
     speechRate?: number;
+    /** 编排对话模式: 传编排 ID 时, 复用本聊天界面但走编排引擎运行 */
+    orchestrationId?: number | null;
+    /** 编排对话模式下的标题 */
+    title?: string;
   }>(),
   {
     trainingType: "",
@@ -71,10 +76,14 @@ const props = withDefaults(
     enableVocabulary: false,
     speechLang: "en-US",
     speechRate: 0.9,
+    orchestrationId: null,
+    title: "",
   }
 );
 
 const { hasAuth } = useAuth();
+// 编排对话模式: 传入编排 ID 时复用本聊天界面, 但消息走编排引擎
+const isOrchestration = computed(() => props.orchestrationId != null && props.orchestrationId > 0);
 const appStore = useAppStore();
 const containerRef = ref<HTMLElement>();
 const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
@@ -508,6 +517,115 @@ const parseVocabSuggestions = () => {
   };
 };
 
+// 编排对话: 历史轮次 (不含本轮 input), 跳过开场欢迎语, 只保留有效的 user/assistant 文本
+const buildOrchestrationHistory = () => {
+  const turns: { role: string; content: string }[] = [];
+  messages.value.slice(0, -2).forEach((msg, idx) => {
+    if (msg.role !== "user" && msg.role !== "assistant") return;
+    if (!msg.content.trim() || msg.isError) return;
+    // 跳过首条开场白 (assistant 欢迎语), 避免污染多轮上下文
+    if (idx === 0 && msg.role === "assistant") return;
+    turns.push({ role: msg.role, content: msg.content });
+  });
+  return turns;
+};
+
+// 编排对话: 调用编排运行时并以 SSE 流式渲染 (事件 delta/reasoning/summary/error)
+const sendOrchestrationMessage = async (userText: string, controller: AbortController) => {
+  const response = await fetchOrchestrationChatRun({
+    id: props.orchestrationId as number,
+    input: userText,
+    history: buildOrchestrationHistory(),
+    signal: controller.signal
+  });
+
+  if (!response.ok) {
+    let errorMessage = `请求失败 (HTTP ${response.status})`;
+    try {
+      const errorData = await response.json();
+      if (errorData?.error) errorMessage = errorData.error;
+      else if (errorData?.message) errorMessage = errorData.message;
+    } catch {}
+    throw new Error(errorMessage);
+  }
+
+  const reader = response.body?.getReader();
+  const decoder = new TextDecoder("utf-8");
+  if (!reader) throw new Error("无法获取响应流");
+
+  let gotDelta = false;
+
+  const handleEvent = (eventType: string, dataStr: string) => {
+    let payload: any = null;
+    try {
+      payload = dataStr ? JSON.parse(dataStr) : null;
+    } catch {
+      payload = null;
+    }
+
+    switch (eventType) {
+      case "error": {
+        const msg =
+          payload?.message ||
+          (Array.isArray(payload?.errors) ? payload.errors.join("; ") : "") ||
+          "编排执行失败";
+        setAssistantError(`AI 服务错误: ${msg}`);
+        break;
+      }
+      case "delta":
+        if (payload?.content) {
+          gotDelta = true;
+          appendAssistantContent(payload.content);
+          scheduleScrollToBottom();
+        }
+        break;
+      case "reasoning":
+        if (payload?.content) {
+          appendThinkingContent(payload.content);
+          scheduleScrollToBottom();
+        }
+        break;
+      case "summary":
+        // 兜底: 若运行时未推 delta (非流式节点), 用最终输出补齐
+        if (!gotDelta && typeof payload?.output === "string" && payload.output.trim()) {
+          appendAssistantContent(payload.output);
+        }
+        if (payload?.tokens) appendUsage(payload.tokens);
+        scheduleScrollToBottom();
+        break;
+      default:
+        break;
+    }
+  };
+
+  let buffer = "";
+  let eventType = "message";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || "";
+
+    for (let line of lines) {
+      line = line.trim();
+      if (!line) continue;
+
+      if (line.startsWith("event:")) {
+        eventType = line.replace(/^event:\s*/, "").trim();
+        continue;
+      }
+
+      if (line.startsWith("data:")) {
+        const dataStr = line.replace(/^data:\s*/, "").trim();
+        handleEvent(eventType, dataStr);
+      }
+    }
+  }
+};
+
 const sendMessage = async () => {
   if (!inputMessage.value.trim() || isGenerating.value) return;
 
@@ -524,6 +642,11 @@ const sendMessage = async () => {
   abortController.value = controller;
 
   try {
+    if (isOrchestration.value) {
+      await sendOrchestrationMessage(userText, controller);
+      return;
+    }
+
     const routeName = props.trainingType || (route.name as string) || "ai_agent";
     const history = messages.value
       .slice(0, -1)
@@ -928,8 +1051,11 @@ const handleSaveTitle = async () => {
 };
 
 onMounted(() => {
-  loadModels();
-  refreshPrompt();
+  // 编排对话模式下不加载模型列表/用户提示词 (运行由编排定义决定)
+  if (!isOrchestration.value) {
+    loadModels();
+    refreshPrompt();
+  }
 
   const queryHistoryId = route.query.history_id;
   if (queryHistoryId) {
@@ -981,8 +1107,8 @@ onBeforeUnmount(() => {
           <span
             class="font-semibold text-gray-700 dark:text-gray-300 truncate"
             :class="appStore.isMobile ? 'text-sm' : 'text-base'"
-          >{{ historyTitle || "AI 训练对话" }}</span>
-          <NButton quaternary size="tiny" @click="handleOpenEditTitle">
+          >{{ historyTitle || props.title || "AI 训练对话" }}</span>
+          <NButton v-if="!isOrchestration" quaternary size="tiny" @click="handleOpenEditTitle">
             <template #icon>
               <SvgIcon
                 icon="mdi:pencil-outline"
@@ -1003,6 +1129,7 @@ onBeforeUnmount(() => {
             </template>
           </NButton>
           <NButton
+            v-if="!isOrchestration"
             quaternary
             size="small"
             :type="isFavorite ? 'warning' : 'default'"
@@ -1012,13 +1139,13 @@ onBeforeUnmount(() => {
               <SvgIcon :icon="isFavorite ? 'mdi:star' : 'mdi:star-outline'" />
             </template>
           </NButton>
-          <NButton quaternary size="small" @click="handleShare">
+          <NButton v-if="!isOrchestration" quaternary size="small" @click="handleShare">
             <template #icon>
               <SvgIcon icon="mdi:share-variant" />
             </template>
           </NButton>
           <NButton
-            v-if="hasAuth('ai:prompt:manage')"
+            v-if="hasAuth('ai:prompt:manage') && !isOrchestration"
             quaternary
             size="small"
             @click="showPromptEditor = true"
@@ -1426,7 +1553,7 @@ onBeforeUnmount(() => {
           <!-- Desktop: single row layout -->
           <div v-if="!appStore.isMobile" class="input-main">
             <!-- Left: Model Selector -->
-            <div class="model-selector">
+            <div v-if="!isOrchestration" class="model-selector">
               <SvgIcon icon="mdi:cpu-chip" class="model-icon" />
               <NSelect
                 v-model:value="selectedModel"
@@ -1511,7 +1638,7 @@ onBeforeUnmount(() => {
               />
             </div>
             <div class="input-row-actions">
-              <div class="model-selector model-selector-mobile">
+              <div v-if="!isOrchestration" class="model-selector model-selector-mobile">
                 <NSelect
                   v-model:value="selectedModel"
                   :options="modelOptions"

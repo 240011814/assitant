@@ -33,20 +33,56 @@ func NewAIOrchestrationService(agentService *AIAgentService, timeoutMinutes int)
 	}
 }
 
+// orchToDTO 把 ai_agents 中的编排行映射为 API 视图
+func orchToDTO(a *model.AIAgent) model.AIOrchestration {
+	return model.AIOrchestration{
+		ID:               int(a.ID),
+		Name:             a.Title,
+		Description:      a.Description,
+		Definition:       a.Definition,
+		Version:          a.Version,
+		Enabled:          a.Enabled,
+		LastDebugSummary: a.LastDebugSummary,
+		CreatedAt:        a.CreatedAt,
+		UpdatedAt:        a.UpdatedAt,
+	}
+}
+
 func (s *AIOrchestrationService) List() ([]model.AIOrchestration, error) {
-	var list []model.AIOrchestration
-	if err := DB.Order("updated_at DESC").Find(&list).Error; err != nil {
+	var rows []model.AIAgent
+	if err := DB.Where("agent_type = ?", model.AIAgentTypeOrchestration).
+		Order("updated_at DESC").Find(&rows).Error; err != nil {
 		return nil, err
+	}
+	list := make([]model.AIOrchestration, 0, len(rows))
+	for i := range rows {
+		list = append(list, orchToDTO(&rows[i]))
+	}
+	return list, nil
+}
+
+// ListEnabled 仅返回已启用的编排, 供训练中心"编排对话"列表使用
+func (s *AIOrchestrationService) ListEnabled() ([]model.AIOrchestration, error) {
+	var rows []model.AIAgent
+	if err := DB.Where("agent_type = ? AND enabled = ?", model.AIAgentTypeOrchestration, true).
+		Order("updated_at DESC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	list := make([]model.AIOrchestration, 0, len(rows))
+	for i := range rows {
+		list = append(list, orchToDTO(&rows[i]))
 	}
 	return list, nil
 }
 
 func (s *AIOrchestrationService) Get(id uint) (*model.AIOrchestration, error) {
-	var item model.AIOrchestration
-	if err := DB.First(&item, id).Error; err != nil {
+	var agent model.AIAgent
+	if err := DB.Where("agent_type = ? AND id = ?", model.AIAgentTypeOrchestration, id).
+		First(&agent).Error; err != nil {
 		return nil, err
 	}
-	return &item, nil
+	dto := orchToDTO(&agent)
+	return &dto, nil
 }
 
 func (s *AIOrchestrationService) Create(req *model.CreateAIOrchestrationRequest) (*model.AIOrchestration, error) {
@@ -60,27 +96,37 @@ func (s *AIOrchestrationService) Create(req *model.CreateAIOrchestrationRequest)
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
-	item := model.AIOrchestration{
-		Name:        req.Name,
-		Description: req.Description,
-		Definition:  req.Definition,
-		Version:     1,
-		Enabled:     enabled,
+	// 编排并入 ai_agents 表, 复用该表的非空/唯一约束列:
+	// title=编排名称, code 用内部唯一占位值 (编排不走 code 语义), system_prompt 置空
+	agent := model.AIAgent{
+		IsPublic:     true,
+		Title:        req.Name,
+		Description:  req.Description,
+		Code:         fmt.Sprintf("orchestration_%d", time.Now().UnixNano()),
+		SystemPrompt: "",
+		Icon:         "mdi:graph-outline",
+		Color:        "#7c3aed",
+		AgentType:    model.AIAgentTypeOrchestration,
+		Definition:   req.Definition,
+		Version:      1,
+		Enabled:      enabled,
 	}
-	if err := DB.Create(&item).Error; err != nil {
+	if err := DB.Create(&agent).Error; err != nil {
 		return nil, err
 	}
-	return &item, nil
+	dto := orchToDTO(&agent)
+	return &dto, nil
 }
 
 func (s *AIOrchestrationService) Update(id uint, req *model.UpdateAIOrchestrationRequest) error {
-	var item model.AIOrchestration
-	if err := DB.First(&item, id).Error; err != nil {
+	var agent model.AIAgent
+	if err := DB.Where("agent_type = ? AND id = ?", model.AIAgentTypeOrchestration, id).
+		First(&agent).Error; err != nil {
 		return err
 	}
 	updates := map[string]interface{}{}
 	if req.Name != nil && *req.Name != "" {
-		updates["name"] = *req.Name
+		updates["title"] = *req.Name
 	}
 	if req.Description != nil {
 		updates["description"] = *req.Description
@@ -93,16 +139,19 @@ func (s *AIOrchestrationService) Update(id uint, req *model.UpdateAIOrchestratio
 			return errors.New("编排定义校验失败: " + strings.Join(errs, "; "))
 		}
 		updates["definition"] = *req.Definition
-		updates["version"] = item.Version + 1
+		updates["version"] = agent.Version + 1
 	}
 	if len(updates) == 0 {
 		return nil
 	}
-	return DB.Model(&model.AIOrchestration{}).Where("id = ?", id).Updates(updates).Error
+	return DB.Model(&model.AIAgent{}).
+		Where("agent_type = ? AND id = ?", model.AIAgentTypeOrchestration, id).
+		Updates(updates).Error
 }
 
 func (s *AIOrchestrationService) Delete(id uint) error {
-	return DB.Delete(&model.AIOrchestration{}, id).Error
+	return DB.Where("agent_type = ? AND id = ?", model.AIAgentTypeOrchestration, id).
+		Delete(&model.AIAgent{}).Error
 }
 
 // OrchestrationValidationResult 校验结果 (含编译探测到的错误)
@@ -446,13 +495,15 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 	}
 
 	// 已保存编排: 异步落最近一次调试摘要, 供列表回显
-	if orchID > 0 {
+	// (训练中心的编排对话 skip_summary=true, 不污染调试摘要)
+	if orchID > 0 && !req.SkipSummary {
 		go func(id uint, sres *DebugRunResult) {
 			data, mErr := json.Marshal(sres)
 			if mErr != nil {
 				return
 			}
-			if err := DB.Model(&model.AIOrchestration{}).Where("id = ?", id).
+			if err := DB.Model(&model.AIAgent{}).
+				Where("agent_type = ? AND id = ?", model.AIAgentTypeOrchestration, id).
 				Update("last_debug_summary", string(data)).Error; err != nil {
 				log.Printf("[orchestration] save debug summary failed id=%d err=%v", id, err)
 			}

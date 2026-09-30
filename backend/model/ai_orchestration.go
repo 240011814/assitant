@@ -2,26 +2,19 @@ package model
 
 import "time"
 
-// AIOrchestration 存储可视化编排定义 (Agent Studio)
-// definition 为编排 DSL JSON: {version, nodes[], edges[]}, 由后端校验并编译为
-// Eino compose 的 Chain/Graph/Workflow 运行
+// AIOrchestration 编排视图。
+// 存储已合并进 ai_agents 表 (agent_type='orchestration'), 本结构仅用于 API 出入参,
+// 不再映射独立数据表。
 type AIOrchestration struct {
-	ID          int       `json:"id" gorm:"primaryKey"`
-	Name        string    `json:"name" gorm:"uniqueIndex;size:100"`
-	Description string    `json:"description" gorm:"type:text"`
-	// Definition 编排 DSL JSON 原文
-	Definition string `json:"definition" gorm:"type:longtext"`
-	// Version 每次保存递增, 便于排查线上行为对应的定义版本
-	Version int  `json:"version"`
-	Enabled bool `json:"enabled"`
-	// LastDebugSummary 最近一次调试运行的节点级摘要 JSON (可选回显)
-	LastDebugSummary string    `json:"last_debug_summary" gorm:"type:text"`
+	ID               int       `json:"id"`
+	Name             string    `json:"name"`
+	Description      string    `json:"description"`
+	Definition       string    `json:"definition"`
+	Version          int       `json:"version"`
+	Enabled          bool      `json:"enabled"`
+	LastDebugSummary string    `json:"last_debug_summary"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
-}
-
-func (AIOrchestration) TableName() string {
-	return "ai_orchestrations"
 }
 
 type CreateAIOrchestrationRequest struct {
@@ -53,4 +46,7 @@ type DebugRunRequest struct {
 	Definition string     `json:"definition"`
 	Input      string     `json:"input" binding:"required"`
 	History    []ChatTurn `json:"history"`
+	// SkipSummary 为 true 时不回写 last_debug_summary。
+	// 训练中心的"编排对话"复用调试运行时置 true, 避免覆盖 Agent Studio 的最近调试摘要。
+	SkipSummary bool `json:"skip_summary"`
 }

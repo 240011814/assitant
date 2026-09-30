@@ -11,6 +11,9 @@ const (
 	AIAgentTypeChat = "chat"
 	// AIAgentTypeSubAgent 子Agent: 可被 Agent Studio 编排中的主 Agent 委派调用
 	AIAgentTypeSubAgent = "subagent"
+	// AIAgentTypeOrchestration 编排: Agent Studio 可视化编排 (存于 ai_agents 表,
+	// 用本类型与普通 Agent 区分; 定义/版本/启用等存于同表附加列)
+	AIAgentTypeOrchestration = "orchestration"
 )
 
 // DelegatableAgentTypes 可作为编排子Agent 的类型
@@ -29,21 +32,21 @@ func IsSubAgentType(t string) bool {
 }
 
 type AIAgent struct {
-	ID               uint      `json:"id" gorm:"primaryKey"`
-	UserID           uint      `json:"user_id"`
-	IsPublic         bool      `json:"is_public"`
-	PermissionCode   string    `json:"permission_code"`
-	Title            string    `json:"title"`
-	Description      string    `json:"description"`
-	Code             string    `json:"code"`
-	SystemPrompt     string    `json:"system_prompt"`
-	Icon             string    `json:"icon"`
-	Color            string    `json:"color"`
-	InitialMessage   string    `json:"initial_message"`
-	InputPlaceholder string    `json:"input_placeholder"`
-	SpeechLang       string    `json:"speech_lang"`
-	SpeechRate       float64   `json:"speech_rate"`
-	IsFavorite       bool      `json:"is_favorite"`
+	ID               uint    `json:"id" gorm:"primaryKey"`
+	UserID           uint    `json:"user_id"`
+	IsPublic         bool    `json:"is_public"`
+	PermissionCode   string  `json:"permission_code"`
+	Title            string  `json:"title"`
+	Description      string  `json:"description"`
+	Code             string  `json:"code"`
+	SystemPrompt     string  `json:"system_prompt"`
+	Icon             string  `json:"icon"`
+	Color            string  `json:"color"`
+	InitialMessage   string  `json:"initial_message"`
+	InputPlaceholder string  `json:"input_placeholder"`
+	SpeechLang       string  `json:"speech_lang"`
+	SpeechRate       float64 `json:"speech_rate"`
+	IsFavorite       bool    `json:"is_favorite"`
 	// AgentType 类型: chat(对话, 默认) / subagent(可作为编排子Agent 被委派)
 	AgentType string `json:"agent_type"`
 	// DelegationDescription 委派说明: 主 Agent 判断"何时该委派给它"的依据,
@@ -51,6 +54,13 @@ type AIAgent struct {
 	DelegationDescription string    `json:"delegation_description"`
 	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at"`
+
+	// 以下列仅 agent_type='orchestration' 的编排行使用 (编排已并入本表)。
+	// 用 json:"-" 避免普通 Agent 接口把它们(尤其 definition)带出去。
+	Definition       string `json:"-" gorm:"type:longtext"`
+	Version          int    `json:"-"`
+	Enabled          bool   `json:"-"`
+	LastDebugSummary string `json:"-" gorm:"type:text"`
 }
 
 type CreateAIAgentRequest struct {

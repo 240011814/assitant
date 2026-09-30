@@ -262,6 +262,15 @@ func main() {
 			aiAgentGroup.DELETE("/:id", api.RequirePermission("ai:custom-training:delete"), aiAgentHandler.DeleteAIAgent)
 		}
 
+		// 训练中心「编排对话」: 复用 Agent Studio 编排运行时, 面向前台训练用户
+		// (列表/详情仅要求登录; 对话要求 ai:chat:send, 与 /chat 一致)
+		aiOrchestrationGroup := apiGroup.Group("/ai-orchestrations")
+		{
+			aiOrchestrationGroup.GET("", orchestrationHandler.HandleChatList)
+			aiOrchestrationGroup.GET("/:id", orchestrationHandler.HandleChatGet)
+			aiOrchestrationGroup.POST("/:id/chat", api.RequirePermission("ai:chat:send"), orchestrationHandler.HandleChatRun)
+		}
+
 		// Memory APIs (mem0)
 		memoryGroup := apiGroup.Group("/memories")
 		{

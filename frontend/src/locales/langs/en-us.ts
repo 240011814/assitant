@@ -238,6 +238,7 @@ const local: App.I18n.Schema = {
     ai: "AI Training",
     ai_training: "Training Center",
     "ai_custom-training": "Custom Training",
+    ai_orchestration: "Orchestration Chat",
     ai_vocabulary: "Vocabulary Book",
     "ai_error-book": "Error Book",
     ai_note: "Note Book",
