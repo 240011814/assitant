@@ -49,4 +49,8 @@ type DebugRunRequest struct {
 	// SkipSummary 为 true 时不回写 last_debug_summary。
 	// 训练中心的"编排对话"复用调试运行时置 true, 避免覆盖 Agent Studio 的最近调试摘要。
 	SkipSummary bool `json:"skip_summary"`
+	// ChatMode 标记本次运行来自训练中心「编排对话」: 把编排名称/简介注入主 Agent 系统提示词,
+	// 让模型从第一轮就知道自己的身份与职责 (此前这段内容只在前端欢迎气泡里, 模型从未见过)。
+	// Agent Studio 的调试运行不置位, 保持画布定义的原样测试。
+	ChatMode bool `json:"-"`
 }

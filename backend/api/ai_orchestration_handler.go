@@ -219,6 +219,8 @@ func (h *AIOrchestrationHandler) HandleChatRun(c *gin.Context) {
 		Input:       body.Input,
 		History:     body.History,
 		SkipSummary: true,
+		// 编排对话: 注入编排名称/简介作为身份前言 (模型此前只在前端欢迎气泡"见过"自己)
+		ChatMode: true,
 	}
 
 	c.Header("Content-Type", "text/event-stream")

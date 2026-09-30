@@ -131,6 +131,9 @@ type orchestrationCompiler struct {
 	// trace 调试运行的事件通道: 编译期把它注入委派工具, 让子Agent 的委派过程
 	// 也能进入调试摘要 (普通校验/生产编译为 nil)
 	trace *orchTraceHandler
+	// chatPreamble 编排对话模式的身份前言 (编排名称/简介), 追加进主 Agent 系统提示词;
+	// 调试/校验运行为空
+	chatPreamble string
 
 	adj     map[string][]string // source -> targets (全部连线, 含子Agent 委派边)
 	flowAdj map[string][]string // source -> targets (仅主流连线, 不含子Agent)
@@ -716,6 +719,29 @@ func orchBranchMatch(cs OrchBranchCase, content string) bool {
 	}
 }
 
+// orchChatPreamble 编排对话的身份前言 (由编排名称/简介构造):
+// 这段内容此前只存在于前端欢迎气泡里, 模型从未见过, 首轮对话便"不知道自己是谁"。
+func orchChatPreamble(name, description string) string {
+	var sb strings.Builder
+	sb.WriteString("你是「" + strings.TrimSpace(name) + "」编排助手。")
+	if d := strings.TrimSpace(description); d != "" {
+		sb.WriteString("你的职责: " + d + "。")
+	}
+	sb.WriteString("请始终以此身份与用户对话。")
+	return sb.String()
+}
+
+// orchAppendPromptSection 追加一段提示词章节 (已有内容时空一行分隔, 空提示词直接返回章节)
+func orchAppendPromptSection(prompt, section string) string {
+	if strings.TrimSpace(section) == "" {
+		return prompt
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return section
+	}
+	return prompt + "\n\n" + section
+}
+
 // orchHistoryGuide 主 Agent 多轮对话提示。
 // 历史消息已随消息序列给出, 但模型(尤其面对"省略/指代式追问")常常忽略上文并反问,
 // 例如上一轮在问天气、这一轮只说"用子agent搜索", 模型就回复"不清楚要搜索什么"。
@@ -1116,6 +1142,13 @@ func (p *orchSubAgentProgress) startHeartbeat(ctx context.Context) func() {
 	return cancel
 }
 
+// IsCallbacksEnabled 向 eino 声明本组件自带回调转发 (components.Checker)。
+// 不声明时框架会再包一层 OnStart/OnEnd, 且这层包装会把节点 ctx 的 RunInfo 清空,
+// 迫使内层模型(ark)自建一个**空名字**的回调 span——它的实时增量曾与包装器的结尾
+// 补发叠加成重复输出。声明后 ark 的回调直接挂在 "<subID>.model" 名下, 与主 Agent
+// 完全同一条实时路径, 全程只有一处 emit。
+func (p *orchSubAgentProgress) IsCallbacksEnabled() bool { return true }
+
 func (p *orchSubAgentProgress) Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.Message, error) {
 	stop := p.startHeartbeat(ctx)
 	defer stop()
@@ -1126,26 +1159,12 @@ func (p *orchSubAgentProgress) Generate(ctx context.Context, in []*schema.Messag
 	return msg, nil
 }
 
+// Stream 直通内层模型: 子Agent 的思考/正文增量统一由模型的流式回调
+// (orchTraceHandler.OnEndWithStreamOutput 的 directStream 分支) 实时透出。
+// 这里不要再包一层 emit——包装器只有在 ReAct 图消费到流时才触发(整段生成完才到),
+// 曾经与模型回调的实时增量叠成"回答先流式一遍、结束再整段一遍"的重复。
 func (p *orchSubAgentProgress) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
-	sr, err := p.model.Stream(ctx, in, opts...)
-	if err != nil || p.trace == nil {
-		return sr, err
-	}
-	// 实时透出子Agent 的思考与正文增量 (子Agent 走流式时用户即可看到它在写什么)
-	first := true
-	return schema.StreamReaderWithConvert(sr, func(m *schema.Message) (*schema.Message, error) {
-		if m != nil {
-			if m.ReasoningContent != "" {
-				p.trace.emitReasoningDelta(m.ReasoningContent)
-			}
-			if m.Content != "" {
-				p.trace.emitDelta(m.Content)
-				p.trace.markStreamed(len(m.Content), first)
-				first = false
-			}
-		}
-		return m, nil
-	}), nil
+	return p.model.Stream(ctx, in, opts...)
 }
 
 func (p *orchSubAgentProgress) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
@@ -1273,6 +1292,8 @@ func (c *orchestrationCompiler) buildAgentLambda(ctx context.Context, n *Orchest
 			return nil, fmt.Errorf("Agent 节点 %s 系统提示词渲染失败: %w", n.ID, err)
 		}
 	}
+	// 编排对话: 身份前言放在画布提示词之后, 模型从第一轮就知道自己是谁、职责是什么
+	systemPrompt = orchAppendPromptSection(systemPrompt, c.chatPreamble)
 	// 主管模式: 把挂载的子Agent 及其职责写进系统提示词, 否则模型常常完全不去委派
 	if len(subIDs) > 0 {
 		systemPrompt += orchDelegationGuide(subIDs, c.orchSubAgentName, c.orchSubAgentTitle, c.orchSubAgentDesc)
@@ -1781,16 +1802,6 @@ func ownerKeyFor(span *orchSpan, rest []*orchSpan, nodeKeys map[string]string, s
 	return ""
 }
 
-// isSubAgentInternal 判断 span key 是否属于某个子Agent 的内部子节点 (形如 "<subID>.model")。
-// 这些模型调用由 orchSubAgentProgress 负责实时透出, 图回调不再重复推送, 避免叠字。
-// subNodes 在 handler 构造后只读, 无需加锁。
-func (h *orchTraceHandler) isSubAgentInternal(key string) bool {
-	if i := strings.LastIndex(key, "."); i > 0 {
-		return h.subNodes[key[:i]]
-	}
-	return false
-}
-
 func (h *orchTraceHandler) OnStart(ctx context.Context, info *callbacks.RunInfo, _ callbacks.CallbackInput) context.Context {
 	if info == nil {
 		return ctx
@@ -1850,9 +1861,9 @@ func (h *orchTraceHandler) OnEndWithStreamOutput(ctx context.Context, info *call
 	var rawMsg *schema.Message
 	// 模型节点的回调流是"真实时"的 (图级节点拿到的是缓冲后的副本), 在这里把增量直推前端,
 	// 用户才能在模型生成期间看到内容; 图级输出稍后到达时由 orchSkipStreamed 去重。
-	// 子Agent 的模型增量已由其进度包装 (orchSubAgentProgress, 兼心跳) 实时透出,
-	// 这里若再推一次会与包装器的增量交错重复 (症状: "用户用户现在现在…" 叠字), 故跳过。
-	directStream := span.comp == "ChatModel" && !h.isSubAgentInternal(span.key)
+	// 主 Agent 与子Agent 的模型都走这条路径: 子Agent 的模型包装器已声明 IsCallbacksEnabled,
+	// ark 的回调同样挂在 "<subID>.model" 名下, 全程只有这一处 emit (不会与包装器叠加)。
+	directStream := span.comp == "ChatModel"
 	firstDelta := true
 	for {
 		chunk, err := output.Recv()

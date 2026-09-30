@@ -11,6 +11,8 @@ import (
 
 	coremodel "backend/model"
 
+	"github.com/cloudwego/eino/callbacks"
+	"github.com/cloudwego/eino/components"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
@@ -47,6 +49,59 @@ func (f *timedModel) Stream(_ context.Context, _ []*schema.Message, _ ...model.O
 }
 
 func (f *timedModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) { return f, nil }
+
+// selfCallbackModel 模拟 eino-ext ark 模型的回调协议 (线上唯一在用的模型提供方):
+// Stream 里 EnsureRunInfo 后自建 OnStart/OnEndWithStreamOutput, 且 OnEndWithStreamOutput
+// 在返回流时立即触发 (拿到的是实时副本), 并声明 IsCallbacksEnabled 让框架不再代发回调。
+// 子Agent 的模型包装器 (orchSubAgentProgress) 声明 IsCallbacksEnabled 后, 增量只可能
+// 来自这种"自带回调"的模型——这也是当初双路径重复没被 timedModel 抓住的原因:
+// timedModel 不自带回调, 走的是框架代发路径, 与线上 ark 的行为不同。
+type selfCallbackModel struct {
+	reasoningPieces []string
+	pieces          []string
+	delay           time.Duration
+	// received 记录每次收到的消息序列 (供断言模型是否被调用)
+	received [][]*schema.Message
+}
+
+func (f *selfCallbackModel) Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+	sr, err := f.Stream(ctx, in, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return schema.ConcatMessageStream(sr)
+}
+
+func (f *selfCallbackModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) { return f, nil }
+
+// IsCallbacksEnabled 与 ark 一致: 自带回调, 框架跳过 OnStart/OnEnd 包装
+func (f *selfCallbackModel) IsCallbacksEnabled() bool { return true }
+
+func (f *selfCallbackModel) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	f.received = append(f.received, in)
+	ctx = callbacks.EnsureRunInfo(ctx, "selfcb", components.ComponentOfChatModel)
+	sr, sw := schema.Pipe[*model.CallbackOutput](len(f.pieces) + len(f.reasoningPieces))
+	go func() {
+		defer sw.Close()
+		for _, p := range f.reasoningPieces {
+			time.Sleep(f.delay)
+			sw.Send(&model.CallbackOutput{Message: &schema.Message{Role: schema.Assistant, ReasoningContent: p}}, nil)
+		}
+		for _, p := range f.pieces {
+			time.Sleep(f.delay)
+			sw.Send(&model.CallbackOutput{Message: &schema.Message{Role: schema.Assistant, Content: p}}, nil)
+		}
+	}()
+	ctx = callbacks.OnStart(ctx, &model.CallbackInput{Messages: in})
+	ctx, nsr := callbacks.OnEndWithStreamOutput(ctx,
+		schema.StreamReaderWithConvert(sr, func(src *model.CallbackOutput) (callbacks.CallbackOutput, error) { return src, nil }))
+	return schema.StreamReaderWithConvert(nsr, func(src callbacks.CallbackOutput) (*schema.Message, error) {
+		if mo, ok := src.(*model.CallbackOutput); ok && mo.Message != nil {
+			return mo.Message, nil
+		}
+		return nil, schema.ErrNoValue
+	}), nil
+}
 
 // 观测: 主 Agent 的回答应当"边生成边流出", 而不是等整段生成完才一次性到达
 func TestOrchestrationStreamsAnswerIncrementally(t *testing.T) {
@@ -125,6 +180,79 @@ func TestOrchestrationStreamsAnswerIncrementally(t *testing.T) {
 	// 去重: 图级输出到达后不能再重复下发已推过的正文
 	if got := text.String(); got != "第一第二第三" {
 		t.Fatalf("正文重复下发或缺失, 累计=%q", got)
+	}
+}
+
+// 编排对话身份前言回归: ChatMode 下编排名称/简介要进主 Agent 系统提示词,
+// 模型才能从第一轮就知道自己的身份与职责 (此前这段内容只在前端欢迎气泡里);
+// 调试运行 (chatPreamble 为空) 不得注入, 保持画布定义原样。
+func TestOrchestrationChatPreambleInjected(t *testing.T) {
+	definition := `{
+	  "version": 1,
+	  "nodes": [
+	    {"id": "boss", "type": "agent", "name": "主管", "config": {"system_prompt": "你是主管"}},
+	    {"id": "out", "type": "end", "name": "输出", "config": {}}
+	  ],
+	  "edges": [
+	    {"source": "boss", "target": "out"}
+	  ]
+	}`
+	dsl, errs := validateOrchestrationDSL(definition)
+	if len(errs) > 0 {
+		t.Fatalf("validate err: %v", errs)
+	}
+
+	run := func(t *testing.T, preamble string) [][]*schema.Message {
+		t.Helper()
+		captured := &capturingModel{}
+		deps := compilerDeps{
+			getModel:    func(string) (model.ToolCallingChatModel, error) { return captured, nil },
+			buildTool:   func(string) (tool.BaseTool, error) { return nil, errors.New("no tool") },
+			sessionVars: func() map[string]any { return map[string]any{} },
+		}
+		c := &orchestrationCompiler{dsl: dsl, chatPreamble: preamble}
+		compiled, err := c.compile(context.Background(), deps)
+		if err != nil {
+			t.Fatalf("compile err: %v", err)
+		}
+		stream, err := compiled.runnable.Stream(context.Background(), schema.UserMessage("你好"))
+		if err != nil {
+			t.Fatalf("stream err: %v", err)
+		}
+		for {
+			_, err := stream.Recv()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				t.Fatalf("recv err: %v", err)
+			}
+		}
+		if len(captured.received) == 0 {
+			t.Fatalf("模型未被调用")
+		}
+		return captured.received
+	}
+
+	msgs := run(t, orchChatPreamble("学习小助手", "帮助用户背单词"))
+	system := msgs[0][0].Content
+	if !strings.Contains(system, "学习小助手") || !strings.Contains(system, "帮助用户背单词") {
+		t.Fatalf("身份前言未注入系统提示词: %q", system)
+	}
+	if !strings.Contains(system, "你是主管") {
+		t.Fatalf("画布系统提示词丢失: %q", system)
+	}
+
+	// 调试运行不注入
+	msgs = run(t, "")
+	if strings.Contains(msgs[0][0].Content, "编排助手") {
+		t.Fatalf("调试运行不应注入身份前言: %q", msgs[0][0].Content)
+	}
+
+	// 空简介时只注入名称身份
+	msgs = run(t, orchChatPreamble("学习小助手", ""))
+	if !strings.Contains(msgs[0][0].Content, "「学习小助手」编排助手") {
+		t.Fatalf("空简介时名称身份缺失: %q", msgs[0][0].Content)
 	}
 }
 
@@ -217,10 +345,14 @@ func TestOrchestrationChatHistoryInjected(t *testing.T) {
 	}
 }
 
-// 子Agent 增量回归: 子Agent 的模型被 orchSubAgentProgress 包装(实时透出 + 心跳),
-// 同时又会被图回调 OnEndWithStreamOutput 看到 (comp=ChatModel)。两条路径若都 emit,
-// 前端同一段思考/正文会被交错追加两次 (线上症状: "用户用户现在现在…" 的叠字)。
-// 期望: 思考与正文各恰好下发一次。
+// 子Agent 增量回归: 子Agent 的模型增量只允许一条发射路径——模型的流式回调
+// (orchTraceHandler.OnEndWithStreamOutput 的 directStream 分支)。历史上这里踩过两次坑:
+// ①框架代发的 "<subID>.model" 增量与包装器的透出叠加 ("用户用户现在现在…" 叠字);
+// ②包装器未声明 IsCallbacksEnabled 时, 框架清空节点 RunInfo 迫使 ark 自建空名字回调
+// span, 其实时增量与包装器的结尾补发叠成整段重复 (回答先流式一遍、结束再整段一遍)。
+// 现状: 包装器声明 IsCallbacksEnabled, 模型回调统一挂在 "<subID>.model" 下单次发射。
+// 用 selfCallbackModel 模拟 ark (自带回调), timedModel 那种"靠框架代发"的假模型
+// 无法覆盖这条路径。
 func TestOrchestrationSubAgentDeltasNotDuplicated(t *testing.T) {
 	definition := `{
 	  "version": 1,
@@ -239,7 +371,7 @@ func TestOrchestrationSubAgentDeltasNotDuplicated(t *testing.T) {
 		t.Fatalf("validate err: %v", errs)
 	}
 	trace := newOrchTraceHandler(orchNodeKeysOf(dsl), orchSubAgentKeysOf(dsl), nil)
-	mm := &timedModel{
+	mm := &selfCallbackModel{
 		reasoningPieces: []string{"子想一", "子想二"},
 		pieces:          []string{"子答一", "子答二"},
 		delay:           10 * time.Millisecond,
@@ -315,7 +447,7 @@ func TestOrchestrationDelegationEmissionCount(t *testing.T) {
 		t.Fatalf("validate err: %v", errs)
 	}
 	mainModel := &scriptedToolModel{toolName: "subagent_1", args: `{"task":"查天气"}`, finalText: "最终答案"}
-	subModel := &timedModel{reasoningPieces: []string{"子想"}, pieces: []string{"天气问候语"}, delay: 0}
+	subModel := &selfCallbackModel{reasoningPieces: []string{"子想"}, pieces: []string{"天气问候语"}, delay: 0}
 	getN := 0
 	deps := compilerDeps{
 		getModel: func(string) (model.ToolCallingChatModel, error) {

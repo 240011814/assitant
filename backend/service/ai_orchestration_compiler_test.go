@@ -699,7 +699,9 @@ func TestOrchestrationSubAgentDelegationStreamingTextFirst(t *testing.T) {
 	if len(errs) > 0 {
 		t.Fatalf("validate err: %v", errs)
 	}
-	sub := &capturingModel{}
+	// 子Agent 的模型用自带回调的假模型 (模拟 ark): 包装器声明 IsCallbacksEnabled 后,
+	// 增量/事件都来自模型自身的回调切面, 挂在 "<subID>.model" 下
+	sub := &selfCallbackModel{reasoningPieces: []string{"子想"}, pieces: []string{"调研完成"}}
 	parent := &textThenToolCallModel{toolName: "subagent_1", args: `{"task":"调研上海"}`, text: "让我用调研方法帮你梳理思路。"}
 	builds := 0
 	deps := compilerDeps{

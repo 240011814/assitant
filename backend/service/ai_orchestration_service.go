@@ -172,7 +172,7 @@ func (s *AIOrchestrationService) Validate(definition string, userID uint) *Orche
 		return result
 	}
 	// 结构合法, 尝试完整编译捕获构建期错误
-	compiled, err := s.compile(context.Background(), userID, dsl, nil, nil)
+	compiled, err := s.compile(context.Background(), userID, dsl, nil, nil, "")
 	if err != nil {
 		result.Valid = false
 		result.Errors = append(result.Errors, err.Error())
@@ -249,13 +249,13 @@ func (s *AIOrchestrationService) validateDefinition(definition string) []string 
 	if len(errs) > 0 {
 		return errs
 	}
-	if _, err := s.compile(context.Background(), 0, dsl, nil, nil); err != nil {
+	if _, err := s.compile(context.Background(), 0, dsl, nil, nil, ""); err != nil {
 		return []string{err.Error()}
 	}
 	return nil
 }
 
-func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *OrchestrationDSL, trace *orchTraceHandler, history []*schema.Message) (*compiledOrchestration, error) {
+func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *OrchestrationDSL, trace *orchTraceHandler, history []*schema.Message, chatPreamble string) (*compiledOrchestration, error) {
 	deps := compilerDeps{
 		getModel:  s.agentService.GetToolCallingModel,
 		buildTool: s.agentService.BuildToolByName,
@@ -275,7 +275,7 @@ func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *
 			return &agent, nil
 		},
 	}
-	c := &orchestrationCompiler{dsl: dsl, trace: trace}
+	c := &orchestrationCompiler{dsl: dsl, trace: trace, chatPreamble: chatPreamble}
 	return c.compile(ctx, deps)
 }
 
@@ -394,6 +394,15 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 	runTag := fmt.Sprintf("orch=%d user=%d", orchID, userID)
 	orchLog("%s 开始调试运行: 历史轮次=%d 本轮输入=%.60q 定义长度=%d", runTag, len(history), req.Input, len(definition))
 
+	// 编排对话模式: 用编排名称/简介构造身份前言, 注入主 Agent 系统提示词。
+	// 这段内容此前只存在于前端欢迎气泡里, 模型从未见过, 首轮对话便"不知道自己是谁"。
+	chatPreamble := ""
+	if req.ChatMode {
+		if orch, err := s.Get(orchID); err == nil {
+			chatPreamble = orchChatPreamble(orch.Name, orch.Description)
+		}
+	}
+
 	dsl, errs := validateOrchestrationDSL(definition)
 	if len(errs) > 0 {
 		orchLog("%s 校验失败: %v", runTag, errs)
@@ -406,7 +415,7 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 	// 事件出口 (emit) 等编译成功后再注入, 避免编译期事件写到已关闭的 SSE
 	handler := newOrchTraceHandler(orchNodeKeysOf(dsl), orchSubAgentKeysOf(dsl), nil)
 
-	compiled, err := s.compile(ctx, userID, dsl, handler, history)
+	compiled, err := s.compile(ctx, userID, dsl, handler, history, chatPreamble)
 	if err != nil {
 		orchLog("%s 编译失败: %v", runTag, err)
 		emit("error", map[string]any{"message": err.Error()})
