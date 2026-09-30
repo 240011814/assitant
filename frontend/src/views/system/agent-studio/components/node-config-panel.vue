@@ -7,7 +7,7 @@ import { NODE_META, type OrchNodeType } from '../nodes/registry';
 
 const props = defineProps<{
   nodeId: string;
-  nodeType: 'agent' | 'tool' | 'template' | 'branch' | 'merge' | 'end';
+  nodeType: 'agent' | 'tool' | 'template' | 'branch' | 'merge' | 'end' | 'subagent';
   name: string;
   config: Record<string, any>;
   allNodes: FlowNode[];
@@ -26,8 +26,9 @@ function initLocal() {
   localName.value = props.name;
   const cfg = JSON.parse(JSON.stringify(props.config || {}));
   // 兼容历史数据缺省的数组/字符串字段, 避免受控组件值 undefined
-  if (props.nodeType === 'agent' && !Array.isArray(cfg.tools)) cfg.tools = [];
+  if ((props.nodeType === 'agent' || props.nodeType === 'subagent') && !Array.isArray(cfg.tools)) cfg.tools = [];
   if (props.nodeType === 'branch' && !Array.isArray(cfg.cases)) cfg.cases = [];
+  if (props.nodeType === 'subagent' && !cfg.agent_id) cfg.agent_id = 0;
   localConfig.value = cfg;
 }
 
@@ -57,6 +58,11 @@ const modelOptions = computed(() => [
 const otherNodeOptions = computed(() =>
   props.allNodes.filter(n => n.id !== props.nodeId).map(n => ({ label: String(n.data?.name || n.id), value: String(n.id) }))
 );
+
+const agentOptions = computed(() => [
+  { label: '内联定义 (下方系统提示词)', value: 0 },
+  ...(props.resources?.agents || []).map(a => ({ label: `#${a.id} ${a.title}`, value: a.id }))
+]);
 
 const branchTypeOptions = [
   { label: '包含 (contains)', value: 'contains' },
@@ -154,6 +160,45 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
       </NDynamicInput>
       <NFormItem label="默认分支" label-placement="left" label-width="72" size="small">
         <NSelect v-model:value="localConfig.default_target" :options="otherNodeOptions" size="small" placeholder="无条件命中时的目标" />
+      </NFormItem>
+    </template>
+
+    <!-- 子Agent 节点 -->
+    <template v-else-if="nodeType === 'subagent'">
+      <div class="text-11px text-gray-400">从主 Agent 拉线到本节点即建立委派; 主 Agent 运行时可按需调用子 Agent。</div>
+      <NFormItem label="引用 Agent" label-placement="left" label-width="72" size="small">
+        <NSelect v-model:value="localConfig.agent_id" :options="agentOptions" size="small" />
+      </NFormItem>
+      <NFormItem label="模型" label-placement="left" label-width="72" size="small">
+        <NSelect v-model:value="localConfig.model" :options="modelOptions" size="small" />
+      </NFormItem>
+      <NFormItem label="系统提示词" label-placement="left" label-width="72" size="small">
+        <NInput
+          v-model:value="localConfig.system_prompt"
+          type="textarea"
+          :rows="4"
+          size="small"
+          :placeholder="localConfig.agent_id ? '已引用 Agent, 将使用其系统提示词 (此处填写会被忽略)' : '子 Agent 的角色与任务指令'"
+        />
+      </NFormItem>
+      <NFormItem label="委派说明" label-placement="left" label-width="72" size="small">
+        <NInput
+          v-model:value="localConfig.description"
+          type="textarea"
+          :rows="2"
+          size="small"
+          placeholder="子 Agent 的职责说明, 供主 Agent 判断何时委派 (如: 负责联网调研)"
+        />
+      </NFormItem>
+      <NFormItem label="工具" label-placement="left" label-width="72" size="small">
+        <NSelect
+          v-model:value="localConfig.tools"
+          multiple
+          clearable
+          size="small"
+          :options="toolOptions"
+          placeholder="子 Agent 可调用的工具"
+        />
       </NFormItem>
     </template>
 

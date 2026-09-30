@@ -5,9 +5,10 @@ import TemplateNode from './template-node.vue';
 import BranchNode from './branch-node.vue';
 import MergeNode from './merge-node.vue';
 import EndNode from './end-node.vue';
+import SubAgentNode from './sub-agent-node.vue';
 
 /** 编排节点类型 (与后端 DSL 的 node.type 一致) */
-export type OrchNodeType = 'agent' | 'tool' | 'template' | 'branch' | 'merge' | 'end';
+export type OrchNodeType = 'agent' | 'tool' | 'template' | 'branch' | 'merge' | 'end' | 'subagent';
 
 export interface OrchNodeMeta {
   /** 画布与右键菜单展示名 */
@@ -63,6 +64,13 @@ export const NODE_META: Record<OrchNodeType, OrchNodeMeta> = {
     color: '#666666',
     defaultConfig: {},
     component: markRaw(EndNode)
+  },
+  subagent: {
+    label: '子Agent',
+    icon: 'mdi:account-group-outline',
+    color: '#0fa9a0',
+    defaultConfig: { agent_id: 0, model: '', system_prompt: '', description: '', tools: [] },
+    component: markRaw(SubAgentNode)
   }
 };
 

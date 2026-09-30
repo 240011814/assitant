@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"text/template"
 	"time"
+
+	coremodel "backend/model"
 
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components/model"
@@ -37,6 +40,9 @@ const (
 	OrchNodeBranch   = "branch"
 	OrchNodeMerge    = "merge"
 	OrchNodeEnd      = "end"
+	// OrchNodeSubAgent 子Agent: 挂在主 Agent 下 (连线 主Agent->子Agent),
+	// 编译为委派工具, 由主 Agent 的 ReAct 循环按需调用
+	OrchNodeSubAgent = "subagent"
 )
 
 type OrchestrationDSL struct {
@@ -87,6 +93,19 @@ type OrchBranchConfig struct {
 	DefaultTarget string           `json:"default_target"`
 }
 
+type OrchSubAgentConfig struct {
+	// AgentID 引用已有 AI Agent (ai_agents 表), 设置后以其系统提示词为子 Agent 指令
+	AgentID int `json:"agent_id"`
+	// Model 子 Agent 模型 code, 空=默认模型
+	Model string `json:"model"`
+	// SystemPrompt 内联系统提示词 (AgentID 为空时生效)
+	SystemPrompt string `json:"system_prompt"`
+	// Description 委派说明: 写入委派工具描述, 供主 Agent 判断何时委派
+	Description string `json:"description"`
+	// Tools 子 Agent 可调用的工具
+	Tools []string `json:"tools"`
+}
+
 type OrchMergeConfig struct {
 	// Separator 合并多个来源内容时的分隔符, 默认 "\n\n"
 	Separator string `json:"separator"`
@@ -106,11 +125,12 @@ type orchestrationCompiler struct {
 	deps compilerDeps
 	dsl  *OrchestrationDSL
 
-	adj     map[string][]string // source -> targets (按 DSL 连线顺序)
-	inDeg   map[string]int
-	outDeg  map[string]int
-	nodeMap map[string]*OrchestrationNode
-	topo    []string
+	adj      map[string][]string // source -> targets (全部连线, 含子Agent 委派边)
+	flowAdj  map[string][]string // source -> targets (仅主流连线, 不含子Agent)
+	inDeg    map[string]int
+	outDeg   map[string]int
+	nodeMap  map[string]*OrchestrationNode
+	topo     []string
 }
 
 func parseOrchestrationDSL(definition string) (*OrchestrationDSL, error) {
@@ -175,7 +195,7 @@ func (c *orchestrationCompiler) validate() []string {
 			n.Name = n.ID
 		}
 		switch n.Type {
-		case OrchNodeAgent, OrchNodeTool, OrchNodeTemplate, OrchNodeBranch, OrchNodeMerge, OrchNodeEnd:
+		case OrchNodeAgent, OrchNodeTool, OrchNodeTemplate, OrchNodeBranch, OrchNodeMerge, OrchNodeEnd, OrchNodeSubAgent:
 		default:
 			add("节点 %s 类型非法: %s", n.ID, n.Type)
 		}
@@ -208,11 +228,35 @@ func (c *orchestrationCompiler) validate() []string {
 		c.outDeg[e.Source]++
 	}
 
-	// 拓扑排序 + 环检测 (Kahn)
-	c.topo = make([]string, 0, len(c.nodeMap))
-	deg := make(map[string]int, len(c.inDeg))
+	// 拓扑排序 + 环检测 (Kahn): 子Agent 节点不属于主流程 (仅作为主 Agent 的委派挂载),
+	// 主流程的度按"目标非子Agent"的连线计算
+	isSub := map[string]bool{}
+	flowNodeCount := 0
 	for id := range c.nodeMap {
-		deg[id] = c.inDeg[id]
+		if c.nodeMap[id].Type == OrchNodeSubAgent {
+			isSub[id] = true
+			continue
+		}
+		flowNodeCount++
+	}
+	c.flowAdj = make(map[string][]string)
+	flowIn := make(map[string]int)
+	for src, ts := range c.adj {
+		for _, t := range ts {
+			if isSub[t] {
+				continue
+			}
+			c.flowAdj[src] = append(c.flowAdj[src], t)
+			flowIn[t]++
+		}
+	}
+	c.topo = make([]string, 0, flowNodeCount)
+	deg := make(map[string]int, flowNodeCount)
+	for id := range c.nodeMap {
+		if isSub[id] {
+			continue
+		}
+		deg[id] = flowIn[id]
 	}
 	queue := make([]string, 0, len(deg))
 	for id, d := range deg {
@@ -224,14 +268,14 @@ func (c *orchestrationCompiler) validate() []string {
 		id := queue[0]
 		queue = queue[1:]
 		c.topo = append(c.topo, id)
-		for _, t := range c.adj[id] {
+		for _, t := range c.flowAdj[id] {
 			deg[t]--
 			if deg[t] == 0 {
 				queue = append(queue, t)
 			}
 		}
 	}
-	if len(c.topo) != len(c.nodeMap) {
+	if len(c.topo) != flowNodeCount {
 		add("编排存在循环连线, 不允许成环 (Agent 节点内部的工具循环由 ReAct 自动处理)")
 		return errs
 	}
@@ -260,7 +304,7 @@ func (c *orchestrationCompiler) validate() []string {
 	inputCount, outputCount := 0, 0
 	for _, id := range c.topo {
 		n := c.nodeByID(id)
-		inDeg, outDeg := c.inDeg[id], c.outDeg[id]
+		inDeg, outDeg := flowIn[id], len(c.flowAdj[id])
 		switch n.Type {
 		case OrchNodeMerge:
 			if inDeg < 2 {
@@ -351,6 +395,40 @@ func (c *orchestrationCompiler) validate() []string {
 			outputCount++
 		}
 	}
+	// 子Agent 节点规则: 恰好一条来自 Agent 节点的入边 (委派), 不允许出边
+	for id := range c.nodeMap {
+		n := c.nodeByID(id)
+		if n.Type != OrchNodeSubAgent {
+			continue
+		}
+		if c.inDeg[id] != 1 {
+			add("子Agent 节点 %s 必须恰好有一条来自主 Agent 的入边", id)
+		} else {
+			for _, e := range c.dsl.Edges {
+				if e.Target != id {
+					continue
+				}
+				if src := c.nodeByID(e.Source); src == nil || src.Type != OrchNodeAgent {
+					add("子Agent 节点 %s 的入边必须来自 Agent 节点 (委派方向: 主 Agent -> 子Agent)", id)
+				}
+				break
+			}
+		}
+		if c.outDeg[id] > 0 {
+			add("子Agent 节点 %s 不允许向外连线", id)
+		}
+		var cfg OrchSubAgentConfig
+		if len(n.Config) > 0 {
+			if err := json.Unmarshal(n.Config, &cfg); err != nil {
+				add("子Agent 节点 %s 配置解析失败: %v", id, err)
+				continue
+			}
+		}
+		if cfg.AgentID == 0 && strings.TrimSpace(cfg.SystemPrompt) == "" {
+			add("子Agent 节点 %s 需要引用已有 Agent 或填写内联系统提示词", id)
+		}
+	}
+
 	if hasMerge {
 		if inputCount < 1 {
 			add("编排至少需要一个入口节点(无入边)")
@@ -505,7 +583,7 @@ func (c *orchestrationCompiler) compileGraph(ctx context.Context, lambdas map[st
 			}
 			continue
 		}
-		for _, t := range c.adj[id] {
+		for _, t := range c.flowAdj[id] {
 			if err := g.AddEdge(id, t); err != nil {
 				return nil, fmt.Errorf("连接 %s -> %s 失败: %w", id, t, err)
 			}
@@ -526,6 +604,9 @@ func (c *orchestrationCompiler) compileWorkflow(lambdas map[string]*compose.Lamb
 	}
 	inEdges := make(map[string][]OrchestrationEdge)
 	for _, e := range c.dsl.Edges {
+		if n := c.nodeByID(e.Target); n != nil && n.Type == OrchNodeSubAgent {
+			continue // 委派边不参与数据流
+		}
 		inEdges[e.Target] = append(inEdges[e.Target], e)
 	}
 	for _, id := range c.topo {
@@ -593,6 +674,120 @@ func orchPassthroughLambda() *compose.Lambda {
 		nil, nil,
 	)
 	return lambda
+}
+
+// subAgentIDsOf 返回挂载在主 Agent 下的子Agent 节点 id (按名称排序, 保证委派工具命名稳定)
+func (c *orchestrationCompiler) subAgentIDsOf(parentID string) []string {
+	var ids []string
+	for _, t := range c.adj[parentID] {
+		if n := c.nodeByID(t); n != nil && n.Type == OrchNodeSubAgent {
+			ids = append(ids, t)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		return c.nodeByID(ids[i]).Name < c.nodeByID(ids[j]).Name
+	})
+	return ids
+}
+
+// orchNewReactAgent 主 Agent 与子Agent 共用的 ReAct 构建入口
+func orchNewReactAgent(ctx context.Context, key, systemPrompt string, chatModel model.ToolCallingChatModel, tools []tool.BaseTool, maxStep int) (*react.Agent, error) {
+	return react.NewAgent(ctx, &react.AgentConfig{
+		ToolCallingModel: chatModel,
+		ToolsConfig: compose.ToolsNodeConfig{
+			Tools: tools,
+		},
+		MessageModifier: func(_ context.Context, input []*schema.Message) []*schema.Message {
+			msgs := orchNormalizeModelInput(input)
+			if systemPrompt == "" {
+				return msgs
+			}
+			return append([]*schema.Message{{Role: schema.System, Content: systemPrompt}}, msgs...)
+		},
+		// 子图名与编排节点 key 隔离, 避免图级 end 事件与节点自身 end 事件混淆
+		GraphName:     key + ".react",
+		ModelNodeName: key + ".model",
+		ToolsNodeName: key + ".tools",
+		MaxStep:       maxStep,
+	})
+}
+
+// buildSubReactAgent 构建子Agent 执行体: 引用已有 AI Agent 或内联提示词
+func (c *orchestrationCompiler) buildSubReactAgent(ctx context.Context, id string, cfg OrchSubAgentConfig) (*react.Agent, error) {
+	instruction := strings.TrimSpace(cfg.SystemPrompt)
+	desc := strings.TrimSpace(cfg.Description)
+	if cfg.AgentID > 0 {
+		var dbAgent coremodel.AIAgent
+		if err := DB.First(&dbAgent, cfg.AgentID).Error; err != nil {
+			return nil, fmt.Errorf("子Agent 节点 %s 引用的 Agent %d 不存在", id, cfg.AgentID)
+		}
+		instruction = dbAgent.SystemPrompt
+		if desc == "" {
+			desc = dbAgent.Description
+		}
+	}
+	if instruction == "" {
+		return nil, fmt.Errorf("子Agent 节点 %s 缺少可用的系统提示词", id)
+	}
+	instruction, err := orchRenderTemplate(id, instruction, c.deps.sessionVars())
+	if err != nil {
+		return nil, fmt.Errorf("子Agent 节点 %s 系统提示词渲染失败: %w", id, err)
+	}
+	chatModel, err := c.deps.getModel(cfg.Model)
+	if err != nil {
+		return nil, fmt.Errorf("子Agent 节点 %s 获取模型失败: %w", id, err)
+	}
+	subTools := make([]tool.BaseTool, 0, len(cfg.Tools))
+	for _, name := range cfg.Tools {
+		t, err := c.deps.buildTool(name)
+		if err != nil {
+			return nil, fmt.Errorf("子Agent 节点 %s 构建工具 %s 失败: %w", id, name, err)
+		}
+		subTools = append(subTools, t)
+	}
+	agent, err := orchNewReactAgent(ctx, id, instruction, chatModel, subTools, 15)
+	if err != nil {
+		return nil, fmt.Errorf("子Agent 节点 %s 构建失败: %w", id, err)
+	}
+	return agent, nil
+}
+
+// orchDelegateTool 把子Agent 包装成主 Agent 可调用的委派工具:
+// 主 Agent 以 {"task": "..."} 传任务, 子Agent 独立 ReAct 执行后返回文本结果
+type orchDelegateTool struct {
+	name    string
+	subName string
+	desc    string
+	agent   *react.Agent
+}
+
+func newOrchDelegateTool(name, subName, desc string, agent *react.Agent) *orchDelegateTool {
+	return &orchDelegateTool{name: name, subName: subName, desc: desc, agent: agent}
+}
+
+func (t *orchDelegateTool) Info(_ context.Context) (*schema.ToolInfo, error) {
+	return &schema.ToolInfo{
+		Name: t.name,
+		Desc: fmt.Sprintf("委派给子Agent「%s」处理: %s", t.subName, t.desc),
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"task": {Type: schema.String, Desc: "委派给该子Agent 的任务描述或问题", Required: true},
+		}),
+	}, nil
+}
+
+func (t *orchDelegateTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...tool.Option) (string, error) {
+	task := strings.TrimSpace(argumentsInJSON)
+	var args struct {
+		Task string `json:"task"`
+	}
+	if json.Unmarshal([]byte(task), &args) == nil && strings.TrimSpace(args.Task) != "" {
+		task = strings.TrimSpace(args.Task)
+	}
+	msg, err := t.agent.Generate(ctx, []*schema.Message{schema.UserMessage(task)})
+	if err != nil {
+		return "", fmt.Errorf("子Agent「%s」执行失败: %w", t.subName, err)
+	}
+	return msg.Content, nil
 }
 
 func (c *orchestrationCompiler) buildAgentLambda(ctx context.Context, n *OrchestrationNode) (*compose.Lambda, error) {

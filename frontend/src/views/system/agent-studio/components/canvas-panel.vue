@@ -51,26 +51,44 @@ const traceOf = computed(() => (id: string) => props.nodeTraces[id]);
 const nodeComponent = (type: string) => NODE_META[type as keyof typeof NODE_META]?.component;
 
 // ---------- 连线 ----------
-// 与后端校验规则一致: 非 merge 节点单入边、非 branch 节点单出边
+// 与后端校验规则一致: 非 merge 节点单入边、非 branch 节点单出边 (委派边除外);
+// Agent -> 子Agent 为委派边: 一个主 Agent 可委派多个子Agent, 子Agent 不可向外连线
+function nodeTypeOf(id?: string): string {
+  return nodes.value.find(n => n.id === id)?.data.nodeType || '';
+}
+
+function flowOutCount(source: string): number {
+  return edges.value.filter(e => e.source === source && nodeTypeOf(e.target) !== 'subagent').length;
+}
+
 function isValidConnection(connection: Connection): boolean {
   const { source, target } = connection;
   if (!source || !target || source === target) return false;
-  const sourceNode = nodes.value.find(n => n.id === source);
-  const targetNode = nodes.value.find(n => n.id === target);
-  if (!sourceNode || !targetNode) return false;
+  const sourceType = nodeTypeOf(source);
+  const targetType = nodeTypeOf(target);
+  if (sourceType === 'subagent') return false;
+  if (targetType === 'subagent') {
+    return sourceType === 'agent' && !edges.value.some(e => e.target === target);
+  }
   if (edges.value.some(e => e.source === source && e.target === target)) return false;
-  if (targetNode.data.nodeType !== 'merge' && edges.value.some(e => e.target === target)) return false;
-  if (sourceNode.data.nodeType !== 'branch' && edges.value.some(e => e.source === source)) return false;
+  if (targetType !== 'merge' && edges.value.some(e => e.target === target)) return false;
+  if (sourceType !== 'branch' && flowOutCount(source) >= 1) return false;
   return true;
 }
 
 function onConnect(connection: Connection) {
   if (!isValidConnection(connection)) {
-    const targetNode = nodes.value.find(n => n.id === connection.target);
-    const sourceNode = nodes.value.find(n => n.id === connection.source);
-    if (targetNode && targetNode.data.nodeType !== 'merge' && edges.value.some(e => e.target === connection.target)) {
+    const { source, target } = connection;
+    const sourceType = nodeTypeOf(source);
+    const targetType = nodeTypeOf(target);
+    if (sourceType === 'subagent') {
+      message.warning('子Agent 不能向外连线 (委派方向: 主 Agent -> 子Agent)');
+    } else if (targetType === 'subagent') {
+      if (sourceType !== 'agent') message.warning('子Agent 只能由 Agent 节点委派');
+      else message.warning('该子Agent 已有主 Agent');
+    } else if (targetType !== 'merge' && edges.value.some(e => e.target === target)) {
       message.warning('该节点已有一条入边 (多路合并请使用合并节点)');
-    } else if (sourceNode && sourceNode.data.nodeType !== 'branch' && edges.value.some(e => e.source === connection.source)) {
+    } else if (sourceType !== 'branch' && flowOutCount(source) >= 1) {
       message.warning('该节点已有一条出边 (多路分发请使用分支节点)');
     } else {
       message.warning('不允许的连线');
