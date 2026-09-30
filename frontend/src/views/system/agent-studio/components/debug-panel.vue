@@ -52,6 +52,9 @@ const message = useMessage();
 const input = ref('');
 const running = ref(false);
 const output = ref('');
+// 思考过程 (模型 reasoning 增量) 与正文分开: 默认折叠, 有内容时可展开
+const reasoning = ref('');
+const showReasoning = ref(true);
 const events = ref<DebugEvent[]>([]);
 const summary = ref<DebugSummary | null>(null);
 const liveTraces = ref<Record<string, NodeTrace>>({});
@@ -143,6 +146,7 @@ async function handleRun() {
   running.value = true;
   emit('running-change', true);
   output.value = '';
+  reasoning.value = '';
   events.value = [];
   summary.value = null;
   liveTraces.value = {};
@@ -202,6 +206,10 @@ async function handleRun() {
         }
         case 'delta':
           output.value += payload?.content || '';
+          break;
+        case 'reasoning':
+          // 思考增量: 单独累计并展示, 不混进最终输出
+          reasoning.value += payload?.content || '';
           break;
         case 'summary':
           summary.value = payload as DebugSummary;
@@ -343,6 +351,16 @@ onBeforeUnmount(() => {
         <div class="text-xs text-gray-500 flex items-center gap-2">
           <span>最终输出</span>
           <NTag v-if="summary" size="small" type="info" :bordered="false">{{ summary.mode }} · {{ summary.total_ms }}ms · {{ totalTokens }} tokens</NTag>
+          <NButton v-if="reasoning" size="tiny" quaternary @click="showReasoning = !showReasoning">
+            {{ showReasoning ? '隐藏思考' : '显示思考' }}
+          </NButton>
+        </div>
+        <!-- 思考过程: 模型 reasoning 增量, 边生成边追加 -->
+        <div v-if="reasoning && showReasoning" class="shrink-0 max-h-40 flex flex-col">
+          <div class="text-11px text-gray-400 mb-0.5">思考过程</div>
+          <NScrollbar class="min-h-0">
+            <pre class="text-xs whitespace-pre-wrap break-all m-0 p-2 rounded min-h-8 bg-amber-50 dark:bg-amber-900/20 text-gray-600 dark:text-gray-300">{{ reasoning }}</pre>
+          </NScrollbar>
         </div>
         <NScrollbar class="flex-1">
           <pre class="text-xs whitespace-pre-wrap break-all m-0 p-2 bg-gray-50 dark:bg-gray-800 rounded min-h-12">{{ output || '—' }}</pre>

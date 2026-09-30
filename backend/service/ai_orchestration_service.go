@@ -355,6 +355,8 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 
 	runCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
+	// handler 放进 ctx: 分支判定扫描模型流时要据它把增量文本实时推给前端
+	runCtx = withOrchHandler(runCtx, handler)
 
 	started := time.Now()
 	stream, runErr := compiled.runnable.Stream(runCtx, schema.UserMessage(req.Input), compose.WithCallbacks(handler))
@@ -381,10 +383,16 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 			}
 			break
 		}
-		if chunk.Content != "" {
-			full.WriteString(chunk.Content)
-			emit("delta", map[string]any{"content": chunk.Content})
+		if chunk.Content == "" {
+			continue
 		}
+		// 分支判定阶段已经实时推过的内容不再重复下发 (仅影响回放, full 仍保留完整文本)
+		content := orchSkipStreamed(handler, chunk.Content)
+		full.WriteString(chunk.Content)
+		if content == "" {
+			continue
+		}
+		emit("delta", map[string]any{"content": content})
 	}
 
 	summary := &DebugRunResult{

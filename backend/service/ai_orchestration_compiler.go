@@ -892,9 +892,9 @@ var orchStreamToolCallCheckerHook = orchStreamToolCallChecker
 
 // orchStreamToolCallChecker 判断流式输出里是否包含工具调用。
 // eino 默认的 firstChunkStreamToolCallChecker 只看第一个分片: 第一块是文本就直接判定
-// "没有工具调用", 而 GLM/Claude 这类模型是"先输出开场白文本, 再给 tool_calls",
+// "没有工具调用", 而 GLM/Claude 这类模型是"先输出文本, 再给 tool_calls",
 // 结果委派工具永远不被执行, ReAct 一轮就结束 (线上症状: 子Agent 从不触发, 只回一句开场白)。
-// 这里扫描完整流: 任一分片带 ToolCalls 即认为要调工具。
+// 因此这里扫描完整流 (纯判定, 不做转发: 分支拿到的流是"缓冲后"的, 见下)。
 func orchStreamToolCallChecker(_ context.Context, sr *schema.StreamReader[*schema.Message]) (bool, error) {
 	defer sr.Close()
 	for {
@@ -905,10 +905,30 @@ func orchStreamToolCallChecker(_ context.Context, sr *schema.StreamReader[*schem
 		if err != nil {
 			return false, err
 		}
-		if msg != nil && len(msg.ToolCalls) > 0 {
+		if msg == nil {
+			continue
+		}
+		if len(msg.ToolCalls) > 0 {
 			return true, nil
 		}
 	}
+}
+
+// orchHandlerKey ctx key: 承载编排调试 handler
+type orchHandlerKey struct{}
+
+// withOrchHandler 把 handler 放进 ctx (DebugRun 使用)
+func withOrchHandler(ctx context.Context, h *orchTraceHandler) context.Context {
+	return context.WithValue(ctx, orchHandlerKey{}, h)
+}
+
+// orchHandlerFromContext 从 ctx 取回 handler (没有调试运行时为 nil)
+func orchHandlerFromContext(ctx context.Context) *orchTraceHandler {
+	if ctx == nil {
+		return nil
+	}
+	h, _ := ctx.Value(orchHandlerKey{}).(*orchTraceHandler)
+	return h
 }
 
 // orchNewReactAgent 主 Agent 与子Agent 共用的 ReAct 构建入口
@@ -1059,7 +1079,25 @@ func (p *orchSubAgentProgress) Generate(ctx context.Context, in []*schema.Messag
 }
 
 func (p *orchSubAgentProgress) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
-	return p.model.Stream(ctx, in, opts...)
+	sr, err := p.model.Stream(ctx, in, opts...)
+	if err != nil || p.trace == nil {
+		return sr, err
+	}
+	// 实时透出子Agent 的思考与正文增量 (子Agent 走流式时用户即可看到它在写什么)
+	first := true
+	return schema.StreamReaderWithConvert(sr, func(m *schema.Message) (*schema.Message, error) {
+		if m != nil {
+			if m.ReasoningContent != "" {
+				p.trace.emitReasoningDelta(m.ReasoningContent)
+			}
+			if m.Content != "" {
+				p.trace.emitDelta(m.Content)
+				p.trace.markStreamed(len(m.Content), first)
+				first = false
+			}
+		}
+		return m, nil
+	}), nil
 }
 
 func (p *orchSubAgentProgress) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
@@ -1101,7 +1139,17 @@ func (t *orchDelegateTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		"kind": "node", "key": t.subID, "name": t.subName, "comp": "DelegateTool",
 		"owner": t.parentID, "status": "running", "delegated": true, "task": task,
 	})
-	msg, err := t.agent.Generate(runCtx, []*schema.Message{schema.UserMessage(task)})
+	// 走流式: 子Agent 的思考/正文可以实时透出 (Generate 不会产生任何增量)
+	sr, err := t.agent.Stream(runCtx, []*schema.Message{schema.UserMessage(task)})
+	if err != nil {
+		t.emitEvent(map[string]any{
+			"kind": "node", "key": t.subID, "name": t.subName, "comp": "DelegateTool",
+			"owner": t.parentID, "status": "error", "delegated": true, "error": err.Error(),
+		})
+		return "", fmt.Errorf("子Agent「%s」执行失败: %w", t.subName, err)
+	}
+	defer sr.Close()
+	msg, err := schema.ConcatMessageStream(sr)
 	if err != nil {
 		t.emitEvent(map[string]any{
 			"kind": "node", "key": t.subID, "name": t.subName, "comp": "DelegateTool",
@@ -1456,7 +1504,12 @@ type orchTraceHandler struct {
 	mu       sync.Mutex
 	emit     func(event string, payload any)
 	started  time.Time
+	// streamed 已被实时下发的文本长度 (模型节点流式回调直推), 图级输出据此去重
+	streamed int
 }
+
+// orchStreamProbeStart 探针基准时间 (仅 ORCH_DEBUG 下使用)
+var orchStreamProbeStart = time.Now()
 
 // orchLog 编排调试日志: 设 ORCH_LOG=1 (或 ORCH_DEBUG=1) 后打到 stderr,
 // ORCH_LOG_FILE 可同时落文件; 用于排查"事件推了/没推、归属对不对"
@@ -1507,6 +1560,68 @@ func (h *orchTraceHandler) setEmit(emit func(event string, payload any)) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.emit = emit
+}
+
+// emitDelta 实时推送模型增量文本 (模型节点流式回调里调用)
+func (h *orchTraceHandler) emitDelta(content string) {
+	if content == "" {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.emit != nil {
+		h.emit("delta", map[string]any{"content": content})
+	}
+}
+
+// emitReasoningDelta 推送模型思考(reasoning)增量: 前端折叠展示"思考过程"
+func (h *orchTraceHandler) emitReasoningDelta(content string) {
+	if content == "" {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.emit != nil {
+		h.emit("reasoning", map[string]any{"content": content})
+	}
+}
+
+// markStreamed 设定/追加"已实时下发"的文本长度 (按当前模型调用计, 图级输出据此去重)
+func (h *orchTraceHandler) markStreamed(n int, replace bool) {
+	if n <= 0 {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if replace {
+		h.streamed = n
+		return
+	}
+	h.streamed += n
+}
+
+// TakeStreamed 取出并清零"已实时下发"的长度
+func (h *orchTraceHandler) TakeStreamed() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := h.streamed
+	h.streamed = 0
+	return n
+}
+
+// orchSkipStreamed 按"已实时下发"的长度跳过重复内容并递减计数:
+// 同一段文本既走了模型节点回调(已实时推)又走了图级输出(此处)时, 保证只下发一次
+func orchSkipStreamed(h *orchTraceHandler, content string) string {
+	skip := h.TakeStreamed()
+	if skip <= 0 {
+		return content
+	}
+	if skip >= len(content) {
+		h.markStreamed(skip-len(content), true)
+		return ""
+	}
+	h.markStreamed(0, true)
+	return content[skip:]
 }
 
 func (h *orchTraceHandler) Needed(_ context.Context, _ *callbacks.RunInfo, timing callbacks.CallbackTiming) bool {
@@ -1625,12 +1740,29 @@ func (h *orchTraceHandler) OnEndWithStreamOutput(ctx context.Context, info *call
 	defer output.Close()
 	var mo *model.CallbackOutput
 	var rawMsg *schema.Message
+	// 模型节点的回调流是"真实时"的 (图级节点拿到的是缓冲后的副本), 在这里把增量直推前端,
+	// 用户才能在模型生成期间看到内容; 图级输出稍后到达时由 orchSkipStreamed 去重
+	directStream := span.comp == "ChatModel"
+	firstDelta := true
 	for {
 		chunk, err := output.Recv()
 		if err != nil {
 			break
 		}
 		if m := model.ConvCallbackOutput(chunk); m != nil {
+			if directStream && m.Message != nil {
+				// 思考(reasoning)与正文分开推: 前端可以折叠展示"思考过程"
+				if m.Message.ReasoningContent != "" {
+					h.emitReasoningDelta(m.Message.ReasoningContent)
+				}
+				if m.Message.Content != "" {
+					h.emitDelta(m.Message.Content)
+					// 计数按"本次模型调用"重置, 避免多个模型节点累计导致图级输出去重过度
+					h.markStreamed(len(m.Message.Content), firstDelta)
+					firstDelta = false
+				}
+			}
+			mo = m
 			mo = m
 			if m.Message != nil {
 				span.chunks = append(span.chunks, m.Message)
