@@ -7,7 +7,7 @@ export function fetchGetAIModels() {
   return request<Api.Admin.AIModel[]>({ url: "/api/ai/models" });
 }
 
-export function fetchGetUserPrompt(agentId: number) {
+export function fetchGetUserPrompt(agentId: number, nodeKey?: string) {
   return request<{
     effective_prompt: string;
     default_prompt: string;
@@ -15,6 +15,8 @@ export function fetchGetUserPrompt(agentId: number) {
     is_customized: boolean;
   }>({
     url: `/api/user-prompts/${agentId}`,
+    // node_key: 编排 Agent 节点的提示词版本 (画布节点 id), 缺省为普通用户提示词
+    params: nodeKey ? { node_key: nodeKey } : undefined
   });
 }
 
@@ -22,29 +24,38 @@ export function fetchSaveUserPrompt(
   agentId: number,
   prompt: string,
   remark?: string,
+  nodeKey?: string
 ) {
   return request({
     url: `/api/user-prompts/${agentId}`,
     method: "post",
     data: { prompt, remark },
+    params: nodeKey ? { node_key: nodeKey } : undefined
   });
 }
 
-export function fetchSwitchUserPrompt(agentId: number, versionId: number) {
+export function fetchSwitchUserPrompt(
+  agentId: number,
+  versionId: number,
+  nodeKey?: string
+) {
   return request({
     url: `/api/user-prompts/${agentId}/switch`,
     method: "put",
     data: { version_id: versionId },
+    params: nodeKey ? { node_key: nodeKey } : undefined
   });
 }
 
 export function fetchDeleteUserPromptVersion(
   agentId: number,
   versionId: number,
+  nodeKey?: string
 ) {
   return request({
     url: `/api/user-prompts/${agentId}/versions/${versionId}`,
     method: "delete",
+    params: nodeKey ? { node_key: nodeKey } : undefined
   });
 }
 

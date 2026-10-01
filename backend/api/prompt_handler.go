@@ -23,13 +23,15 @@ func (h *PromptHandler) GetUserPrompt(c *gin.Context) {
 		return
 	}
 
-	versions, err := h.promptSvc.ListVersions(userID, uint(agentID))
+	nodeKey := c.Query("node_key")
+	ownerID := promptOwnerID(userID, nodeKey)
+	versions, err := h.promptSvc.ListVersions(ownerID, uint(agentID), nodeKey)
 	if err != nil {
 		SendError(c, "500", "获取版本列表失败: "+err.Error())
 		return
 	}
 
-	effectivePrompt, _, _, err := h.promptSvc.GetEffectivePrompt(userID, uint(agentID))
+	effectivePrompt, _, _, err := h.promptSvc.GetEffectivePrompt(ownerID, uint(agentID), nodeKey)
 	if err != nil {
 		SendError(c, "500", "获取提示词失败: "+err.Error())
 		return
@@ -60,7 +62,7 @@ func (h *PromptHandler) SaveUserPrompt(c *gin.Context) {
 		return
 	}
 
-	if err := h.promptSvc.SaveUserPrompt(userID, uint(agentID), req.Prompt, req.Remark); err != nil {
+	if err := h.promptSvc.SaveUserPrompt(promptOwnerID(userID, c.Query("node_key")), uint(agentID), c.Query("node_key"), req.Prompt, req.Remark); err != nil {
 		SendError(c, "500", "保存失败: "+err.Error())
 		return
 	}
@@ -84,7 +86,7 @@ func (h *PromptHandler) SwitchUserPrompt(c *gin.Context) {
 		return
 	}
 
-	if err := h.promptSvc.SwitchVersion(userID, uint(agentID), req.VersionID); err != nil {
+	if err := h.promptSvc.SwitchVersion(promptOwnerID(userID, c.Query("node_key")), uint(agentID), c.Query("node_key"), req.VersionID); err != nil {
 		SendError(c, "500", "切换失败: "+err.Error())
 		return
 	}
@@ -106,7 +108,7 @@ func (h *PromptHandler) HandleDeleteVersion(c *gin.Context) {
 		return
 	}
 
-	if err := h.promptSvc.DeleteVersion(userID, uint(agentID), uint(versionID)); err != nil {
+	if err := h.promptSvc.DeleteVersion(promptOwnerID(userID, c.Query("node_key")), uint(agentID), c.Query("node_key"), uint(versionID)); err != nil {
 		SendError(c, "500", "删除失败: "+err.Error())
 		return
 	}
@@ -122,10 +124,20 @@ func (h *PromptHandler) ResetUserPrompt(c *gin.Context) {
 		return
 	}
 
-	if err := h.promptSvc.ResetUserPrompt(userID, uint(agentID)); err != nil {
+	if err := h.promptSvc.ResetUserPrompt(promptOwnerID(userID, c.Query("node_key")), uint(agentID), c.Query("node_key")); err != nil {
 		SendError(c, "500", "重置失败: "+err.Error())
 		return
 	}
 
 	SendSuccess(c, nil)
+}
+
+// promptOwnerID 归一化提示词版本的所有者:
+// 带 node_key (编排 Agent 节点) 时为编排全局共享, 固定 user_id=0 (系统级), 不区分用户;
+// 普通用户提示词按登录用户隔离
+func promptOwnerID(userID uint, nodeKey string) uint {
+	if nodeKey != "" {
+		return 0
+	}
+	return userID
 }

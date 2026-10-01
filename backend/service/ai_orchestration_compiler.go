@@ -181,6 +181,10 @@ type compilerDeps struct {
 	// chain 是当前编译链 (含正在编译的各编排 id, 不含 refID), 由编译器做循环引用/深度校验;
 	// keyPrefix 用于给嵌套编排的节点 key 加前缀 (同一编排被多处引用时按节点区分实例)
 	compileNested func(ctx context.Context, refID uint, chain []uint, keyPrefix string) (*compiledOrchestration, error)
+	// nodePrompt 解析 Agent 节点的用户提示词版本 (user_prompts 表, 键: 编排 id+节点 id,
+	// user_id 恒为 0 即编排全局共享)。存在启用版本时覆盖画布内联提示词,
+	// 与普通 Agent 的用户提示词覆盖语义一致; 未命中回退内联
+	nodePrompt func(nodeKey string) (string, bool)
 }
 
 // orchMaxNestDepth 子编排最大嵌套层数 (编译链上的编排个数上限)
@@ -1717,8 +1721,17 @@ func (c *orchestrationCompiler) buildAgentLambda(ctx context.Context, n *Orchest
 	}
 
 	vars := c.deps.sessionVars()
+	// 提示词版本: 该编排节点存在启用的提示词版本 (编排全局共享) 时, 覆盖画布内联提示词;
+	// 子编排嵌套时按嵌套编排自己的 id 解析
 	systemPrompt := cfg.SystemPrompt
+	if c.deps.nodePrompt != nil {
+		if v, ok := c.deps.nodePrompt(n.ID); ok && strings.TrimSpace(v) != "" {
+			orchLog("node prompt override node=%s 内联长度=%d -> 版本长度=%d", n.ID, len(cfg.SystemPrompt), len(v))
+			systemPrompt = v
+		}
+	}
 	if systemPrompt != "" {
+		var err error
 		systemPrompt, err = orchRenderTemplate(n.ID, systemPrompt, vars)
 		if err != nil {
 			return nil, fmt.Errorf("Agent 节点 %s 系统提示词渲染失败: %w", n.ID, err)

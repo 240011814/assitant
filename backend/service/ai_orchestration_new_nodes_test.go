@@ -492,6 +492,58 @@ func TestOrchestrationLoopValidation(t *testing.T) {
 	}
 }
 
+// ---------- 编排 Agent 节点提示词版本 ----------
+
+// 有启用的提示词版本时覆盖画布内联提示词; 无版本时回退内联
+func TestOrchestrationNodePromptOverride(t *testing.T) {
+	run := func(nodePrompt func(string) (string, bool)) string {
+		cm := &capturingModel{}
+		deps := orchTestDeps()
+		deps.getModel = func(string) (model.ToolCallingChatModel, error) { return cm, nil }
+		deps.nodePrompt = nodePrompt
+		dsl, errs := validateOrchestrationDSL(orchChainDSL)
+		if len(errs) > 0 {
+			t.Fatalf("校验失败: %v", errs)
+		}
+		c := &orchestrationCompiler{dsl: dsl}
+		compiled, err := c.compile(context.Background(), deps)
+		if err != nil {
+			t.Fatalf("编译失败: %v", err)
+		}
+		if _, err := compiled.runnable.Invoke(context.Background(), schema.UserMessage("hi")); err != nil {
+			t.Fatalf("运行失败: %v", err)
+		}
+		if len(cm.received) == 0 || len(cm.received[0]) == 0 {
+			t.Fatalf("模型未被调用")
+		}
+		sys := ""
+		for _, m := range cm.received[0] {
+			if m.Role == schema.System {
+				sys += m.Content
+			}
+		}
+		return sys
+	}
+
+	sys := run(func(nodeKey string) (string, bool) {
+		if nodeKey == "agent" {
+			return "你是来自提示词版本的助手", true
+		}
+		return "", false
+	})
+	if !strings.Contains(sys, "你是来自提示词版本的助手") {
+		t.Fatalf("版本提示词未生效: %q", sys)
+	}
+	if strings.Contains(sys, "你是测试助手") {
+		t.Fatalf("内联提示词应被版本覆盖: %q", sys)
+	}
+
+	sys = run(nil)
+	if !strings.Contains(sys, "你是测试助手") {
+		t.Fatalf("无版本时应使用画布内联提示词: %q", sys)
+	}
+}
+
 func mustParseOrchestrationDSL(t *testing.T, definition string) *OrchestrationDSL {
 	t.Helper()
 	dsl, errs := validateOrchestrationDSL(definition)

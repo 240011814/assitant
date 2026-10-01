@@ -1,9 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { NButton, NDynamicInput, NFormItem, NInput, NInputNumber, NSelect } from 'naive-ui';
+import { NButton, NDynamicInput, NFormItem, NInput, NInputNumber, NSelect, useMessage } from 'naive-ui';
 import type { Node as FlowNode } from '@vue-flow/core';
 import type { OrchestrationResource } from '@/service/api';
 import { NODE_META, type OrchNodeType } from '../nodes/registry';
+import {
+  fetchGetUserPrompt,
+  fetchSaveUserPrompt,
+  fetchSwitchUserPrompt,
+  fetchDeleteUserPromptVersion
+} from '@/service/api/ai';
+import { useAuth } from '@/hooks/business/auth';
 
 const props = defineProps<{
   nodeId: string;
@@ -141,6 +148,96 @@ const orchestrationOptions = computed(() =>
     })
 );
 
+// ---------- 提示词版本 (编排 Agent 节点, 与用户提示词共用 user_prompts 表) ----------
+const message = useMessage();
+const { hasAuth } = useAuth();
+const canManagePrompt = computed(() => hasAuth('ai:prompt:manage'));
+
+interface PromptVersion {
+  id: number;
+  version: number;
+  remark: string;
+  is_active: boolean;
+  custom_prompt: string;
+}
+const promptVersions = ref<PromptVersion[]>([]);
+const selectedVersionId = ref<number | null>(null);
+const promptVersionLoading = ref(false);
+const activeVersion = computed(() => promptVersions.value.find(v => v.is_active) || null);
+const promptVersionOptions = computed(() =>
+  promptVersions.value.map(v => ({
+    label: `v${v.version}${v.is_active ? ' (启用)' : ''}${v.remark ? ` — ${v.remark}` : ''}`,
+    value: v.id
+  }))
+);
+
+async function loadPromptVersions() {
+  if (props.nodeType !== 'agent' || !props.currentOrchId || !canManagePrompt.value) {
+    promptVersions.value = [];
+    return;
+  }
+  promptVersionLoading.value = true;
+  try {
+    const { data, error } = await fetchGetUserPrompt(props.currentOrchId, props.nodeId);
+    if (!error && data) {
+      promptVersions.value = (data.versions || []) as PromptVersion[];
+      selectedVersionId.value = promptVersions.value.find(v => v.is_active)?.id ?? null;
+    }
+  } finally {
+    promptVersionLoading.value = false;
+  }
+}
+
+watch(
+  () => [props.nodeType, props.nodeId, props.currentOrchId],
+  () => loadPromptVersions(),
+  { immediate: true }
+);
+
+async function handleSavePromptVersion() {
+  if (!props.currentOrchId) return;
+  const content = String(localConfig.value.system_prompt || '').trim();
+  if (!content) {
+    message.warning('画布提示词为空, 无法存为版本');
+    return;
+  }
+  const { error } = await fetchSaveUserPrompt(props.currentOrchId, content, '', props.nodeId);
+  if (error) {
+    message.error(error.message || '保存版本失败');
+    return;
+  }
+  message.success('已存为新版本并启用 (运行时以版本为准)');
+  loadPromptVersions();
+}
+
+async function handleSwitchPromptVersion() {
+  if (!props.currentOrchId || !selectedVersionId.value) {
+    message.warning('请先选择要启用的版本');
+    return;
+  }
+  const { error } = await fetchSwitchUserPrompt(props.currentOrchId, selectedVersionId.value, props.nodeId);
+  if (error) {
+    message.error(error.message || '切换版本失败');
+    return;
+  }
+  message.success('已切换启用版本');
+  loadPromptVersions();
+}
+
+async function handleDeletePromptVersion() {
+  if (!props.currentOrchId || !selectedVersionId.value) {
+    message.warning('请先选择要删除的版本');
+    return;
+  }
+  const { error } = await fetchDeleteUserPromptVersion(props.currentOrchId, selectedVersionId.value, props.nodeId);
+  if (error) {
+    message.error(error.message || '删除版本失败');
+    return;
+  }
+  message.success('已删除版本');
+  loadPromptVersions();
+}
+
 const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.label ?? props.nodeType} 节点`);
 </script>
 
@@ -172,6 +269,42 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
           placeholder="支持模板变量: {{.Input}} {{.current_time}} {{.user_id}} {{.user_profile}}"
         />
       </NFormItem>
+      <template v-if="nodeType === 'agent' && canManagePrompt">
+        <template v-if="currentOrchId">
+          <NFormItem label="提示词版本" label-placement="left" label-width="72" size="small">
+            <NSelect
+              v-model:value="selectedVersionId"
+              size="small"
+              clearable
+              :options="promptVersionOptions"
+              :loading="promptVersionLoading"
+              placeholder="历史版本 (仅管理, 不直接改写画布)"
+            />
+          </NFormItem>
+          <div class="flex gap-2 mb-1">
+            <NButton size="tiny" secondary @click="handleSavePromptVersion">存为新版本</NButton>
+            <NButton
+              size="tiny"
+              secondary
+              :disabled="!selectedVersionId || selectedVersionId === activeVersion?.id"
+              @click="handleSwitchPromptVersion"
+            >
+              启用所选
+            </NButton>
+            <NButton size="tiny" quaternary type="error" :disabled="!selectedVersionId" @click="handleDeletePromptVersion">
+              删除所选
+            </NButton>
+          </div>
+          <p class="text-11px leading-5 mb-1" :class="activeVersion ? 'text-orange-500' : 'text-gray-400'">
+            {{
+              activeVersion
+                ? `运行时以启用的版本 v${activeVersion.version} 为准, 覆盖上方画布提示词 (版本为编排全局共享, 不区分用户)。`
+                : '运行时使用上方画布提示词; 点「存为新版本」后, 所有用户运行时都以启用版本为准。'
+            }}
+          </p>
+        </template>
+        <p v-else class="text-11px text-gray-400 leading-5">编排保存后可在此维护提示词版本, 运行时以启用版本覆盖画布提示词。</p>
+      </template>
       <NFormItem label="工具" label-placement="left" label-width="72" size="small">
         <NSelect
           v-model:value="localConfig.tools"

@@ -315,6 +315,23 @@ func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *
 		compileNested: func(nestedCtx context.Context, refID uint, nestedChain []uint, keyPrefix string) (*compiledOrchestration, error) {
 			return s.compileNested(nestedCtx, userID, refID, trace, nestedChain, keyPrefix)
 		},
+		nodePrompt: func(nodeKey string) (string, bool) {
+			// 编排 Agent 节点的提示词版本: user_prompts 表, 键 = 编排 id + 节点 id,
+			// user_id 恒为 0 (编排全局共享, 不区分用户)。草稿 (orchID=0) 无版本可解析,
+			// 回退画布内联提示词
+			if orchID == 0 {
+				return "", false
+			}
+			var up model.UserPrompt
+			if err := DB.Where("user_id = ? AND agent_id = ? AND node_key = ? AND is_active = ?", 0, orchID, nodeKey, true).
+				First(&up).Error; err != nil {
+				return "", false
+			}
+			if strings.TrimSpace(up.CustomPrompt) == "" {
+				return "", false
+			}
+			return up.CustomPrompt, true
+		},
 	}
 	c := &orchestrationCompiler{dsl: dsl, trace: trace, chatPreamble: chatPreamble, chatMode: chatMode, orchChain: orchChain}
 	return c.compile(ctx, deps)
