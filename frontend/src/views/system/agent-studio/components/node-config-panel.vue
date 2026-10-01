@@ -30,6 +30,7 @@ function initLocal() {
   // 兼容历史数据缺省的数组/字符串字段, 避免受控组件值 undefined
   if ((props.nodeType === 'agent' || props.nodeType === 'subagent') && !Array.isArray(cfg.tools)) cfg.tools = [];
   if ((props.nodeType === 'branch' || props.nodeType === 'router') && !Array.isArray(cfg.cases)) cfg.cases = [];
+  if ((props.nodeType === 'branch' || props.nodeType === 'router') && cfg.max_loops == null) cfg.max_loops = 0;
   if (props.nodeType === 'subagent' && !cfg.agent_id) cfg.agent_id = 0;
   if (props.nodeType === 'suborch' && !cfg.orchestration_id) cfg.orchestration_id = 0;
   localConfig.value = cfg;
@@ -99,6 +100,11 @@ const hasSubAgentIncoming = computed(() => {
     e => e.source === props.nodeId && props.allNodes.find(n => n.id === e.target)?.data?.nodeType === 'subagent'
   );
 });
+
+// 分支/路由节点是否带循环回边 (orange 虚线边): 带回边时必须设置循环上限
+const hasLoopOutEdge = computed(() =>
+  (props.edges || []).some(e => e.source === props.nodeId && e.data?.kind === 'loop')
+);
 
 const branchTypeOptions = [
   { label: '包含 (contains)', value: 'contains' },
@@ -221,6 +227,14 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
       <NFormItem label="默认分支" label-placement="left" label-width="72" size="small">
         <NSelect v-model:value="localConfig.default_target" :options="otherNodeOptions" size="small" placeholder="无条件命中时的目标" />
       </NFormItem>
+      <template v-if="hasLoopOutEdge">
+        <NFormItem label="循环上限" label-placement="left" label-width="72" size="small">
+          <NInputNumber v-model:value="localConfig.max_loops" :min="1" :max="20" size="small" class="w-full" placeholder="回边最多执行次数" />
+        </NFormItem>
+        <p class="text-11px text-orange-500 leading-5 mb-1">
+          该分支带循环回边: 命中回边最多 {{ localConfig.max_loops || '?' }} 次, 超过后强制走退出分支 (防止评审一直不通过导致死循环)。
+        </p>
+      </template>
     </template>
 
     <!-- LLM 路由节点 -->
@@ -250,6 +264,14 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
       <NFormItem label="默认目标" label-placement="left" label-width="72" size="small">
         <NSelect v-model:value="localConfig.default_target" :options="otherNodeOptions" size="small" placeholder="模型输出无法归类时的目标" />
       </NFormItem>
+      <template v-if="hasLoopOutEdge">
+        <NFormItem label="循环上限" label-placement="left" label-width="72" size="small">
+          <NInputNumber v-model:value="localConfig.max_loops" :min="1" :max="20" size="small" class="w-full" placeholder="回边最多执行次数" />
+        </NFormItem>
+        <p class="text-11px text-orange-500 leading-5 mb-1">
+          该路由带循环回边: 命中回边最多 {{ localConfig.max_loops || '?' }} 次, 超过后强制走退出目标。
+        </p>
+      </template>
     </template>
 
     <!-- 字段提取节点 -->

@@ -244,6 +244,12 @@ async function handleRun() {
             applyNodeEvent(payload);
             break;
           }
+          if (payload?.loop) {
+            // 循环回边命中/强制退出: 展示轮次与去向
+            pushEvent('loop', `↻ ${payload?.name || payload?.key} ${payload?.content || ''}`, 'info');
+            applyNodeEvent(payload);
+            break;
+          }
           if (payload?.kind === 'start') {
             pushEvent('node', `▶ ${payload.key} (${payload.comp})`, 'info');
           } else {

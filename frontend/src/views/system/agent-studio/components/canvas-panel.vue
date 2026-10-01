@@ -77,7 +77,8 @@ function refTitle(data: any): string {
 
 // ---------- 连线 ----------
 // 与后端校验规则一致: 非 merge 节点单入边、非 branch/router 节点单出边 (委派边除外);
-// Agent -> 子Agent 为委派边: 一个主 Agent 可委派多个子Agent, 子Agent 不可向外连线
+// Agent -> 子Agent 为委派边: 一个主 Agent 可委派多个子Agent, 子Agent 不可向外连线;
+// branch/router -> 上游节点为循环回边 (构成受控循环, 由分支的 max_loops 限次)
 function nodeTypeOf(id?: string): string {
   return nodes.value.find(n => n.id === id)?.data.nodeType || '';
 }
@@ -85,8 +86,40 @@ function nodeTypeOf(id?: string): string {
 /** 多出线路由点: branch 与 router (LLM路由) */
 const MULTI_OUT_TYPES = new Set(['branch', 'router']);
 
+const edgeKindOf = (e: FlowEdge) => (e.data?.kind === 'loop' ? 'loop' : 'flow');
+
 function flowOutCount(source: string): number {
-  return edges.value.filter(e => e.source === source && nodeTypeOf(e.target) !== 'subagent').length;
+  return edges.value.filter(e => e.source === source && nodeTypeOf(e.target) !== 'subagent' && edgeKindOf(e) !== 'loop').length;
+}
+
+function hasLoopOutEdge(source: string): boolean {
+  return edges.value.some(e => e.source === source && edgeKindOf(e) === 'loop');
+}
+
+/** target 沿正向边能否到达 source: 能则 source->target 是一条回边 */
+function reachesForward(from: string, to: string): boolean {
+  const stack = [from];
+  const seen = new Set<string>();
+  while (stack.length) {
+    const cur = stack.pop()!;
+    if (cur === to) return true;
+    if (seen.has(cur)) continue;
+    seen.add(cur);
+    for (const e of edges.value) {
+      if (e.source === cur && edgeKindOf(e) !== 'loop') stack.push(e.target);
+    }
+  }
+  return false;
+}
+
+/** 能否从 source 到 target 建一条循环回边 (后端校验为准, 这里做同规则的前置判断) */
+function isValidLoopConnection(source: string, target: string): boolean {
+  if (source === target) return false;
+  if (!MULTI_OUT_TYPES.has(nodeTypeOf(source))) return false;
+  if (nodeTypeOf(target) === 'subagent') return false;
+  if (hasLoopOutEdge(source)) return false;
+  // 回边必须真的成环: target 沿正向边可达 source
+  return reachesForward(target, source);
 }
 
 function isValidConnection(connection: Connection): boolean {
@@ -99,6 +132,7 @@ function isValidConnection(connection: Connection): boolean {
     return sourceType === 'agent' && !edges.value.some(e => e.target === target);
   }
   if (edges.value.some(e => e.source === source && e.target === target)) return false;
+  if (isValidLoopConnection(source, target)) return true;
   if (targetType !== 'merge' && edges.value.some(e => e.target === target)) return false;
   if (!MULTI_OUT_TYPES.has(sourceType) && flowOutCount(source) >= 1) return false;
   return true;
@@ -114,8 +148,10 @@ function onConnect(connection: Connection) {
     } else if (targetType === 'subagent') {
       if (sourceType !== 'agent') message.warning('子Agent 只能由 Agent 节点委派');
       else message.warning('该子Agent 已有主 Agent');
+    } else if (MULTI_OUT_TYPES.has(sourceType) && hasLoopOutEdge(source!) && !edges.value.some(e => e.source === source && e.target === target)) {
+      message.warning('该节点已有一条循环回边 (每个分支/路由节点只能一条)');
     } else if (targetType !== 'merge' && edges.value.some(e => e.target === target)) {
-      message.warning('该节点已有一条入边 (多路合并请使用合并节点)');
+      message.warning('该节点已有一条入边 (多路合并请使用合并节点; 从分支/路由节点连回上游可建立循环回边)');
     } else if (!MULTI_OUT_TYPES.has(sourceType) && flowOutCount(source) >= 1) {
       message.warning('该节点已有一条出边 (多路分发请使用分支/LLM路由节点)');
     } else {
@@ -123,13 +159,20 @@ function onConnect(connection: Connection) {
     }
     return;
   }
-  edges.value = [...edges.value, {
-    id: `e_${Date.now().toString(36)}`,
-    source: connection.source!,
-    target: connection.target!,
-    sourceHandle: connection.sourceHandle || 'out',
-    targetHandle: connection.targetHandle || 'in'
-  }];
+  const { source, target } = connection;
+  const isLoop = isValidLoopConnection(source!, target!);
+  edges.value = [
+    ...edges.value,
+    {
+      id: `e_${Date.now().toString(36)}`,
+      source: source!,
+      target: target!,
+      sourceHandle: connection.sourceHandle || 'out',
+      targetHandle: connection.targetHandle || 'in',
+      data: isLoop ? { kind: 'loop' } : undefined,
+      class: isLoop ? 'orch-loop-edge' : undefined
+    }
+  ];
 }
 
 function onNodeClick(e: NodeMouseEvent) {
@@ -306,5 +349,13 @@ function menuAddNode(type: string) {
 }
 .ctx-menu-danger {
   color: #d03050;
+}
+</style>
+
+<style>
+/* 循环回边: 橙色虚线 (边渲染在 VueFlow 内部 SVG, 需用全局样式) */
+.orch-loop-edge .vue-flow__edge-path {
+  stroke: #d97706;
+  stroke-dasharray: 7 4;
 }
 </style>

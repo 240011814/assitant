@@ -17,6 +17,8 @@ export interface OrchEdge {
   source: string;
   target: string;
   label?: string;
+  /** kind 连线类型: flow(默认) 主流边; loop 循环回边 (分支/LLM路由指向更早节点, 限次执行) */
+  kind?: 'flow' | 'loop';
 }
 
 /** 编排 DSL (与后端 model.OrchestrationDSL 对应) */

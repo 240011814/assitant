@@ -61,7 +61,12 @@ function serializeDefinition(): string {
       config: n.data.config ?? {},
       position: { x: Math.round(n.position?.x ?? 0), y: Math.round(n.position?.y ?? 0) }
     })),
-    edges: flowEdges.value.map(e => ({ source: e.source, target: e.target, label: e.label || '' }))
+    edges: flowEdges.value.map(e => ({
+      source: e.source,
+      target: e.target,
+      label: e.label || '',
+      kind: e.data?.kind === 'loop' ? 'loop' : 'flow'
+    }))
   });
 }
 
@@ -82,7 +87,10 @@ function loadDefinition(definition: string) {
       target: e.target,
       sourceHandle: 'out',
       targetHandle: 'in',
-      label: e.label || undefined
+      label: e.label || undefined,
+      // 循环回边: data.kind 承载类型, class 用于虚线样式
+      data: e.kind === 'loop' ? { kind: 'loop' } : undefined,
+      class: e.kind === 'loop' ? 'orch-loop-edge' : undefined
     }));
   } catch {
     message.error('编排定义解析失败');

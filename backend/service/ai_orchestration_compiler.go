@@ -75,7 +75,16 @@ type OrchestrationEdge struct {
 	Target string `json:"target"`
 	// Label 画布连线上的标签 (branch 分支名等, 仅展示用)
 	Label string `json:"label"`
+	// Kind 连线类型: 空/"flow" 普通主流边; "loop" 循环回边 (仅 branch/router 可发出,
+	// 指向拓扑序更早的节点, 运行时构成受控循环, 由分支的 max_loops 限次)
+	Kind string `json:"kind,omitempty"`
 }
+
+// 连线类型
+const (
+	OrchEdgeFlow = "flow"
+	OrchEdgeLoop = "loop"
+)
 
 type OrchAgentConfig struct {
 	Model        string   `json:"model"`
@@ -102,6 +111,9 @@ type OrchBranchCase struct {
 type OrchBranchConfig struct {
 	Cases         []OrchBranchCase `json:"cases"`
 	DefaultTarget string           `json:"default_target"`
+	// MaxLoops 循环回边的最大执行次数 (该分支带 loop 边时必填):
+	// 回边命中超过该次数后强制走退出目标, 防止评审一直不通过导致死循环
+	MaxLoops int `json:"max_loops"`
 }
 
 type OrchSubAgentConfig struct {
@@ -139,6 +151,8 @@ type OrchRouterConfig struct {
 	Cases        []OrchRouterCase `json:"cases"`
 	// DefaultTarget 无标签命中 (含模型输出不可解析) 时的兜底目标
 	DefaultTarget string `json:"default_target"`
+	// MaxLoops 循环回边的最大执行次数 (该分支带 loop 边时必填), 语义同 OrchBranchConfig
+	MaxLoops int `json:"max_loops"`
 }
 
 type OrchExtractConfig struct {
@@ -191,13 +205,16 @@ type orchestrationCompiler struct {
 	extraNodeKeys map[string]string
 	extraSubNodes map[string]bool
 
-	adj     map[string][]string // source -> targets (全部连线, 含子Agent 委派边)
-	flowAdj map[string][]string // source -> targets (仅主流连线, 不含子Agent)
-	flowIn  map[string]int      // target -> 主流入度 (不含子Agent 委派边)
-	inDeg   map[string]int
-	outDeg  map[string]int
-	nodeMap map[string]*OrchestrationNode
-	topo    []string
+	adj map[string][]string // source -> targets (全部非回边连线, 含子Agent 委派边)
+	// loopEdges 循环回边: source (branch/router) -> 回边列表。
+	// 回边不参与主流程的拓扑/度计算, 单独做受控环校验 (方向/上限/唯一性)
+	loopEdges map[string][]OrchestrationEdge
+	flowAdj   map[string][]string // source -> targets (仅主流连线, 不含子Agent)
+	flowIn    map[string]int      // target -> 主流入度 (不含子Agent 委派边)
+	inDeg     map[string]int
+	outDeg    map[string]int
+	nodeMap   map[string]*OrchestrationNode
+	topo      []string
 }
 
 func parseOrchestrationDSL(definition string) (*OrchestrationDSL, error) {
@@ -264,6 +281,7 @@ func (c *orchestrationCompiler) validate() []string {
 
 	c.nodeMap = make(map[string]*OrchestrationNode, len(c.dsl.Nodes))
 	c.adj = make(map[string][]string)
+	c.loopEdges = make(map[string][]OrchestrationEdge)
 	c.inDeg = make(map[string]int)
 	c.outDeg = make(map[string]int)
 
@@ -271,7 +289,7 @@ func (c *orchestrationCompiler) validate() []string {
 		return []string{"编排至少需要一个节点"}
 	}
 
-	hasBranch, hasRouter, hasMerge := false, false, false
+	hasBranch, hasRouter, hasMerge, hasLoop := false, false, false, false
 	for i := range c.dsl.Nodes {
 		n := &c.dsl.Nodes[i]
 		if n.ID == "" {
@@ -319,13 +337,36 @@ func (c *orchestrationCompiler) validate() []string {
 			add("连线不允许自环: %s", e.Source)
 			continue
 		}
+		if e.Kind == OrchEdgeLoop {
+			src := c.nodeByID(e.Source)
+			if src.Type != OrchNodeBranch && src.Type != OrchNodeRouter {
+				add("循环回边 %s -> %s 只能从分支/LLM路由节点发出", e.Source, e.Target)
+				continue
+			}
+			if len(c.loopEdges[e.Source]) > 0 {
+				add("节点 %s 只允许一条循环回边", e.Source)
+				continue
+			}
+			if c.nodeByID(e.Target).Type == OrchNodeSubAgent {
+				add("循环回边 %s -> %s 不能指向子Agent 节点", e.Source, e.Target)
+				continue
+			}
+			c.loopEdges[e.Source] = append(c.loopEdges[e.Source], e)
+			continue
+		}
+		if e.Kind != "" && e.Kind != OrchEdgeFlow {
+			add("第 %d 条连线类型非法: %s (flow/loop)", i+1, e.Kind)
+			continue
+		}
 		c.adj[e.Source] = append(c.adj[e.Source], e.Target)
 		c.inDeg[e.Target]++
 		c.outDeg[e.Source]++
 	}
 
+	hasLoop = len(c.loopEdges) > 0
+
 	// 拓扑排序 + 环检测 (Kahn): 子Agent 节点不属于主流程 (仅作为主 Agent 的委派挂载),
-	// 主流程的度按"目标非子Agent"的连线计算
+	// 主流程的度按"目标非子Agent"的连线计算; 循环回边已在上一步剔除, 不参与拓扑
 	isSub := map[string]bool{}
 	flowNodeCount := 0
 	for id := range c.nodeMap {
@@ -380,8 +421,71 @@ func (c *orchestrationCompiler) validate() []string {
 		}
 	}
 	if len(c.topo) != flowNodeCount {
-		add("编排存在循环连线, 不允许成环 (Agent 节点内部的工具循环由 ReAct 自动处理)")
+		add("编排存在循环连线, 不允许成环 (循环请使用分支/LLM路由节点的循环回边; Agent 节点内部的工具循环由 ReAct 自动处理)")
 		return errs
+	}
+
+	// 受控环校验: 回边已从主流剔除, 这里按局部规则逐条检查。
+	// target 必须在剔除后的拓扑序中位于 source 之前 (保证真的成环, 而非绕过单出边的第二出边)
+	topoIndex := make(map[string]int, len(c.topo))
+	for i, id := range c.topo {
+		topoIndex[id] = i
+	}
+	if hasLoop && hasMerge {
+		add("当前版本暂不支持循环与合并混用, 请拆分为多个编排")
+	}
+	for src, edges := range c.loopEdges {
+		for _, le := range edges {
+			if ti, ok := topoIndex[le.Target]; !ok || ti >= topoIndex[src] {
+				add("循环回边 %s -> %s 的目标必须是主流程中位于该节点之前的节点 (构成循环)", le.Source, le.Target)
+				continue
+			}
+			var maxLoops int
+			if c.nodeByID(src).Type == OrchNodeBranch {
+				var cfg OrchBranchConfig
+				if json.Unmarshal(c.nodeByID(src).Config, &cfg) == nil {
+					maxLoops = cfg.MaxLoops
+				}
+			} else {
+				var cfg OrchRouterConfig
+				if json.Unmarshal(c.nodeByID(src).Config, &cfg) == nil {
+					maxLoops = cfg.MaxLoops
+				}
+			}
+			if maxLoops < 1 {
+				add("节点 %s 带循环回边, 必须设置循环上限 (max_loops >= 1)", src)
+			}
+			// 退出目标: 条件/默认目标中至少一个不是回边目标, 循环才有出口
+			exitExists := false
+			if c.nodeByID(src).Type == OrchNodeBranch {
+				var cfg OrchBranchConfig
+				if json.Unmarshal(c.nodeByID(src).Config, &cfg) == nil {
+					if cfg.DefaultTarget != le.Target && cfg.DefaultTarget != "" {
+						exitExists = true
+					}
+					for _, cs := range cfg.Cases {
+						if cs.Target != le.Target && c.nodeByID(cs.Target) != nil {
+							exitExists = true
+						}
+					}
+				}
+			} else {
+				var cfg OrchRouterConfig
+				if json.Unmarshal(c.nodeByID(src).Config, &cfg) == nil {
+					if cfg.DefaultTarget != le.Target && cfg.DefaultTarget != "" {
+						exitExists = true
+					}
+					for _, cs := range cfg.Cases {
+						if cs.Target != le.Target && c.nodeByID(cs.Target) != nil {
+							exitExists = true
+						}
+					}
+				}
+			}
+			if !exitExists {
+				add("节点 %s 的所有目标都是循环回边, 缺少退出目标", src)
+			}
+		}
 	}
 
 	// 预解析分支/路由目标: target node id -> branch/router node id
@@ -473,12 +577,17 @@ func (c *orchestrationCompiler) validate() []string {
 			} else {
 				targets[cfg.DefaultTarget] = true
 			}
-			if outDeg != len(targets) {
-				add("分支节点 %s 的画布连线(%d 条)与条件目标(%d 个)不一致, 分支节点必须连接到所有条件目标", id, outDeg, len(targets))
+			if outDeg+len(c.loopEdges[id]) != len(targets) {
+				add("分支节点 %s 的画布连线(%d 条, 含回边)与条件目标(%d 个)不一致, 分支节点必须连接到所有条件目标", id, outDeg+len(c.loopEdges[id]), len(targets))
 			}
 			for _, t := range c.adj[id] {
 				if !targets[t] {
 					add("分支节点 %s 连线目标 %s 未出现在分支条件中", id, t)
+				}
+			}
+			for _, le := range c.loopEdges[id] {
+				if !targets[le.Target] {
+					add("分支节点 %s 回边目标 %s 未出现在分支条件中", id, le.Target)
 				}
 			}
 		case OrchNodeRouter:
@@ -515,12 +624,17 @@ func (c *orchestrationCompiler) validate() []string {
 			} else {
 				targets[cfg.DefaultTarget] = true
 			}
-			if outDeg != len(targets) {
-				add("路由节点 %s 的画布连线(%d 条)与分类目标(%d 个)不一致, 路由节点必须连接到所有分类目标", id, outDeg, len(targets))
+			if outDeg+len(c.loopEdges[id]) != len(targets) {
+				add("路由节点 %s 的画布连线(%d 条, 含回边)与分类目标(%d 个)不一致, 路由节点必须连接到所有分类目标", id, outDeg+len(c.loopEdges[id]), len(targets))
 			}
 			for _, t := range c.adj[id] {
 				if !targets[t] {
 					add("路由节点 %s 连线目标 %s 未出现在分类中", id, t)
+				}
+			}
+			for _, le := range c.loopEdges[id] {
+				if !targets[le.Target] {
+					add("路由节点 %s 回边目标 %s 未出现在分类中", id, le.Target)
 				}
 			}
 		default:
@@ -681,6 +795,29 @@ func (c *orchestrationCompiler) compile(ctx context.Context, deps compilerDeps) 
 			hasMerge = true
 		}
 	}
+	// 循环回边只能出现在 graph 形态 (Workflow=AllPredecessor 不支持环, 校验已挡)
+	hasLoop := len(c.loopEdges) > 0
+
+	// 循环限步: 主流程节点数 + 每条回边的 (最大轮次 x 环长) + 余量。
+	// 超限由 eino 运行时硬性截断; 精确的轮次语义由回边 cond 的强制退出保证
+	maxRunSteps := 0
+	if hasLoop {
+		topoIndex := make(map[string]int, len(c.topo))
+		for i, id := range c.topo {
+			topoIndex[id] = i
+		}
+		maxRunSteps = len(c.topo) + 10
+		for src, edges := range c.loopEdges {
+			maxLoops := c.loopMaxLoops(src)
+			for _, le := range edges {
+				loopLen := topoIndex[src] - topoIndex[le.Target] + 1
+				if loopLen < 1 {
+					loopLen = 1
+				}
+				maxRunSteps += maxLoops * loopLen
+			}
+		}
+	}
 
 	// 预构建各节点 lambda; branch 节点是路由点, 编译时用 GraphBranch 实现
 	nodeKeys := make(map[string]string, len(c.dsl.Nodes))
@@ -733,8 +870,8 @@ func (c *orchestrationCompiler) compile(ctx context.Context, deps compilerDeps) 
 	switch {
 	case hasMerge:
 		return c.compileWorkflow(lambdas, nodeKeys, subNodes)
-	case hasBranch || hasRouter:
-		return c.compileGraph(ctx, lambdas, nodeKeys, subNodes)
+	case hasBranch || hasRouter || hasLoop:
+		return c.compileGraph(ctx, lambdas, nodeKeys, subNodes, maxRunSteps)
 	default:
 		return c.compileChain(lambdas, nodeKeys, subNodes)
 	}
@@ -752,7 +889,7 @@ func (c *orchestrationCompiler) compileChain(lambdas map[string]*compose.Lambda,
 	return &compiledOrchestration{runnable: runnable, mode: "chain", nodeKeys: nodeKeys, subNodes: subNodes, trace: c.trace}, nil
 }
 
-func (c *orchestrationCompiler) compileGraph(ctx context.Context, lambdas map[string]*compose.Lambda, nodeKeys map[string]string, subNodes map[string]bool) (*compiledOrchestration, error) {
+func (c *orchestrationCompiler) compileGraph(ctx context.Context, lambdas map[string]*compose.Lambda, nodeKeys map[string]string, subNodes map[string]bool, maxRunSteps int) (*compiledOrchestration, error) {
 	g := compose.NewGraph[*schema.Message, *schema.Message]()
 	for id, lambda := range lambdas {
 		if err := g.AddLambdaNode(id, lambda, compose.WithNodeName(id)); err != nil {
@@ -762,18 +899,20 @@ func (c *orchestrationCompiler) compileGraph(ctx context.Context, lambdas map[st
 	_ = lambdas
 	for _, id := range c.topo {
 		n := c.nodeByID(id)
-		if c.inDeg[id] == 0 {
+		// 入口/出口按主流度判断: 回边不计入 (回边目标若同时是入口, 仍需 START 供首轮进入)
+		if c.flowInOf(id) == 0 {
 			if err := g.AddEdge(compose.START, id); err != nil {
 				return nil, fmt.Errorf("连接入口 %s 失败: %w", id, err)
 			}
 		}
-		if c.outDeg[id] == 0 {
+		if c.flowOutOf(id) == 0 {
 			if err := g.AddEdge(id, compose.END); err != nil {
 				return nil, fmt.Errorf("连接出口 %s 失败: %w", id, err)
 			}
 		}
 		if n.Type == OrchNodeBranch || n.Type == OrchNodeRouter {
 			// 分支/路由节点到目标的路由由 GraphBranch 处理, 不建普通边
+			// (回边目标同样由 cond 返回, eino 的 pregel 执行模式支持向上游路由)
 			var cond func(_ context.Context, in *schema.Message) (string, error)
 			var endNodes map[string]bool
 			if n.Type == OrchNodeBranch {
@@ -816,6 +955,10 @@ func (c *orchestrationCompiler) compileGraph(ctx context.Context, lambdas map[st
 				}
 				endNodes[cfg.DefaultTarget] = true
 			}
+			// 带循环回边的分支: 包装 cond, 命中回边时计数/推事件, 超过上限强制走退出目标
+			if len(c.loopEdges[id]) > 0 {
+				cond = c.wrapLoopCond(id, n.Name, cond)
+			}
 			if err := g.AddBranch(id, compose.NewGraphBranch[*schema.Message](cond, endNodes)); err != nil {
 				return nil, fmt.Errorf("构建分支 %s 失败: %w", id, err)
 			}
@@ -827,11 +970,124 @@ func (c *orchestrationCompiler) compileGraph(ctx context.Context, lambdas map[st
 			}
 		}
 	}
-	runnable, err := g.Compile(ctx, compose.WithGraphName("orchestration"))
+	compileOpts := make([]compose.GraphCompileOption, 0, 2)
+	compileOpts = append(compileOpts, compose.WithGraphName("orchestration"))
+	if maxRunSteps > 0 {
+		// 循环图必须显式限步, 否则默认"节点数+10"跑不完多轮循环
+		compileOpts = append(compileOpts, compose.WithMaxRunSteps(maxRunSteps))
+	}
+	runnable, err := g.Compile(ctx, compileOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("Graph 编译失败: %w", err)
 	}
 	return &compiledOrchestration{runnable: runnable, mode: "graph", nodeKeys: nodeKeys, subNodes: subNodes, trace: c.trace}, nil
+}
+
+// wrapLoopCond 包装带循环回边的分支条件: 命中回边目标时计数并推送循环事件;
+// 命中次数超过 max_loops 后不再回环, 强制返回退出目标 (评审一直不通过时取当前结果出环)
+// 注意: 计数闭包按编译实例生效, 当前服务每次运行都会重新编译, 天然按次隔离
+func (c *orchestrationCompiler) wrapLoopCond(id, name string, inner func(_ context.Context, in *schema.Message) (string, error)) func(_ context.Context, in *schema.Message) (string, error) {
+	loopTargets := map[string]bool{}
+	for _, le := range c.loopEdges[id] {
+		loopTargets[le.Target] = true
+	}
+	exitTarget := c.loopExitTarget(id, loopTargets)
+	maxLoops := c.loopMaxLoops(id)
+	loops := 0
+	return func(ctx context.Context, in *schema.Message) (string, error) {
+		target, err := inner(ctx, in)
+		if err != nil {
+			return "", err
+		}
+		if !loopTargets[target] {
+			return target, nil
+		}
+		loops++
+		if loops > maxLoops {
+			orchLog("loop 强制退出 node=%s 第%d次命中回边超过上限%d -> %s", id, loops, maxLoops, exitTarget)
+			c.emitLoopEvent(id, name, maxLoops, exitTarget, true)
+			return exitTarget, nil
+		}
+		orchLog("loop 回边 node=%s 第%d/%d次 -> %s", id, loops, maxLoops, target)
+		c.emitLoopEvent(id, name, loops, target, false)
+		return target, nil
+	}
+}
+
+// loopMaxLoops 读取分支/路由节点配置的循环上限 (不带回边时为 0)
+func (c *orchestrationCompiler) loopMaxLoops(id string) int {
+	n := c.nodeByID(id)
+	if n == nil {
+		return 0
+	}
+	if n.Type == OrchNodeBranch {
+		var cfg OrchBranchConfig
+		if len(n.Config) > 0 && json.Unmarshal(n.Config, &cfg) == nil {
+			return cfg.MaxLoops
+		}
+		return 0
+	}
+	var cfg OrchRouterConfig
+	if len(n.Config) > 0 && json.Unmarshal(n.Config, &cfg) == nil {
+		return cfg.MaxLoops
+	}
+	return 0
+}
+
+// loopExitTarget 循环的退出目标: 条件目标里第一个非回边目标, 否则非回边的默认目标;
+// 校验保证带回边的分支至少有一个退出目标
+func (c *orchestrationCompiler) loopExitTarget(id string, loopTargets map[string]bool) string {
+	n := c.nodeByID(id)
+	if n == nil {
+		return ""
+	}
+	firstCaseTarget := func(target string) bool {
+		return target != "" && !loopTargets[target]
+	}
+	if n.Type == OrchNodeBranch {
+		var cfg OrchBranchConfig
+		if json.Unmarshal(n.Config, &cfg) == nil {
+			for _, cs := range cfg.Cases {
+				if firstCaseTarget(cs.Target) {
+					return cs.Target
+				}
+			}
+			if firstCaseTarget(cfg.DefaultTarget) {
+				return cfg.DefaultTarget
+			}
+		}
+		return ""
+	}
+	var cfg OrchRouterConfig
+	if json.Unmarshal(n.Config, &cfg) == nil {
+		for _, cs := range cfg.Cases {
+			if firstCaseTarget(cs.Target) {
+				return cs.Target
+			}
+		}
+		if firstCaseTarget(cfg.DefaultTarget) {
+			return cfg.DefaultTarget
+		}
+	}
+	return ""
+}
+
+// emitLoopEvent 推送循环回边的调试事件 (命中回边/强制退出时), 供前端展示循环轮次
+func (c *orchestrationCompiler) emitLoopEvent(id, name string, loops int, target string, forced bool) {
+	if c.trace == nil {
+		return
+	}
+	targetName := target
+	if n := c.nodeByID(target); n != nil && strings.TrimSpace(n.Name) != "" {
+		targetName = n.Name
+	}
+	content := fmt.Sprintf("循环第 %d 次 → %s", loops, targetName)
+	if forced {
+		content = fmt.Sprintf("已达最大循环次数(%d), 转出循环 → %s", loops, targetName)
+	}
+	c.trace.emitNodeEvent(map[string]any{
+		"kind": "node", "key": id, "name": name, "loop": true, "content": content,
+	})
 }
 
 func (c *orchestrationCompiler) compileWorkflow(lambdas map[string]*compose.Lambda, nodeKeys map[string]string, subNodes map[string]bool) (*compiledOrchestration, error) {
@@ -842,13 +1098,16 @@ func (c *orchestrationCompiler) compileWorkflow(lambdas map[string]*compose.Lamb
 	}
 	inEdges := make(map[string][]OrchestrationEdge)
 	for _, e := range c.dsl.Edges {
+		if e.Kind == OrchEdgeLoop {
+			continue // 回边不参与数据流 (校验已禁止循环与合并混用, 这里兜底)
+		}
 		if n := c.nodeByID(e.Target); n != nil && n.Type == OrchNodeSubAgent {
 			continue // 委派边不参与数据流
 		}
 		inEdges[e.Target] = append(inEdges[e.Target], e)
 	}
 	for _, id := range c.topo {
-		if c.inDeg[id] == 0 {
+		if c.flowInOf(id) == 0 {
 			_ = wfNodes[id].AddInput(compose.START)
 		}
 		if c.nodeByID(id).Type == OrchNodeMerge {
@@ -861,7 +1120,7 @@ func (c *orchestrationCompiler) compileWorkflow(lambdas map[string]*compose.Lamb
 		for _, e := range inEdges[id] {
 			_ = wfNodes[id].AddInput(e.Source)
 		}
-		if c.outDeg[id] == 0 {
+		if c.flowOutOf(id) == 0 {
 			_ = wf.End().AddInput(id)
 		}
 	}
@@ -1959,7 +2218,7 @@ func prefixOrchestrationDSL(dsl *OrchestrationDSL, prefix string) *Orchestration
 		if !okS || !okT {
 			continue // 悬挂连线交给校验报错
 		}
-		out.Edges = append(out.Edges, OrchestrationEdge{Source: src, Target: dst, Label: e.Label})
+		out.Edges = append(out.Edges, OrchestrationEdge{Source: src, Target: dst, Label: e.Label, Kind: e.Kind})
 	}
 	return out
 }

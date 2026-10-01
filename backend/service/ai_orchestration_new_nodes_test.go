@@ -396,6 +396,102 @@ func TestOrchestrationSubOrchWithDelegation(t *testing.T) {
 	}
 }
 
+// ---------- 循环回边 ----------
+
+// 草稿->评审->(不通过回边重写)->结束: max_loops 次后强制走退出分支
+const orchLoopDSL = `{
+  "version": 1,
+  "nodes": [
+    {"id": "tpl", "type": "template", "name": "草稿", "config": {"template": "{{.Input}}"}},
+    {"id": "br", "type": "branch", "name": "评审", "config": {"cases": [{"type": "contains", "value": "通过", "target": "out"}], "default_target": "tpl", "max_loops": 2}},
+    {"id": "out", "type": "end", "name": "输出", "config": {}}
+  ],
+  "edges": [
+    {"source": "tpl", "target": "br"},
+    {"source": "br", "target": "out"},
+    {"source": "br", "target": "tpl", "kind": "loop", "label": "不通过, 重写"}
+  ]
+}`
+
+func TestOrchestrationLoopRun(t *testing.T) {
+	// 命中退出条件: 一次都不回环
+	mode, output, err := runOrchDSL(t, orchLoopDSL, "通过了吗")
+	if err != nil {
+		t.Fatalf("loop exit run err: %v", err)
+	}
+	if mode != "graph" {
+		t.Fatalf("mode = %s, want graph", mode)
+	}
+	if strings.TrimSpace(output) != "通过了吗" {
+		t.Fatalf("output = %q, want 通过了吗", output)
+	}
+
+	// 永不命中: 回边执行 2 次 (max_loops) 后强制走退出分支, 不报错不死循环
+	mode, output, err = runOrchDSL(t, orchLoopDSL, "重写我")
+	if err != nil {
+		t.Fatalf("loop force-exit run err: %v", err)
+	}
+	if mode != "graph" {
+		t.Fatalf("mode = %s, want graph", mode)
+	}
+	if strings.TrimSpace(output) != "重写我" {
+		t.Fatalf("output = %q, want 重写我", output)
+	}
+}
+
+func TestOrchestrationLoopTrace(t *testing.T) {
+	dsl, errs := validateOrchestrationDSL(orchLoopDSL)
+	if len(errs) > 0 {
+		t.Fatalf("校验失败: %v", errs)
+	}
+	handler := newOrchTraceHandler(orchNodeKeysOf(dsl), orchSubAgentKeysOf(dsl), nil)
+	c := &orchestrationCompiler{dsl: dsl, trace: handler}
+	compiled, err := c.compile(context.Background(), orchTestDeps())
+	if err != nil {
+		t.Fatalf("编译失败: %v", err)
+	}
+	handler.mergeCompiled(compiled.nodeKeys, compiled.subNodes)
+	if _, err := compiled.runnable.Invoke(context.Background(), schema.UserMessage("重写我")); err != nil {
+		t.Fatalf("运行失败: %v", err)
+	}
+	var brTrace *OrchNodeTrace
+	for _, tr := range handler.NodeTraces() {
+		if tr.Key == "br" {
+			brTrace = tr
+		}
+	}
+	if brTrace == nil {
+		t.Fatalf("分支节点未出现在调试摘要: %v", handler.NodeTraces())
+	}
+	if !strings.Contains(brTrace.Content, "已达最大循环次数(2)") {
+		t.Fatalf("调试摘要缺少强制退出记录: %q", brTrace.Content)
+	}
+}
+
+func TestOrchestrationLoopValidation(t *testing.T) {
+	cases := []struct {
+		name string
+		dsl  string
+		want string
+	}{
+		{"回边来源非法", `{"nodes":[{"id":"tpl","type":"template","name":"t","config":{"template":"x"}},{"id":"br","type":"branch","name":"b","config":{"cases":[{"type":"contains","value":"a","target":"o"}],"default_target":"o","max_loops":2}},{"id":"o","type":"end","name":"o","config":{}}],"edges":[{"source":"tpl","target":"br"},{"source":"br","target":"o"},{"source":"tpl","target":"br","kind":"loop"}]}`, "只能从分支"},
+		{"回边方向向下", `{"nodes":[{"id":"tpl","type":"template","name":"t","config":{"template":"x"}},{"id":"br","type":"branch","name":"b","config":{"cases":[{"type":"contains","value":"m","target":"mid"}],"default_target":"out","max_loops":2}},{"id":"mid","type":"template","name":"m","config":{"template":"m"}},{"id":"out","type":"end","name":"o","config":{}}],"edges":[{"source":"tpl","target":"br"},{"source":"br","target":"mid"},{"source":"mid","target":"out"},{"source":"br","target":"out","kind":"loop"}]}`, "位于该节点之前"},
+		{"缺少循环上限", `{"nodes":[{"id":"tpl","type":"template","name":"t","config":{"template":"x"}},{"id":"br","type":"branch","name":"b","config":{"cases":[{"type":"contains","value":"a","target":"o"}],"default_target":"tpl"}},{"id":"o","type":"end","name":"o","config":{}}],"edges":[{"source":"tpl","target":"br"},{"source":"br","target":"o"},{"source":"br","target":"tpl","kind":"loop"}]}`, "max_loops"},
+		{"缺少退出目标", `{"nodes":[{"id":"tpl","type":"template","name":"t","config":{"template":"x"}},{"id":"br","type":"branch","name":"b","config":{"cases":[{"type":"contains","value":"a","target":"tpl"}],"default_target":"tpl","max_loops":2}}],"edges":[{"source":"tpl","target":"br"},{"source":"br","target":"tpl","kind":"loop"}]}`, "缺少退出目标"},
+		{"循环与合并混用", `{"nodes":[{"id":"tpl","type":"template","name":"t","config":{"template":"x"}},{"id":"br","type":"branch","name":"b","config":{"cases":[{"type":"contains","value":"a","target":"m"}],"default_target":"m","max_loops":1}},{"id":"m","type":"merge","name":"m","config":{}},{"id":"o","type":"end","name":"o","config":{}}],"edges":[{"source":"tpl","target":"br"},{"source":"br","target":"m"},{"source":"tpl","target":"m"},{"source":"m","target":"o"},{"source":"br","target":"tpl","kind":"loop"}]}`, "合并混用"},
+		{"连线类型非法", `{"nodes":[{"id":"a","type":"agent","name":"a","config":{}},{"id":"o","type":"end","name":"o","config":{}}],"edges":[{"source":"a","target":"o","kind":"back"}]}`, "连线类型非法"},
+	}
+	for _, tc := range cases {
+		_, errs := validateOrchestrationDSL(tc.dsl)
+		if len(errs) == 0 {
+			t.Fatalf("%s: 期望校验失败", tc.name)
+		}
+		if !strings.Contains(strings.Join(errs, ";"), tc.want) {
+			t.Fatalf("%s: 错误 %v 不含 %q", tc.name, errs, tc.want)
+		}
+	}
+}
+
 func mustParseOrchestrationDSL(t *testing.T, definition string) *OrchestrationDSL {
 	t.Helper()
 	dsl, errs := validateOrchestrationDSL(definition)
