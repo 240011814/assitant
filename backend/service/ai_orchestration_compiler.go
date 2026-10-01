@@ -181,6 +181,9 @@ type orchestrationCompiler struct {
 	// chatPreamble 编排对话模式的身份前言 (编排名称/简介), 追加进主 Agent 系统提示词;
 	// 调试/校验运行为空
 	chatPreamble string
+	// chatMode 编排对话模式: 入口模板未引用 {{.Input}} 时把用户输入补进渲染结果,
+	// 保证"用户说了什么"一定到达模型 (画布配置失误不能吞掉对话输入)
+	chatMode bool
 	// orchChain 当前编译链上的编排 id (含自身, 草稿为空): 子编排循环引用/深度检测用
 	orchChain []uint
 	// extraNodeKeys/extraSubNodes 编译子编排节点时发现的嵌套节点 key 与子Agent 集合
@@ -1569,6 +1572,10 @@ func (c *orchestrationCompiler) buildTemplateLambda(n *OrchestrationNode) (*comp
 	if err != nil {
 		return nil, fmt.Errorf("模板节点 %s 模板语法错误: %w", n.ID, err)
 	}
+	// 编排对话兜底: 入口模板若未引用 {{.Input}}, 渲染结果里没有用户消息, 模型只能看到
+	// 静态文案 (线上症状: 模型把模板里的身份文案当成用户消息, 真实问题从未到达)。
+	// 对话模式下把本轮用户输入补到渲染结果之后; 模板已引用 .Input 或调试/校验运行不加。
+	appendUserInput := c.chatMode && c.flowInOf(n.ID) == 0 && !strings.Contains(cfg.Template, ".Input")
 	vars := c.deps.sessionVars()
 	run := func(in *schema.Message) (*schema.Message, error) {
 		input := ""
@@ -1583,7 +1590,11 @@ func (c *orchestrationCompiler) buildTemplateLambda(n *OrchestrationNode) (*comp
 		if err := tpl.Execute(&sb, data); err != nil {
 			return nil, fmt.Errorf("模板 %s 渲染失败: %w", n.ID, err)
 		}
-		return &schema.Message{Role: schema.User, Content: sb.String()}, nil
+		content := sb.String()
+		if appendUserInput && strings.TrimSpace(input) != "" {
+			content += "\n\n【用户消息】" + input
+		}
+		return &schema.Message{Role: schema.User, Content: content}, nil
 	}
 	return compose.AnyLambda(
 		func(_ context.Context, in *schema.Message, _ ...any) (*schema.Message, error) { return run(in) },

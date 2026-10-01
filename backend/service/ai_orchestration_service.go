@@ -172,7 +172,7 @@ func (s *AIOrchestrationService) Validate(definition string, userID uint) *Orche
 		return result
 	}
 	// 结构合法, 尝试完整编译捕获构建期错误
-	compiled, err := s.compile(context.Background(), userID, dsl, nil, nil, "", 0, nil)
+	compiled, err := s.compile(context.Background(), userID, dsl, nil, nil, "", 0, nil, false)
 	if err != nil {
 		result.Valid = false
 		result.Errors = append(result.Errors, err.Error())
@@ -228,9 +228,29 @@ func orchCollectWarnings(dsl *OrchestrationDSL) []string {
 						"LLM 路由节点 %s 未填写判定规则, 模型只能凭标签名称分类, 相近意图容易误判", n.ID))
 				}
 			}
+		case OrchNodeTemplate:
+			var cfg OrchTemplateConfig
+			if len(n.Config) > 0 && json.Unmarshal(n.Config, &cfg) == nil {
+				// 入口模板没引用 {{.Input}} 时, 用户输入在入口就被丢弃:
+				// 模型只能看到模板里的静态文案, 对话必然答非所问
+				if !orchHasUpstreamEdge(dsl, n.ID) && !strings.Contains(cfg.Template, ".Input") {
+					warnings = append(warnings, fmt.Sprintf(
+						"入口模板节点 %s 未引用 {{.Input}}, 用户的输入不会进入模型 (对话会答非所问), 请在模板中引用 {{.Input}} 透传用户消息", n.ID))
+				}
+			}
 		}
 	}
 	return warnings
+}
+
+// orchHasUpstreamEdge 判断节点是否被任何连线指向 (无入边 = 入口节点)
+func orchHasUpstreamEdge(dsl *OrchestrationDSL, nodeID string) bool {
+	for _, e := range dsl.Edges {
+		if e.Target == nodeID {
+			return true
+		}
+	}
+	return false
 }
 
 // orchNodeKeysOf 编排节点 key -> 显示名 (含子Agent 节点): 调试事件的归属表,
@@ -258,15 +278,16 @@ func (s *AIOrchestrationService) validateDefinition(definition string, selfID ui
 	if len(errs) > 0 {
 		return errs
 	}
-	if _, err := s.compile(context.Background(), 0, dsl, nil, nil, "", selfID, nil); err != nil {
+	if _, err := s.compile(context.Background(), 0, dsl, nil, nil, "", selfID, nil, false); err != nil {
 		return []string{err.Error()}
 	}
 	return nil
 }
 
 // compile 编译编排 DSL。orchID 是编排自身 id (草稿为 0), chain 是编译链上层的
-// 编排 id: 子编排节点引用其他编排时递归编译, 依据二者做循环引用检测
-func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *OrchestrationDSL, trace *orchTraceHandler, history []*schema.Message, chatPreamble string, orchID uint, chain []uint) (*compiledOrchestration, error) {
+// 编排 id: 子编排节点引用其他编排时递归编译, 依据二者做循环引用检测。
+// chatMode 标记编排对话运行: 入口模板未引用 {{.Input}} 时兜底补入用户输入。
+func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *OrchestrationDSL, trace *orchTraceHandler, history []*schema.Message, chatPreamble string, orchID uint, chain []uint, chatMode bool) (*compiledOrchestration, error) {
 	// 编译链含自身: 子编排引用链上的任一编排 (含自己) 都算循环引用
 	orchChain := chain
 	if orchID > 0 {
@@ -294,7 +315,7 @@ func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *
 			return s.compileNested(nestedCtx, userID, refID, trace, nestedChain, keyPrefix)
 		},
 	}
-	c := &orchestrationCompiler{dsl: dsl, trace: trace, chatPreamble: chatPreamble, orchChain: orchChain}
+	c := &orchestrationCompiler{dsl: dsl, trace: trace, chatPreamble: chatPreamble, chatMode: chatMode, orchChain: orchChain}
 	return c.compile(ctx, deps)
 }
 
@@ -313,7 +334,7 @@ func (s *AIOrchestrationService) compileNested(ctx context.Context, userID uint,
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("子编排「%s」(%d) 定义校验失败: %s", agent.Title, refID, strings.Join(errs, "; "))
 	}
-	return s.compile(ctx, userID, prefixOrchestrationDSL(dsl, keyPrefix), trace, nil, "", refID, chain)
+	return s.compile(ctx, userID, prefixOrchestrationDSL(dsl, keyPrefix), trace, nil, "", refID, chain, false)
 }
 
 // Resources 画布可用资源: 工具/模型/Agent/Skill
@@ -473,7 +494,7 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 	// 事件出口 (emit) 等编译成功后再注入, 避免编译期事件写到已关闭的 SSE
 	handler := newOrchTraceHandler(orchNodeKeysOf(dsl), orchSubAgentKeysOf(dsl), nil)
 
-	compiled, err := s.compile(ctx, userID, dsl, handler, history, chatPreamble, orchID, nil)
+	compiled, err := s.compile(ctx, userID, dsl, handler, history, chatPreamble, orchID, nil, req.ChatMode)
 	if err != nil {
 		orchLog("%s 编译失败: %v", runTag, err)
 		emit("error", map[string]any{"message": err.Error()})

@@ -183,6 +183,138 @@ func TestOrchestrationStreamsAnswerIncrementally(t *testing.T) {
 	}
 }
 
+// 编排对话入口模板兜底回归: 入口模板未引用 {{.Input}} 时, 用户输入会在入口被丢弃
+// (线上症状: 模型把模板里的静态身份文案当成用户消息, 真实问题从未到达)。
+// 对话模式必须把本轮输入补进渲染结果; 调试模式保持画布原样; 模板已引用 .Input 时不重复。
+func TestOrchestrationChatEntryTemplateInputFallback(t *testing.T) {
+	staticEntry := `{
+	  "version": 1,
+	  "nodes": [
+	    {"id": "tpl", "type": "template", "name": "入口", "config": {"template": "你是ai助手，帮助用户解决各种问题"}},
+	    {"id": "boss", "type": "agent", "name": "主管", "config": {"system_prompt": "你是主管"}},
+	    {"id": "out", "type": "end", "name": "输出", "config": {}}
+	  ],
+	  "edges": [
+	    {"source": "tpl", "target": "boss"},
+	    {"source": "boss", "target": "out"}
+	  ]
+	}`
+	run := func(t *testing.T, definition string, chatMode bool) string {
+		t.Helper()
+		dsl, errs := validateOrchestrationDSL(definition)
+		if len(errs) > 0 {
+			t.Fatalf("validate err: %v", errs)
+		}
+		captured := &capturingModel{}
+		deps := compilerDeps{
+			getModel:    func(string) (model.ToolCallingChatModel, error) { return captured, nil },
+			buildTool:   func(string) (tool.BaseTool, error) { return nil, errors.New("no tool") },
+			sessionVars: func() map[string]any { return map[string]any{} },
+		}
+		c := &orchestrationCompiler{dsl: dsl, chatMode: chatMode}
+		compiled, err := c.compile(context.Background(), deps)
+		if err != nil {
+			t.Fatalf("compile err: %v", err)
+		}
+		stream, err := compiled.runnable.Stream(context.Background(), schema.UserMessage("今天天气"))
+		if err != nil {
+			t.Fatalf("stream err: %v", err)
+		}
+		for {
+			_, err := stream.Recv()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				t.Fatalf("recv err: %v", err)
+			}
+		}
+		if len(captured.received) == 0 {
+			t.Fatalf("模型未被调用")
+		}
+		// 末条消息 = Agent 收到的本轮用户消息 (首条是 system)
+		msgs := captured.received[0]
+		return msgs[len(msgs)-1].Content
+	}
+
+	// 对话模式: 模板文案与用户输入都要到达模型
+	got := run(t, staticEntry, true)
+	if !strings.Contains(got, "你是ai助手") || !strings.Contains(got, "今天天气") {
+		t.Fatalf("对话模式下用户输入未被兜底进模板输出: %q", got)
+	}
+	if !strings.Contains(got, "【用户消息】") {
+		t.Fatalf("兜底内容缺少用户消息标记: %q", got)
+	}
+
+	// 调试模式: 保持画布原样, 不追加 (画布作者能看到输入被丢弃的真相, 由校验警告提示)
+	got = run(t, staticEntry, false)
+	if strings.Contains(got, "今天天气") {
+		t.Fatalf("调试模式不应追加用户输入: %q", got)
+	}
+
+	// 模板已引用 {{.Input}} 时, 对话模式不重复追加
+	passthrough := strings.Replace(staticEntry, "你是ai助手，帮助用户解决各种问题", `请处理以下内容\n{{.Input}}`, 1)
+	got = run(t, passthrough, true)
+	if n := strings.Count(got, "今天天气"); n != 1 {
+		t.Fatalf("引用了 {{.Input}} 的入口模板不应重复追加用户输入, 出现 %d 次: %q", n, got)
+	}
+}
+
+// 校验警告回归: 入口模板未引用 {{.Input}} 必须给出警告; 已引用或非入口模板不警告
+func TestOrchestrationEntryTemplateInputWarning(t *testing.T) {
+	base := `{
+	  "version": 1,
+	  "nodes": [
+	    {"id": "tpl", "type": "template", "name": "入口", "config": {"template": %q}},
+	    {"id": "out", "type": "end", "name": "输出", "config": {}}
+	  ],
+	  "edges": [
+	    {"source": "tpl", "target": "out"}
+	  ]
+	}`
+
+	warnings := orchCollectWarnings(mustParseDSL(t, fmt.Sprintf(base, "你是ai助手")))
+	if len(warnings) == 0 || !strings.Contains(strings.Join(warnings, "; "), "{{.Input}}") {
+		t.Fatalf("入口模板缺 {{.Input}} 应产生警告: %v", warnings)
+	}
+
+	warnings = orchCollectWarnings(mustParseDSL(t, fmt.Sprintf(base, "请处理以下内容\n{{.Input}}")))
+	for _, w := range warnings {
+		if strings.Contains(w, "{{.Input}}") {
+			t.Fatalf("已引用 {{.Input}} 的入口模板不应警告: %v", warnings)
+		}
+	}
+
+	// 非入口模板 (有上游连线) 不警告
+	mid := `{
+	  "version": 1,
+	  "nodes": [
+	    {"id": "tpl1", "type": "template", "name": "改写", "config": {"template": "{{.Input}}"}},
+	    {"id": "tpl2", "type": "template", "name": "包装", "config": {"template": "固定文案"}},
+	    {"id": "out", "type": "end", "name": "输出", "config": {}}
+	  ],
+	  "edges": [
+	    {"source": "tpl1", "target": "tpl2"},
+	    {"source": "tpl2", "target": "out"}
+	  ]
+	}`
+	warnings = orchCollectWarnings(mustParseDSL(t, mid))
+	for _, w := range warnings {
+		if strings.Contains(w, "{{.Input}}") {
+			t.Fatalf("非入口模板不应触发 {{.Input}} 警告: %v", warnings)
+		}
+	}
+}
+
+func mustParseDSL(t *testing.T, definition string) *OrchestrationDSL {
+	t.Helper()
+	dsl, err := parseOrchestrationDSL(definition)
+	if err != nil {
+		t.Fatalf("parse err: %v", err)
+	}
+	return dsl
+}
+
 // 编排对话身份前言回归: ChatMode 下编排名称/简介要进主 Agent 系统提示词,
 // 模型才能从第一轮就知道自己的身份与职责 (此前这段内容只在前端欢迎气泡里);
 // 调试运行 (chatPreamble 为空) 不得注入, 保持画布定义原样。
