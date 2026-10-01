@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"backend/model"
+	"backend/service/tools"
 
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
@@ -517,6 +518,9 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 	defer cancel()
 	// handler 放进 ctx: 分支判定扫描模型流时要据它把增量文本实时推给前端
 	runCtx = withOrchHandler(runCtx, handler)
+	// 用户 ID 放进 ctx: 编排运行没有 ADK 会话, user_info/mem0/reminder 等工具
+	// 靠它拿当前用户 (普通对话经 runner.Run(WithSessionValues) 注入, 不走这条)
+	runCtx = tools.WithRunUserID(runCtx, userID)
 
 	stream, runErr := compiled.runnable.Stream(runCtx, schema.UserMessage(req.Input), compose.WithCallbacks(handler))
 	if runErr != nil {

@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 )
@@ -70,12 +69,10 @@ func (t *reminderTool) InvokableRun(ctx context.Context, arguments string, _ ...
 		return "", fmt.Errorf("解析参数失败: %w", err)
 	}
 
-	sessionValues := adk.GetSessionValues(ctx)
-	userIDVal, ok := sessionValues["user_id"]
-	if !ok {
-		return "", fmt.Errorf("无法获取用户 ID")
+	userID, err := userIDFromSession(ctx)
+	if err != nil {
+		return "", err
 	}
-	userID := userIDVal.(uint)
 
 	switch req.Action {
 	case "create":

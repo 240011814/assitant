@@ -38,16 +38,28 @@ func init() {
 }
 
 func userIDFromSession(ctx context.Context) (uint, error) {
-	sessionValues := adk.GetSessionValues(ctx)
-	userIDVal, ok := sessionValues["user_id"]
-	if !ok {
-		return 0, fmt.Errorf("无法获取用户 ID")
+	// 普通对话走 ADK Runner: 会话值由 runner.Run(WithSessionValues) 注入
+	if userIDVal, ok := adk.GetSessionValues(ctx)["user_id"]; ok {
+		userID, ok := userIDVal.(uint)
+		if !ok {
+			return 0, fmt.Errorf("用户 ID 类型错误")
+		}
+		return userID, nil
 	}
-	userID, ok := userIDVal.(uint)
-	if !ok {
-		return 0, fmt.Errorf("用户 ID 类型错误")
+	// 编排等非 ADK 运行时没有会话, 用户 ID 由运行入口显式放进 ctx (WithRunUserID)
+	if userID, ok := ctx.Value(runUserIDKey{}).(uint); ok && userID > 0 {
+		return userID, nil
 	}
-	return userID, nil
+	return 0, fmt.Errorf("无法获取用户 ID")
+}
+
+// runUserIDKey ctx key: 编排等非 ADK 运行时传给工具的用户 ID
+type runUserIDKey struct{}
+
+// WithRunUserID 在无 ADK 会话的运行时 (编排调试/编排对话) 里为工具提供用户身份。
+// 普通对话经 runner.Run(WithSessionValues) 注入, 不需要调用它。
+func WithRunUserID(ctx context.Context, userID uint) context.Context {
+	return context.WithValue(ctx, runUserIDKey{}, userID)
 }
 
 // ============ 查询工具 ============

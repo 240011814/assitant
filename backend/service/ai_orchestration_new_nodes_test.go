@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -300,6 +301,98 @@ func TestPrefixOrchestrationDSL(t *testing.T) {
 		if !strings.HasPrefix(e.Source, "so_n1_") || !strings.HasPrefix(e.Target, "so_n1_") {
 			t.Fatalf("连线未重写: %+v", e)
 		}
+	}
+}
+
+// 子编排内部的 agent→子Agent 委派: 外层画布 模板 -> 子编排 -> 结束,
+// 被引用编排是 "agent -> end (主流) + agent -> subagent (委派)"。
+// 断言: 编译通过、嵌套的子Agent 真的被委派执行、调试摘要里出现前缀化的子Agent 节点。
+func TestOrchestrationSubOrchWithDelegation(t *testing.T) {
+	innerDSL := `{
+	  "version": 1,
+	  "nodes": [
+	    {"id": "a1", "type": "agent", "name": "主管", "config": {"system_prompt": "你是主管"}},
+	    {"id": "s1", "type": "subagent", "name": "子Agent", "config": {"system_prompt": "你是子Agent", "description": "负责杂活"}},
+	    {"id": "o1", "type": "end", "name": "输出", "config": {}}
+	  ],
+	  "edges": [
+	    {"source": "a1", "target": "o1"},
+	    {"source": "a1", "target": "s1"}
+	  ]
+	}`
+	definition := `{
+	  "version": 1,
+	  "nodes": [
+	    {"id": "pre", "type": "template", "name": "前置", "config": {"template": "前置"}},
+	    {"id": "sub", "type": "suborch", "name": "嵌套", "config": {"orchestration_id": 7}},
+	    {"id": "out", "type": "end", "name": "输出", "config": {}}
+	  ],
+	  "edges": [
+	    {"source": "pre", "target": "sub"},
+	    {"source": "sub", "target": "out"}
+	  ]
+	}`
+
+	parent := &scriptedToolCallModel{toolName: "subagent_1", args: `{"task":"干活"}`}
+	builds := 0
+	innerDeps := compilerDeps{
+		getModel: func(string) (model.ToolCallingChatModel, error) {
+			builds++
+			if builds == 1 {
+				return parent, nil
+			}
+			return &capturingModel{}, nil
+		},
+		buildTool:   func(string) (tool.BaseTool, error) { return &fakeOrchTool{}, nil },
+		sessionVars: func() map[string]any { return map[string]any{} },
+	}
+
+	dsl, errs := validateOrchestrationDSL(definition)
+	if len(errs) > 0 {
+		t.Fatalf("外层定义校验失败: %v", errs)
+	}
+	handler := newOrchTraceHandler(orchNodeKeysOf(dsl), orchSubAgentKeysOf(dsl), nil)
+	outerDeps := orchTestDeps()
+	outerDeps.compileNested = func(ctx context.Context, refID uint, chain []uint, keyPrefix string) (*compiledOrchestration, error) {
+		if refID != 7 {
+			return nil, fmt.Errorf("意外引用 %d", refID)
+		}
+		inner, errs := validateOrchestrationDSL(innerDSL)
+		if len(errs) > 0 {
+			return nil, errors.New(strings.Join(errs, "; "))
+		}
+		sub := &orchestrationCompiler{dsl: prefixOrchestrationDSL(inner, keyPrefix), trace: handler}
+		return sub.compile(ctx, innerDeps)
+	}
+	c := &orchestrationCompiler{dsl: dsl, trace: handler}
+	compiled, err := c.compile(context.Background(), outerDeps)
+	if err != nil {
+		t.Fatalf("编译失败: %v", err)
+	}
+	handler.mergeCompiled(compiled.nodeKeys, compiled.subNodes)
+
+	msg, err := compiled.runnable.Invoke(context.Background(), schema.UserMessage("开始"))
+	if err != nil {
+		t.Fatalf("运行失败: %v", err)
+	}
+	if !strings.Contains(msg.Content, "主管总结完成") {
+		t.Fatalf("未拿到嵌套主管的最终回复: %q", msg.Content)
+	}
+	// 嵌套的子Agent 必须真的被委派, 且在调试摘要里以前缀化 key 独立成行
+	var subTrace *OrchNodeTrace
+	for _, tr := range handler.NodeTraces() {
+		if tr.Key == "so_sub_s1" {
+			subTrace = tr
+		}
+	}
+	if subTrace == nil {
+		t.Fatalf("嵌套子Agent 未出现在调试摘要: %v", handler.NodeTraces())
+	}
+	if !subTrace.Delegated {
+		t.Fatalf("嵌套子Agent 未被委派: %+v", subTrace)
+	}
+	if !strings.Contains(subTrace.Content, "chain step answer") {
+		t.Fatalf("嵌套子Agent 返回内容异常: %q", subTrace.Content)
 	}
 }
 
