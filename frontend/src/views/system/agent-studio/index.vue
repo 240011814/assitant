@@ -457,6 +457,7 @@ onMounted(() => {
           :all-nodes="flowNodes"
           :edges="flowEdges"
           :resources="resources"
+          :current-orch-id="currentId"
           @update:data="handleUpdateNodeData"
           @delete="handleDeleteNode"
         />

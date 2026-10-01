@@ -3,12 +3,15 @@ import AgentNode from './agent-node.vue';
 import ToolNode from './tool-node.vue';
 import TemplateNode from './template-node.vue';
 import BranchNode from './branch-node.vue';
+import RouterNode from './router-node.vue';
+import ExtractNode from './extract-node.vue';
 import MergeNode from './merge-node.vue';
 import EndNode from './end-node.vue';
 import SubAgentNode from './sub-agent-node.vue';
+import SubOrchNode from './sub-orch-node.vue';
 
 /** 编排节点类型 (与后端 DSL 的 node.type 一致) */
-export type OrchNodeType = 'agent' | 'tool' | 'template' | 'branch' | 'merge' | 'end' | 'subagent';
+export type OrchNodeType = 'agent' | 'tool' | 'template' | 'branch' | 'router' | 'extract' | 'merge' | 'end' | 'subagent' | 'suborch';
 
 export interface OrchNodeMeta {
   /** 画布与右键菜单展示名 */
@@ -51,6 +54,20 @@ export const NODE_META: Record<OrchNodeType, OrchNodeMeta> = {
     defaultConfig: { cases: [], default_target: '' },
     component: markRaw(BranchNode)
   },
+  router: {
+    label: 'LLM路由',
+    icon: 'mdi:routes',
+    color: '#c2410c',
+    defaultConfig: { model: '', instructions: '', cases: [], default_target: '' },
+    component: markRaw(RouterNode)
+  },
+  extract: {
+    label: '字段提取',
+    icon: 'mdi:code-json',
+    color: '#0e7490',
+    defaultConfig: { field: '', fallback: '' },
+    component: markRaw(ExtractNode)
+  },
   merge: {
     label: '合并',
     icon: 'mdi:call-merge',
@@ -71,6 +88,13 @@ export const NODE_META: Record<OrchNodeType, OrchNodeMeta> = {
     color: '#0fa9a0',
     defaultConfig: { agent_id: 0, model: '', system_prompt: '', description: '', tools: [] },
     component: markRaw(SubAgentNode)
+  },
+  suborch: {
+    label: '子编排',
+    icon: 'mdi:graph-outline',
+    color: '#7c3aed',
+    defaultConfig: { orchestration_id: 0 },
+    component: markRaw(SubOrchNode)
   }
 };
 

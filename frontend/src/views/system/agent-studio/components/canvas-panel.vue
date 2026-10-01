@@ -60,12 +60,30 @@ function refAgentTitle(data: any): string {
   return props.resources?.agents?.find(a => a.id === agentId)?.title || '';
 }
 
+/** 子编排节点被引用编排的名称 */
+function refOrchTitle(data: any): string {
+  const orchId = Number(data?.config?.orchestration_id || 0);
+  if (!orchId) return '';
+  return props.resources?.orchestrations?.find(o => o.id === orchId)?.name || '';
+}
+
+/** 被引用资源的显示名: 按节点类型取对应的资源列表 */
+function refTitle(data: any): string {
+  const type = data?.nodeType;
+  if (type === 'subagent') return refAgentTitle(data);
+  if (type === 'suborch') return refOrchTitle(data);
+  return '';
+}
+
 // ---------- 连线 ----------
-// 与后端校验规则一致: 非 merge 节点单入边、非 branch 节点单出边 (委派边除外);
+// 与后端校验规则一致: 非 merge 节点单入边、非 branch/router 节点单出边 (委派边除外);
 // Agent -> 子Agent 为委派边: 一个主 Agent 可委派多个子Agent, 子Agent 不可向外连线
 function nodeTypeOf(id?: string): string {
   return nodes.value.find(n => n.id === id)?.data.nodeType || '';
 }
+
+/** 多出线路由点: branch 与 router (LLM路由) */
+const MULTI_OUT_TYPES = new Set(['branch', 'router']);
 
 function flowOutCount(source: string): number {
   return edges.value.filter(e => e.source === source && nodeTypeOf(e.target) !== 'subagent').length;
@@ -82,7 +100,7 @@ function isValidConnection(connection: Connection): boolean {
   }
   if (edges.value.some(e => e.source === source && e.target === target)) return false;
   if (targetType !== 'merge' && edges.value.some(e => e.target === target)) return false;
-  if (sourceType !== 'branch' && flowOutCount(source) >= 1) return false;
+  if (!MULTI_OUT_TYPES.has(sourceType) && flowOutCount(source) >= 1) return false;
   return true;
 }
 
@@ -98,8 +116,8 @@ function onConnect(connection: Connection) {
       else message.warning('该子Agent 已有主 Agent');
     } else if (targetType !== 'merge' && edges.value.some(e => e.target === target)) {
       message.warning('该节点已有一条入边 (多路合并请使用合并节点)');
-    } else if (sourceType !== 'branch' && flowOutCount(source) >= 1) {
-      message.warning('该节点已有一条出边 (多路分发请使用分支节点)');
+    } else if (!MULTI_OUT_TYPES.has(sourceType) && flowOutCount(source) >= 1) {
+      message.warning('该节点已有一条出边 (多路分发请使用分支/LLM路由节点)');
     } else {
       message.warning('不允许的连线');
     }
@@ -216,7 +234,7 @@ function menuAddNode(type: string) {
           :selected="nodeProps.id === selectedId"
           :status="traceOf(nodeProps.id)?.status ?? null"
           :delegated="traceOf(nodeProps.id)?.delegated ?? false"
-          :title="refAgentTitle(nodeProps.data)"
+          :title="refTitle(nodeProps.data)"
         />
       </template>
     </VueFlow>

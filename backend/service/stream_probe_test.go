@@ -583,11 +583,11 @@ func TestOrchestrationStreamDedupeAcrossModelNodes(t *testing.T) {
 	handler.setEmit(func(string, any) {})
 
 	// 节点1 流式下发 "AAAA", 节点2 流式下发 "BBBB" (每次模型调用重新计数)
-	handler.markStreamed(4, true)
+	handler.markStreamed("AAAA", true)
 	if got := orchSkipStreamed(handler, "AAAA"); got != "" {
 		t.Fatalf("节点1 图级输出应被完全去重, got %q", got)
 	}
-	handler.markStreamed(4, true)
+	handler.markStreamed("BBBB", true)
 	// 节点2 的图级输出是 "BBBB": 不能被节点1 的计数吃掉
 	if got := orchSkipStreamed(handler, "BBBB"); got != "" {
 		t.Fatalf("节点2 图级输出应被去重, got %q", got)
@@ -596,9 +596,25 @@ func TestOrchestrationStreamDedupeAcrossModelNodes(t *testing.T) {
 	if got := orchSkipStreamed(handler, "CCCC"); got != "CCCC" {
 		t.Fatalf("计数耗尽后应完整下发, got %q", got)
 	}
-	// 部分重叠: 已下发 2 字节, 图级输出 4 字节 -> 只补后 2 字节
-	handler.markStreamed(2, true)
+	// 部分重叠: 已下发 "DD", 图级输出 "DDDD" -> 只补后 2 字节
+	handler.markStreamed("DD", true)
 	if got := orchSkipStreamed(handler, "DDDD"); got != "DD" {
 		t.Fatalf("应只补推未下发部分, got %q", got)
+	}
+}
+
+// 图级输出与已实时下发的文本不是同一段 (模型后接模板/提取等改写节点) 时,
+// 不能按前缀误伤: 改写后的内容必须完整下发
+func TestOrchestrationStreamDedupeSkipsOnlyMatchingPrefix(t *testing.T) {
+	handler := newOrchTraceHandler(map[string]string{"m": "模型", "t": "改写"}, nil, nil)
+	handler.setEmit(func(string, any) {})
+
+	handler.markStreamed("模型原始输出很长很长", true)
+	if got := orchSkipStreamed(handler, "改写后的开头"); got != "改写后的开头" {
+		t.Fatalf("改写后的图级输出不应被去重, got %q", got)
+	}
+	// 对不上之后计数应清零, 后续内容原样下发
+	if got := orchSkipStreamed(handler, "继续"); got != "继续" {
+		t.Fatalf("对不上后应原样下发, got %q", got)
 	}
 }

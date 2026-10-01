@@ -97,16 +97,21 @@ func orchTestDeps() compilerDeps {
 }
 
 func runOrchDSL(t *testing.T, definition, input string) (mode string, output string, err error) {
+	return runOrchDSLWithDeps(t, definition, input, orchTestDeps())
+}
+
+func runOrchDSLWithDeps(t *testing.T, definition, input string, deps compilerDeps) (mode string, output string, err error) {
 	t.Helper()
 	dsl, errs := validateOrchestrationDSL(definition)
 	if len(errs) > 0 {
 		return "", "", errors.New(strings.Join(errs, "; "))
 	}
 	c := &orchestrationCompiler{dsl: dsl, trace: newOrchTraceHandler(orchNodeKeysOf(dsl), orchSubAgentKeysOf(dsl), nil)}
-	compiled, err := c.compile(context.Background(), orchTestDeps())
+	compiled, err := c.compile(context.Background(), deps)
 	if err != nil {
 		return "", "", err
 	}
+	c.trace.mergeCompiled(compiled.nodeKeys, compiled.subNodes)
 	stream, err := compiled.runnable.Stream(context.Background(), schema.UserMessage(input))
 	if err != nil {
 		return compiled.mode, "", err

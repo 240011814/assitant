@@ -6,7 +6,7 @@ import { request as requestInstance } from '../request';
 /** 编排 DSL 节点 */
 export interface OrchNode {
   id: string;
-  type: 'agent' | 'tool' | 'template' | 'branch' | 'merge' | 'end' | 'subagent';
+  type: 'agent' | 'tool' | 'template' | 'branch' | 'router' | 'extract' | 'merge' | 'end' | 'subagent' | 'suborch';
   name: string;
   config: Record<string, any>;
   position?: { x: number; y: number };
@@ -58,6 +58,8 @@ export interface OrchestrationResource {
     delegation_description?: string;
   }[];
   skills: { name: string; description: string }[];
+  /** orchestrations 子编排节点可引用的已保存编排 (含未启用的, 运行时会报错) */
+  orchestrations: { id: number; name: string; description: string; enabled: boolean }[];
   node_types: { type: string; label: string; desc: string }[];
 }
 

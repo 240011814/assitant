@@ -89,7 +89,7 @@ func (s *AIOrchestrationService) Create(req *model.CreateAIOrchestrationRequest)
 	if strings.TrimSpace(req.Name) == "" {
 		return nil, errors.New("名称不能为空")
 	}
-	if errs := s.validateDefinition(req.Definition); len(errs) > 0 {
+	if errs := s.validateDefinition(req.Definition, 0); len(errs) > 0 {
 		return nil, errors.New("编排定义校验失败: " + strings.Join(errs, "; "))
 	}
 	enabled := true
@@ -135,7 +135,7 @@ func (s *AIOrchestrationService) Update(id uint, req *model.UpdateAIOrchestratio
 		updates["enabled"] = *req.Enabled
 	}
 	if req.Definition != nil {
-		if errs := s.validateDefinition(*req.Definition); len(errs) > 0 {
+		if errs := s.validateDefinition(*req.Definition, id); len(errs) > 0 {
 			return errors.New("编排定义校验失败: " + strings.Join(errs, "; "))
 		}
 		updates["definition"] = *req.Definition
@@ -172,7 +172,7 @@ func (s *AIOrchestrationService) Validate(definition string, userID uint) *Orche
 		return result
 	}
 	// 结构合法, 尝试完整编译捕获构建期错误
-	compiled, err := s.compile(context.Background(), userID, dsl, nil, nil, "")
+	compiled, err := s.compile(context.Background(), userID, dsl, nil, nil, "", 0, nil)
 	if err != nil {
 		result.Valid = false
 		result.Errors = append(result.Errors, err.Error())
@@ -220,6 +220,14 @@ func orchCollectWarnings(dsl *OrchestrationDSL) []string {
 						"子Agent 节点 %s 未填写「委派说明」(且被引用 Agent 的简介也为空), 主 Agent 只能凭节点名称判断是否委派, 很可能一直不调用它", n.ID))
 				}
 			}
+		case OrchNodeRouter:
+			var cfg OrchRouterConfig
+			if len(n.Config) > 0 && json.Unmarshal(n.Config, &cfg) == nil {
+				if strings.TrimSpace(cfg.Instructions) == "" {
+					warnings = append(warnings, fmt.Sprintf(
+						"LLM 路由节点 %s 未填写判定规则, 模型只能凭标签名称分类, 相近意图容易误判", n.ID))
+				}
+			}
 		}
 	}
 	return warnings
@@ -243,19 +251,27 @@ func orchNodeKeysOf(dsl *OrchestrationDSL) map[string]string {
 	return keys
 }
 
-// validateDefinition 完整校验(结构+编译), 返回错误列表
-func (s *AIOrchestrationService) validateDefinition(definition string) []string {
+// validateDefinition 完整校验(结构+编译), 返回错误列表;
+// selfID 是被校验编排自己的 id (草稿/新建传 0), 用于保存时检出子编排自引用
+func (s *AIOrchestrationService) validateDefinition(definition string, selfID uint) []string {
 	dsl, errs := validateOrchestrationDSL(definition)
 	if len(errs) > 0 {
 		return errs
 	}
-	if _, err := s.compile(context.Background(), 0, dsl, nil, nil, ""); err != nil {
+	if _, err := s.compile(context.Background(), 0, dsl, nil, nil, "", selfID, nil); err != nil {
 		return []string{err.Error()}
 	}
 	return nil
 }
 
-func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *OrchestrationDSL, trace *orchTraceHandler, history []*schema.Message, chatPreamble string) (*compiledOrchestration, error) {
+// compile 编译编排 DSL。orchID 是编排自身 id (草稿为 0), chain 是编译链上层的
+// 编排 id: 子编排节点引用其他编排时递归编译, 依据二者做循环引用检测
+func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *OrchestrationDSL, trace *orchTraceHandler, history []*schema.Message, chatPreamble string, orchID uint, chain []uint) (*compiledOrchestration, error) {
+	// 编译链含自身: 子编排引用链上的任一编排 (含自己) 都算循环引用
+	orchChain := chain
+	if orchID > 0 {
+		orchChain = append(append([]uint{}, chain...), orchID)
+	}
 	deps := compilerDeps{
 		getModel:  s.agentService.GetToolCallingModel,
 		buildTool: s.agentService.BuildToolByName,
@@ -274,9 +290,30 @@ func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *
 			}
 			return &agent, nil
 		},
+		compileNested: func(nestedCtx context.Context, refID uint, nestedChain []uint, keyPrefix string) (*compiledOrchestration, error) {
+			return s.compileNested(nestedCtx, userID, refID, trace, nestedChain, keyPrefix)
+		},
 	}
-	c := &orchestrationCompiler{dsl: dsl, trace: trace, chatPreamble: chatPreamble}
+	c := &orchestrationCompiler{dsl: dsl, trace: trace, chatPreamble: chatPreamble, orchChain: orchChain}
 	return c.compile(ctx, deps)
+}
+
+// compileNested 编译子编排节点引用的已保存编排:
+// 查库 -> 校验 -> 节点 id 加前缀隔离节点空间 -> 递归 compile (嵌套编排不注入对话历史与身份前言)
+func (s *AIOrchestrationService) compileNested(ctx context.Context, userID uint, refID uint, trace *orchTraceHandler, chain []uint, keyPrefix string) (*compiledOrchestration, error) {
+	var agent model.AIAgent
+	if err := DB.Where("agent_type = ? AND id = ?", model.AIAgentTypeOrchestration, refID).
+		First(&agent).Error; err != nil {
+		return nil, fmt.Errorf("引用的编排 %d 不存在", refID)
+	}
+	if !agent.Enabled {
+		return nil, fmt.Errorf("子编排「%s」(%d) 未启用", agent.Title, refID)
+	}
+	dsl, errs := validateOrchestrationDSL(agent.Definition)
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("子编排「%s」(%d) 定义校验失败: %s", agent.Title, refID, strings.Join(errs, "; "))
+	}
+	return s.compile(ctx, userID, prefixOrchestrationDSL(dsl, keyPrefix), trace, nil, "", refID, chain)
 }
 
 // Resources 画布可用资源: 工具/模型/Agent/Skill
@@ -335,19 +372,40 @@ func (s *AIOrchestrationService) Resources() (map[string]any, error) {
 		skillsRes = append(skillsRes, map[string]any{"name": sk.Name, "description": sk.Description})
 	}
 
+	// 子编排节点可引用的已保存编排 (含未启用的: 下拉可见, 编译/运行时报未启用)
+	var orchs []model.AIAgent
+	if err := DB.Where("agent_type = ?", model.AIAgentTypeOrchestration).
+		Select("id, title, description, enabled").
+		Order("updated_at DESC").Limit(200).Find(&orchs).Error; err != nil {
+		return nil, err
+	}
+	orchsRes := make([]map[string]any, 0, len(orchs))
+	for _, o := range orchs {
+		orchsRes = append(orchsRes, map[string]any{
+			"id":          o.ID,
+			"name":        o.Title,
+			"description": o.Description,
+			"enabled":     o.Enabled,
+		})
+	}
+
 	return map[string]any{
 		"tools":   toolsRes,
 		"models":  modelsRes,
 		"agents":  agentsRes,
 		"skills":  skillsRes,
+		"orchestrations": orchsRes,
 		"node_types": []map[string]string{
 			{"type": OrchNodeAgent, "label": "Agent", "desc": "LLM + 工具 ReAct 执行"},
 			{"type": OrchNodeTool, "label": "工具", "desc": "独立调用一个已启用工具"},
 			{"type": OrchNodeTemplate, "label": "模板", "desc": "组装/改写上游内容为用户消息"},
 			{"type": OrchNodeBranch, "label": "分支", "desc": "按条件路由到不同下游"},
+			{"type": OrchNodeRouter, "label": "LLM路由", "desc": "由模型对上游内容做意图分类, 按分类路由到不同下游"},
+			{"type": OrchNodeExtract, "label": "字段提取", "desc": "从上游 JSON 内容按字段路径抽取文本"},
 			{"type": OrchNodeMerge, "label": "合并", "desc": "汇聚多路上游输出"},
 			{"type": OrchNodeEnd, "label": "结束", "desc": "输出最终结果"},
 			{"type": OrchNodeSubAgent, "label": "子Agent", "desc": "挂载在主 Agent 下的委派子 Agent (主 Agent -> 子Agent 连线), 运行时由主 Agent 按需调用"},
+			{"type": OrchNodeSubOrch, "label": "子编排", "desc": "引用另一个已保存编排作为节点执行"},
 		},
 	}, nil
 }
@@ -415,13 +473,16 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 	// 事件出口 (emit) 等编译成功后再注入, 避免编译期事件写到已关闭的 SSE
 	handler := newOrchTraceHandler(orchNodeKeysOf(dsl), orchSubAgentKeysOf(dsl), nil)
 
-	compiled, err := s.compile(ctx, userID, dsl, handler, history, chatPreamble)
+	compiled, err := s.compile(ctx, userID, dsl, handler, history, chatPreamble, orchID, nil)
 	if err != nil {
 		orchLog("%s 编译失败: %v", runTag, err)
 		emit("error", map[string]any{"message": err.Error()})
 		emit("done", map[string]any{})
 		return nil
 	}
+	// 子编排节点编译时展开了嵌套编排: 把前缀化的节点 key/子Agent 集合并入归属表,
+	// 嵌套节点的事件才能正确进摘要 (在 setEmit 前完成, 事件出口尚未开启)
+	handler.mergeCompiled(compiled.nodeKeys, compiled.subNodes)
 	orchLog("%s 编译完成: mode=%s 节点=%d 主流节点=%d", runTag, compiled.mode, len(dsl.Nodes), len(compiled.nodeKeys))
 
 	emit("start", map[string]any{
