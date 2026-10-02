@@ -14,14 +14,19 @@ import (
 )
 
 type AuthService struct {
-	cfg *config.Config
+	cfg      *config.Config
+	throttle *LoginThrottle
 }
 
 func NewAuthService(cfg *config.Config) *AuthService {
-	return &AuthService{cfg: cfg}
+	return &AuthService{cfg: cfg, throttle: NewLoginThrottle()}
 }
 
 func (s *AuthService) Register(username, password string) (*model.LoginResponseData, error) {
+	if err := ValidatePasswordStrength(password); err != nil {
+		return nil, err
+	}
+
 	var existing model.User
 	if err := DB.Where("username = ?", username).First(&existing).Error; err == nil {
 		return nil, errors.New("用户名已存在")
@@ -59,15 +64,31 @@ func (s *AuthService) Register(username, password string) (*model.LoginResponseD
 	}, nil
 }
 
-func (s *AuthService) Login(username, password string) (interface{}, error) {
+// Login 用户名密码登录。
+// ip 用于按 IP 维度限流 (攻击者轮换用户名时仍能拦住);
+// 返回值中的 user 供登录审计使用 (2FA 场景凭据已通过, user 也非 nil)。
+func (s *AuthService) Login(username, password, ip string) (*model.User, interface{}, error) {
+	userKey := LoginThrottleKey("user", username)
+	ipKey := LoginThrottleKey("ip", ip)
+	// 锁定期间直接拒绝, 不再计数 (避免持续尝试无限延长锁定)
+	if !s.throttle.Allowed(userKey) || !s.throttle.Allowed(ipKey) {
+		return nil, nil, errors.New("登录失败次数过多, 已临时锁定, 请稍后再试")
+	}
+
 	var user model.User
 	if err := DB.Where("username = ?", username).First(&user).Error; err != nil {
-		return nil, errors.New("用户名或密码错误")
+		s.recordLoginFailure(userKey, ipKey)
+		return nil, nil, errors.New("用户名或密码错误")
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		return nil, errors.New("用户名或密码错误")
+		s.recordLoginFailure(userKey, ipKey)
+		return nil, nil, errors.New("用户名或密码错误")
 	}
+
+	// 凭据校验通过, 清除失败计数 (2FA 验证码的失败限流走 VerifyTOTP 的 uid 维度)
+	s.throttle.RecordSuccess(userKey)
+	s.throttle.RecordSuccess(ipKey)
 
 	// Check if 2FA is required for R_SUPER users
 	if user.Role == "R_SUPER" {
@@ -75,10 +96,10 @@ func (s *AuthService) Login(username, password string) (interface{}, error) {
 		if twoFAEnabled == "true" {
 			tempToken, err := s.generate2FATempToken(user)
 			if err != nil {
-				return nil, errors.New("生成临时令牌失败")
+				return nil, nil, errors.New("生成临时令牌失败")
 			}
 			needSetup := user.TotpSecret == nil
-			return &model.TwoFactorLoginResponse{
+			return &user, &model.TwoFactorLoginResponse{
 				Need2FA:   true,
 				TempToken: tempToken,
 				NeedSetup: needSetup,
@@ -89,22 +110,28 @@ func (s *AuthService) Login(username, password string) (interface{}, error) {
 	// Normal login (no 2FA)
 	token, err := s.generateToken(user, 2*time.Hour)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	refreshToken, err := s.generateRefreshToken(user)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Update last login time
 	now := time.Now()
 	DB.Model(&user).Update("last_login_at", now)
 
-	return &model.LoginResponseData{
+	return &user, &model.LoginResponseData{
 		Token:        token,
 		RefreshToken: refreshToken,
 	}, nil
+}
+
+func (s *AuthService) recordLoginFailure(keys ...string) {
+	for _, key := range keys {
+		s.throttle.RecordFailure(key)
+	}
 }
 
 func (s *AuthService) generateToken(user model.User, duration time.Duration) (string, error) {
@@ -242,6 +269,10 @@ func (s *AuthService) UpdateProfile(userId uint, nickname, email string) error {
 }
 
 func (s *AuthService) ChangePassword(userId uint, oldPassword, newPassword string) error {
+	if err := ValidatePasswordStrength(newPassword); err != nil {
+		return err
+	}
+
 	var user model.User
 	if err := DB.First(&user, userId).Error; err != nil {
 		return errors.New("用户不存在")
@@ -331,6 +362,12 @@ func (s *AuthService) SetupTOTP(userId uint) (*model.TwoFactorSetupResponse, err
 
 // VerifyTOTP validates a TOTP code and returns real login tokens
 func (s *AuthService) VerifyTOTP(userId uint, code string) (*model.LoginResponseData, error) {
+	// 6 位验证码可穷举, 按用户维度限流
+	uidKey := LoginThrottleKey("uid", fmt.Sprintf("%d", userId))
+	if !s.throttle.Allowed(uidKey) {
+		return nil, errors.New("尝试次数过多, 已临时锁定, 请稍后再试")
+	}
+
 	var user model.User
 	if err := DB.First(&user, userId).Error; err != nil {
 		return nil, errors.New("用户不存在")
@@ -341,8 +378,10 @@ func (s *AuthService) VerifyTOTP(userId uint, code string) (*model.LoginResponse
 	}
 
 	if !totp.Validate(code, *user.TotpSecret) {
+		s.throttle.RecordFailure(uidKey)
 		return nil, errors.New("验证码错误")
 	}
+	s.throttle.RecordSuccess(uidKey)
 
 	token, err := s.generateToken(user, 2*time.Hour)
 	if err != nil {

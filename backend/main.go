@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"backend/api"
@@ -155,6 +160,10 @@ func main() {
 		jobScheduler.RegisterTask("stock.evaluate_alerts", "评估自选股预警规则并推送 (建议每个交易日收盘后)", json.RawMessage(`{}`), func(_ *model.JobDefinition, _ json.RawMessage) error {
 			_, err := stockAlertService.EvaluateAll()
 			return err
+		})
+		// 操作审计日志清理 (默认种子任务: 每日 4 点, 保留 90 天, 可在任务管理页调整)
+		jobScheduler.RegisterTask("audit.cleanup", "清理过期的操作审计日志 (参数 retentionDays 为保留天数)", json.RawMessage(`{"retentionDays":90}`), func(_ *model.JobDefinition, params json.RawMessage) error {
+			return service.CleanupAuditLogs(params)
 		})
 	}
 
@@ -528,6 +537,9 @@ func main() {
 
 			// 操作审计日志 (只读查询)
 			adminGroup.GET("/audit-logs", api.RequirePermission("system:audit:view"), api.HandleListAuditLogs)
+
+			// 系统概览 (管理员视角统计)
+			adminGroup.GET("/dashboard", api.RequirePermission("system:dashboard:view"), dashboardHandler.GetAdminStats)
 		}
 	}
 
@@ -559,5 +571,32 @@ func main() {
 		jobScheduler.LoadCronDefinitions()
 	}
 
-	r.Run(":8080")
+	// 优雅停机: SIGINT/SIGTERM 后停止调度器、等在途请求完成、排空审计日志队列再退出
+	srv := &http.Server{Addr: ":8080", Handler: r}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("server error: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutting down server...")
+
+	if jobScheduler != nil {
+		if err := jobScheduler.Shutdown(); err != nil {
+			log.Printf("job scheduler shutdown: %v", err)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("server shutdown error: %v", err)
+	}
+
+	// srv.Shutdown 返回即所有在途请求已结束, 不会再有审计入队, 可安全排空
+	api.ShutdownAuditLogger()
+	log.Println("Server exited")
 }

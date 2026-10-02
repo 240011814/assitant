@@ -198,12 +198,41 @@ async function loadUsers() {
   const { data, error } = await fetchGetUsers({
     keyword: keyword.value,
     role: role.value || undefined,
+    page: pagination.page,
+    page_size: pagination.pageSize,
   });
-  if (!error) {
-    users.value = data;
+  if (!error && data) {
+    users.value = data.list;
+    pagination.itemCount = data.total;
   }
   loading.value = false;
 }
+
+function onPageChange(page: number) {
+  pagination.page = page;
+  loadUsers();
+}
+
+function onPageSizeChange(pageSize: number) {
+  pagination.pageSize = pageSize;
+  pagination.page = 1;
+  loadUsers();
+}
+
+function handleSearch() {
+  pagination.page = 1;
+  loadUsers();
+}
+
+const pagination = reactive({
+  page: 1,
+  pageSize: 10,
+  itemCount: 0,
+  showSizePicker: true,
+  pageSizes: [10, 20, 50],
+  onChange: onPageChange,
+  onUpdatePageSize: onPageSizeChange,
+});
 
 function resetForm() {
   editingUserId.value = null;
@@ -348,7 +377,7 @@ onMounted(async () => {
                 clearable
                 :placeholder="$t('page.system.user.searchPlaceholder')"
                 style="width: 260px"
-                @keyup.enter="loadUsers"
+                @keyup.enter="handleSearch"
               />
               <NSelect
                 v-if="hasRolePermission"
@@ -357,8 +386,9 @@ onMounted(async () => {
                 :options="roleOptions"
                 :placeholder="$t('page.system.user.role')"
                 style="width: 180px"
+                @update:value="handleSearch"
               />
-              <NButton type="primary" @click="loadUsers">
+              <NButton type="primary" @click="handleSearch">
                 <template #icon>
                   <SvgIcon icon="mdi:magnify" />
                 </template>
@@ -380,9 +410,9 @@ onMounted(async () => {
                 clearable
                 class="flex-1"
                 :placeholder="$t('page.system.user.searchPlaceholder')"
-                @keyup.enter="loadUsers"
+                @keyup.enter="handleSearch"
               />
-              <NButton type="primary" @click="loadUsers">
+              <NButton type="primary" @click="handleSearch">
                 <template #icon>
                   <SvgIcon icon="mdi:magnify" />
                 </template>
@@ -394,7 +424,7 @@ onMounted(async () => {
               clearable
               :options="roleOptions"
               :placeholder="$t('page.system.user.role')"
-              @update:value="loadUsers"
+              @update:value="handleSearch"
             />
           </div>
         </template>
@@ -405,7 +435,8 @@ onMounted(async () => {
             :columns="columns"
             :data="users"
             :loading="loading"
-            :pagination="{ pageSize: 10, showSizePicker: true, pageSizes: [10, 20, 50] }"
+            :pagination="pagination"
+            remote
             :row-key="row => row.userId"
             flex-height
             class="flex-1"
@@ -469,6 +500,17 @@ onMounted(async () => {
                 </div>
               </div>
             </NCard>
+            <div class="flex justify-center">
+              <NPagination
+                :page="pagination.page"
+                :page-size="pagination.pageSize"
+                :item-count="pagination.itemCount"
+                :page-sizes="pagination.pageSizes"
+                show-size-picker
+                @update:page="onPageChange"
+                @update:page-size="onPageSizeChange"
+              />
+            </div>
           </div>
           <NEmpty v-else class="py-8" />
         </template>

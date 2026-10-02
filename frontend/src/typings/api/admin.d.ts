@@ -12,6 +12,15 @@ declare namespace Api {
     interface UserSearchParams {
       keyword?: string;
       role?: string;
+      page?: number;
+      page_size?: number;
+    }
+
+    interface UserListResult {
+      list: User[];
+      total: number;
+      page: number;
+      page_size: number;
     }
 
     interface CreateUserParams {

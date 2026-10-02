@@ -42,6 +42,7 @@ export const views: Record<LastLevelRouteKey, RouteComponent | (() => Promise<Ro
   "system_ai-config": () => import("@/views/system/ai-config/index.vue"),
   "system_audit-log": () => import("@/views/system/audit-log/index.vue"),
   system_config: () => import("@/views/system/config/index.vue"),
+  system_dashboard: () => import("@/views/system/dashboard/index.vue"),
   system_job: () => import("@/views/system/job/index.vue"),
   system_lottery: () => import("@/views/system/lottery/index.vue"),
   "system_model-scenario": () => import("@/views/system/model-scenario/index.vue"),

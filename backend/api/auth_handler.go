@@ -44,12 +44,17 @@ func HandleLogin(authService *service.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		res, err := authService.Login(req.UserName, req.Password)
+		user, res, err := authService.Login(req.UserName, req.Password, c.ClientIP())
 		if err != nil {
+			RecordLoginAudit(c, nil, req.UserName, "/auth/login", false, err.Error())
 			SendError(c, "1001", err.Error())
 			return
 		}
 
+		// 凭据校验通过 (含 2FA 场景, 登录尚未完成但凭据正确)
+		if user != nil {
+			RecordLoginAudit(c, &user.ID, user.Username, "/auth/login", true, "")
+		}
 		SendSuccess(c, res)
 	}
 }
@@ -76,10 +81,12 @@ func HandleRegister(authService *service.AuthService, configService *service.Sys
 
 		res, err := authService.Register(req.UserName, req.Password)
 		if err != nil {
+			RecordLoginAudit(c, nil, req.UserName, "/auth/register", false, err.Error())
 			SendError(c, "1001", err.Error())
 			return
 		}
 
+		RecordLoginAudit(c, nil, req.UserName, "/auth/register", true, "")
 		SendSuccess(c, res)
 	}
 }
@@ -282,10 +289,12 @@ func Handle2FAVerify(authService *service.AuthService) gin.HandlerFunc {
 
 		res, err := authService.VerifyTOTP(userId, req.Code)
 		if err != nil {
+			RecordLoginAudit(c, &userId, "", "/auth/2fa/verify", false, err.Error())
 			SendError(c, "1001", err.Error())
 			return
 		}
 
+		RecordLoginAudit(c, &userId, "", "/auth/2fa/verify", true, "")
 		SendSuccess(c, res)
 	}
 }

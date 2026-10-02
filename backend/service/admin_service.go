@@ -14,8 +14,7 @@ func NewAdminService() *AdminService {
 	return &AdminService{}
 }
 
-func (s *AdminService) ListUsers(keyword, role string) ([]model.UserListItem, error) {
-	var users []model.User
+func (s *AdminService) ListUsers(keyword, role string, page, pageSize int) ([]model.UserListItem, int64, error) {
 	query := DB.Model(&model.User{})
 	if keyword != "" {
 		like := "%" + keyword + "%"
@@ -24,8 +23,22 @@ func (s *AdminService) ListUsers(keyword, role string) ([]model.UserListItem, er
 	if role != "" {
 		query = query.Where("role = ?", role)
 	}
-	if err := query.Order("id ASC").Find(&users).Error; err != nil {
-		return nil, err
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	var users []model.User
+	if err := query.Order("id ASC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&users).Error; err != nil {
+		return nil, 0, err
 	}
 
 	list := make([]model.UserListItem, 0, len(users))
@@ -39,10 +52,13 @@ func (s *AdminService) ListUsers(keyword, role string) ([]model.UserListItem, er
 			UpdatedAt: user.UpdatedAt,
 		})
 	}
-	return list, nil
+	return list, total, nil
 }
 
 func (s *AdminService) CreateUser(req model.CreateUserRequest) error {
+	if err := ValidatePasswordStrength(req.Password); err != nil {
+		return err
+	}
 	if err := s.ensureRoleExists(req.Role); err != nil {
 		return err
 	}
@@ -79,6 +95,9 @@ func (s *AdminService) UpdateUser(id uint, req model.UpdateUserRequest) error {
 		"role":     req.Role,
 	}
 	if req.Password != "" {
+		if err := ValidatePasswordStrength(req.Password); err != nil {
+			return err
+		}
 		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
 			return err

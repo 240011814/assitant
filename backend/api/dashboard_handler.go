@@ -31,3 +31,14 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 
 	SendSuccess(c, stats)
 }
+
+// GetAdminStats 系统概览 (管理员): 用户 / AI 用量 / 任务健康 / 操作审计
+func (h *DashboardHandler) GetAdminStats(c *gin.Context) {
+	stats, err := h.dashboardService.GetAdminStats()
+	if err != nil {
+		SendError(c, "500", "获取系统概览失败: "+err.Error())
+		return
+	}
+
+	SendSuccess(c, stats)
+}

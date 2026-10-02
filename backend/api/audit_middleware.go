@@ -23,11 +23,14 @@ const (
 )
 
 var auditQueue chan *model.OperationAuditLog
+var auditDone chan struct{}
 
 // InitAuditLogger 启动审计日志异步写入协程 (main 中 DB 初始化后调用一次)
 func InitAuditLogger() {
 	auditQueue = make(chan *model.OperationAuditLog, auditQueueSize)
+	auditDone = make(chan struct{})
 	go func() {
+		defer close(auditDone)
 		for entry := range auditQueue {
 			// 用户名快照: 记录操作时刻的用户名, 用户改名/删除不影响历史记录
 			if entry.UserID != nil && entry.UserName == "" {
@@ -41,6 +44,18 @@ func InitAuditLogger() {
 			}
 		}
 	}()
+}
+
+// ShutdownAuditLogger 关闭队列并等待剩余日志全部落库 (优雅停机时在 HTTP 服务停止后调用)
+func ShutdownAuditLogger() {
+	if auditQueue == nil {
+		return
+	}
+	close(auditQueue)
+	if auditDone != nil {
+		<-auditDone
+	}
+	auditQueue = nil
 }
 
 // 高频/流式/无状态变更的路径不记录 (前缀匹配)

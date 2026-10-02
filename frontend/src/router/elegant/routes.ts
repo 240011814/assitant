@@ -361,6 +361,18 @@ export const generatedRoutes: GeneratedRoute[] = [
         }
       },
       {
+        name: 'system_dashboard',
+        path: '/system/dashboard',
+        component: 'view.system_dashboard',
+        meta: {
+          title: 'system_dashboard',
+          i18nKey: 'route.system_dashboard',
+          icon: 'mdi:view-dashboard-outline',
+          permissions: ['system:dashboard:view'],
+          order: 1
+        }
+      },
+      {
         name: 'system_job',
         path: '/system/job',
         component: 'view.system_job',

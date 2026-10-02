@@ -255,6 +255,7 @@ const local: App.I18n.Schema = {
     "system_ai-config": "AI 配置",
     "system_audit-log": "审计日志",
     system_config: "系统配置",
+    system_dashboard: "系统概览",
     system_job: "定时任务",
     system_lottery: "抽奖管理",
     "system_model-scenario": "模型场景",

@@ -1,7 +1,7 @@
 import { request } from '../request';
 
 export function fetchGetUsers(params?: Api.Admin.UserSearchParams) {
-  return request<Api.Admin.User[]>({ url: '/api/admin/users', params });
+  return request<Api.Admin.UserListResult>({ url: '/api/admin/users', params });
 }
 
 export function fetchCreateUser(data: Api.Admin.CreateUserParams) {

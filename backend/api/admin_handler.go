@@ -23,12 +23,20 @@ func NewAdminHandler(svc *service.AdminService, aiAgentSvc *service.AIAgentServi
 }
 
 func (h *AdminHandler) HandleListUsers(c *gin.Context) {
-	list, err := h.svc.ListUsers(c.Query("keyword"), c.Query("role"))
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	list, total, err := h.svc.ListUsers(c.Query("keyword"), c.Query("role"), page, pageSize)
 	if err != nil {
 		SendError(c, "500", "获取用户列表失败: "+err.Error())
 		return
 	}
-	SendSuccess(c, list)
+	SendSuccess(c, gin.H{
+		"list":      list,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	})
 }
 
 func (h *AdminHandler) HandleCreateUser(c *gin.Context) {
