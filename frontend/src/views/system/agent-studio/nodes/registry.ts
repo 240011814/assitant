@@ -30,7 +30,7 @@ export const NODE_META: Record<OrchNodeType, OrchNodeMeta> = {
     label: 'Agent',
     icon: 'mdi:robot-outline',
     color: '#2080f0',
-    defaultConfig: { model: '', system_prompt: '', tools: [], max_iterations: 0 },
+    defaultConfig: { model: '', system_prompt: '', tools: [], max_iterations: 0, max_retries: 0 },
     component: markRaw(AgentNode)
   },
   tool: {
@@ -86,7 +86,7 @@ export const NODE_META: Record<OrchNodeType, OrchNodeMeta> = {
     label: '子Agent',
     icon: 'mdi:account-group-outline',
     color: '#0fa9a0',
-    defaultConfig: { agent_id: 0, model: '', system_prompt: '', description: '', tools: [], max_iterations: 0, timeout_seconds: 0 },
+    defaultConfig: { agent_id: 0, model: '', system_prompt: '', description: '', tools: [], max_iterations: 0, timeout_seconds: 0, max_retries: 0 },
     component: markRaw(SubAgentNode)
   },
   suborch: {

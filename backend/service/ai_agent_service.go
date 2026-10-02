@@ -436,6 +436,12 @@ func (s *AIAgentService) getCustomPrompt(userID uint, agentID uint) string {
 }
 
 func (s *AIAgentService) getModel(modelOverride string) (*ark.ChatModel, error) {
+	return s.getModelWithRetry(modelOverride, nil)
+}
+
+// getModelWithRetry 构建模型实例; retryTimes 非 nil 时覆盖 ark SDK 内建的
+// 模型调用重试次数 (HTTP 层, 指数退避, 仅对 5xx/429/网络错误等可重试错误生效)
+func (s *AIAgentService) getModelWithRetry(modelOverride string, retryTimes *int) (*ark.ChatModel, error) {
 	// 在锁内对 active* 做快照, 防止与 ReloadConfig 并发时的 nil/竞态问题
 	s.cacheMu.RLock()
 	activeProvider := s.activeProvider
@@ -450,9 +456,13 @@ func (s *AIAgentService) getModel(modelOverride string) (*ark.ChatModel, error) 
 	if modelOverride != "" {
 		modelCode = modelOverride
 	}
-	// 模型实例缓存: 同一 model code 复用 (构建含 HTTP client, 每节点/每次运行新建是编译期主要开销之一)
+	// 模型实例缓存: 同一 (model code, 重试次数) 复用 (构建含 HTTP client, 每节点/每次运行新建是编译期主要开销之一)
+	cacheKey := modelCode
+	if retryTimes != nil {
+		cacheKey = fmt.Sprintf("%s|retry%d", modelCode, *retryTimes)
+	}
 	s.cacheMu.RLock()
-	if cm, ok := s.modelCache[modelCode]; ok {
+	if cm, ok := s.modelCache[cacheKey]; ok {
 		s.cacheMu.RUnlock()
 		return cm, nil
 	}
@@ -488,6 +498,10 @@ func (s *AIAgentService) getModel(modelOverride string) (*ark.ChatModel, error) 
 	} else {
 		log.Printf("AI model config_json parse failed model=%s config_json=%s err=%v", activeModel.ModelCode, activeModel.ConfigJSON, err)
 	}
+	if retryTimes != nil {
+		rt := *retryTimes
+		chatConfig.RetryTimes = &rt
+	}
 	chatModel, err := ark.NewChatModel(s.ctx, chatConfig)
 	if err != nil {
 		return nil, err
@@ -496,7 +510,7 @@ func (s *AIAgentService) getModel(modelOverride string) (*ark.ChatModel, error) 
 	if s.modelCache == nil {
 		s.modelCache = make(map[string]*ark.ChatModel)
 	}
-	s.modelCache[modelCode] = chatModel
+	s.modelCache[cacheKey] = chatModel
 	s.cacheMu.Unlock()
 	return chatModel, nil
 }
@@ -504,6 +518,12 @@ func (s *AIAgentService) getModel(modelOverride string) (*ark.ChatModel, error) 
 // GetToolCallingModel 按 model code 构建可工具调用的模型 (编排/技能等复用), 空串用默认模型
 func (s *AIAgentService) GetToolCallingModel(modelOverride string) (einomodel.ToolCallingChatModel, error) {
 	return s.getModel(modelOverride)
+}
+
+// GetToolCallingModelWithRetry 同 GetToolCallingModel, 但可覆盖 ark SDK 内建重试次数
+// (retryTimes=nil 沿用默认 2 次; 0 表示不重试, 正数为指定重试次数)
+func (s *AIAgentService) GetToolCallingModelWithRetry(modelOverride string, retryTimes *int) (einomodel.ToolCallingChatModel, error) {
+	return s.getModelWithRetry(modelOverride, retryTimes)
 }
 
 // BuildToolByName 按 ai_tools 表配置构建单个工具实例 (带缓存: 工具实现无状态可复用,

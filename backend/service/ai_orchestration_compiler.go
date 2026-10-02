@@ -92,6 +92,10 @@ type OrchAgentConfig struct {
 	Tools        []string `json:"tools"`
 	// MaxIterations 映射 react.MaxStep (模型↔工具往返轮次上限)
 	MaxIterations int `json:"max_iterations"`
+	// MaxRetries 模型调用失败重试次数: 覆盖 ark SDK 内建重试 (HTTP 层, 指数退避,
+	// 仅对 5xx/429/网络错误等可重试错误生效; 流式仅覆盖建流失败)。
+	// 0 = 使用框架默认 (2 次), 1-10 = 指定次数; 重试只发生在模型调用层, 工具副作用不会重复执行
+	MaxRetries int `json:"max_retries"`
 }
 
 type OrchToolConfig struct {
@@ -107,6 +111,9 @@ type OrchBranchCase struct {
 	Value  string `json:"value"`
 	Target string `json:"target"`
 }
+
+// orchMaxRetriesCap 单节点失败重试次数上限 (与画布校验一致)
+const orchMaxRetriesCap = 10
 
 // 分支节点的分发模式
 const (
@@ -142,6 +149,8 @@ type OrchSubAgentConfig struct {
 	MaxIterations int `json:"max_iterations"`
 	// TimeoutSeconds 单次委派的执行超时 (秒), 0 = 不单独限时 (跟随编排整体超时)
 	TimeoutSeconds int `json:"timeout_seconds"`
+	// MaxRetries 子 Agent 模型调用失败重试次数: 0 = 使用框架默认 (2 次), 1-10 = 指定次数
+	MaxRetries int `json:"max_retries"`
 }
 
 type OrchMergeConfig struct {
@@ -186,6 +195,9 @@ type OrchSubOrchConfig struct {
 type compilerDeps struct {
 	// getModel 按 model code 构建 ToolCallingChatModel (空串用默认模型)
 	getModel func(modelOverride string) (model.ToolCallingChatModel, error)
+	// getModelRetry 同 getModel 但可覆盖 ark SDK 内建的模型调用重试次数
+	// (retryTimes=nil 沿用默认)。未注入时 (旧 deps/单测) 回退 getModel, 重试取框架默认
+	getModelRetry func(modelOverride string, retryTimes *int) (model.ToolCallingChatModel, error)
 	// buildTool 按 ai_tools 表配置构建单个工具
 	buildTool func(name string) (tool.BaseTool, error)
 	// sessionVars 供模板/系统提示词渲染 (current_time / user_id / user_profile / chat_history)
@@ -800,6 +812,9 @@ func (c *orchestrationCompiler) validateIssues() []orchValidateIssue {
 		if cfg.TimeoutSeconds < 0 || cfg.TimeoutSeconds > 3600 {
 			add(id, "子Agent 节点 %s 超时须在 0-3600 秒之间 (0 表示跟随编排整体超时)", id)
 		}
+		if cfg.MaxRetries < 0 || cfg.MaxRetries > orchMaxRetriesCap {
+			add(id, "子Agent 节点 %s 失败重试次数须在 0-%d 之间 (0 表示使用框架默认 2 次)", id, orchMaxRetriesCap)
+		}
 	}
 
 	if hasMerge {
@@ -846,6 +861,9 @@ func (c *orchestrationCompiler) validateIssues() []orchValidateIssue {
 				if err := json.Unmarshal(n.Config, &cfg); err != nil {
 					add(id, "Agent 节点 %s 配置解析失败: %v", id, err)
 				}
+			}
+			if cfg.MaxRetries < 0 || cfg.MaxRetries > orchMaxRetriesCap {
+				add(id, "Agent 节点 %s 失败重试次数须在 0-%d 之间 (0 表示使用框架默认 2 次)", id, orchMaxRetriesCap)
 			}
 		case OrchNodeTool:
 			var cfg OrchToolConfig
@@ -1587,6 +1605,23 @@ func OrchChatTurnsToMessages(turns []coremodel.ChatTurn) []*schema.Message {
 	return out
 }
 
+// nodeModelFn 按节点配置构建模型: maxRetries>0 时覆盖 ark SDK 内建重试次数,
+// 0 表示沿用框架默认; deps 未提供 getModelRetry 时 (旧 deps/单测) 回退 getModel
+func (c *orchestrationCompiler) nodeModelFn(modelOverride string, maxRetries int, nodeID string) (model.ToolCallingChatModel, error) {
+	if c.deps.getModelRetry != nil {
+		var retryTimes *int
+		if maxRetries > 0 {
+			rt := maxRetries
+			retryTimes = &rt
+		}
+		return c.deps.getModelRetry(modelOverride, retryTimes)
+	}
+	if maxRetries > 0 {
+		orchLog("node model retry 被忽略 node=%s retries=%d (deps 未提供 getModelRetry)", nodeID, maxRetries)
+	}
+	return c.deps.getModel(modelOverride)
+}
+
 // buildNodeLambda 构建单个节点的 Lambda (agent/tool/template/extract/suborch/merge/end;
 // branch/router 是路由点: lambda 为直通, 路由由 GraphBranch 承担)
 func (c *orchestrationCompiler) buildNodeLambda(ctx context.Context, n *OrchestrationNode) (*compose.Lambda, error) {
@@ -1738,7 +1773,7 @@ func (c *orchestrationCompiler) buildSubReactAgent(ctx context.Context, id, pare
 		return nil, fmt.Errorf("子Agent 节点 %s 系统提示词渲染失败: %w", id, err)
 	}
 	instruction = orchInjectRuntimeContext(instruction, vars)
-	chatModel, err := c.deps.getModel(cfg.Model)
+	chatModel, err := c.nodeModelFn(cfg.Model, cfg.MaxRetries, id)
 	if err != nil {
 		return nil, fmt.Errorf("子Agent 节点 %s 获取模型失败: %w", id, err)
 	}
@@ -1957,7 +1992,7 @@ func (c *orchestrationCompiler) buildAgentLambda(ctx context.Context, n *Orchest
 			return nil, fmt.Errorf("Agent 节点 %s 配置解析失败: %w", n.ID, err)
 		}
 	}
-	chatModel, err := c.deps.getModel(cfg.Model)
+	chatModel, err := c.nodeModelFn(cfg.Model, cfg.MaxRetries, n.ID)
 	if err != nil {
 		return nil, fmt.Errorf("Agent 节点 %s 获取模型失败: %w", n.ID, err)
 	}

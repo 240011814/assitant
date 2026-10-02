@@ -339,8 +339,10 @@ func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *
 		orchChain = append(append([]uint{}, chain...), orchID)
 	}
 	deps := compilerDeps{
-		getModel:  s.agentService.GetToolCallingModel,
-		buildTool: s.wrapOrchestrationTool,
+		getModel: s.agentService.GetToolCallingModel,
+		// 节点可覆盖 ark SDK 内建的模型调用重试次数 (Agent/子Agent 节点的 max_retries)
+		getModelRetry: s.agentService.GetToolCallingModelWithRetry,
+		buildTool:     s.wrapOrchestrationTool,
 		sessionVars: func() map[string]any {
 			vars := s.agentService.SessionTemplateVars(userID)
 			// 多轮调试的历史经 sessionVars 传给编译器 (模板变量不受影响)

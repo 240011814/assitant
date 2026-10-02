@@ -36,6 +36,7 @@ function initLocal() {
   const cfg = JSON.parse(JSON.stringify(props.config || {}));
   // 兼容历史数据缺省的数组/字符串字段, 避免受控组件值 undefined
   if ((props.nodeType === 'agent' || props.nodeType === 'subagent') && !Array.isArray(cfg.tools)) cfg.tools = [];
+  if ((props.nodeType === 'agent' || props.nodeType === 'subagent') && cfg.max_retries == null) cfg.max_retries = 0;
   if ((props.nodeType === 'branch' || props.nodeType === 'router') && !Array.isArray(cfg.cases)) cfg.cases = [];
   if ((props.nodeType === 'branch' || props.nodeType === 'router') && cfg.max_loops == null) cfg.max_loops = 0;
   if (props.nodeType === 'branch' && !cfg.mode) cfg.mode = 'route';
@@ -288,6 +289,9 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
       <NFormItem label="最大轮次" label-placement="left" label-width="72" size="small">
         <NInputNumber v-model:value="localConfig.max_iterations" :min="0" :max="100" size="small" class="w-full" placeholder="0 = 默认 25" />
       </NFormItem>
+      <NFormItem label="失败重试" label-placement="left" label-width="72" size="small">
+        <NInputNumber v-model:value="localConfig.max_retries" :min="0" :max="10" size="small" class="w-full" placeholder="0 = 默认 2 次" />
+      </NFormItem>
     </template>
 
     <!-- 工具节点 -->
@@ -453,6 +457,9 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
       </NFormItem>
       <NFormItem label="超时(秒)" label-placement="left" label-width="72" size="small">
         <NInputNumber v-model:value="localConfig.timeout_seconds" :min="0" :max="3600" size="small" class="w-full" placeholder="0 = 跟随编排整体超时" />
+      </NFormItem>
+      <NFormItem label="失败重试" label-placement="left" label-width="72" size="small">
+        <NInputNumber v-model:value="localConfig.max_retries" :min="0" :max="10" size="small" class="w-full" placeholder="0 = 默认 2 次" />
       </NFormItem>
     </template>
 
