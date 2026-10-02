@@ -12,7 +12,7 @@ import {
   fetchGenerateShareToken,
 } from "@/service/api";
 import { fetchGetAIModels, fetchGetUserPrompt, fetchChatStream, fetchToolApproval } from "@/service/api/ai";
-import { fetchOrchestrationChatRun } from "@/service/api";
+import { fetchOrchestrationChatRun, fetchResolveOrchestrationApproval } from "@/service/api";
 import { fetchCourseList, fetchCreateCourseItem, type Course } from "@/service/api/course";
 import { useAuth } from "@/hooks/business/auth";
 import { renderMarkdown as renderMarkdownRaw } from "@/utils/markdown";
@@ -250,6 +250,37 @@ const toolApprovalInfo = ref<{
   checkpointId: string;
   interruptId: string;
 } | null>(null);
+
+// 编排对话的工具审批: 与普通对话的 ADK 恢复机制不同, 编排运行流保持打开,
+// 决定经 /ai-orchestrations/approvals/resolve 提交后原流继续
+const orchApprovalInfo = ref<{
+  runId: string;
+  callId: string;
+  tool: string;
+  arguments: string;
+} | null>(null);
+const orchApproving = ref(false);
+
+const handleOrchApproval = async (approved: boolean) => {
+  if (!orchApprovalInfo.value) return;
+  const { runId, callId } = orchApprovalInfo.value;
+  orchApproving.value = true;
+  try {
+    const { error } = await fetchResolveOrchestrationApproval({
+      runId,
+      callId,
+      approved,
+      reason: approved ? "" : "用户拒绝执行该工具"
+    });
+    if (error) {
+      message.error(error.message || "提交审批决定失败");
+      return;
+    }
+    orchApprovalInfo.value = null;
+  } finally {
+    orchApproving.value = false;
+  }
+};
 
 const route = useRoute();
 const routeTitleMap: Record<string, string> = {
@@ -600,6 +631,20 @@ const sendOrchestrationMessage = async (userText: string, controller: AbortContr
           scheduleScrollToBottom();
         }
         break;
+      case "approval_request":
+        // 需人工确认的工具: 弹窗等待用户决定 (运行流阻塞在服务端)
+        orchApprovalInfo.value = {
+          runId: String(payload?.run_id || ""),
+          callId: String(payload?.call_id || ""),
+          tool: String(payload?.tool || ""),
+          arguments: String(payload?.arguments || ""),
+        };
+        break;
+      case "approval_result":
+        if (orchApprovalInfo.value?.callId === String(payload?.call_id || "")) {
+          orchApprovalInfo.value = null;
+        }
+        break;
       case "summary":
         // 编排运行会把"工具调用轮次的前言文本 / 子Agent 输出 / 最终答案"都混进同一个气泡,
         // 这里用图级最终输出 (summary.output) 覆盖, 保证只保留最终答案。
@@ -651,6 +696,8 @@ const sendMessage = async () => {
 
   messages.value.push(createChatMessage("user", userText));
   messages.value.push(createChatMessage("assistant", ""));
+  // 上一轮若残留审批弹窗 (已中止的运行), 新一轮开始时清掉
+  orchApprovalInfo.value = null;
 
   scrollToBottom();
   isGenerating.value = true;
@@ -1966,6 +2013,43 @@ onBeforeUnmount(() => {
         <div class="flex justify-end gap-3">
           <NButton @click="handleToolApproval(false, '用户拒绝')">拒绝</NButton>
           <NButton type="primary" @click="handleToolApproval(true)">允许</NButton>
+        </div>
+      </template>
+    </NModal>
+
+    <!-- 编排对话的工具审批弹窗 -->
+    <NModal
+      :show="!!orchApprovalInfo"
+      preset="card"
+      title="工具执行审批"
+      :style="{ width: appStore.isMobile ? '95vw' : '500px' }"
+      :segmented="{ content: 'soft', footer: 'soft' }"
+      :mask-closable="false"
+      :closable="false"
+    >
+      <div class="space-y-4">
+        <div class="flex items-center gap-2 text-amber-500">
+          <SvgIcon icon="mdi:alert-circle-outline" class="text-xl" />
+          <span class="font-medium">编排请求调用工具</span>
+        </div>
+        <div class="rounded-lg bg-gray-50 p-4 dark:bg-gray-800">
+          <div class="mb-2">
+            <span class="text-sm text-gray-500">工具名称：</span>
+            <span class="font-medium">{{ orchApprovalInfo?.tool }}</span>
+          </div>
+          <div>
+            <span class="text-sm text-gray-500">调用参数：</span>
+            <pre class="mt-1 overflow-x-auto text-sm">{{ orchApprovalInfo?.arguments }}</pre>
+          </div>
+        </div>
+        <p class="text-sm text-gray-500">
+          是否允许该工具执行？批准后立即执行；拒绝会把原因返回给模型继续作答；等待超过 2 分钟未决定将自动拒绝。
+        </p>
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <NButton :disabled="orchApproving" @click="handleOrchApproval(false)">拒绝</NButton>
+          <NButton type="primary" :loading="orchApproving" @click="handleOrchApproval(true)">批准执行</NButton>
         </div>
       </template>
     </NModal>

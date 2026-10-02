@@ -228,7 +228,6 @@ func TestOrchestrationValidation(t *testing.T) {
 	}{
 		{"环", `{"nodes":[{"id":"a","type":"agent","name":"a","config":{}},{"id":"b","type":"end","name":"b","config":{}}],"edges":[{"source":"a","target":"b"},{"source":"b","target":"a"}]}`, "循环连线"},
 		{"多入边", `{"nodes":[{"id":"a","type":"agent","name":"a","config":{}},{"id":"b","type":"agent","name":"b","config":{}},{"id":"c","type":"end","name":"c","config":{}}],"edges":[{"source":"a","target":"c"},{"source":"b","target":"c"}]}`, "只允许一条入边"},
-		{"分支合并混用", `{"nodes":[{"id":"t","type":"template","name":"t","config":{"template":"{{.Input}}"}},{"id":"br","type":"branch","name":"br","config":{"cases":[{"type":"contains","value":"A","target":"a"}],"default_target":"a"}},{"id":"a","type":"agent","name":"a","config":{"system_prompt":"x"}},{"id":"m","type":"merge","name":"m","config":{}},{"id":"o","type":"end","name":"o","config":{}}],"edges":[{"source":"t","target":"br"},{"source":"br","target":"a","label":"A"},{"source":"a","target":"m"},{"source":"t","target":"m"},{"source":"m","target":"o"}]}`, "暂不支持"},
 	}
 	for _, tc := range cases {
 		_, errs := validateOrchestrationDSL(tc.dsl)

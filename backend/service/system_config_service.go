@@ -22,8 +22,8 @@ type TimeoutConfig struct {
 }
 
 type SystemConfigService struct {
-	mu            sync.RWMutex
-	timeoutCache  *TimeoutConfig
+	mu           sync.RWMutex
+	timeoutCache *TimeoutConfig
 }
 
 func NewSystemConfigService() *SystemConfigService {

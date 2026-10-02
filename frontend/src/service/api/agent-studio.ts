@@ -173,6 +173,18 @@ export function fetchOrchestrationChatList() {
   return request<OrchestrationChatItem[]>({ url: '/api/ai-orchestrations' });
 }
 
+/**
+ * 提交一次编排工具审批决定 (调试/编排对话共用):
+ * run_id/call_id 来自运行 SSE 的 approval_request 事件
+ */
+export function fetchResolveOrchestrationApproval(data: { runId: string; callId: string; approved: boolean; reason?: string }) {
+  return request<null>({
+    url: '/api/ai-orchestrations/approvals/resolve',
+    method: 'post',
+    data: { run_id: data.runId, call_id: data.callId, approved: data.approved, reason: data.reason || '' }
+  });
+}
+
 /** 训练中心编排详情 (精简) */
 export function fetchOrchestrationChatItem(id: number) {
   return request<OrchestrationChatItem>({ url: `/api/ai-orchestrations/${id}` });

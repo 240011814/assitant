@@ -108,7 +108,18 @@ type OrchBranchCase struct {
 	Target string `json:"target"`
 }
 
+// 分支节点的分发模式
+const (
+	// OrchBranchModeRoute 互斥路由 (默认): 按条件选中一个目标执行
+	OrchBranchModeRoute = "route"
+	// OrchBranchModeParallel 并行分发: 所有目标同时执行, 各路径汇入合并节点
+	// (编译为 Workflow 多目标分支, 未选中的互斥路径由 eino AllPredecessor 运行时跳过)
+	OrchBranchModeParallel = "parallel"
+)
+
 type OrchBranchConfig struct {
+	// Mode 分发模式: route (默认, 互斥路由) / parallel (并行分发全部目标)
+	Mode          string           `json:"mode"`
 	Cases         []OrchBranchCase `json:"cases"`
 	DefaultTarget string           `json:"default_target"`
 	// MaxLoops 循环回边的最大执行次数 (该分支带 loop 边时必填):
@@ -361,6 +372,7 @@ func (c *orchestrationCompiler) validateIssues() []orchValidateIssue {
 	}
 
 	hasBranch, hasRouter, hasMerge, hasLoop := false, false, false, false
+	parallelBranches := map[string]bool{} // 并行分发分支节点 id
 	for i := range c.dsl.Nodes {
 		n := &c.dsl.Nodes[i]
 		if n.ID == "" {
@@ -383,6 +395,10 @@ func (c *orchestrationCompiler) validateIssues() []orchValidateIssue {
 		}
 		if n.Type == OrchNodeBranch {
 			hasBranch = true
+			var cfg OrchBranchConfig
+			if len(n.Config) > 0 && json.Unmarshal(n.Config, &cfg) == nil && cfg.Mode == OrchBranchModeParallel {
+				parallelBranches[n.ID] = true
+			}
 		}
 		if n.Type == OrchNodeRouter {
 			hasRouter = true
@@ -614,51 +630,58 @@ func (c *orchestrationCompiler) validateIssues() []orchValidateIssue {
 				add(id, "分支节点 %s 配置解析失败: %v", id, err)
 				continue
 			}
-			if len(cfg.Cases) == 0 {
-				add(id, "分支节点 %s 至少需要一个分支条件", id)
-			}
-			targets := map[string]bool{}
-			for j, cs := range cfg.Cases {
-				if cs.Value == "" {
-					add(id, "分支节点 %s 第 %d 个条件缺少匹配值", id, j+1)
+			if cfg.Mode == OrchBranchModeParallel {
+				// 并行分发: 目标即画布全部主流出边 (条件不生效), 专项校验在下方
+				if outDeg+len(c.loopEdges[id]) < 2 {
+					add(id, "并行分支 %s 至少需要两条分发连线", id)
 				}
-				if cs.Target == "" || c.nodeByID(cs.Target) == nil {
-					add(id, "分支节点 %s 第 %d 个条件目标无效: %s", id, j+1, cs.Target)
-					continue
-				}
-				if cs.Target == id {
-					add(id, "分支节点 %s 条件不能指向自身", id)
-					continue
-				}
-				targets[cs.Target] = true
-				switch cs.Type {
-				case "contains", "equals":
-				case "regex":
-					if _, err := regexp.Compile(cs.Value); err != nil {
-						add(id, "分支节点 %s 第 %d 个条件正则非法: %v", id, j+1, err)
-					}
-				default:
-					add(id, "分支节点 %s 第 %d 个条件类型非法: %s (contains/equals/regex)", id, j+1, cs.Type)
-				}
-			}
-			if cfg.DefaultTarget == "" || c.nodeByID(cfg.DefaultTarget) == nil {
-				add(id, "分支节点 %s 缺少有效的默认分支目标", id)
-			} else if cfg.DefaultTarget == id {
-				add(id, "分支节点 %s 默认分支不能指向自身", id)
 			} else {
-				targets[cfg.DefaultTarget] = true
-			}
-			if outDeg+len(c.loopEdges[id]) != len(targets) {
-				add(id, "分支节点 %s 的画布连线(%d 条, 含回边)与条件目标(%d 个)不一致, 分支节点必须连接到所有条件目标", id, outDeg+len(c.loopEdges[id]), len(targets))
-			}
-			for _, t := range c.adj[id] {
-				if !targets[t] {
-					add(id, "分支节点 %s 连线目标 %s 未出现在分支条件中", id, t)
+				if len(cfg.Cases) == 0 {
+					add(id, "分支节点 %s 至少需要一个分支条件", id)
 				}
-			}
-			for _, le := range c.loopEdges[id] {
-				if !targets[le.Target] {
-					add(id, "分支节点 %s 回边目标 %s 未出现在分支条件中", id, le.Target)
+				targets := map[string]bool{}
+				for j, cs := range cfg.Cases {
+					if cs.Value == "" {
+						add(id, "分支节点 %s 第 %d 个条件缺少匹配值", id, j+1)
+					}
+					if cs.Target == "" || c.nodeByID(cs.Target) == nil {
+						add(id, "分支节点 %s 第 %d 个条件目标无效: %s", id, j+1, cs.Target)
+						continue
+					}
+					if cs.Target == id {
+						add(id, "分支节点 %s 条件不能指向自身", id)
+						continue
+					}
+					targets[cs.Target] = true
+					switch cs.Type {
+					case "contains", "equals":
+					case "regex":
+						if _, err := regexp.Compile(cs.Value); err != nil {
+							add(id, "分支节点 %s 第 %d 个条件正则非法: %v", id, j+1, err)
+						}
+					default:
+						add(id, "分支节点 %s 第 %d 个条件类型非法: %s (contains/equals/regex)", id, j+1, cs.Type)
+					}
+				}
+				if cfg.DefaultTarget == "" || c.nodeByID(cfg.DefaultTarget) == nil {
+					add(id, "分支节点 %s 缺少有效的默认分支目标", id)
+				} else if cfg.DefaultTarget == id {
+					add(id, "分支节点 %s 默认分支不能指向自身", id)
+				} else {
+					targets[cfg.DefaultTarget] = true
+				}
+				if outDeg+len(c.loopEdges[id]) != len(targets) {
+					add(id, "分支节点 %s 的画布连线(%d 条, 含回边)与条件目标(%d 个)不一致, 分支节点必须连接到所有条件目标", id, outDeg+len(c.loopEdges[id]), len(targets))
+				}
+				for _, t := range c.adj[id] {
+					if !targets[t] {
+						add(id, "分支节点 %s 连线目标 %s 未出现在分支条件中", id, t)
+					}
+				}
+				for _, le := range c.loopEdges[id] {
+					if !targets[le.Target] {
+						add(id, "分支节点 %s 回边目标 %s 未出现在分支条件中", id, le.Target)
+					}
 				}
 			}
 		case OrchNodeRouter:
@@ -789,12 +812,27 @@ func (c *orchestrationCompiler) validateIssues() []orchValidateIssue {
 	if outputCount != 1 {
 		add("", "编排必须恰好一个出口节点(无出边), 当前 %d 个", outputCount)
 	}
-	if hasBranch || hasRouter {
-		if hasMerge {
-			add("", "当前版本暂不支持分支/路由与合并混用, 请拆分为多个编排")
+	if hasBranch && hasRouter {
+		add("", "当前版本暂不支持分支与 LLM 路由混用, 请拆分为多个编排")
+	}
+	if hasRouter && hasMerge {
+		add("", "当前版本暂不支持 LLM 路由与合并混用, 请拆分为多个编排")
+	}
+	// 分支与合并混用已支持: 分支按节点配置的 mode 执行 (route 互斥路由 / parallel 并行
+	// 分发), 编译为 Workflow, 未选中的互斥路径由运行时整体跳过, 各路径在合并节点汇聚。
+	// 并行分支的专项约束见下方校验 (≥2 目标/不支持回边/必须汇入合并节点)
+
+	// 并行分支专项校验: 不能带回边, 且每条分发路径必须汇入合并节点
+	for _, id := range c.topo {
+		if !parallelBranches[id] {
+			continue
 		}
-		if hasBranch && hasRouter {
-			add("", "当前版本暂不支持分支与 LLM 路由混用, 请拆分为多个编排")
+		if len(c.loopEdges[id]) > 0 {
+			add(id, "并行分支 %s 不支持循环回边, 请改用互斥路由分支", id)
+			continue
+		}
+		if !c.parallelBranchConverges(id) {
+			add(id, "并行分支 %s 的每条分发路径都必须汇入合并节点 (并行结果需要汇聚后输出)", id)
 		}
 	}
 
@@ -1167,6 +1205,124 @@ func (c *orchestrationCompiler) emitLoopEvent(id, name string, loops int, target
 	})
 }
 
+// parallelBranchConverges 检查并行分支的每条分发路径是否都汇入合并节点:
+// 从各目标沿主流出边遍历, 遇合并节点视为已汇入 (不再向后),
+// 走到非合并节点的出口 (END 方向) 视为未汇聚
+func (c *orchestrationCompiler) parallelBranchConverges(branchID string) bool {
+	visited := map[string]bool{}
+	stack := append([]string{}, c.flowAdj[branchID]...)
+	for len(stack) > 0 {
+		id := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if visited[id] {
+			continue
+		}
+		visited[id] = true
+		if n := c.nodeByID(id); n != nil && n.Type == OrchNodeMerge {
+			continue
+		}
+		if c.flowOutOf(id) == 0 {
+			return false
+		}
+		stack = append(stack, c.flowAdj[id]...)
+	}
+	return true
+}
+
+// workflowBranchPlan 构造 Workflow 分支的条件与目标集:
+// route 模式按条件选单目标 (与 Graph 分支同构); parallel 模式返回全部主流出边目标 (并行分发)
+func (c *orchestrationCompiler) workflowBranchPlan(id string) (func(_ context.Context, in *schema.Message) (map[string]bool, error), map[string]bool, error) {
+	n := c.nodeByID(id)
+	if n == nil {
+		return nil, nil, fmt.Errorf("分支节点 %s 不存在", id)
+	}
+	name := n.Name
+	if n.Type == OrchNodeBranch {
+		var cfg OrchBranchConfig
+		if err := json.Unmarshal(n.Config, &cfg); err != nil {
+			return nil, nil, fmt.Errorf("分支节点 %s 配置解析失败: %w", id, err)
+		}
+		if cfg.Mode == OrchBranchModeParallel {
+			targets := append([]string{}, c.flowAdj[id]...)
+			sort.Strings(targets)
+			endNodes := make(map[string]bool, len(targets))
+			for _, t := range targets {
+				endNodes[t] = true
+			}
+			cond := func(_ context.Context, _ *schema.Message) (map[string]bool, error) {
+				c.emitParallelEvent(id, name, targets)
+				selected := make(map[string]bool, len(targets))
+				for _, t := range targets {
+					selected[t] = true
+				}
+				return selected, nil
+			}
+			return cond, endNodes, nil
+		}
+		cases := append([]OrchBranchCase(nil), cfg.Cases...)
+		defaultTarget := cfg.DefaultTarget
+		endNodes := make(map[string]bool, len(cases)+1)
+		for _, cs := range cases {
+			endNodes[cs.Target] = true
+		}
+		endNodes[defaultTarget] = true
+		cond := func(_ context.Context, in *schema.Message) (map[string]bool, error) {
+			content := ""
+			if in != nil {
+				content = in.Content
+			}
+			for _, cs := range cases {
+				if orchBranchMatch(cs, content) {
+					return map[string]bool{cs.Target: true}, nil
+				}
+			}
+			return map[string]bool{defaultTarget: true}, nil
+		}
+		return cond, endNodes, nil
+	}
+	// 路由节点 (防御: 校验禁止路由与合并混用, 正常编译不到这里)
+	var cfg OrchRouterConfig
+	if err := json.Unmarshal(n.Config, &cfg); err != nil {
+		return nil, nil, fmt.Errorf("路由节点 %s 配置解析失败: %w", id, err)
+	}
+	inner, err := c.buildRouterCond(id, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	endNodes := make(map[string]bool, len(cfg.Cases)+1)
+	for _, cs := range cfg.Cases {
+		endNodes[cs.Target] = true
+	}
+	endNodes[cfg.DefaultTarget] = true
+	cond := func(ctx context.Context, in *schema.Message) (map[string]bool, error) {
+		t, err := inner(ctx, in)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]bool{t: true}, nil
+	}
+	return cond, endNodes, nil
+}
+
+// emitParallelEvent 推送并行分发事件 (前端展示本轮分发到几路)
+func (c *orchestrationCompiler) emitParallelEvent(id, name string, targets []string) {
+	if c.trace == nil {
+		return
+	}
+	names := make([]string, 0, len(targets))
+	for _, t := range targets {
+		if tn := c.nodeByID(t); tn != nil && strings.TrimSpace(tn.Name) != "" {
+			names = append(names, tn.Name)
+		} else {
+			names = append(names, t)
+		}
+	}
+	c.trace.emitNodeEvent(map[string]any{
+		"kind": "node", "key": id, "name": name, "parallel": true,
+		"content": fmt.Sprintf("并行分发 %d 路 → %s", len(targets), strings.Join(names, "、")),
+	})
+}
+
 func (c *orchestrationCompiler) compileWorkflow(lambdas map[string]*compose.Lambda, nodeKeys map[string]string, subNodes map[string]bool) (*compiledOrchestration, error) {
 	wf := compose.NewWorkflow[*schema.Message, *schema.Message]()
 	wfNodes := make(map[string]*compose.WorkflowNode, len(lambdas))
@@ -1184,10 +1340,27 @@ func (c *orchestrationCompiler) compileWorkflow(lambdas map[string]*compose.Lamb
 		inEdges[e.Target] = append(inEdges[e.Target], e)
 	}
 	for _, id := range c.topo {
+		n := c.nodeByID(id)
+		// 入口/出口按主流度判断: 回边不计入 (回边目标若同时是入口, 仍需 START 供首轮进入)
 		if c.flowInOf(id) == 0 {
 			_ = wfNodes[id].AddInput(compose.START)
 		}
-		if c.nodeByID(id).Type == OrchNodeMerge {
+		if n.Type == OrchNodeBranch || n.Type == OrchNodeRouter {
+			// 分支/路由: 自身从上游接收输入, 目标分发由 WorkflowBranch 控制。
+			// 未选中的目标子图被运行时整体跳过 (AllPredecessor 的 skip 传播);
+			// parallel 模式返回全部目标实现 fan-out, 各路径在合并节点汇聚。
+			// 目标节点接收数据靠它自己的 AddInput(分支id) (Workflow 分支不自动透传输入)
+			for _, e := range inEdges[id] {
+				_ = wfNodes[id].AddInput(e.Source)
+			}
+			cond, endNodes, err := c.workflowBranchPlan(id)
+			if err != nil {
+				return nil, err
+			}
+			wf.AddBranch(id, compose.NewGraphMultiBranch[*schema.Message](cond, endNodes))
+			continue
+		}
+		if n.Type == OrchNodeMerge {
 			// 合并节点: 每条入边把来源消息的 Content 映射到 map 的来源 key 上
 			for _, e := range inEdges[id] {
 				_ = wfNodes[id].AddInput(e.Source, compose.MapFields("Content", e.Source))

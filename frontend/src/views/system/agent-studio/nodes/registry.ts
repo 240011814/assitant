@@ -51,7 +51,7 @@ export const NODE_META: Record<OrchNodeType, OrchNodeMeta> = {
     label: '分支',
     icon: 'mdi:source-branch',
     color: '#d03050',
-    defaultConfig: { cases: [], default_target: '' },
+    defaultConfig: { mode: 'route', cases: [], default_target: '' },
     component: markRaw(BranchNode)
   },
   router: {

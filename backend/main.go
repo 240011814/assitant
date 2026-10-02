@@ -269,6 +269,8 @@ func main() {
 			aiOrchestrationGroup.GET("", orchestrationHandler.HandleChatList)
 			aiOrchestrationGroup.GET("/:id", orchestrationHandler.HandleChatGet)
 			aiOrchestrationGroup.POST("/:id/chat", api.RequirePermission("ai:chat:send"), orchestrationHandler.HandleChatRun)
+			// 编排工具审批: 一次运行的审批请求/决定靠 run_id 配对, 仅要求登录
+			aiOrchestrationGroup.POST("/approvals/resolve", orchestrationHandler.HandleResolveApproval)
 		}
 
 		// Memory APIs (mem0)

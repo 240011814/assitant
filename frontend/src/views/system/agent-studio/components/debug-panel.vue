@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, h, onBeforeUnmount, ref } from 'vue';
-import { NButton, NDataTable, NInput, NScrollbar, NSpace, NTag, useMessage } from 'naive-ui';
+import { NButton, NDataTable, NInput, NModal, NScrollbar, NSpace, NTag, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
-import { fetchOrchestrationDebugRun } from '@/service/api';
+import { fetchOrchestrationDebugRun, fetchResolveOrchestrationApproval } from '@/service/api';
 
 // 节点调试摘要 (与后端 OrchNodeTrace 对应)
 export interface NodeTrace {
@@ -80,6 +80,48 @@ let turnSeq = 0;
 let abortController: AbortController | null = null;
 
 const TRACE_EVENT_CAP = 300;
+
+// ---------- 工具审批 ----------
+interface PendingApproval {
+  runId: string;
+  callId: string;
+  tool: string;
+  arguments: string;
+  receivedAt: number;
+}
+const pendingApprovals = ref<PendingApproval[]>([]);
+const approving = ref(false);
+const currentApproval = computed(() => pendingApprovals.value[0] || null);
+
+function prettyArguments(raw: string): string {
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
+}
+
+async function resolveApproval(approved: boolean) {
+  const cur = currentApproval.value;
+  if (!cur) return;
+  approving.value = true;
+  try {
+    const { error } = await fetchResolveOrchestrationApproval({
+      runId: cur.runId,
+      callId: cur.callId,
+      approved,
+      reason: approved ? '' : '用户拒绝执行该工具'
+    });
+    if (error) {
+      message.error(error.message || '提交审批决定失败');
+      return;
+    }
+    // 成功提交后服务端会推 approval_result, 这里兜底移除
+    pendingApprovals.value = pendingApprovals.value.filter(p => p.callId !== cur.callId);
+  } finally {
+    approving.value = false;
+  }
+}
 
 function nowTime(): string {
   return new Date().toLocaleTimeString('zh-CN', { hour12: false });
@@ -170,6 +212,7 @@ function clearConversation() {
   summary.value = null;
   events.value = [];
   liveTraces.value = {};
+  pendingApprovals.value = [];
   emit('traces-change', {});
   message.success('已清空会话, 下一轮将作为新会话开始');
 }
@@ -196,6 +239,7 @@ async function handleRun() {
   events.value = [];
   summary.value = null;
   liveTraces.value = {};
+  pendingApprovals.value = [];
   emit('traces-change', {});
   abortController = new AbortController();
 
@@ -262,6 +306,27 @@ async function handleRun() {
           }
           break;
         }
+        case 'approval_request':
+          pendingApprovals.value = [
+            ...pendingApprovals.value,
+            {
+              runId: String(payload?.run_id || ''),
+              callId: String(payload?.call_id || ''),
+              tool: String(payload?.tool || ''),
+              arguments: String(payload?.arguments || ''),
+              receivedAt: Date.now()
+            }
+          ];
+          pushEvent('approval', `⏸ 工具 ${payload?.tool} 等待人工审批`, 'info');
+          break;
+        case 'approval_result':
+          pendingApprovals.value = pendingApprovals.value.filter(p => p.callId !== String(payload?.call_id || ''));
+          pushEvent(
+            'approval',
+            payload?.approved ? `✓ 工具审批已批准` : `✕ 工具审批被拒绝${payload?.reason ? ` (${payload.reason})` : ''}`,
+            payload?.approved ? 'success' : 'error'
+          );
+          break;
         case 'delta':
           output.value += payload?.content || '';
           patchTurn({ assistant: output.value });
@@ -478,5 +543,36 @@ onBeforeUnmount(() => {
     <div v-if="summary" class="shrink-0">
       <NDataTable :columns="traceColumns" :data="summary.nodes" :row-key="(r: NodeTrace) => r.key" size="small" :max-height="120" />
     </div>
+
+    <!-- 工具审批弹窗: confirm_required 工具在编排运行时需人工批准 -->
+    <NModal
+      :show="!!currentApproval"
+      preset="card"
+      title="工具执行审批"
+      :style="{ width: '520px' }"
+      :mask-closable="false"
+      :closable="false"
+    >
+      <div v-if="currentApproval" class="flex flex-col gap-3">
+        <div class="text-sm">
+          本次运行请求执行需要人工确认的工具
+          <NTag size="small" type="warning" :bordered="false" class="ml-1">{{ currentApproval.tool }}</NTag>
+          <span v-if="pendingApprovals.length > 1" class="text-gray-400 text-xs ml-1">(还有 {{ pendingApprovals.length - 1 }} 个待审批)</span>
+        </div>
+        <div>
+          <div class="text-xs text-gray-500 mb-1">调用参数</div>
+          <pre class="text-xs whitespace-pre-wrap break-all m-0 p-2 bg-gray-50 dark:bg-gray-800 rounded max-h-40 overflow-auto">{{ prettyArguments(currentApproval.arguments) }}</pre>
+        </div>
+        <p class="text-11px text-gray-400 leading-5 m-0">
+          批准后立即执行; 拒绝会把拒绝原因返回给模型继续作答。等待超过 2 分钟未决定将自动拒绝。
+        </p>
+      </div>
+      <template #footer>
+        <NSpace justify="end">
+          <NButton size="small" :disabled="approving" @click="resolveApproval(false)">拒绝</NButton>
+          <NButton size="small" type="primary" :loading="approving" @click="resolveApproval(true)">批准执行</NButton>
+        </NSpace>
+      </template>
+    </NModal>
   </div>
 </template>

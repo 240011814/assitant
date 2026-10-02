@@ -13,6 +13,7 @@ import (
 	"backend/model"
 	"backend/service/tools"
 
+	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"gorm.io/gorm"
@@ -303,14 +304,29 @@ func orchNodeKeysOf(dsl *OrchestrationDSL) map[string]string {
 // validateDefinition 完整校验(结构+编译), 返回错误列表;
 // selfID 是被校验编排自己的 id (草稿/新建传 0), 用于保存时检出子编排自引用
 func (s *AIOrchestrationService) validateDefinition(definition string, selfID uint) []string {
-	dsl, errs := validateOrchestrationDSL(definition)
-	if len(errs) > 0 {
-		return errs
+	dsl, issues := validateOrchestrationDSLDetailed(definition)
+	if len(issues) > 0 {
+		return orchIssueMessages(issues)
 	}
 	if _, err := s.compile(context.Background(), 0, dsl, nil, nil, "", selfID, nil, false); err != nil {
 		return []string{err.Error()}
 	}
 	return nil
+}
+
+// wrapOrchestrationTool 构建编排运行用的工具实例: 需人工确认 (confirm_required) 的
+// 工具包一层审批 (经 SSE 请求人工批准, 拒绝/超时把原因返回给模型), 其余直接复用
+func (s *AIOrchestrationService) wrapOrchestrationTool(name string) (tool.BaseTool, error) {
+	t, err := s.agentService.BuildToolByName(name)
+	if err != nil {
+		return nil, err
+	}
+	if isConfirmRequired(name) {
+		if invokable, ok := t.(tool.InvokableTool); ok {
+			return &orchApprovalTool{name: name, inner: invokable}, nil
+		}
+	}
+	return t, nil
 }
 
 // compile 编译编排 DSL。orchID 是编排自身 id (草稿为 0), chain 是编译链上层的
@@ -324,7 +340,7 @@ func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *
 	}
 	deps := compilerDeps{
 		getModel:  s.agentService.GetToolCallingModel,
-		buildTool: s.agentService.BuildToolByName,
+		buildTool: s.wrapOrchestrationTool,
 		sessionVars: func() map[string]any {
 			vars := s.agentService.SessionTemplateVars(userID)
 			// 多轮调试的历史经 sessionVars 传给编译器 (模板变量不受影响)
@@ -380,9 +396,9 @@ func (s *AIOrchestrationService) compileNested(ctx context.Context, userID uint,
 	if !agent.Enabled {
 		return nil, fmt.Errorf("子编排「%s」(%d) 未启用", agent.Title, refID)
 	}
-	dsl, errs := validateOrchestrationDSL(agent.Definition)
-	if len(errs) > 0 {
-		return nil, fmt.Errorf("子编排「%s」(%d) 定义校验失败: %s", agent.Title, refID, strings.Join(errs, "; "))
+	dsl, issues := validateOrchestrationDSLDetailed(agent.Definition)
+	if len(issues) > 0 {
+		return nil, fmt.Errorf("子编排「%s」(%d) 定义校验失败: %s", agent.Title, refID, strings.Join(orchIssueMessages(issues), "; "))
 	}
 	return s.compile(ctx, userID, prefixOrchestrationDSL(dsl, keyPrefix), trace, nil, "", refID, chain, false)
 }
@@ -549,6 +565,10 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 	// 事件出口 (emit) 等编译成功后再注入, 避免编译期事件写到已关闭的 SSE
 	handler := newOrchTraceHandler(orchNodeKeysOf(dsl), orchSubAgentKeysOf(dsl), nil)
 
+	// 本次运行唯一标识: 工具审批的请求/决定靠它配对, 随 start 事件下发
+	runID := orchNewRunID()
+	runTag = fmt.Sprintf("%s run=%s", runTag, runID)
+
 	compiled, err := s.compile(ctx, userID, dsl, handler, history, chatPreamble, orchID, nil, req.ChatMode)
 	if err != nil {
 		orchLog("%s 编译失败: %v", runTag, err)
@@ -565,6 +585,7 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 		"mode":       compiled.mode,
 		"node_count": len(dsl.Nodes),
 		"history":    len(history),
+		"run_id":     runID,
 	})
 	handler.setEmit(emit)
 
@@ -572,6 +593,8 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 	defer cancel()
 	// handler 放进 ctx: 分支判定扫描模型流时要据它把增量文本实时推给前端
 	runCtx = withOrchHandler(runCtx, handler)
+	// run_id 放进 ctx: 工具审批请求/决定靠它配对
+	runCtx = withOrchRunID(runCtx, runID)
 	// 用户 ID 放进 ctx: 编排运行没有 ADK 会话, user_info/mem0/reminder 等工具
 	// 靠它拿当前用户 (普通对话经 runner.Run(WithSessionValues) 注入, 不走这条)
 	runCtx = tools.WithRunUserID(runCtx, userID)

@@ -150,6 +150,32 @@ func (h *AIOrchestrationHandler) HandleDebugRun(c *gin.Context) {
 	_ = h.svc.DebugRun(c.Request.Context(), userID.(uint), &req, emit)
 }
 
+// HandleResolveApproval 处理一次编排工具审批决定 (调试/编排对话共用)。
+// run_id 随 start 事件下发, 只有能看到本次运行 SSE 的用户持有它, 因此仅需登录
+type OrchestrationApprovalResolveRequest struct {
+	RunID    string `json:"run_id" binding:"required"`
+	CallID   string `json:"call_id" binding:"required"`
+	Approved bool   `json:"approved"`
+	Reason   string `json:"reason"`
+}
+
+func (h *AIOrchestrationHandler) HandleResolveApproval(c *gin.Context) {
+	var req OrchestrationApprovalResolveRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请求参数错误: "+err.Error())
+		return
+	}
+	if _, exists := c.Get("userId"); !exists {
+		SendError(c, "401", "Unauthorized")
+		return
+	}
+	if !service.ResolveOrchestrationApproval(req.RunID, req.CallID, req.Approved, req.Reason) {
+		SendError(c, "404", "审批请求不存在或已处理")
+		return
+	}
+	SendSuccess(c, nil)
+}
+
 // HandleChatList 训练中心「编排对话」列表: 仅返回已启用编排的精简信息
 // (不暴露 definition 等画布细节, 权限仅要求登录)
 func (h *AIOrchestrationHandler) HandleChatList(c *gin.Context) {

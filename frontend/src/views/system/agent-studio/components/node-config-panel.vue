@@ -38,6 +38,7 @@ function initLocal() {
   if ((props.nodeType === 'agent' || props.nodeType === 'subagent') && !Array.isArray(cfg.tools)) cfg.tools = [];
   if ((props.nodeType === 'branch' || props.nodeType === 'router') && !Array.isArray(cfg.cases)) cfg.cases = [];
   if ((props.nodeType === 'branch' || props.nodeType === 'router') && cfg.max_loops == null) cfg.max_loops = 0;
+  if (props.nodeType === 'branch' && !cfg.mode) cfg.mode = 'route';
   if (props.nodeType === 'subagent') {
     if (!cfg.agent_id) cfg.agent_id = 0;
     if (cfg.max_iterations == null) cfg.max_iterations = 0;
@@ -314,21 +315,39 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
 
     <!-- 分支节点 -->
     <template v-else-if="nodeType === 'branch'">
-      <div class="text-11px text-gray-400">按上游内容路由, 命中顺序自上而下; 分支目标需与画布连线一致。</div>
-      <NDynamicInput v-model:value="casesValue" :on-create="createBranchCase">
-        <template #default="{ value }">
-          <div class="flex flex-col gap-1 w-full">
-            <div class="flex gap-1">
-              <NSelect v-model:value="value.type" size="small" :options="branchTypeOptions" class="w-32" />
-              <NInput v-model:value="value.value" size="small" placeholder="匹配值" />
-            </div>
-            <NSelect v-model:value="value.target" size="small" :options="otherNodeOptions" placeholder="目标节点" />
-          </div>
-        </template>
-      </NDynamicInput>
-      <NFormItem label="默认分支" label-placement="left" label-width="72" size="small">
-        <NSelect v-model:value="localConfig.default_target" :options="otherNodeOptions" size="small" placeholder="无条件命中时的目标" />
+      <NFormItem label="分发模式" label-placement="left" label-width="72" size="small">
+        <NSelect
+          v-model:value="localConfig.mode"
+          size="small"
+          :options="[
+            { label: '互斥路由 (按条件选一路)', value: 'route' },
+            { label: '并行分发 (全部目标同时执行)', value: 'parallel' }
+          ]"
+          placeholder="默认互斥路由"
+        />
       </NFormItem>
+      <template v-if="localConfig.mode === 'parallel'">
+        <div class="text-11px text-orange-500 leading-5 mb-1">
+          并行分发: 所有画布出边指向的目标同时执行, 条件不生效; 每条路径需汇入合并节点输出。
+        </div>
+      </template>
+      <template v-else>
+        <div class="text-11px text-gray-400">按上游内容路由, 命中顺序自上而下; 分支目标需与画布连线一致。</div>
+        <NDynamicInput v-model:value="casesValue" :on-create="createBranchCase">
+          <template #default="{ value }">
+            <div class="flex flex-col gap-1 w-full">
+              <div class="flex gap-1">
+                <NSelect v-model:value="value.type" size="small" :options="branchTypeOptions" class="w-32" />
+                <NInput v-model:value="value.value" size="small" placeholder="匹配值" />
+              </div>
+              <NSelect v-model:value="value.target" size="small" :options="otherNodeOptions" placeholder="目标节点" />
+            </div>
+          </template>
+        </NDynamicInput>
+        <NFormItem label="默认分支" label-placement="left" label-width="72" size="small">
+          <NSelect v-model:value="localConfig.default_target" :options="otherNodeOptions" size="small" placeholder="无条件命中时的目标" />
+        </NFormItem>
+      </template>
       <template v-if="hasLoopOutEdge">
         <NFormItem label="循环上限" label-placement="left" label-width="72" size="small">
           <NInputNumber v-model:value="localConfig.max_loops" :min="1" :max="20" size="small" class="w-full" placeholder="回边最多执行次数" />
