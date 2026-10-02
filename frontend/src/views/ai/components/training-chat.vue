@@ -527,28 +527,8 @@ const parseVocabSuggestions = () => {
   };
 };
 
-// 编排对话: 记住最近一次会话 id, 刷新/重开后自动恢复上下文
-const orchStorageKey = (id?: number | null) => `ai_orchestration_history_${id ?? props.orchestrationId}`;
-
-const persistOrchestrationHistoryId = (id: number) => {
-  if (!isOrchestration.value || !id) return;
-  try {
-    localStorage.setItem(orchStorageKey(), String(id));
-  } catch {
-    // localStorage 不可用(隐私模式)时忽略, 不影响对话
-  }
-};
-
-// 读取该编排最近一次会话 id (0 表示没有)
-const readOrchestrationHistoryId = () => {
-  try {
-    return Number(localStorage.getItem(orchStorageKey())) || 0;
-  } catch {
-    return 0;
-  }
-};
-
-// 编排对话: 历史轮次 (不含本轮 input), 跳过开场欢迎语, 只保留有效的 user/assistant 文本
+// 编排对话: 历史轮次 (不含本轮 input), 跳过开场欢迎语, 只保留有效的 user/assistant 文本。
+// 会话打开即全新, 继续旧对话走历史列表「继续训练」(路由带 history_id), 不做自动恢复。
 const buildOrchestrationHistory = () => {
   const turns: { role: string; content: string }[] = [];
   messages.value.slice(0, -2).forEach((msg, idx) => {
@@ -595,10 +575,9 @@ const sendOrchestrationMessage = async (userText: string, controller: AbortContr
 
     switch (eventType) {
       case "history_id":
-        // 编排对话首轮落库后返回 history_id, 记录以便后续轮次/刷新继续同一会话
+        // 编排对话首轮落库后返回 history_id, 记录以便后续轮次保存到同一会话
         if (payload?.history_id) {
           historyId.value = payload.history_id;
-          persistOrchestrationHistoryId(payload.history_id);
         }
         break;
       case "error": {
@@ -1000,8 +979,6 @@ const loadHistory = async (id: number) => {
       historyId.value = data.id;
       lastLoadedHistoryId.value = data.id;
       historyTitle.value = data.title;
-      // 编排对话: 记住该会话, 刷新页面后自动恢复
-      if (isOrchestration.value) persistOrchestrationHistoryId(data.id);
       messages.value = (data.messages || [])
         .filter((msg: any) => msg.role !== "system")
         .map((msg: any, idx: number) => {
@@ -1018,12 +995,6 @@ const loadHistory = async (id: number) => {
       shareToken.value = data.share_token || null;
     }
   } catch (err: any) {
-    // 编排对话恢复失败 (例如会话已删除): 清掉本地记住的 id, 避免每次打开都报错
-    if (isOrchestration.value) {
-      try {
-        localStorage.removeItem(orchStorageKey());
-      } catch {}
-    }
     message.error(`加载历史记录失败: ${err?.message || "未知错误"}`);
   }
 };
@@ -1105,11 +1076,8 @@ onMounted(() => {
 
   const queryHistoryId = Number(route.query.history_id) || 0;
   if (queryHistoryId) {
+    // 仅显式续聊 (历史列表「继续训练」带 history_id) 时回放会话; 打开即新会话
     loadHistory(queryHistoryId);
-  } else if (isOrchestration.value) {
-    // 刷新/重开后恢复该编排最近一次会话 (localStorage 记录)
-    const savedHistoryId = readOrchestrationHistoryId();
-    if (savedHistoryId) loadHistory(savedHistoryId);
   }
 
   if (scrollbarRef.value) {
@@ -1125,7 +1093,7 @@ onActivated(() => {
   }
 });
 
-// 同一标签内切换编排时, 重置会话并恢复目标编排最近的会话
+// 同一标签内切换编排时, 重置为全新会话 (继续旧对话走历史列表「继续训练」)
 watch(
   () => props.orchestrationId,
   (newId, oldId) => {
@@ -1134,8 +1102,6 @@ watch(
     historyTitle.value = "";
     lastLoadedHistoryId.value = 0;
     messages.value = [createChatMessage("assistant", props.initialMessage)];
-    const savedHistoryId = readOrchestrationHistoryId();
-    if (savedHistoryId) loadHistory(savedHistoryId);
   }
 );
 
