@@ -57,6 +57,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   'running-change': [running: boolean];
   'traces-change': [traces: Record<string, NodeTrace>];
+  /** 校验/编译失败且带节点定位时上报, 画布据此红圈高亮 */
+  'error-nodes': [ids: string[]];
 }>();
 
 const message = useMessage();
@@ -279,6 +281,8 @@ async function handleRun() {
           if (payload?.errors?.length) {
             payload.errors.forEach((e: string) => pushEvent('error', e, 'error'));
             patchTurn({ error: payload.errors.join('; ') });
+            const errorIds = (payload?.error_items || []).map((i: any) => String(i?.node_id || '')).filter(Boolean);
+            if (errorIds.length) emit('error-nodes', errorIds);
           } else {
             pushEvent('error', payload?.message || '执行出错', 'error');
             patchTurn({ error: payload?.message || '执行出错' });

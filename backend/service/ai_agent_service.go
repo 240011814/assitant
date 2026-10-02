@@ -21,15 +21,21 @@ import (
 )
 
 type AIAgentService struct {
-	ctx             context.Context
-	activeProvider  *model.AIProvider
-	activeModel     *model.AIModel
-	enabledModels   []model.AIModel
-	timeout         time.Duration
-	timeoutConfig   TimeoutConfig
-	runnerCache     map[string]*adk.Runner
-	promptCache     map[string]string
-	cacheMu         sync.RWMutex // 保护 runnerCache/promptCache 及 active* 字段, gin 请求与 ReloadConfig 并发访问
+	ctx            context.Context
+	activeProvider *model.AIProvider
+	activeModel    *model.AIModel
+	enabledModels  []model.AIModel
+	timeout        time.Duration
+	timeoutConfig  TimeoutConfig
+	runnerCache    map[string]*adk.Runner
+	promptCache    map[string]string
+	// modelCache 模型实例缓存 (按 model code): 编排每个节点/每次运行都构建模型,
+	// ark.ChatModel 是无状态配置+HTTP client, 可复用; WithTools 返回副本不改接收者
+	modelCache map[string]*ark.ChatModel
+	// toolCache 工具实例缓存 (按工具名): 编译每个工具节点/Agent 工具都要查库构建,
+	// 工具实现无状态 (config + http.Client), 可复用
+	toolCache       map[string]tool.BaseTool
+	cacheMu         sync.RWMutex // 保护 runnerCache/promptCache/modelCache/toolCache 及 active* 字段, gin 请求与 ReloadConfig 并发访问
 	sysCfgService   *SystemConfigService
 	checkpointStore compose.CheckPointStore
 	memoryService   *UserMemoryService
@@ -44,6 +50,8 @@ func NewAIAgentService(timeoutMinutes int, sysCfgService *SystemConfigService) (
 		timeout:         time.Duration(timeoutMinutes) * time.Minute,
 		runnerCache:     make(map[string]*adk.Runner),
 		promptCache:     make(map[string]string),
+		modelCache:      make(map[string]*ark.ChatModel),
+		toolCache:       make(map[string]tool.BaseTool),
 		sysCfgService:   sysCfgService,
 		checkpointStore: NewInMemoryCheckPointStore(),
 	}
@@ -190,17 +198,26 @@ func (s *AIAgentService) DeleteAIAgent(userID uint, agentID uint) error {
 	return err
 }
 
+// clearCachesLocked 清空全部实例缓存 (调用方需持 cacheMu)。
+// 模型/工具实例与 runner 同生命周期: 工具配置、Agent 提示词、模型配置变更的
+// 失效路径都已汇聚到 clearRunnerCache/ClearRunnerCache/ReloadConfig
+func (s *AIAgentService) clearCachesLocked() {
+	s.runnerCache = make(map[string]*adk.Runner)
+	s.modelCache = make(map[string]*ark.ChatModel)
+	s.toolCache = make(map[string]tool.BaseTool)
+}
+
 func (s *AIAgentService) clearRunnerCache(userID uint, agentID uint) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
-	s.runnerCache = make(map[string]*adk.Runner)
+	s.clearCachesLocked()
 	delete(s.promptCache, fmt.Sprintf("%d_%d", userID, agentID))
 }
 
 func (s *AIAgentService) ClearRunnerCache() {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
-	s.runnerCache = make(map[string]*adk.Runner)
+	s.clearCachesLocked()
 }
 
 func (s *AIAgentService) ReloadConfig() error {
@@ -210,6 +227,7 @@ func (s *AIAgentService) ReloadConfig() error {
 		s.activeProvider = nil
 		s.activeModel = nil
 		s.enabledModels = nil
+		s.clearCachesLocked()
 		s.cacheMu.Unlock()
 		return err
 	}
@@ -240,7 +258,7 @@ func (s *AIAgentService) ReloadConfig() error {
 		}
 	}
 
-	s.runnerCache = make(map[string]*adk.Runner)
+	s.clearCachesLocked()
 	s.cacheMu.Unlock()
 	return nil
 }
@@ -432,6 +450,14 @@ func (s *AIAgentService) getModel(modelOverride string) (*ark.ChatModel, error) 
 	if modelOverride != "" {
 		modelCode = modelOverride
 	}
+	// 模型实例缓存: 同一 model code 复用 (构建含 HTTP client, 每节点/每次运行新建是编译期主要开销之一)
+	s.cacheMu.RLock()
+	if cm, ok := s.modelCache[modelCode]; ok {
+		s.cacheMu.RUnlock()
+		return cm, nil
+	}
+	s.cacheMu.RUnlock()
+
 	chatConfig := &ark.ChatModelConfig{
 		Model:   modelCode,
 		APIKey:  activeProvider.APIKey,
@@ -462,7 +488,17 @@ func (s *AIAgentService) getModel(modelOverride string) (*ark.ChatModel, error) 
 	} else {
 		log.Printf("AI model config_json parse failed model=%s config_json=%s err=%v", activeModel.ModelCode, activeModel.ConfigJSON, err)
 	}
-	return ark.NewChatModel(s.ctx, chatConfig)
+	chatModel, err := ark.NewChatModel(s.ctx, chatConfig)
+	if err != nil {
+		return nil, err
+	}
+	s.cacheMu.Lock()
+	if s.modelCache == nil {
+		s.modelCache = make(map[string]*ark.ChatModel)
+	}
+	s.modelCache[modelCode] = chatModel
+	s.cacheMu.Unlock()
+	return chatModel, nil
 }
 
 // GetToolCallingModel 按 model code 构建可工具调用的模型 (编排/技能等复用), 空串用默认模型
@@ -470,13 +506,30 @@ func (s *AIAgentService) GetToolCallingModel(modelOverride string) (einomodel.To
 	return s.getModel(modelOverride)
 }
 
-// BuildToolByName 按 ai_tools 表配置构建单个工具实例
+// BuildToolByName 按 ai_tools 表配置构建单个工具实例 (带缓存: 工具实现无状态可复用,
+// 配置/启用状态变更经 ClearRunnerCache 失效)
 func (s *AIAgentService) BuildToolByName(name string) (tool.BaseTool, error) {
+	s.cacheMu.RLock()
+	if t, ok := s.toolCache[name]; ok {
+		s.cacheMu.RUnlock()
+		return t, nil
+	}
+	s.cacheMu.RUnlock()
 	var dbTool model.AITool
 	if err := DB.Where("name = ? AND enabled = ?", name, true).First(&dbTool).Error; err != nil {
 		return nil, fmt.Errorf("工具不存在或未启用: %s", name)
 	}
-	return tools.CreateTool(dbTool.Name, dbTool.ConfigJSON)
+	t, err := tools.CreateTool(dbTool.Name, dbTool.ConfigJSON)
+	if err != nil {
+		return nil, err
+	}
+	s.cacheMu.Lock()
+	if s.toolCache == nil {
+		s.toolCache = make(map[string]tool.BaseTool)
+	}
+	s.toolCache[name] = t
+	s.cacheMu.Unlock()
+	return t, nil
 }
 
 // SessionTemplateVars 模板/系统提示词可用的变量

@@ -45,6 +45,8 @@ export interface OrchestrationValidateResult {
   mode: string;
   errors?: string[];
   warnings?: string[];
+  /** error_items 结构化错误: node_id 非空时可定位画布节点 (高亮/选中) */
+  error_items?: { node_id?: string; message: string }[];
 }
 
 export interface OrchestrationResource {

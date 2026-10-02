@@ -125,7 +125,7 @@ func main() {
 	skillService := service.NewAISkillService(aiAgentService)
 	skillHandler := api.NewSkillHandler(skillService)
 
-	orchestrationService := service.NewAIOrchestrationService(aiAgentService, cfg.AI.TimeoutMinutes)
+	orchestrationService := service.NewAIOrchestrationService(aiAgentService, promptService, cfg.AI.TimeoutMinutes)
 	orchestrationHandler := api.NewAIOrchestrationHandler(orchestrationService, historyService)
 
 	courseService := service.NewCourseService()

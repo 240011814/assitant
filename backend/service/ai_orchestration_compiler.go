@@ -127,6 +127,10 @@ type OrchSubAgentConfig struct {
 	Description string `json:"description"`
 	// Tools 子 Agent 可调用的工具
 	Tools []string `json:"tools"`
+	// MaxIterations 子 Agent 的 ReAct 最大轮次 (模型↔工具往返上限), 0 = 默认 15
+	MaxIterations int `json:"max_iterations"`
+	// TimeoutSeconds 单次委派的执行超时 (秒), 0 = 不单独限时 (跟随编排整体超时)
+	TimeoutSeconds int `json:"timeout_seconds"`
 }
 
 type OrchMergeConfig struct {
@@ -219,6 +223,14 @@ type orchestrationCompiler struct {
 	outDeg    map[string]int
 	nodeMap   map[string]*OrchestrationNode
 	topo      []string
+
+	// vars/varsResolved sessionVars 每次编译只解析一次。原实现在 buildAgentLambda /
+	// buildSubReactAgent / buildTemplateLambda / orchChatHistoryFromVars 各调一次 deps.sessionVars(),
+	// 每次都重建用户画像 (多次查库), 是编译期最大的重复开销
+	vars         map[string]any
+	varsResolved bool
+	// agentCache 编译内子Agent 引用查询去重: 同一 Agent 被多个子Agent 节点引用时只查一次
+	agentCache map[uint]*coremodel.AIAgent
 }
 
 func parseOrchestrationDSL(definition string) (*OrchestrationDSL, error) {
@@ -248,6 +260,16 @@ func validateOrchestrationDSL(definition string) (*OrchestrationDSL, []string) {
 	return dsl, nil
 }
 
+// validateOrchestrationDSLDetailed 校验 DSL, 返回解析结果与带节点定位的错误列表
+func validateOrchestrationDSLDetailed(definition string) (*OrchestrationDSL, []orchValidateIssue) {
+	dsl, err := parseOrchestrationDSL(definition)
+	if err != nil {
+		return nil, []orchValidateIssue{{Message: err.Error()}}
+	}
+	c := &orchestrationCompiler{dsl: dsl}
+	return dsl, c.validateIssues()
+}
+
 func (c *orchestrationCompiler) nodeByID(id string) *OrchestrationNode {
 	return c.nodeMap[id]
 }
@@ -262,25 +284,70 @@ func (c *orchestrationCompiler) flowOutOf(id string) int {
 	return len(c.flowAdj[id])
 }
 
-// lookupAgent 读取子Agent 引用的已有 Agent (deps 未注入时回退查库)
-func (c *orchestrationCompiler) lookupAgent(id uint) (*coremodel.AIAgent, error) {
-	if c.deps.lookupAgent != nil {
-		return c.deps.lookupAgent(id)
+// resolvedSessionVars 返回本次编译的模板/提示词变量 (deps.sessionVars 结果在编译内只解析一次)
+func (c *orchestrationCompiler) resolvedSessionVars() map[string]any {
+	if !c.varsResolved {
+		if c.deps.sessionVars != nil {
+			c.vars = c.deps.sessionVars()
+		} else {
+			c.vars = map[string]any{}
+		}
+		c.varsResolved = true
 	}
-	if DB == nil {
-		return nil, errors.New("数据库未初始化")
-	}
-	var agent coremodel.AIAgent
-	if err := DB.First(&agent, id).Error; err != nil {
-		return nil, err
-	}
-	return &agent, nil
+	return c.vars
 }
 
+// lookupAgent 读取子Agent 引用的已有 Agent (deps 未注入时回退查库);
+// 同一编译内按 id 去重, 同一 Agent 被多个子Agent 节点引用时只查一次
+func (c *orchestrationCompiler) lookupAgent(id uint) (*coremodel.AIAgent, error) {
+	if a, ok := c.agentCache[id]; ok {
+		return a, nil
+	}
+	var (
+		agent *coremodel.AIAgent
+		err   error
+	)
+	if c.deps.lookupAgent != nil {
+		agent, err = c.deps.lookupAgent(id)
+	} else if DB == nil {
+		return nil, errors.New("数据库未初始化")
+	} else {
+		var row coremodel.AIAgent
+		if err = DB.First(&row, id).Error; err == nil {
+			agent = &row
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if c.agentCache == nil {
+		c.agentCache = make(map[uint]*coremodel.AIAgent)
+	}
+	c.agentCache[id] = agent
+	return agent, nil
+}
+
+// orchValidateIssue 单条校验错误: NodeID 为空表示全局性错误 (无法定位到单个节点)
+type orchValidateIssue struct {
+	NodeID  string
+	Message string
+}
+
+// validate 返回错误文案列表 (兼容旧调用方: validateOrchestrationDSL/compile/测试)
 func (c *orchestrationCompiler) validate() []string {
-	var errs []string
-	add := func(format string, args ...any) {
-		errs = append(errs, fmt.Sprintf(format, args...))
+	issues := c.validateIssues()
+	errs := make([]string, len(issues))
+	for i := range issues {
+		errs[i] = issues[i].Message
+	}
+	return errs
+}
+
+// validateIssues 带节点定位的校验: NodeID 供前端高亮/选中出错节点, Message 与原 validate() 文案一致
+func (c *orchestrationCompiler) validateIssues() []orchValidateIssue {
+	var issues []orchValidateIssue
+	add := func(nodeID, format string, args ...any) {
+		issues = append(issues, orchValidateIssue{NodeID: nodeID, Message: fmt.Sprintf(format, args...)})
 	}
 
 	c.nodeMap = make(map[string]*OrchestrationNode, len(c.dsl.Nodes))
@@ -290,18 +357,18 @@ func (c *orchestrationCompiler) validate() []string {
 	c.outDeg = make(map[string]int)
 
 	if len(c.dsl.Nodes) == 0 {
-		return []string{"编排至少需要一个节点"}
+		return []orchValidateIssue{{Message: "编排至少需要一个节点"}}
 	}
 
 	hasBranch, hasRouter, hasMerge, hasLoop := false, false, false, false
 	for i := range c.dsl.Nodes {
 		n := &c.dsl.Nodes[i]
 		if n.ID == "" {
-			add("第 %d 个节点缺少 id", i+1)
+			add("", "第 %d 个节点缺少 id", i+1)
 			continue
 		}
 		if _, dup := c.nodeMap[n.ID]; dup {
-			add("节点 id 重复: %s", n.ID)
+			add(n.ID, "节点 id 重复: %s", n.ID)
 			continue
 		}
 		c.nodeMap[n.ID] = n
@@ -312,7 +379,7 @@ func (c *orchestrationCompiler) validate() []string {
 		case OrchNodeAgent, OrchNodeTool, OrchNodeTemplate, OrchNodeBranch, OrchNodeMerge, OrchNodeEnd, OrchNodeSubAgent,
 			OrchNodeRouter, OrchNodeExtract, OrchNodeSubOrch:
 		default:
-			add("节点 %s 类型非法: %s", n.ID, n.Type)
+			add(n.ID, "节点 %s 类型非法: %s", n.ID, n.Type)
 		}
 		if n.Type == OrchNodeBranch {
 			hasBranch = true
@@ -324,42 +391,42 @@ func (c *orchestrationCompiler) validate() []string {
 			hasMerge = true
 		}
 	}
-	if len(errs) > 0 {
-		return errs
+	if len(issues) > 0 {
+		return issues
 	}
 
 	for i, e := range c.dsl.Edges {
 		if c.nodeByID(e.Source) == nil {
-			add("第 %d 条连线来源不存在: %s", i+1, e.Source)
+			add("", "第 %d 条连线来源不存在: %s", i+1, e.Source)
 			continue
 		}
 		if c.nodeByID(e.Target) == nil {
-			add("第 %d 条连线目标不存在: %s", i+1, e.Target)
+			add(e.Source, "第 %d 条连线目标不存在: %s", i+1, e.Target)
 			continue
 		}
 		if e.Source == e.Target {
-			add("连线不允许自环: %s", e.Source)
+			add(e.Source, "连线不允许自环: %s", e.Source)
 			continue
 		}
 		if e.Kind == OrchEdgeLoop {
 			src := c.nodeByID(e.Source)
 			if src.Type != OrchNodeBranch && src.Type != OrchNodeRouter {
-				add("循环回边 %s -> %s 只能从分支/LLM路由节点发出", e.Source, e.Target)
+				add(e.Source, "循环回边 %s -> %s 只能从分支/LLM路由节点发出", e.Source, e.Target)
 				continue
 			}
 			if len(c.loopEdges[e.Source]) > 0 {
-				add("节点 %s 只允许一条循环回边", e.Source)
+				add(e.Source, "节点 %s 只允许一条循环回边", e.Source)
 				continue
 			}
 			if c.nodeByID(e.Target).Type == OrchNodeSubAgent {
-				add("循环回边 %s -> %s 不能指向子Agent 节点", e.Source, e.Target)
+				add(e.Source, "循环回边 %s -> %s 不能指向子Agent 节点", e.Source, e.Target)
 				continue
 			}
 			c.loopEdges[e.Source] = append(c.loopEdges[e.Source], e)
 			continue
 		}
 		if e.Kind != "" && e.Kind != OrchEdgeFlow {
-			add("第 %d 条连线类型非法: %s (flow/loop)", i+1, e.Kind)
+			add(e.Source, "第 %d 条连线类型非法: %s (flow/loop)", i+1, e.Kind)
 			continue
 		}
 		c.adj[e.Source] = append(c.adj[e.Source], e.Target)
@@ -425,8 +492,8 @@ func (c *orchestrationCompiler) validate() []string {
 		}
 	}
 	if len(c.topo) != flowNodeCount {
-		add("编排存在循环连线, 不允许成环 (循环请使用分支/LLM路由节点的循环回边; Agent 节点内部的工具循环由 ReAct 自动处理)")
-		return errs
+		add("", "编排存在循环连线, 不允许成环 (循环请使用分支/LLM路由节点的循环回边; Agent 节点内部的工具循环由 ReAct 自动处理)")
+		return issues
 	}
 
 	// 受控环校验: 回边已从主流剔除, 这里按局部规则逐条检查。
@@ -436,12 +503,12 @@ func (c *orchestrationCompiler) validate() []string {
 		topoIndex[id] = i
 	}
 	if hasLoop && hasMerge {
-		add("当前版本暂不支持循环与合并混用, 请拆分为多个编排")
+		add("", "当前版本暂不支持循环与合并混用, 请拆分为多个编排")
 	}
 	for src, edges := range c.loopEdges {
 		for _, le := range edges {
 			if ti, ok := topoIndex[le.Target]; !ok || ti >= topoIndex[src] {
-				add("循环回边 %s -> %s 的目标必须是主流程中位于该节点之前的节点 (构成循环)", le.Source, le.Target)
+				add(le.Source, "循环回边 %s -> %s 的目标必须是主流程中位于该节点之前的节点 (构成循环)", le.Source, le.Target)
 				continue
 			}
 			var maxLoops int
@@ -457,7 +524,7 @@ func (c *orchestrationCompiler) validate() []string {
 				}
 			}
 			if maxLoops < 1 {
-				add("节点 %s 带循环回边, 必须设置循环上限 (max_loops >= 1)", src)
+				add(src, "节点 %s 带循环回边, 必须设置循环上限 (max_loops >= 1)", src)
 			}
 			// 退出目标: 条件/默认目标中至少一个不是回边目标, 循环才有出口
 			exitExists := false
@@ -487,7 +554,7 @@ func (c *orchestrationCompiler) validate() []string {
 				}
 			}
 			if !exitExists {
-				add("节点 %s 的所有目标都是循环回边, 缺少退出目标", src)
+				add(src, "节点 %s 的所有目标都是循环回边, 缺少退出目标", src)
 			}
 		}
 	}
@@ -533,34 +600,34 @@ func (c *orchestrationCompiler) validate() []string {
 		switch n.Type {
 		case OrchNodeMerge:
 			if inDeg < 2 {
-				add("合并节点 %s 至少需要两条入边", id)
+				add(id, "合并节点 %s 至少需要两条入边", id)
 			}
 			if outDeg != 1 {
-				add("合并节点 %s 必须恰好一条出边", id)
+				add(id, "合并节点 %s 必须恰好一条出边", id)
 			}
 		case OrchNodeBranch:
 			if inDeg != 1 {
-				add("分支节点 %s 必须恰好一条入边", id)
+				add(id, "分支节点 %s 必须恰好一条入边", id)
 			}
 			var cfg OrchBranchConfig
 			if err := json.Unmarshal(n.Config, &cfg); err != nil {
-				add("分支节点 %s 配置解析失败: %v", id, err)
+				add(id, "分支节点 %s 配置解析失败: %v", id, err)
 				continue
 			}
 			if len(cfg.Cases) == 0 {
-				add("分支节点 %s 至少需要一个分支条件", id)
+				add(id, "分支节点 %s 至少需要一个分支条件", id)
 			}
 			targets := map[string]bool{}
 			for j, cs := range cfg.Cases {
 				if cs.Value == "" {
-					add("分支节点 %s 第 %d 个条件缺少匹配值", id, j+1)
+					add(id, "分支节点 %s 第 %d 个条件缺少匹配值", id, j+1)
 				}
 				if cs.Target == "" || c.nodeByID(cs.Target) == nil {
-					add("分支节点 %s 第 %d 个条件目标无效: %s", id, j+1, cs.Target)
+					add(id, "分支节点 %s 第 %d 个条件目标无效: %s", id, j+1, cs.Target)
 					continue
 				}
 				if cs.Target == id {
-					add("分支节点 %s 条件不能指向自身", id)
+					add(id, "分支节点 %s 条件不能指向自身", id)
 					continue
 				}
 				targets[cs.Target] = true
@@ -568,77 +635,77 @@ func (c *orchestrationCompiler) validate() []string {
 				case "contains", "equals":
 				case "regex":
 					if _, err := regexp.Compile(cs.Value); err != nil {
-						add("分支节点 %s 第 %d 个条件正则非法: %v", id, j+1, err)
+						add(id, "分支节点 %s 第 %d 个条件正则非法: %v", id, j+1, err)
 					}
 				default:
-					add("分支节点 %s 第 %d 个条件类型非法: %s (contains/equals/regex)", id, j+1, cs.Type)
+					add(id, "分支节点 %s 第 %d 个条件类型非法: %s (contains/equals/regex)", id, j+1, cs.Type)
 				}
 			}
 			if cfg.DefaultTarget == "" || c.nodeByID(cfg.DefaultTarget) == nil {
-				add("分支节点 %s 缺少有效的默认分支目标", id)
+				add(id, "分支节点 %s 缺少有效的默认分支目标", id)
 			} else if cfg.DefaultTarget == id {
-				add("分支节点 %s 默认分支不能指向自身", id)
+				add(id, "分支节点 %s 默认分支不能指向自身", id)
 			} else {
 				targets[cfg.DefaultTarget] = true
 			}
 			if outDeg+len(c.loopEdges[id]) != len(targets) {
-				add("分支节点 %s 的画布连线(%d 条, 含回边)与条件目标(%d 个)不一致, 分支节点必须连接到所有条件目标", id, outDeg+len(c.loopEdges[id]), len(targets))
+				add(id, "分支节点 %s 的画布连线(%d 条, 含回边)与条件目标(%d 个)不一致, 分支节点必须连接到所有条件目标", id, outDeg+len(c.loopEdges[id]), len(targets))
 			}
 			for _, t := range c.adj[id] {
 				if !targets[t] {
-					add("分支节点 %s 连线目标 %s 未出现在分支条件中", id, t)
+					add(id, "分支节点 %s 连线目标 %s 未出现在分支条件中", id, t)
 				}
 			}
 			for _, le := range c.loopEdges[id] {
 				if !targets[le.Target] {
-					add("分支节点 %s 回边目标 %s 未出现在分支条件中", id, le.Target)
+					add(id, "分支节点 %s 回边目标 %s 未出现在分支条件中", id, le.Target)
 				}
 			}
 		case OrchNodeRouter:
 			if inDeg != 1 {
-				add("路由节点 %s 必须恰好一条入边", id)
+				add(id, "路由节点 %s 必须恰好一条入边", id)
 			}
 			var cfg OrchRouterConfig
 			if err := json.Unmarshal(n.Config, &cfg); err != nil {
-				add("路由节点 %s 配置解析失败: %v", id, err)
+				add(id, "路由节点 %s 配置解析失败: %v", id, err)
 				continue
 			}
 			if len(cfg.Cases) == 0 {
-				add("路由节点 %s 至少需要一个分类标签", id)
+				add(id, "路由节点 %s 至少需要一个分类标签", id)
 			}
 			targets := map[string]bool{}
 			for j, cs := range cfg.Cases {
 				if strings.TrimSpace(cs.Label) == "" {
-					add("路由节点 %s 第 %d 个分类缺少标签", id, j+1)
+					add(id, "路由节点 %s 第 %d 个分类缺少标签", id, j+1)
 				}
 				if cs.Target == "" || c.nodeByID(cs.Target) == nil {
-					add("路由节点 %s 第 %d 个分类目标无效: %s", id, j+1, cs.Target)
+					add(id, "路由节点 %s 第 %d 个分类目标无效: %s", id, j+1, cs.Target)
 					continue
 				}
 				if cs.Target == id {
-					add("路由节点 %s 分类不能指向自身", id)
+					add(id, "路由节点 %s 分类不能指向自身", id)
 					continue
 				}
 				targets[cs.Target] = true
 			}
 			if cfg.DefaultTarget == "" || c.nodeByID(cfg.DefaultTarget) == nil {
-				add("路由节点 %s 缺少有效的默认目标", id)
+				add(id, "路由节点 %s 缺少有效的默认目标", id)
 			} else if cfg.DefaultTarget == id {
-				add("路由节点 %s 默认目标不能指向自身", id)
+				add(id, "路由节点 %s 默认目标不能指向自身", id)
 			} else {
 				targets[cfg.DefaultTarget] = true
 			}
 			if outDeg+len(c.loopEdges[id]) != len(targets) {
-				add("路由节点 %s 的画布连线(%d 条, 含回边)与分类目标(%d 个)不一致, 路由节点必须连接到所有分类目标", id, outDeg+len(c.loopEdges[id]), len(targets))
+				add(id, "路由节点 %s 的画布连线(%d 条, 含回边)与分类目标(%d 个)不一致, 路由节点必须连接到所有分类目标", id, outDeg+len(c.loopEdges[id]), len(targets))
 			}
 			for _, t := range c.adj[id] {
 				if !targets[t] {
-					add("路由节点 %s 连线目标 %s 未出现在分类中", id, t)
+					add(id, "路由节点 %s 连线目标 %s 未出现在分类中", id, t)
 				}
 			}
 			for _, le := range c.loopEdges[id] {
 				if !targets[le.Target] {
-					add("路由节点 %s 回边目标 %s 未出现在分类中", id, le.Target)
+					add(id, "路由节点 %s 回边目标 %s 未出现在分类中", id, le.Target)
 				}
 			}
 		default:
@@ -658,11 +725,11 @@ func (c *orchestrationCompiler) validate() []string {
 					branches[br] = true
 				}
 				if !consistent || len(branches) != 1 {
-					add("节点 %s 只允许一条入边 (多路合并请使用合并节点; 分支汇合必须来自同一分支节点的目标)", id)
+					add(id, "节点 %s 只允许一条入边 (多路合并请使用合并节点; 分支汇合必须来自同一分支节点的目标)", id)
 				}
 			}
 			if outDeg > 1 {
-				add("节点 %s 只允许一条出边 (多路分发请使用分支节点)", id)
+				add(id, "节点 %s 只允许一条出边 (多路分发请使用分支节点)", id)
 			}
 		}
 		if inDeg == 0 {
@@ -679,49 +746,55 @@ func (c *orchestrationCompiler) validate() []string {
 			continue
 		}
 		if c.inDeg[id] != 1 {
-			add("子Agent 节点 %s 必须恰好有一条来自主 Agent 的入边", id)
+			add(id, "子Agent 节点 %s 必须恰好有一条来自主 Agent 的入边", id)
 		} else {
 			for _, e := range c.dsl.Edges {
 				if e.Target != id {
 					continue
 				}
 				if src := c.nodeByID(e.Source); src == nil || src.Type != OrchNodeAgent {
-					add("子Agent 节点 %s 的入边必须来自 Agent 节点 (委派方向: 主 Agent -> 子Agent)", id)
+					add(id, "子Agent 节点 %s 的入边必须来自 Agent 节点 (委派方向: 主 Agent -> 子Agent)", id)
 				}
 				break
 			}
 		}
 		if c.outDeg[id] > 0 {
-			add("子Agent 节点 %s 不允许向外连线", id)
+			add(id, "子Agent 节点 %s 不允许向外连线", id)
 		}
 		var cfg OrchSubAgentConfig
 		if len(n.Config) > 0 {
 			if err := json.Unmarshal(n.Config, &cfg); err != nil {
-				add("子Agent 节点 %s 配置解析失败: %v", id, err)
+				add(id, "子Agent 节点 %s 配置解析失败: %v", id, err)
 				continue
 			}
 		}
 		if cfg.AgentID == 0 && strings.TrimSpace(cfg.SystemPrompt) == "" {
-			add("子Agent 节点 %s 需要引用已有 Agent 或填写内联系统提示词", id)
+			add(id, "子Agent 节点 %s 需要引用已有 Agent 或填写内联系统提示词", id)
+		}
+		if cfg.MaxIterations < 0 {
+			add(id, "子Agent 节点 %s 最大轮次不能为负数", id)
+		}
+		if cfg.TimeoutSeconds < 0 || cfg.TimeoutSeconds > 3600 {
+			add(id, "子Agent 节点 %s 超时须在 0-3600 秒之间 (0 表示跟随编排整体超时)", id)
 		}
 	}
 
 	if hasMerge {
 		if inputCount < 1 {
-			add("编排至少需要一个入口节点(无入边)")
+			add("", "编排至少需要一个入口节点(无入边)")
 		}
 	} else if inputCount != 1 {
-		add("编排必须恰好一个入口节点(无入边), 当前 %d 个", inputCount)
+		add("", "编排必须恰好一个入口节点(无入边), 当前 %d 个", inputCount)
 	}
 	if outputCount != 1 {
-		add("编排必须恰好一个出口节点(无出边), 当前 %d 个", outputCount)
+		add("", "编排必须恰好一个出口节点(无出边), 当前 %d 个", outputCount)
 	}
 	if hasBranch || hasRouter {
 		if hasMerge {
-			add("当前版本暂不支持分支/路由与合并混用, 请拆分为多个编排")
+			add("", "当前版本暂不支持分支/路由与合并混用, 请拆分为多个编排")
 		}
 		if hasBranch && hasRouter {
-			add("当前版本暂不支持分支与 LLM 路由混用, 请拆分为多个编排")
+			add("", "当前版本暂不支持分支与 LLM 路由混用, 请拆分为多个编排")
 		}
 	}
 
@@ -733,36 +806,36 @@ func (c *orchestrationCompiler) validate() []string {
 			var cfg OrchAgentConfig
 			if len(n.Config) > 0 {
 				if err := json.Unmarshal(n.Config, &cfg); err != nil {
-					add("Agent 节点 %s 配置解析失败: %v", id, err)
+					add(id, "Agent 节点 %s 配置解析失败: %v", id, err)
 				}
 			}
 		case OrchNodeTool:
 			var cfg OrchToolConfig
 			if len(n.Config) == 0 || json.Unmarshal(n.Config, &cfg) != nil || cfg.Tool == "" {
-				add("工具节点 %s 缺少工具配置", id)
+				add(id, "工具节点 %s 缺少工具配置", id)
 			}
 		case OrchNodeTemplate:
 			var cfg OrchTemplateConfig
 			if err := json.Unmarshal(n.Config, &cfg); err != nil {
-				add("模板节点 %s 配置解析失败: %v", id, err)
+				add(id, "模板节点 %s 配置解析失败: %v", id, err)
 			} else if strings.TrimSpace(cfg.Template) == "" {
-				add("模板节点 %s 模板内容不能为空", id)
+				add(id, "模板节点 %s 模板内容不能为空", id)
 			} else if _, err := template.New(id).Parse(cfg.Template); err != nil {
-				add("模板节点 %s 模板语法错误: %v", id, err)
+				add(id, "模板节点 %s 模板语法错误: %v", id, err)
 			}
 		case OrchNodeExtract:
 			var cfg OrchExtractConfig
 			if len(n.Config) == 0 || json.Unmarshal(n.Config, &cfg) != nil || strings.TrimSpace(cfg.Field) == "" {
-				add("提取节点 %s 缺少字段路径 (如 result.content)", id)
+				add(id, "提取节点 %s 缺少字段路径 (如 result.content)", id)
 			}
 		case OrchNodeSubOrch:
 			var cfg OrchSubOrchConfig
 			if len(n.Config) == 0 || json.Unmarshal(n.Config, &cfg) != nil || cfg.OrchestrationID <= 0 {
-				add("子编排节点 %s 缺少引用的编排", id)
+				add(id, "子编排节点 %s 缺少引用的编排", id)
 			}
 		}
 	}
-	return errs
+	return issues
 }
 
 // compiledOrchestration 编译结果: 可运行对象 + 调试事件归属所需的节点名集合
@@ -1311,10 +1384,7 @@ func (c *orchestrationCompiler) modeName(hasBranch, hasRouter, hasMerge bool) st
 
 // orchChatHistoryFromVars 取出多轮调试传入的历史 (schema 消息序列), 无历史时返回 nil
 func (c *orchestrationCompiler) orchChatHistoryFromVars() []*schema.Message {
-	if c.deps.sessionVars == nil {
-		return nil
-	}
-	vars := c.deps.sessionVars()
+	vars := c.resolvedSessionVars()
 	if vars == nil {
 		return nil
 	}
@@ -1489,7 +1559,7 @@ func (c *orchestrationCompiler) buildSubReactAgent(ctx context.Context, id, pare
 	if instruction == "" {
 		return nil, fmt.Errorf("子Agent 节点 %s 缺少可用的系统提示词", id)
 	}
-	vars := c.deps.sessionVars()
+	vars := c.resolvedSessionVars()
 	instruction, err := orchRenderTemplate(id, instruction, vars)
 	if err != nil {
 		return nil, fmt.Errorf("子Agent 节点 %s 系统提示词渲染失败: %w", id, err)
@@ -1509,7 +1579,12 @@ func (c *orchestrationCompiler) buildSubReactAgent(ctx context.Context, id, pare
 		}
 		subTools = append(subTools, t)
 	}
-	agent, err := orchNewReactAgent(ctx, id, instruction, chatModel, subTools, 15)
+	// ReAct 轮次: 节点可配置, 未配置时沿用历史默认值 15
+	maxStep := cfg.MaxIterations
+	if maxStep <= 0 {
+		maxStep = 15
+	}
+	agent, err := orchNewReactAgent(ctx, id, instruction, chatModel, subTools, maxStep)
 	if err != nil {
 		return nil, fmt.Errorf("子Agent 节点 %s 构建失败: %w", id, err)
 	}
@@ -1526,10 +1601,12 @@ type orchDelegateTool struct {
 	parentID string // 挂载它的主 Agent 节点 id (调试摘要里的 owner)
 	agent    *react.Agent
 	trace    *orchTraceHandler // 调试追踪 handler (非调试运行时为 nil)
+	// timeoutSeconds 单次委派的执行超时 (秒), 0 = 不单独限时 (跟随编排整体超时)
+	timeoutSeconds int
 }
 
-func newOrchDelegateTool(name, subID, subName, parentID, desc string, agent *react.Agent, trace *orchTraceHandler) *orchDelegateTool {
-	return &orchDelegateTool{name: name, subID: subID, subName: subName, parentID: parentID, desc: desc, agent: agent, trace: trace}
+func newOrchDelegateTool(name, subID, subName, parentID, desc string, agent *react.Agent, trace *orchTraceHandler, timeoutSeconds int) *orchDelegateTool {
+	return &orchDelegateTool{name: name, subID: subID, subName: subName, parentID: parentID, desc: desc, agent: agent, trace: trace, timeoutSeconds: timeoutSeconds}
 }
 
 // orchSubAgentProgress 子Agent 的进度通道: 子Agent 的 ReAct 内部事件现在能正确归属,
@@ -1637,7 +1714,7 @@ func (t *orchDelegateTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		task = strings.TrimSpace(args.Task)
 	}
 	started := time.Now()
-	orchLog("delegate 开始 tool=%s 子Agent=%s(%s) 任务=%.80q", t.name, t.subID, t.subName, task)
+	orchLog("delegate 开始 tool=%s 子Agent=%s(%s) 超时=%ds 任务=%.80q", t.name, t.subID, t.subName, t.timeoutSeconds, task)
 	// 调试事件: 子Agent 节点本身不参与主流, 没有自己的 compose 节点 span,
 	// 由委派工具在上游 Agent 的 span 内推送 "已委派 + 任务内容"
 	t.emitEvent(map[string]any{
@@ -1645,15 +1722,20 @@ func (t *orchDelegateTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		"owner": t.parentID, "status": "running", "delegated": true, "task": task,
 	})
 	runCtx := ctx
+	if t.timeoutSeconds > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, time.Duration(t.timeoutSeconds)*time.Second)
+		defer cancel()
+	}
 	// 走流式: 子Agent 的思考/正文可以实时透出 (Generate 不会产生任何增量)
 	sr, err := t.agent.Stream(runCtx, []*schema.Message{schema.UserMessage(task)})
 	if err != nil {
 		orchLog("delegate 失败 tool=%s 子Agent=%s 耗时=%dms err=%v", t.name, t.subID, time.Since(started).Milliseconds(), err)
 		t.emitEvent(map[string]any{
 			"kind": "node", "key": t.subID, "name": t.subName, "comp": "DelegateTool",
-			"owner": t.parentID, "status": "error", "delegated": true, "error": err.Error(),
+			"owner": t.parentID, "status": "error", "delegated": true, "error": t.runError(runCtx, err).Error(),
 		})
-		return "", fmt.Errorf("子Agent「%s」执行失败: %w", t.subName, err)
+		return "", t.runError(runCtx, err)
 	}
 	defer sr.Close()
 	msg, err := schema.ConcatMessageStream(sr)
@@ -1661,9 +1743,9 @@ func (t *orchDelegateTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		orchLog("delegate 失败 tool=%s 子Agent=%s 耗时=%dms err=%v", t.name, t.subID, time.Since(started).Milliseconds(), err)
 		t.emitEvent(map[string]any{
 			"kind": "node", "key": t.subID, "name": t.subName, "comp": "DelegateTool",
-			"owner": t.parentID, "status": "error", "delegated": true, "error": err.Error(),
+			"owner": t.parentID, "status": "error", "delegated": true, "error": t.runError(runCtx, err).Error(),
 		})
-		return "", fmt.Errorf("子Agent「%s」执行失败: %w", t.subName, err)
+		return "", t.runError(runCtx, err)
 	}
 	resultLen := 0
 	if msg != nil {
@@ -1675,6 +1757,16 @@ func (t *orchDelegateTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		"owner": t.parentID, "status": "success", "delegated": true, "content": msg.Content,
 	})
 	return msg.Content, nil
+}
+
+// runError 把委派执行的错误映射为可读文案: 配置了节点超时且确因超时中断时给出明确提示,
+// 其余保持原有包装 (内层错误可能是被包装过的 deadline, 需同时看 runCtx)
+func (t *orchDelegateTool) runError(runCtx context.Context, err error) error {
+	if t.timeoutSeconds > 0 &&
+		(errors.Is(err, context.DeadlineExceeded) || (runCtx.Err() != nil && errors.Is(runCtx.Err(), context.DeadlineExceeded))) {
+		return fmt.Errorf("子Agent「%s」执行超时 (%d 秒)", t.subName, t.timeoutSeconds)
+	}
+	return fmt.Errorf("子Agent「%s」执行失败: %w", t.subName, err)
 }
 
 // emitEvent 把委派过程并入调试事件流 (emit 由运行期注入, 未注入时只更新摘要表)
@@ -1724,10 +1816,10 @@ func (c *orchestrationCompiler) buildAgentLambda(ctx context.Context, n *Orchest
 		if desc == "" {
 			desc = c.orchSubAgentDesc(subID)
 		}
-		agentTools = append(agentTools, newOrchDelegateTool(toolName, subID, subNode.Name, n.ID, desc, subAgent, c.trace))
+		agentTools = append(agentTools, newOrchDelegateTool(toolName, subID, subNode.Name, n.ID, desc, subAgent, c.trace, subCfg.TimeoutSeconds))
 	}
 
-	vars := c.deps.sessionVars()
+	vars := c.resolvedSessionVars()
 	// 提示词版本: 该编排节点存在启用的提示词版本 (编排全局共享) 时, 覆盖画布内联提示词;
 	// 子编排嵌套时按嵌套编排自己的 id 解析
 	systemPrompt := cfg.SystemPrompt
@@ -1855,7 +1947,7 @@ func (c *orchestrationCompiler) buildTemplateLambda(n *OrchestrationNode) (*comp
 	// 静态文案 (线上症状: 模型把模板里的身份文案当成用户消息, 真实问题从未到达)。
 	// 对话模式下把本轮用户输入补到渲染结果之后; 模板已引用 .Input 或调试/校验运行不加。
 	appendUserInput := c.chatMode && c.flowInOf(n.ID) == 0 && !strings.Contains(cfg.Template, ".Input")
-	vars := c.deps.sessionVars()
+	vars := c.resolvedSessionVars()
 	run := func(in *schema.Message) (*schema.Message, error) {
 		input := ""
 		if in != nil {
@@ -2706,7 +2798,6 @@ func (h *orchTraceHandler) OnEndWithStreamOutput(ctx context.Context, info *call
 					firstDelta = false
 				}
 			}
-			mo = m
 			mo = m
 			if m.Message != nil {
 				span.chunks = append(span.chunks, m.Message)

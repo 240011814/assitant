@@ -18,6 +18,8 @@ const props = defineProps<{
   refitKey?: boolean;
   /** resources 画布可用资源 (仅用于把子Agent 显示成被引用的 Agent 标题) */
   resources?: OrchestrationResource | null;
+  /** errorNodeIds 校验/调试失败的出错节点: 红圈高亮, 由父级在画布改动后清除 */
+  errorNodeIds?: string[];
 }>();
 
 const nodes = defineModel<FlowNode[]>('nodes', { required: true });
@@ -50,6 +52,8 @@ watch(
 );
 
 const traceOf = computed(() => (id: string) => props.nodeTraces[id]);
+// 出错节点集合 (校验/调试失败): 命中的节点加红圈
+const errorIdSet = computed(() => new Set(props.errorNodeIds || []));
 // 每种节点类型的组件由注册表提供, 画布只按类型动态渲染
 const nodeComponent = (type: string) => NODE_META[type as keyof typeof NODE_META]?.component;
 
@@ -271,14 +275,16 @@ function menuAddNode(type: string) {
       <Background :gap="16" />
       <MiniMap pannable zoomable />
       <template #node-orch="nodeProps">
-        <component
-          :is="nodeComponent(nodeProps.data.nodeType)"
-          :data="nodeProps.data"
-          :selected="nodeProps.id === selectedId"
-          :status="traceOf(nodeProps.id)?.status ?? null"
-          :delegated="traceOf(nodeProps.id)?.delegated ?? false"
-          :title="refTitle(nodeProps.data)"
-        />
+        <div class="orch-node-shell" :class="{ 'orch-node-error': errorIdSet.has(nodeProps.id) }">
+          <component
+            :is="nodeComponent(nodeProps.data.nodeType)"
+            :data="nodeProps.data"
+            :selected="nodeProps.id === selectedId"
+            :status="traceOf(nodeProps.id)?.status ?? null"
+            :delegated="traceOf(nodeProps.id)?.delegated ?? false"
+            :title="refTitle(nodeProps.data)"
+          />
+        </div>
       </template>
     </VueFlow>
 
@@ -357,5 +363,14 @@ function menuAddNode(type: string) {
 .orch-loop-edge .vue-flow__edge-path {
   stroke: #d97706;
   stroke-dasharray: 7 4;
+}
+
+/* 校验/调试失败的出错节点: 红圈标记 (套在节点组件外层, 不侵入各节点组件) */
+.orch-node-shell {
+  border-radius: 8px;
+}
+.orch-node-error {
+  outline: 2px solid #d03050;
+  outline-offset: 2px;
 }
 </style>

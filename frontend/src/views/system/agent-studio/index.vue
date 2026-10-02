@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { NButton, NCard, NDropdown, NEmpty, NInput, NModal, NPopconfirm, NSelect, NSpace, NSwitch, NTag, useMessage } from 'naive-ui';
 import { useAppStore } from '@/store/modules/app';
 import { useAuth } from '@/hooks/business/auth';
@@ -281,6 +281,23 @@ async function handleDelete(item: AIOrchestrationItem) {
 
 // ---------- 校验 ----------
 const validating = ref(false);
+// 出错节点集合: 校验/调试失败时画布红圈高亮并选中第一个出错节点, 画布一旦改动即清除
+const errorNodeIds = ref<string[]>([]);
+
+function setErrorNodes(ids: string[]) {
+  errorNodeIds.value = [...new Set(ids.filter(Boolean))];
+  if (errorNodeIds.value.length > 0) {
+    selectedNodeId.value = errorNodeIds.value[0];
+  }
+}
+
+function clearErrorNodes() {
+  if (errorNodeIds.value.length > 0) errorNodeIds.value = [];
+}
+
+// 画布任何改动后旧的高亮即失效
+watch([flowNodes, flowEdges], clearErrorNodes, { deep: true });
+
 async function handleValidate() {
   validating.value = true;
   try {
@@ -290,10 +307,15 @@ async function handleValidate() {
       return;
     }
     if (data.valid) {
+      clearErrorNodes();
       message.success(`校验通过 (${data.mode} 编排${data.warnings?.length ? `, ${data.warnings.length} 条警告` : ''})`);
       data.warnings?.forEach(w => message.warning(w, { duration: 6000 }));
     } else {
       data.errors?.forEach(e => message.error(e, { duration: 8000 }));
+      setErrorNodes((data.error_items || []).map(i => i.node_id || ''));
+      if (errorNodeIds.value.length > 0) {
+        message.info('已定位到第一个出错节点 (红圈标记), 可在右侧修正后重新校验');
+      }
     }
   } finally {
     validating.value = false;
@@ -312,6 +334,7 @@ function toggleDebug() {
 
 function onDebugStateChange(running: boolean) {
   debugRunning.value = running;
+  if (running) clearErrorNodes();
 }
 
 function onDebugTraces(traces: Record<string, NodeTrace>) {
@@ -447,6 +470,7 @@ onMounted(() => {
           :debug-running="debugRunning"
           :refit-key="showDebug"
           :resources="resources"
+          :error-node-ids="errorNodeIds"
           @select-node="(id: string | null) => (selectedNodeId = id)"
           @delete-node="handleDeleteNode"
           @duplicate-node="handleDuplicateNode"
@@ -480,6 +504,7 @@ onMounted(() => {
         :has-nodes="flowNodes.length > 0"
         @running-change="onDebugStateChange"
         @traces-change="onDebugTraces"
+        @error-nodes="setErrorNodes"
       />
     </NCard>
 

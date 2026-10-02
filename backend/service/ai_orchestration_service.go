@@ -20,17 +20,19 @@ import (
 
 // AIOrchestrationService Agent Studio 编排管理: CRUD + DSL 校验 + 调试运行
 type AIOrchestrationService struct {
-	agentService *AIAgentService
-	timeout      time.Duration
+	agentService  *AIAgentService
+	promptService *PromptService
+	timeout       time.Duration
 }
 
-func NewAIOrchestrationService(agentService *AIAgentService, timeoutMinutes int) *AIOrchestrationService {
+func NewAIOrchestrationService(agentService *AIAgentService, promptService *PromptService, timeoutMinutes int) *AIOrchestrationService {
 	if timeoutMinutes <= 0 {
 		timeoutMinutes = 5
 	}
 	return &AIOrchestrationService{
-		agentService: agentService,
-		timeout:      time.Duration(timeoutMinutes) * time.Minute,
+		agentService:  agentService,
+		promptService: promptService,
+		timeout:       time.Duration(timeoutMinutes) * time.Minute,
 	}
 }
 
@@ -155,21 +157,30 @@ func (s *AIOrchestrationService) Delete(id uint) error {
 		Delete(&model.AIAgent{}).Error
 }
 
+// OrchestrationValidationIssue 单条校验错误: NodeID 为空表示全局性错误, 非空可定位画布节点
+type OrchestrationValidationIssue struct {
+	NodeID  string `json:"node_id,omitempty"`
+	Message string `json:"message"`
+}
+
 // OrchestrationValidationResult 校验结果 (含编译探测到的错误)
 type OrchestrationValidationResult struct {
 	Valid    bool     `json:"valid"`
 	Mode     string   `json:"mode"`
 	Errors   []string `json:"errors,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
+	// ErrorItems 结构化错误 (含节点定位): 前端据此高亮/选中画布上的出错节点
+	ErrorItems []OrchestrationValidationIssue `json:"error_items,omitempty"`
 }
 
 // Validate 校验编排定义: 结构校验 + 完整编译(捕获类型/构建错误)
 func (s *AIOrchestrationService) Validate(definition string, userID uint) *OrchestrationValidationResult {
 	result := &OrchestrationValidationResult{}
-	dsl, errs := validateOrchestrationDSL(definition)
-	result.Errors = append(result.Errors, errs...)
-	if len(errs) > 0 {
+	dsl, issues := validateOrchestrationDSLDetailed(definition)
+	if len(issues) > 0 {
 		result.Valid = false
+		result.Errors = orchIssueMessages(issues)
+		result.ErrorItems = orchIssueDTOs(issues)
 		return result
 	}
 	// 结构合法, 尝试完整编译捕获构建期错误
@@ -183,6 +194,23 @@ func (s *AIOrchestrationService) Validate(definition string, userID uint) *Orche
 	result.Mode = compiled.mode
 	result.Warnings = orchCollectWarnings(dsl)
 	return result
+}
+
+// orchIssueMessages / orchIssueDTOs 校验错误列表的两种形态: 文案 (兼容旧消费方) 与带节点定位的结构
+func orchIssueMessages(issues []orchValidateIssue) []string {
+	out := make([]string, 0, len(issues))
+	for _, is := range issues {
+		out = append(out, is.Message)
+	}
+	return out
+}
+
+func orchIssueDTOs(issues []orchValidateIssue) []OrchestrationValidationIssue {
+	out := make([]OrchestrationValidationIssue, 0, len(issues))
+	for _, is := range issues {
+		out = append(out, OrchestrationValidationIssue{NodeID: is.NodeID, Message: is.Message})
+	}
+	return out
 }
 
 func orchCollectWarnings(dsl *OrchestrationDSL) []string {
@@ -318,9 +346,13 @@ func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *
 		nodePrompt: func(nodeKey string) (string, bool) {
 			// 编排 Agent 节点的提示词版本: user_prompts 表, 键 = 编排 id + 节点 id,
 			// user_id 恒为 0 (编排全局共享, 不区分用户)。草稿 (orchID=0) 无版本可解析,
-			// 回退画布内联提示词
+			// 回退画布内联提示词。经 PromptService 读 (带缓存, 版本变更即失效);
+			// promptService 未注入时 (旧装配/单测) 回退直查
 			if orchID == 0 {
 				return "", false
+			}
+			if s.promptService != nil {
+				return s.promptService.GetOrchNodePrompt(orchID, nodeKey)
 			}
 			var up model.UserPrompt
 			if err := DB.Where("user_id = ? AND agent_id = ? AND node_key = ? AND is_active = ?", 0, orchID, nodeKey, true).
@@ -429,10 +461,10 @@ func (s *AIOrchestrationService) Resources() (map[string]any, error) {
 	}
 
 	return map[string]any{
-		"tools":   toolsRes,
-		"models":  modelsRes,
-		"agents":  agentsRes,
-		"skills":  skillsRes,
+		"tools":          toolsRes,
+		"models":         modelsRes,
+		"agents":         agentsRes,
+		"skills":         skillsRes,
 		"orchestrations": orchsRes,
 		"node_types": []map[string]string{
 			{"type": OrchNodeAgent, "label": "Agent", "desc": "LLM + 工具 ReAct 执行"},
@@ -500,10 +532,15 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 		}
 	}
 
-	dsl, errs := validateOrchestrationDSL(definition)
-	if len(errs) > 0 {
+	dsl, issues := validateOrchestrationDSLDetailed(definition)
+	if len(issues) > 0 {
+		errs := orchIssueMessages(issues)
 		orchLog("%s 校验失败: %v", runTag, errs)
-		emit("error", map[string]any{"message": "编排定义校验失败", "errors": errs})
+		emit("error", map[string]any{
+			"message":     "编排定义校验失败",
+			"errors":      errs,
+			"error_items": orchIssueDTOs(issues),
+		})
 		emit("done", map[string]any{})
 		return nil
 	}

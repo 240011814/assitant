@@ -3,6 +3,9 @@ package service
 import (
 	"backend/model"
 	"errors"
+	"fmt"
+	"strings"
+	"sync"
 
 	"gorm.io/gorm"
 )
@@ -13,10 +16,58 @@ import (
 type PromptService struct {
 	db           *gorm.DB
 	agentService *AIAgentService
+	// orchPromptCache 编排节点提示词版本缓存 (键: agentID|nodeKey, user_id 恒为 0):
+	// 编译每个 Agent 节点每次运行都要解析一次, 变更时由 Save/Switch/Delete/Reset 失效
+	orchPromptCache map[string]orchPromptEntry
+	orchPromptMu    sync.RWMutex
+}
+
+type orchPromptEntry struct {
+	prompt string
+	found  bool
 }
 
 func NewPromptService(db *gorm.DB, agentService *AIAgentService) *PromptService {
 	return &PromptService{db: db, agentService: agentService}
+}
+
+// GetOrchNodePrompt 编排 Agent 节点已启用的提示词版本 (编排全局共享, user_id=0)。
+// found=false 表示无启用版本 (含版本内容为空), 编译期回退画布内联提示词
+func (s *PromptService) GetOrchNodePrompt(agentID uint, nodeKey string) (string, bool) {
+	key := fmt.Sprintf("%d|%s", agentID, nodeKey)
+	s.orchPromptMu.RLock()
+	if e, ok := s.orchPromptCache[key]; ok {
+		s.orchPromptMu.RUnlock()
+		return e.prompt, e.found
+	}
+	s.orchPromptMu.RUnlock()
+	prompt, found := s.loadOrchNodePrompt(agentID, nodeKey)
+	s.orchPromptMu.Lock()
+	if s.orchPromptCache == nil {
+		s.orchPromptCache = make(map[string]orchPromptEntry)
+	}
+	s.orchPromptCache[key] = orchPromptEntry{prompt: prompt, found: found}
+	s.orchPromptMu.Unlock()
+	return prompt, found
+}
+
+func (s *PromptService) loadOrchNodePrompt(agentID uint, nodeKey string) (string, bool) {
+	var userPrompt model.UserPrompt
+	if err := s.db.Where("user_id = ? AND agent_id = ? AND node_key = ? AND is_active = ?", 0, agentID, nodeKey, true).
+		First(&userPrompt).Error; err != nil {
+		return "", false
+	}
+	if strings.TrimSpace(userPrompt.CustomPrompt) == "" {
+		return "", false
+	}
+	return userPrompt.CustomPrompt, true
+}
+
+// invalidateOrchPromptCache 清空编排节点版本缓存 (提示词任何变更都全清, 量小且保证切版本立刻生效)
+func (s *PromptService) invalidateOrchPromptCache() {
+	s.orchPromptMu.Lock()
+	s.orchPromptCache = make(map[string]orchPromptEntry)
+	s.orchPromptMu.Unlock()
 }
 
 func (s *PromptService) GetEffectivePrompt(userID uint, agentID uint, nodeKey string) (string, string, int, error) {
@@ -102,6 +153,7 @@ func (s *PromptService) ResetUserPrompt(userID uint, agentID uint, nodeKey strin
 }
 
 func (s *PromptService) clearCache(userID uint, agentID uint) {
+	s.invalidateOrchPromptCache()
 	if s.agentService != nil {
 		s.agentService.clearRunnerCache(userID, agentID)
 	}

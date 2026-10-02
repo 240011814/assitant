@@ -38,7 +38,11 @@ function initLocal() {
   if ((props.nodeType === 'agent' || props.nodeType === 'subagent') && !Array.isArray(cfg.tools)) cfg.tools = [];
   if ((props.nodeType === 'branch' || props.nodeType === 'router') && !Array.isArray(cfg.cases)) cfg.cases = [];
   if ((props.nodeType === 'branch' || props.nodeType === 'router') && cfg.max_loops == null) cfg.max_loops = 0;
-  if (props.nodeType === 'subagent' && !cfg.agent_id) cfg.agent_id = 0;
+  if (props.nodeType === 'subagent') {
+    if (!cfg.agent_id) cfg.agent_id = 0;
+    if (cfg.max_iterations == null) cfg.max_iterations = 0;
+    if (cfg.timeout_seconds == null) cfg.timeout_seconds = 0;
+  }
   if (props.nodeType === 'suborch' && !cfg.orchestration_id) cfg.orchestration_id = 0;
   localConfig.value = cfg;
 }
@@ -424,6 +428,12 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
           :options="toolOptions"
           placeholder="子 Agent 可调用的工具"
         />
+      </NFormItem>
+      <NFormItem label="最大轮次" label-placement="left" label-width="72" size="small">
+        <NInputNumber v-model:value="localConfig.max_iterations" :min="0" :max="100" size="small" class="w-full" placeholder="0 = 默认 15" />
+      </NFormItem>
+      <NFormItem label="超时(秒)" label-placement="left" label-width="72" size="small">
+        <NInputNumber v-model:value="localConfig.timeout_seconds" :min="0" :max="3600" size="small" class="w-full" placeholder="0 = 跟随编排整体超时" />
       </NFormItem>
     </template>
 
