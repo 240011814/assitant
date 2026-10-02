@@ -12,6 +12,8 @@ type User struct {
 	Nickname                string     `gorm:"size:100" json:"nickname"`
 	Email                   string     `gorm:"size:255;default:''" json:"email"`
 	Role                    string     `gorm:"size:20;default:'R_USER'" json:"role"`
+	// TokenQuotaMonth 月度 Token 限额 (NULL/0=不限), 按自然月统计 ai_token_usages
+	TokenQuotaMonth         *int       `gorm:"column:token_quota_month" json:"token_quota_month"`
 	TotpSecret              *string    `gorm:"column:totp_secret;size:64" json:"-"` // TOTP secret, nil = not set up
 	TelegramChatID          *int64     `gorm:"column:telegram_chat_id;uniqueIndex" json:"-"`
 	TelegramUsername         *string    `gorm:"column:telegram_username;size:100" json:"telegramUsername"`
@@ -54,6 +56,8 @@ type UserListItem struct {
 	UserName  string    `json:"userName"`
 	Nickname  string    `json:"nickname"`
 	Role      string    `json:"role"`
+	// TokenQuotaMonth 月度 Token 限额 (NULL/0=不限)
+	TokenQuotaMonth *int   `json:"token_quota_month"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -69,6 +73,8 @@ type UpdateUserRequest struct {
 	Password string `json:"password"`
 	Nickname string `json:"nickname"`
 	Role     string `json:"role" binding:"required"`
+	// TokenQuotaMonth 月度 Token 限额: nil=不修改, 0=不限, 正数=每月 token 上限
+	TokenQuotaMonth *int `json:"token_quota_month"`
 }
 
 // UserProfileResponse 用户详细信息响应

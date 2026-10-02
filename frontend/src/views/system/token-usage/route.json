@@ -1,0 +1,7 @@
+{
+  "title": "Token 用量",
+  "i18nKey": "route.system_token-usage",
+  "icon": "mdi:token",
+  "permissions": ["system:tokenusage:view"],
+  "order": 11
+}

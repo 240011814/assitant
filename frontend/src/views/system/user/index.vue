@@ -39,6 +39,7 @@ const form = reactive({
   password: "",
   nickname: "",
   role: "R_USER",
+  tokenQuotaMonth: null as number | null,
 });
 
 const roleOptions = computed(() =>
@@ -125,6 +126,17 @@ const columns = computed<DataTableColumns<Api.Admin.User>>(() => [
         },
       ]
     : []),
+  {
+    title: $t("page.system.user.quotaMonth"),
+    key: "token_quota_month",
+    width: 130,
+    render(row: Api.Admin.User) {
+      if (!row.token_quota_month || row.token_quota_month <= 0) {
+        return h("span", { class: "text-sm text-gray-400" }, $t("page.system.user.quotaUnlimited"));
+      }
+      return h("span", { class: "text-sm" }, row.token_quota_month.toLocaleString());
+    },
+  },
   {
     title: $t("page.system.user.createdAt"),
     key: "createdAt",
@@ -236,7 +248,7 @@ const pagination = reactive({
 
 function resetForm() {
   editingUserId.value = null;
-  Object.assign(form, { userName: "", password: "", nickname: "", role: "R_USER" });
+  Object.assign(form, { userName: "", password: "", nickname: "", role: "R_USER", tokenQuotaMonth: null });
 }
 
 function openCreate() {
@@ -251,6 +263,7 @@ function openEdit(row: Api.Admin.User) {
     password: "",
     nickname: row.nickname,
     role: row.role,
+    tokenQuotaMonth: row.token_quota_month ?? null,
   });
   showModal.value = true;
 }
@@ -263,10 +276,12 @@ async function handleSubmit() {
     // 校验失败直接返回, 避免产生 unhandled rejection
     return;
   }
-  const payload = {
+  const payload: Api.Admin.UpdateUserParams = {
     password: form.password || undefined,
     nickname: form.nickname,
     role: form.role,
+    // null = 保持不变; 0 = 不限; 正数 = 每月上限
+    ...(form.tokenQuotaMonth !== null ? { token_quota_month: form.tokenQuotaMonth } : {}),
   };
   const result =
     editingUserId.value === null
@@ -571,6 +586,16 @@ onMounted(async () => {
         </NFormItem>
         <NFormItem v-if="hasRolePermission" :label="$t('page.system.user.role')" path="role">
           <NSelect v-model:value="form.role" :options="roleOptions" />
+        </NFormItem>
+        <NFormItem :label="$t('page.system.user.quotaMonth')" label-placement="left">
+          <NInputNumber
+            v-model:value="form.tokenQuotaMonth"
+            class="w-full"
+            clearable
+            :min="0"
+            :show-button="false"
+            :placeholder="$t('page.system.user.quotaPlaceholder')"
+          />
         </NFormItem>
       </NForm>
       <template #footer>

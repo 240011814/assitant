@@ -44,12 +44,13 @@ func (s *AdminService) ListUsers(keyword, role string, page, pageSize int) ([]mo
 	list := make([]model.UserListItem, 0, len(users))
 	for _, user := range users {
 		list = append(list, model.UserListItem{
-			UserId:    user.ID,
-			UserName:  user.Username,
-			Nickname:  user.Nickname,
-			Role:      user.Role,
-			CreatedAt: user.CreatedAt,
-			UpdatedAt: user.UpdatedAt,
+			UserId:          user.ID,
+			UserName:        user.Username,
+			Nickname:        user.Nickname,
+			Role:            user.Role,
+			TokenQuotaMonth: user.TokenQuotaMonth,
+			CreatedAt:       user.CreatedAt,
+			UpdatedAt:       user.UpdatedAt,
 		})
 	}
 	return list, total, nil
@@ -93,6 +94,13 @@ func (s *AdminService) UpdateUser(id uint, req model.UpdateUserRequest) error {
 	updates := map[string]interface{}{
 		"nickname": req.Nickname,
 		"role":     req.Role,
+	}
+	// 月度 Token 限额: nil=不修改, 0=不限, 正数=每月上限
+	if req.TokenQuotaMonth != nil {
+		if *req.TokenQuotaMonth < 0 {
+			return errors.New("月度 Token 限额不能为负数")
+		}
+		updates["token_quota_month"] = *req.TokenQuotaMonth
 	}
 	if req.Password != "" {
 		if err := ValidatePasswordStrength(req.Password); err != nil {

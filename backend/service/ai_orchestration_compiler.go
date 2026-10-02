@@ -235,6 +235,8 @@ type orchestrationCompiler struct {
 	// (子编排 DSL 已加前缀, 不会与主编排冲突), 编译完成后并入 compiledOrchestration
 	extraNodeKeys map[string]string
 	extraSubNodes map[string]bool
+	// extraNodeModels 嵌套编排的节点模型归属 (前缀化 key -> 模型 code)
+	extraNodeModels map[string]string
 
 	adj map[string][]string // source -> targets (全部非回边连线, 含子Agent 委派边)
 	// loopEdges 循环回边: source (branch/router) -> 回边列表。
@@ -903,6 +905,8 @@ type compiledOrchestration struct {
 	nodeKeys map[string]string
 	// subNodes 子Agent 节点 id 集合 (含子编排内嵌套的), 调试事件归属用
 	subNodes map[string]bool
+	// nodeModels 节点 key -> 模型 code (空串=默认模型): token 用量按节点配置的模型落库
+	nodeModels map[string]string
 	// trace 本次编译注入的调试追踪 handler (委派工具持有同一实例,
 	// 因此运行前 setEmit 即可把子Agent 的委派事件推送到 SSE)
 	trace *orchTraceHandler
@@ -912,6 +916,7 @@ func (c *orchestrationCompiler) compile(ctx context.Context, deps compilerDeps) 
 	c.deps = deps
 	c.extraNodeKeys = map[string]string{}
 	c.extraSubNodes = map[string]bool{}
+	c.extraNodeModels = map[string]string{}
 	if errs := c.validate(); len(errs) > 0 {
 		return nil, errors.New("编排定义校验失败: " + strings.Join(errs, "; "))
 	}
@@ -1000,14 +1005,51 @@ func (c *orchestrationCompiler) compile(ctx context.Context, deps compilerDeps) 
 		}
 	}
 
+	// 节点模型归属: agent/subagent 节点记录各自配置的模型 code, 供用量统计按模型落库
+	// (router 节点的分类调用不经 compose 节点 span, 用量无法按节点归属, 不在统计内)
+	nodeModels := make(map[string]string, len(c.dsl.Nodes))
+	for _, id := range c.topo {
+		n := c.nodeByID(id)
+		switch n.Type {
+		case OrchNodeAgent:
+			var cfg OrchAgentConfig
+			if len(n.Config) > 0 {
+				_ = json.Unmarshal(n.Config, &cfg)
+			}
+			nodeModels[id] = strings.TrimSpace(cfg.Model)
+		}
+	}
+	for id := range c.nodeMap {
+		if c.nodeMap[id].Type != OrchNodeSubAgent {
+			continue
+		}
+		var cfg OrchSubAgentConfig
+		if len(c.nodeMap[id].Config) > 0 {
+			_ = json.Unmarshal(c.nodeMap[id].Config, &cfg)
+		}
+		nodeModels[id] = strings.TrimSpace(cfg.Model)
+	}
+	for k, v := range c.extraNodeModels {
+		if _, ok := nodeModels[k]; !ok {
+			nodeModels[k] = v
+		}
+	}
+
+	var res *compiledOrchestration
+	var err error
 	switch {
 	case hasMerge:
-		return c.compileWorkflow(lambdas, nodeKeys, subNodes)
+		res, err = c.compileWorkflow(lambdas, nodeKeys, subNodes)
 	case hasBranch || hasRouter || hasLoop:
-		return c.compileGraph(ctx, lambdas, nodeKeys, subNodes, maxRunSteps)
+		res, err = c.compileGraph(ctx, lambdas, nodeKeys, subNodes, maxRunSteps)
 	default:
-		return c.compileChain(lambdas, nodeKeys, subNodes)
+		res, err = c.compileChain(lambdas, nodeKeys, subNodes)
 	}
+	if err != nil {
+		return nil, err
+	}
+	res.nodeModels = nodeModels
+	return res, nil
 }
 
 func (c *orchestrationCompiler) compileChain(lambdas map[string]*compose.Lambda, nodeKeys map[string]string, subNodes map[string]bool) (*compiledOrchestration, error) {
@@ -2488,6 +2530,9 @@ func (c *orchestrationCompiler) buildSubOrchLambda(ctx context.Context, n *Orche
 	}
 	for k := range nested.subNodes {
 		c.extraSubNodes[k] = true
+	}
+	for k, v := range nested.nodeModels {
+		c.extraNodeModels[k] = v
 	}
 	runnable := nested.runnable
 	lambda, err := compose.AnyLambda(

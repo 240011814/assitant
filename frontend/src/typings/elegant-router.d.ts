@@ -53,6 +53,7 @@ declare module "@elegant-router/types" {
     "system_model-scenario": "/system/model-scenario";
     "system_permission": "/system/permission";
     "system_skill": "/system/skill";
+    "system_token-usage": "/system/token-usage";
     "system_user": "/system/user";
     "tool": "/tool";
     "tool_backtest": "/tool/backtest";
@@ -158,6 +159,7 @@ declare module "@elegant-router/types" {
     | "system_model-scenario"
     | "system_permission"
     | "system_skill"
+    | "system_token-usage"
     | "system_user"
     | "tool_backtest"
     | "tool_calendar"

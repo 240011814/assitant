@@ -1,6 +1,7 @@
 package api
 
 import (
+	"backend/model"
 	"backend/service"
 	"errors"
 	"fmt"
@@ -50,6 +51,12 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 			}
 		}
 
+		// 月度 Token 限额: 入口前置校验, 超限直接拒绝 (请求中不中断, 下一轮生效)
+		if err := service.NewTokenUsageService().CheckTokenQuota(userID.(uint)); err != nil {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+			return
+		}
+
 		iter, err := agentService.ChatStream(userID.(uint), req.AgentID, req.HistoryID, inputMessages, req.Model)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to call AI: " + err.Error()})
@@ -69,6 +76,13 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 		var fullAssistantReply string
 		var fullThinkingContent string
 		firstTokenLogged := false
+		// token 用量落库: 每次模型调用一条 (req.Model 为空 = 默认模型)
+		recordUsage := func(u *schema.TokenUsage) {
+			if u == nil || u.TotalTokens <= 0 {
+				return
+			}
+			service.RecordTokenUsage(userID.(uint), req.Model, model.TokenSourceChat, int64(u.PromptTokens), int64(u.CompletionTokens))
+		}
 		c.Stream(func(w io.Writer) bool {
 			event, ok := iter.Next()
 			if !ok {
@@ -172,7 +186,7 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 							fullAssistantReply += msg.Content
 							c.SSEvent("message", gin.H{"content": msg.Content})
 						}
-						emitUsage(c, msg)
+						emitUsage(c, msg, recordUsage)
 					}
 				} else if mv.Message != nil {
 					msg := mv.Message
@@ -184,7 +198,7 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 						fullAssistantReply += msg.Content
 						c.SSEvent("message", gin.H{"content": msg.Content})
 					}
-					emitUsage(c, msg)
+					emitUsage(c, msg, recordUsage)
 				}
 			}
 
@@ -193,8 +207,8 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 	}
 }
 
-// emitUsage 将模型返回的 token 用量以 SSE 下发给前端
-func emitUsage(c *gin.Context, msg *schema.Message) {
+// emitUsage 将模型返回的 token 用量以 SSE 下发给前端, 并经 record 落库
+func emitUsage(c *gin.Context, msg *schema.Message, record func(*schema.TokenUsage)) {
 	if msg == nil || msg.ResponseMeta == nil || msg.ResponseMeta.Usage == nil {
 		return
 	}
@@ -202,6 +216,7 @@ func emitUsage(c *gin.Context, msg *schema.Message) {
 	if usage.TotalTokens <= 0 {
 		return
 	}
+	record(usage)
 	c.SSEvent("message", gin.H{
 		"usage": gin.H{
 			"prompt_tokens":     usage.PromptTokens,

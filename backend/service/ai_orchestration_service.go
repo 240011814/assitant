@@ -541,6 +541,14 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 	runTag := fmt.Sprintf("orch=%d user=%d", orchID, userID)
 	orchLog("%s 开始调试运行: 历史轮次=%d 本轮输入=%.60q 定义长度=%d", runTag, len(history), req.Input, len(definition))
 
+	// 月度 Token 限额: 入口前置校验 (画布调试与编排对话都走这里), 超限直接拒绝
+	if err := NewTokenUsageService().CheckTokenQuota(userID); err != nil {
+		orchLog("%s 限额拦截: %v", runTag, err)
+		emit("error", map[string]any{"message": err.Error()})
+		emit("done", map[string]any{})
+		return nil
+	}
+
 	// 编排对话模式: 用编排名称/简介构造身份前言, 注入主 Agent 系统提示词。
 	// 这段内容此前只存在于前端欢迎气泡里, 模型从未见过, 首轮对话便"不知道自己是谁"。
 	chatPreamble := ""
@@ -659,6 +667,9 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 			}
 		}
 	}
+	// token 用量落库: 按各节点配置的模型记录 (含子编排嵌套展开的节点)
+	s.recordOrchestrationUsage(userID, req.ChatMode, summary, compiled)
+
 	emit("summary", summary)
 	emit("done", map[string]any{})
 
@@ -684,6 +695,25 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 		}(orchID, summary)
 	}
 	return nil
+}
+
+// recordOrchestrationUsage 把本次编排运行各节点的用量按节点配置的模型落库:
+// 每个节点一条 (一次运行多轮模型调用已在节点 trace 内聚合), 来源区分调试/对话
+func (s *AIOrchestrationService) recordOrchestrationUsage(userID uint, chatMode bool, summary *DebugRunResult, compiled *compiledOrchestration) {
+	source := model.TokenSourceOrchDebug
+	if chatMode {
+		source = model.TokenSourceOrchChat
+	}
+	for _, t := range summary.Nodes {
+		if t.Tokens == nil || t.Tokens.TotalTokens <= 0 {
+			continue
+		}
+		modelCode := ""
+		if compiled != nil && compiled.nodeModels != nil {
+			modelCode = compiled.nodeModels[t.Key]
+		}
+		RecordTokenUsage(userID, modelCode, source, int64(t.Tokens.PromptTokens), int64(t.Tokens.CompletionTokens))
+	}
 }
 
 // orchLogRunSummary 输出一次调试运行的完整摘要 (逐节点 + 汇总)

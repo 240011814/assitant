@@ -593,6 +593,9 @@ declare namespace App {
             userNameRequired: string;
             passwordRequired: string;
             roleRequired: string;
+            quotaMonth: string;
+            quotaUnlimited: string;
+            quotaPlaceholder: string;
             proxyLogin: string;
             proxyLoginConfirm: string;
             proxyLoginSuccess: string;

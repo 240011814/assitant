@@ -540,6 +540,10 @@ func main() {
 
 			// 系统概览 (管理员视角统计)
 			adminGroup.GET("/dashboard", api.RequirePermission("system:dashboard:view"), dashboardHandler.GetAdminStats)
+
+			// Token 用量统计 (管理员)
+			adminGroup.GET("/token-usages", api.RequirePermission("system:tokenusage:view"), api.HandleTokenUsageList)
+			adminGroup.GET("/token-usages/stats", api.RequirePermission("system:tokenusage:view"), api.HandleTokenUsageStats)
 		}
 	}
 

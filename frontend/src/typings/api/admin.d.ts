@@ -5,6 +5,7 @@ declare namespace Api {
       userName: string;
       nickname: string;
       role: string;
+      token_quota_month: number | null;
       createdAt: string;
       updatedAt: string;
     }
@@ -34,6 +35,8 @@ declare namespace Api {
       password?: string;
       nickname: string;
       role: string;
+      /** 月度 Token 限额: 不传=不修改, 0=不限, 正数=每月上限 */
+      token_quota_month?: number | null;
     }
 
     interface UserProfile {
