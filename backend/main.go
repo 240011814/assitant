@@ -218,6 +218,7 @@ func main() {
 		apiGroup.DELETE("/reminders/:id", reminderHandler.Delete)
 
 		apiGroup.GET("/dashboard/stats", dashboardHandler.GetStats)
+		apiGroup.GET("/token-usages/my", api.HandleMyTokenUsage)
 		apiGroup.GET("/ai/models", api.RequirePermission("ai:model:view"), api.HandleListModels(aiAgentService))
 		apiGroup.POST("/chat", api.RequirePermission("ai:chat:send"), api.HandleChatStream(aiAgentService, historyService))
 		apiGroup.POST("/chat/tool-approval", api.RequirePermission("ai:chat:send"), api.HandleToolApproval(aiAgentService, historyService))

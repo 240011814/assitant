@@ -70,6 +70,13 @@ declare namespace Api {
       page_size: number
     }
 
+    interface MyUsage {
+      month_used: number
+      quota_month: number | null
+      trend: TrendItem[]
+      by_model: ModelItem[]
+    }
+
     interface ListResult {
       list: UsageRecord[]
       total: number

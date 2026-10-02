@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { useMessage } from 'naive-ui';
 import type { FormInst, FormRules } from 'naive-ui';
 import { fetchChangePassword, fetchGetUserProfile, fetchUpdateProfile, fetchGetTelegramConfig, fetchGetTelegramStatus, fetchGenerateTelegramBindCode, fetchUnbindTelegram, fetchGetNotificationPreference, fetchSaveNotificationPreference } from '@/service/api';
@@ -11,6 +11,8 @@ import GeneralSettings from '@/layouts/modules/theme-drawer/modules/general/inde
 import PresetSettings from '@/layouts/modules/theme-drawer/modules/preset/index.vue';
 import ConfigOperation from '@/layouts/modules/theme-drawer/modules/config-operation.vue';
 import { useClipboard } from '@vueuse/core';
+import { useEcharts } from '@/hooks/common/echarts';
+import { fetchMyTokenUsage } from '@/service/api';
 
 defineOptions({ name: 'UserProfile' });
 
@@ -33,6 +35,52 @@ const notificationLoading = ref(false);
 const savingNotification = ref(false);
 
 const { copy, isSupported } = useClipboard();
+
+// ---------- Token 用量 (切到 Tab 才加载) ----------
+const tokenLoaded = ref(false);
+const tokenUsage = ref<Api.TokenUsage.MyUsage | null>(null);
+
+const quotaPercent = computed(() => {
+  const q = tokenUsage.value?.quota_month;
+  if (!q || q <= 0) return null;
+  return Math.min(100, Math.round(((tokenUsage.value?.month_used || 0) / q) * 100));
+});
+
+const { domRef: tokenChartRef, updateOptions: updateTokenChart } = useEcharts(() => ({
+  tooltip: { trigger: 'axis' },
+  grid: { left: '3%', right: '4%', bottom: '3%', top: '15%', containLabel: true },
+  xAxis: { type: 'category', data: [] as string[] },
+  yAxis: { type: 'value', minInterval: 1 },
+  series: [
+    {
+      name: 'Token 用量',
+      type: 'bar',
+      data: [] as number[],
+      itemStyle: { color: '#5b8ff9' }
+    }
+  ]
+}));
+
+const fmtNum = (n?: number | null) => (n === undefined || n === null ? '-' : Number(n).toLocaleString('zh-CN'));
+
+async function loadTokenUsage() {
+  const { data, error } = await fetchMyTokenUsage();
+  if (!error && data) {
+    tokenUsage.value = data;
+    updateTokenChart(opts => {
+      opts.xAxis.data = data.trend.map(i => i.bucket);
+      opts.series[0].data = data.trend.map(i => i.total_tokens);
+      return opts;
+    });
+  }
+  tokenLoaded.value = true;
+}
+
+watch(activeTab, tab => {
+  if (tab === 'token' && !tokenLoaded.value) {
+    loadTokenUsage();
+  }
+});
 
 const profileFormRef = ref<FormInst | null>(null);
 const passwordFormRef = ref<FormInst | null>(null);
@@ -342,6 +390,77 @@ loadNotificationPreference();
                     {{ $t('page.userProfile.changePassword') }}
                   </NButton>
                 </div>
+              </div>
+            </NTabPane>
+
+            <NTabPane name="token" tab="Token 用量">
+              <div class="py-4">
+                <NGrid :x-gap="16" :y-gap="12" cols="2 s:4" responsive="screen">
+                  <NGi>
+                    <NCard size="small" :bordered="false" embedded>
+                      <div class="text-sm text-gray-400">本月已用</div>
+                      <div class="mt-1 text-2xl font-semibold">{{ fmtNum(tokenUsage?.month_used) }}</div>
+                    </NCard>
+                  </NGi>
+                  <NGi>
+                    <NCard size="small" :bordered="false" embedded>
+                      <div class="text-sm text-gray-400">月度限额</div>
+                      <div class="mt-1 text-2xl font-semibold">
+                        <span v-if="!tokenUsage?.quota_month || tokenUsage.quota_month <= 0" class="text-gray-400">不限</span>
+                        <template v-else>{{ fmtNum(tokenUsage.quota_month) }}</template>
+                      </div>
+                    </NCard>
+                  </NGi>
+                  <NGi>
+                    <NCard size="small" :bordered="false" embedded>
+                      <div class="text-sm text-gray-400">近 30 天用量</div>
+                      <div class="mt-1 text-2xl font-semibold">
+                        {{ fmtNum(tokenUsage?.trend?.reduce((acc, i) => acc + Number(i.total_tokens || 0), 0)) }}
+                      </div>
+                    </NCard>
+                  </NGi>
+                  <NGi>
+                    <NCard size="small" :bordered="false" embedded>
+                      <div class="text-sm text-gray-400">近 30 天调用</div>
+                      <div class="mt-1 text-2xl font-semibold">
+                        {{ fmtNum(tokenUsage?.trend?.reduce((acc, i) => acc + Number(i.calls || 0), 0)) }}
+                      </div>
+                    </NCard>
+                  </NGi>
+                </NGrid>
+
+                <div v-if="quotaPercent !== null" class="mt-4">
+                  <div class="mb-1 flex justify-between text-xs" :class="quotaPercent >= 100 ? 'text-red-500' : quotaPercent >= 80 ? 'text-orange-500' : 'text-gray-400'">
+                    <span>本月额度使用</span>
+                    <span>{{ quotaPercent }}%</span>
+                  </div>
+                  <NProgress
+                    type="line"
+                    :percentage="quotaPercent"
+                    :status="quotaPercent >= 100 ? 'error' : quotaPercent >= 80 ? 'warning' : 'success'"
+                    :show-indicator="false"
+                  />
+                </div>
+
+                <NCard size="small" :bordered="false" embedded title="近 30 天用量趋势" class="mt-4">
+                  <div ref="tokenChartRef" class="h-260px" />
+                </NCard>
+
+                <NCard size="small" :bordered="false" embedded title="近 30 天模型分布" class="mt-4">
+                  <div v-if="tokenUsage?.by_model?.length" class="space-y-3">
+                    <div v-for="m in tokenUsage.by_model" :key="m.model" class="flex items-center gap-3">
+                      <span class="w-160px truncate text-sm" :title="m.model || '默认模型'">{{ m.model || '默认模型' }}</span>
+                      <NProgress
+                        type="line"
+                        class="flex-1"
+                        :percentage="Math.round((Number(m.total_tokens) / Math.max(...tokenUsage.by_model.map(x => Number(x.total_tokens), 1))) * 100)"
+                        :show-indicator="false"
+                      />
+                      <span class="w-100px text-right text-xs text-gray-500">{{ fmtNum(m.total_tokens) }}</span>
+                    </div>
+                  </div>
+                  <div v-else class="py-4 text-center text-sm text-gray-400">暂无用量数据</div>
+                </NCard>
               </div>
             </NTabPane>
 

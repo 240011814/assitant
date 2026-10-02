@@ -438,7 +438,7 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'system_token-usage',
           i18nKey: 'route.system_token-usage',
-          icon: 'mdi:token',
+          icon: 'mdi:chart-box-outline',
           permissions: ['system:tokenusage:view'],
           order: 11
         }

@@ -84,3 +84,19 @@ func HandleTokenUsageList(c *gin.Context) {
 		"page_size": pageSize,
 	})
 }
+
+// HandleMyTokenUsage GET /api/token-usages/my 当前登录用户自己的用量
+// (本月已用/限额 + 近30天趋势与模型分布, 供个人中心展示)
+func HandleMyTokenUsage(c *gin.Context) {
+	userID := GetUserID(c)
+	if userID == 0 {
+		SendError(c, "401", "Unauthorized")
+		return
+	}
+	res, err := service.NewTokenUsageService().GetMyUsage(userID)
+	if err != nil {
+		SendError(c, "500", "查询 Token 用量失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, res)
+}

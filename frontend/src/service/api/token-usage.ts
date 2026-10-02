@@ -21,6 +21,14 @@ export function fetchTokenUsageStats(params: Api.TokenUsage.StatsParams) {
   });
 }
 
+/** 当前登录用户自己的用量 (个人中心) */
+export function fetchMyTokenUsage() {
+  return request<Api.TokenUsage.MyUsage>({
+    url: '/api/token-usages/my',
+    method: 'get'
+  });
+}
+
 /** Token 用量明细分页 */
 export function fetchTokenUsageRecords(params: Api.TokenUsage.ListParams) {
   return request<Api.TokenUsage.ListResult>({

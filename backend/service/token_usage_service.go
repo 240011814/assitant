@@ -202,6 +202,40 @@ func (s *TokenUsageService) GetStats(p TokenUsageStatsParams) (*TokenUsageStats,
 	return out, nil
 }
 
+// MyTokenUsage 用户自查自己的用量 (个人中心展示)
+type MyTokenUsage struct {
+	// MonthUsed 本月 (自然月) 已用 token 总量
+	MonthUsed int64 `json:"month_used"`
+	// QuotaMonth 月度限额 (NULL/0=不限)
+	QuotaMonth *int                        `json:"quota_month"`
+	Trend      []model.TokenUsageTrendItem `json:"trend"`
+	ByModel    []model.TokenUsageModelItem `json:"by_model"`
+}
+
+// GetMyUsage 当前登录用户自己的用量: 本月已用/限额 + 近 30 天按日趋势与模型分布
+func (s *TokenUsageService) GetMyUsage(userID uint) (*MyTokenUsage, error) {
+	out := &MyTokenUsage{Trend: []model.TokenUsageTrendItem{}, ByModel: []model.TokenUsageModelItem{}}
+	var user model.User
+	if err := DB.Select("id", "token_quota_month").First(&user, userID).Error; err == nil {
+		out.QuotaMonth = user.TokenQuotaMonth
+	}
+	out.MonthUsed = s.MonthUsage(userID)
+	end := time.Now()
+	start := end.AddDate(0, 0, -29)
+	stats, err := s.GetStats(TokenUsageStatsParams{
+		Granularity: "day",
+		UserID:      userID,
+		StartTime:   start,
+		EndTime:     end,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out.Trend = stats.Trend
+	out.ByModel = stats.ByModel
+	return out, nil
+}
+
 // ListRecords 明细分页 (带用户名)
 func (s *TokenUsageService) ListRecords(p TokenUsageStatsParams, page, pageSize int) ([]map[string]any, int64, error) {
 	query := DB.Table("ai_token_usages tu").
