@@ -338,6 +338,18 @@ export const generatedRoutes: GeneratedRoute[] = [
         }
       },
       {
+        name: 'system_audit-log',
+        path: '/system/audit-log',
+        component: 'view.system_audit-log',
+        meta: {
+          title: 'system_audit-log',
+          i18nKey: 'route.system_audit-log',
+          icon: 'mdi:shield-check-outline',
+          permissions: ['system:audit:view'],
+          order: 10
+        }
+      },
+      {
         name: 'system_config',
         path: '/system/config',
         component: 'view.system_config',

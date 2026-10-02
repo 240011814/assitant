@@ -45,6 +45,7 @@ declare module "@elegant-router/types" {
     "system": "/system";
     "system_agent-studio": "/system/agent-studio";
     "system_ai-config": "/system/ai-config";
+    "system_audit-log": "/system/audit-log";
     "system_config": "/system/config";
     "system_job": "/system/job";
     "system_lottery": "/system/lottery";
@@ -148,6 +149,7 @@ declare module "@elegant-router/types" {
     | "share"
     | "system_agent-studio"
     | "system_ai-config"
+    | "system_audit-log"
     | "system_config"
     | "system_job"
     | "system_lottery"

@@ -257,6 +257,7 @@ const local: App.I18n.Schema = {
     system_user: "User Management",
     system_permission: "Permission Management",
     "system_ai-config": "AI Config Management",
+    "system_audit-log": "Audit Logs",
     system_config: "System Config",
     system_job: "Job Management",
     "system_lottery": "Lottery Management",

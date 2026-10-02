@@ -34,6 +34,9 @@ func main() {
 		log.Fatalf("Failed to initialize Database: %v", err)
 	}
 
+	// 操作审计日志异步写入 (需在 DB 初始化后启动)
+	api.InitAuditLogger()
+
 	// ClickHouse (分析库, 可选): 初始化失败不阻断启动, 相关同步自动跳过
 	if err := service.InitClickHouse(cfg); err != nil {
 		log.Printf("Warning: ClickHouse 初始化失败(将跳过 CH 同步): %v", err)
@@ -180,6 +183,7 @@ func main() {
 
 	apiGroup := r.Group("/api")
 	apiGroup.Use(api.AuthMiddleware(cfg.Auth.JWTSecret))
+	apiGroup.Use(api.AuditMiddleware())
 	{
 		// User Profile APIs
 		apiGroup.GET("/user/profile", api.HandleGetUserProfile(authService))
@@ -521,6 +525,9 @@ func main() {
 				jobGroup.POST("/:id/run", api.RequirePermission("job:manage"), api.RequirePermission("job:edit"), jobHandler.HandleRunJob)
 				jobGroup.GET("/:id/runs", api.RequirePermission("job:manage"), jobHandler.HandleListJobRuns)
 			}
+
+			// 操作审计日志 (只读查询)
+			adminGroup.GET("/audit-logs", api.RequirePermission("system:audit:view"), api.HandleListAuditLogs)
 		}
 	}
 

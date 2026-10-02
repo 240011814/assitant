@@ -191,6 +191,7 @@ const routeMap: RouteMap = {
   "system": "/system",
   "system_agent-studio": "/system/agent-studio",
   "system_ai-config": "/system/ai-config",
+  "system_audit-log": "/system/audit-log",
   "system_config": "/system/config",
   "system_job": "/system/job",
   "system_lottery": "/system/lottery",
