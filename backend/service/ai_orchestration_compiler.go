@@ -1479,6 +1479,13 @@ func (c *orchestrationCompiler) buildSubReactAgent(ctx context.Context, id, pare
 			desc = dbAgent.Description
 		}
 	}
+	// 提示词版本覆盖 (编排全局共享, user_id=0): 优先级高于被引用 Agent 的提示词与内联提示词
+	if c.deps.nodePrompt != nil {
+		if v, ok := c.deps.nodePrompt(id); ok && strings.TrimSpace(v) != "" {
+			orchLog("subagent node prompt override node=%s -> 版本长度=%d", id, len(v))
+			instruction = v
+		}
+	}
 	if instruction == "" {
 		return nil, fmt.Errorf("子Agent 节点 %s 缺少可用的系统提示词", id)
 	}

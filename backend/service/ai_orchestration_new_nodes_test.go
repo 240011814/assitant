@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	coremodel "backend/model"
+
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -541,6 +543,105 @@ func TestOrchestrationNodePromptOverride(t *testing.T) {
 	sys = run(nil)
 	if !strings.Contains(sys, "你是测试助手") {
 		t.Fatalf("无版本时应使用画布内联提示词: %q", sys)
+	}
+}
+
+// 子Agent 节点的提示词版本: 启用版本优先于内联提示词, 也优先于被引用 Agent 的提示词
+func TestOrchestrationSubAgentPromptOverride(t *testing.T) {
+	definition := `{
+	  "version": 1,
+	  "nodes": [
+	    {"id": "main", "type": "agent", "name": "主管", "config": {"system_prompt": "你是主管"}},
+	    {"id": "s1", "type": "subagent", "name": "子Agent", "config": {"agent_id": %d, "system_prompt": "内联子提示词", "description": "负责杂活"}},
+	    {"id": "out", "type": "end", "name": "输出", "config": {}}
+	  ],
+	  "edges": [
+	    {"source": "main", "target": "out"},
+	    {"source": "main", "target": "s1"}
+	  ]
+	}`
+
+	run := func(t *testing.T, dsl string, nodePrompt func(string) (string, bool)) string {
+		t.Helper()
+		parent := &scriptedToolCallModel{toolName: "subagent_1", args: `{"task":"干活"}`}
+		sub := &capturingModel{}
+		builds := 0
+		deps := compilerDeps{
+			getModel: func(string) (model.ToolCallingChatModel, error) {
+				builds++
+				if builds == 1 {
+					return parent, nil
+				}
+				return sub, nil
+			},
+			buildTool:   func(string) (tool.BaseTool, error) { return &fakeOrchTool{}, nil },
+			sessionVars: func() map[string]any { return map[string]any{} },
+			// 被引用 Agent (agent_id=5) 的内置提示词
+			lookupAgent: func(id uint) (*coremodel.AIAgent, error) {
+				if id == 5 {
+					return &coremodel.AIAgent{ID: 5, Title: "引用Agent", SystemPrompt: "引用的内置提示词"}, nil
+				}
+				return nil, fmt.Errorf("agent %d not found", id)
+			},
+			nodePrompt: nodePrompt,
+		}
+		parsed, errs := validateOrchestrationDSL(dsl)
+		if len(errs) > 0 {
+			t.Fatalf("校验失败: %v", errs)
+		}
+		c := &orchestrationCompiler{dsl: parsed}
+		compiled, err := c.compile(context.Background(), deps)
+		if err != nil {
+			t.Fatalf("编译失败: %v", err)
+		}
+		if _, err := compiled.runnable.Invoke(context.Background(), schema.UserMessage("开始")); err != nil {
+			t.Fatalf("运行失败: %v", err)
+		}
+		if len(sub.received) == 0 || len(sub.received[0]) == 0 {
+			t.Fatalf("子Agent 未被委派执行")
+		}
+		sys := ""
+		for _, m := range sub.received[0] {
+			if m.Role == schema.System {
+				sys += m.Content
+			}
+		}
+		return sys
+	}
+
+	// 启用版本覆盖内联提示词
+	sys := run(t, fmt.Sprintf(definition, 0), func(nodeKey string) (string, bool) {
+		if nodeKey == "s1" {
+			return "版本化子Agent提示词", true
+		}
+		return "", false
+	})
+	if !strings.Contains(sys, "版本化子Agent提示词") {
+		t.Fatalf("版本提示词未生效: %q", sys)
+	}
+	if strings.Contains(sys, "内联子提示词") {
+		t.Fatalf("内联提示词应被版本覆盖: %q", sys)
+	}
+
+	// 启用版本优先于被引用 Agent 的内置提示词
+	sys = run(t, fmt.Sprintf(definition, 5), func(nodeKey string) (string, bool) {
+		if nodeKey == "s1" {
+			return "版本化子Agent提示词", true
+		}
+		return "", false
+	})
+	if !strings.Contains(sys, "版本化子Agent提示词") || strings.Contains(sys, "引用的内置提示词") {
+		t.Fatalf("版本应优先于被引用 Agent 提示词: %q", sys)
+	}
+
+	// 无版本: 引用 Agent 时用其内置提示词; 内联时用内联提示词
+	sys = run(t, fmt.Sprintf(definition, 5), nil)
+	if !strings.Contains(sys, "引用的内置提示词") {
+		t.Fatalf("无版本时应用被引用 Agent 提示词: %q", sys)
+	}
+	sys = run(t, fmt.Sprintf(definition, 0), nil)
+	if !strings.Contains(sys, "内联子提示词") {
+		t.Fatalf("无版本时应用内联提示词: %q", sys)
 	}
 }
 

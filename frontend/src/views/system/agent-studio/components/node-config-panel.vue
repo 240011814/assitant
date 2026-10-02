@@ -172,7 +172,8 @@ const promptVersionOptions = computed(() =>
 );
 
 async function loadPromptVersions() {
-  if (props.nodeType !== 'agent' || !props.currentOrchId || !canManagePrompt.value) {
+  const versioned = props.nodeType === 'agent' || props.nodeType === 'subagent';
+  if (!versioned || !props.currentOrchId || !canManagePrompt.value) {
     promptVersions.value = [];
     return;
   }
@@ -269,42 +270,6 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
           placeholder="支持模板变量: {{.Input}} {{.current_time}} {{.user_id}} {{.user_profile}}"
         />
       </NFormItem>
-      <template v-if="nodeType === 'agent' && canManagePrompt">
-        <template v-if="currentOrchId">
-          <NFormItem label="提示词版本" label-placement="left" label-width="72" size="small">
-            <NSelect
-              v-model:value="selectedVersionId"
-              size="small"
-              clearable
-              :options="promptVersionOptions"
-              :loading="promptVersionLoading"
-              placeholder="历史版本 (仅管理, 不直接改写画布)"
-            />
-          </NFormItem>
-          <div class="flex gap-2 mb-1">
-            <NButton size="tiny" secondary @click="handleSavePromptVersion">存为新版本</NButton>
-            <NButton
-              size="tiny"
-              secondary
-              :disabled="!selectedVersionId || selectedVersionId === activeVersion?.id"
-              @click="handleSwitchPromptVersion"
-            >
-              启用所选
-            </NButton>
-            <NButton size="tiny" quaternary type="error" :disabled="!selectedVersionId" @click="handleDeletePromptVersion">
-              删除所选
-            </NButton>
-          </div>
-          <p class="text-11px leading-5 mb-1" :class="activeVersion ? 'text-orange-500' : 'text-gray-400'">
-            {{
-              activeVersion
-                ? `运行时以启用的版本 v${activeVersion.version} 为准, 覆盖上方画布提示词 (版本为编排全局共享, 不区分用户)。`
-                : '运行时使用上方画布提示词; 点「存为新版本」后, 所有用户运行时都以启用版本为准。'
-            }}
-          </p>
-        </template>
-        <p v-else class="text-11px text-gray-400 leading-5">编排保存后可在此维护提示词版本, 运行时以启用版本覆盖画布提示词。</p>
-      </template>
       <NFormItem label="工具" label-placement="left" label-width="72" size="small">
         <NSelect
           v-model:value="localConfig.tools"
@@ -460,6 +425,44 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
           placeholder="子 Agent 可调用的工具"
         />
       </NFormItem>
+    </template>
+
+    <!-- 提示词版本 (Agent / 子Agent 节点共用, 与用户提示词共用 user_prompts 表) -->
+    <template v-if="(nodeType === 'agent' || nodeType === 'subagent') && canManagePrompt">
+      <template v-if="currentOrchId">
+        <NFormItem label="提示词版本" label-placement="left" label-width="72" size="small">
+          <NSelect
+            v-model:value="selectedVersionId"
+            size="small"
+            clearable
+            :options="promptVersionOptions"
+            :loading="promptVersionLoading"
+            placeholder="历史版本 (仅管理, 不直接改写画布)"
+          />
+        </NFormItem>
+        <div class="flex gap-2 mb-1">
+          <NButton size="tiny" secondary @click="handleSavePromptVersion">存为新版本</NButton>
+          <NButton
+            size="tiny"
+            secondary
+            :disabled="!selectedVersionId || selectedVersionId === activeVersion?.id"
+            @click="handleSwitchPromptVersion"
+          >
+            启用所选
+          </NButton>
+          <NButton size="tiny" quaternary type="error" :disabled="!selectedVersionId" @click="handleDeletePromptVersion">
+            删除所选
+          </NButton>
+        </div>
+        <p class="text-11px leading-5 mb-1" :class="activeVersion ? 'text-orange-500' : 'text-gray-400'">
+          {{
+            activeVersion
+              ? `运行时以启用的版本 v${activeVersion.version} 为准${nodeType === 'subagent' ? ', 优先于被引用 Agent 的提示词' : ''}, 覆盖画布提示词 (版本为编排全局共享, 不区分用户)。`
+              : '运行时使用画布提示词; 点「存为新版本」后, 所有用户运行时都以启用版本为准。'
+          }}
+        </p>
+      </template>
+      <p v-else class="text-11px text-gray-400 leading-5">编排保存后可在此维护提示词版本, 运行时以启用版本覆盖画布提示词。</p>
     </template>
 
     <!-- 合并节点 -->
