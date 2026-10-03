@@ -27,11 +27,11 @@ type AIAgentService struct {
 	enabledModels  []model.AIModel
 	// providerByID 启用中的 Provider (按 id 索引): 指定模型 code 时用它解析模型
 	// 归属的 Provider, 构建 ChatModel 必须用该 Provider 的 key/baseURL
-	providerByID map[int]*model.AIProvider
-	timeout      time.Duration
-	timeoutConfig  TimeoutConfig
-	runnerCache    map[string]*adk.Runner
-	promptCache    map[string]string
+	providerByID  map[int]*model.AIProvider
+	timeout       time.Duration
+	timeoutConfig TimeoutConfig
+	runnerCache   map[string]*adk.Runner
+	promptCache   map[string]string
 	// modelCache 模型实例缓存 (按 model code): 编排每个节点/每次运行都构建模型,
 	// ark.ChatModel 是无状态配置+HTTP client, 可复用; WithTools 返回副本不改接收者
 	modelCache map[string]*ark.ChatModel
@@ -622,9 +622,10 @@ func (s *AIAgentService) HasActiveModel() bool {
 	return s.activeProvider != nil && s.activeModel != nil
 }
 
-// resolveModelCode 返回 modelOverride 实际对应的模型 code (空串 = 默认模型),
-// 与 getModelWithRetry 同一套解析规则; 仅用于 token 用量记账的模型归属
-func (s *AIAgentService) resolveModelCode(modelOverride string) string {
+// ResolveModelCode 返回 modelOverride 实际对应的模型 code: override 非空返回自身,
+// 空串解析为当前默认模型的 code (即"空串=默认模型"的真实身份)。
+// 与 getModelWithRetry 同一套解析规则; 供 token 记账等需要真实模型归属的场合使用
+func (s *AIAgentService) ResolveModelCode(modelOverride string) string {
 	s.cacheMu.RLock()
 	defer s.cacheMu.RUnlock()
 	if modelOverride != "" {
@@ -663,7 +664,7 @@ func (s *AIAgentService) GenerateText(userID uint, modelOverride, systemPrompt, 
 		return "", errors.New("模型没有返回结果")
 	}
 	if u := resp.ResponseMeta; u != nil && u.Usage != nil && u.Usage.TotalTokens > 0 && userID > 0 {
-		RecordTokenUsage(userID, s.resolveModelCode(modelOverride), model.TokenSourceExtraction, int64(u.Usage.PromptTokens), int64(u.Usage.CompletionTokens))
+		RecordTokenUsage(userID, s.ResolveModelCode(modelOverride), model.TokenSourceExtraction, int64(u.Usage.PromptTokens), int64(u.Usage.CompletionTokens))
 	}
 	return resp.Content, nil
 }

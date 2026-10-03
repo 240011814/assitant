@@ -341,8 +341,9 @@ func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *
 	deps := compilerDeps{
 		getModel: s.agentService.GetToolCallingModel,
 		// 节点可覆盖 ark SDK 内建的模型调用重试次数 (Agent/子Agent 节点的 max_retries)
-		getModelRetry: s.agentService.GetToolCallingModelWithRetry,
-		buildTool:     s.wrapOrchestrationTool,
+		getModelRetry:    s.agentService.GetToolCallingModelWithRetry,
+		resolveModelCode: s.agentService.ResolveModelCode,
+		buildTool:        s.wrapOrchestrationTool,
 		sessionVars: func() map[string]any {
 			vars := s.agentService.SessionTemplateVars(userID)
 			// 多轮调试的历史经 sessionVars 传给编译器 (模板变量不受影响)
@@ -711,6 +712,10 @@ func (s *AIOrchestrationService) recordOrchestrationUsage(userID uint, chatMode 
 		modelCode := ""
 		if compiled != nil && compiled.nodeModels != nil {
 			modelCode = compiled.nodeModels[t.Key]
+		}
+		// 节点未指定模型 (=默认模型) 时解析出真实模型 code, 避免统计里出现空模型归属
+		if modelCode == "" {
+			modelCode = s.agentService.ResolveModelCode("")
 		}
 		RecordTokenUsage(userID, modelCode, source, int64(t.Tokens.PromptTokens), int64(t.Tokens.CompletionTokens))
 	}

@@ -198,6 +198,9 @@ type compilerDeps struct {
 	// getModelRetry 同 getModel 但可覆盖 ark SDK 内建的模型调用重试次数
 	// (retryTimes=nil 沿用默认)。未注入时 (旧 deps/单测) 回退 getModel, 重试取框架默认
 	getModelRetry func(modelOverride string, retryTimes *int) (model.ToolCallingChatModel, error)
+	// resolveModelCode 把模型 code 解析成真实 code (空串→当前默认模型的 code),
+	// router 节点 token 记账归属用; 未注入时 (单测) 记账保留原值
+	resolveModelCode func(modelOverride string) string
 	// buildTool 按 ai_tools 表配置构建单个工具
 	buildTool func(name string) (tool.BaseTool, error)
 	// sessionVars 供模板/系统提示词渲染 (current_time / user_id / user_profile / chat_history)
@@ -2320,13 +2323,18 @@ func (c *orchestrationCompiler) buildRouterCond(id string, cfg OrchRouterConfig)
 			return "", fmt.Errorf("路由节点 %s 分类失败: %w", id, err)
 		}
 		// router 的分类调用不经 compose 节点 span, 摘要聚合不到, 这里直接记账
-		// (userID=0 为校验/单测构造, 不落库); 来源与本次运行一致 (调试/对话)
+		// (userID=0 为校验/单测构造, 不落库); 来源与本次运行一致 (调试/对话);
+		// 节点未指定模型时解析成默认模型的真实 code, 避免空模型归属
 		if usage != nil && usage.TotalTokens > 0 && c.userID > 0 {
 			source := coremodel.TokenSourceOrchDebug
 			if c.chatMode {
 				source = coremodel.TokenSourceOrchChat
 			}
-			RecordTokenUsage(c.userID, cfg.Model, source, int64(usage.PromptTokens), int64(usage.CompletionTokens))
+			modelCode := cfg.Model
+			if modelCode == "" && c.deps.resolveModelCode != nil {
+				modelCode = c.deps.resolveModelCode("")
+			}
+			RecordTokenUsage(c.userID, modelCode, source, int64(usage.PromptTokens), int64(usage.CompletionTokens))
 		}
 		target, matched := orchRouterMatchLabel(label, cases)
 		if !matched {

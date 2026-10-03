@@ -84,12 +84,12 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 		var fullAssistantReply string
 		var fullThinkingContent string
 		firstTokenLogged := false
-		// token 用量落库: 每次模型调用一条 (req.Model 为空 = 默认模型)
+		// token 用量落库: 每次模型调用一条 (req.Model 为空 = 默认模型, 记账时解析成真实 code)
 		recordUsage := func(u *schema.TokenUsage) {
 			if u == nil || u.TotalTokens <= 0 {
 				return
 			}
-			service.RecordTokenUsage(userID.(uint), req.Model, model.TokenSourceChat, int64(u.PromptTokens), int64(u.CompletionTokens))
+			service.RecordTokenUsage(userID.(uint), agentService.ResolveModelCode(req.Model), model.TokenSourceChat, int64(u.PromptTokens), int64(u.CompletionTokens))
 		}
 		c.Stream(func(w io.Writer) bool {
 			event, ok := iter.Next()
