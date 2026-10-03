@@ -155,7 +155,14 @@ function onConnect(connection: Connection) {
     } else if (MULTI_OUT_TYPES.has(sourceType) && hasLoopOutEdge(source!) && !edges.value.some(e => e.source === source && e.target === target)) {
       message.warning('该节点已有一条循环回边 (每个分支/路由节点只能一条)');
     } else if (targetType !== 'merge' && edges.value.some(e => e.target === target)) {
-      message.warning('该节点已有一条入边 (多路合并请使用合并节点; 从分支/路由节点连回上游可建立循环回边)');
+      if (MULTI_OUT_TYPES.has(sourceType)) {
+        // 分支/路由连向已有入边的上游: 基本都是想画回边, 但正向路径未画完时无法自动识别为回边
+        message.warning(
+          '普通连线不允许连向已有入边的节点; 若要建立循环, 请先画完正向路径 (目标 → … → 本节点) 再连回边, 或先把这条线画成普通连线后右键它选「转为循环回边」'
+        );
+      } else {
+        message.warning('该节点已有一条入边 (多路合并请使用合并节点; 从分支/路由节点连回上游可建立循环回边)');
+      }
     } else if (!MULTI_OUT_TYPES.has(sourceType) && flowOutCount(source) >= 1) {
       message.warning('该节点已有一条出边 (多路分发请使用分支/LLM路由节点)');
     } else {
@@ -177,6 +184,11 @@ function onConnect(connection: Connection) {
       class: isLoop ? 'orch-loop-edge' : undefined
     }
   ];
+  // 画成的是普通边但正向图已成环: 后端校验必报"存在循环连线", 当场提示用右键转回边,
+  // 避免用户画完一圈才发现回边没被识别 (正向路径没画完时回边会被静默当成普通边)
+  if (!isLoop && reachesForward(target!, source!)) {
+    message.warning('该连线与现有正向连线构成环: 校验会报"存在循环连线"; 若要循环, 请右键这条连线选择「转为循环回边」');
+  }
 }
 
 function onNodeClick(e: NodeMouseEvent) {
@@ -247,6 +259,69 @@ function menuDeleteEdge() {
   closeCtxMenu();
 }
 
+// ---------- 边转循环回边 ----------
+// 回边不再只依赖画线时刻的正向可达性自动识别 (画早了会被当成普通边/被拒),
+// 支持把已画的边显式转为回边 (或转回), 规则与后端校验一致
+
+function edgeById(id?: string): FlowEdge | undefined {
+  return edges.value.find(e => e.id === id);
+}
+
+/** 能否转为循环回边: 仅 branch/router 可发出, 目标非子Agent, 源未已有回边 */
+function canConvertToLoop(edge: FlowEdge): boolean {
+  if (edgeKindOf(edge) === 'loop') return false;
+  if (!MULTI_OUT_TYPES.has(nodeTypeOf(edge.source))) return false;
+  if (nodeTypeOf(edge.target) === 'subagent') return false;
+  return !hasLoopOutEdge(edge.source);
+}
+
+function canConvertToLoopById(id?: string): boolean {
+  const e = edgeById(id);
+  return !!e && canConvertToLoop(e);
+}
+
+function isLoopEdgeById(id?: string): boolean {
+  const e = edgeById(id);
+  return !!e && edgeKindOf(e) === 'loop';
+}
+
+function setEdgeLoop(edgeId: string, isLoop: boolean) {
+  edges.value = edges.value.map(e =>
+    e.id === edgeId
+      ? { ...e, data: isLoop ? { ...(e.data || {}), kind: 'loop' } : undefined, class: isLoop ? 'orch-loop-edge' : undefined }
+      : e
+  );
+}
+
+function menuToggleLoopEdge() {
+  const edge = edgeById(ctxMenu.value.id);
+  closeCtxMenu();
+  if (!edge) return;
+  const toLoop = edgeKindOf(edge) !== 'loop';
+  if (toLoop && !canConvertToLoop(edge)) return;
+  setEdgeLoop(edge.id, toLoop);
+  if (!toLoop) {
+    if (reachesForward(edge.target, edge.source)) {
+      message.warning('已取消循环回边: 该连线与正向连线仍构成环, 校验会报"存在循环连线"');
+    }
+    return;
+  }
+  // 回边要真正生效还差两件事: 分类条件包含回边目标 + 循环上限 max_loops >= 1 (后端校验)
+  const srcNode = nodes.value.find(n => n.id === edge.source);
+  const cfg = srcNode?.data?.config || {};
+  const cases = Array.isArray(cfg.cases) ? cfg.cases : [];
+  const inCases = cases.some((cs: any) => cs?.target === edge.target);
+  const maxLoops = Number(cfg.max_loops || 0);
+  const missing: string[] = [];
+  if (!inCases) missing.push('分类条件需包含回边目标');
+  if (maxLoops < 1) missing.push('循环上限需设置 ≥1');
+  if (missing.length) {
+    message.warning(`已转为循环回边, 还需配置才能通过校验: ${missing.join('、')} (在该节点配置面板中设置)`);
+  } else if (!reachesForward(edge.target, edge.source)) {
+    message.warning('已转为循环回边, 但目标暂不能沿正向边连回本节点 (正向路径未画完), 循环不会闭合; 请补全正向连线');
+  }
+}
+
 function menuAddNode(type: string) {
   const point = screenToFlowCoordinate({ x: ctxMenu.value.x, y: ctxMenu.value.y });
   emit('add-node', type, { x: Math.round(point.x), y: Math.round(point.y) });
@@ -304,6 +379,20 @@ function menuAddNode(type: string) {
         </div>
       </template>
       <template v-else-if="ctxMenu.kind === 'edge'">
+        <div
+          v-if="canConvertToLoopById(ctxMenu.id)"
+          class="ctx-menu-item"
+          @click="menuToggleLoopEdge"
+        >
+          <SvgIcon icon="mdi:sync-alert" class="text-14px" /> 转为循环回边
+        </div>
+        <div
+          v-else-if="isLoopEdgeById(ctxMenu.id)"
+          class="ctx-menu-item"
+          @click="menuToggleLoopEdge"
+        >
+          <SvgIcon icon="mdi:sync-off" class="text-14px" /> 取消循环回边
+        </div>
         <div class="ctx-menu-item ctx-menu-danger" @click="menuDeleteEdge">
           <SvgIcon icon="mdi:minus" class="text-14px" /> 删除连线
         </div>

@@ -360,6 +360,14 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
           该分支带循环回边: 命中回边最多 {{ localConfig.max_loops || '?' }} 次, 超过后强制走退出分支 (防止评审一直不通过导致死循环)。
         </p>
       </template>
+      <template v-else>
+        <NFormItem label="循环上限" label-placement="left" label-width="72" size="small">
+          <NInputNumber v-model:value="localConfig.max_loops" :min="0" :max="20" size="small" class="w-full" placeholder="连循环回边后必填 (≥1)" />
+        </NFormItem>
+        <p class="text-11px text-gray-400 leading-5 mb-1">
+          未使用循环回边时保持 0; 从分支连一条线回上游后右键该连线「转为循环回边」, 并把上限设为 ≥1。
+        </p>
+      </template>
     </template>
 
     <!-- LLM 路由节点 -->
@@ -395,6 +403,14 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
         </NFormItem>
         <p class="text-11px text-orange-500 leading-5 mb-1">
           该路由带循环回边: 命中回边最多 {{ localConfig.max_loops || '?' }} 次, 超过后强制走退出目标。
+        </p>
+      </template>
+      <template v-else>
+        <NFormItem label="循环上限" label-placement="left" label-width="72" size="small">
+          <NInputNumber v-model:value="localConfig.max_loops" :min="0" :max="20" size="small" class="w-full" placeholder="连循环回边后必填 (≥1)" />
+        </NFormItem>
+        <p class="text-11px text-gray-400 leading-5 mb-1">
+          未使用循环回边时保持 0; 从路由连一条线回上游后右键该连线「转为循环回边」, 并把上限设为 ≥1。
         </p>
       </template>
     </template>
