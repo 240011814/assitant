@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { NButton, NCard, NDropdown, NEmpty, NInput, NModal, NPopconfirm, NSelect, NSpace, NSwitch, NTag, useMessage } from 'naive-ui';
+import { NButton, NCard, NDropdown, NEmpty, NInput, NModal, NPopconfirm, NSpace, NSwitch, NTag, useMessage } from 'naive-ui';
 import { useAppStore } from '@/store/modules/app';
 import { useAuth } from '@/hooks/business/auth';
 import CanvasPanel from './components/canvas-panel.vue';
@@ -8,6 +8,7 @@ import NodeConfigPanel from './components/node-config-panel.vue';
 import DebugPanel from './components/debug-panel.vue';
 import type { NodeTrace } from './components/debug-panel.vue';
 import { NODE_META, nodeTypeOptions } from './nodes/registry';
+import { ORCHESTRATION_TEMPLATES, type OrchestrationTemplate } from './templates';
 import {
   fetchOrchestrations,
   fetchCreateOrchestration,
@@ -16,9 +17,7 @@ import {
   fetchOrchestrationResources,
   fetchValidateOrchestration,
   type AIOrchestrationItem,
-  type OrchestrationResource,
-  type OrchNode,
-  type OrchestrationValidateResult
+  type OrchestrationResource
 } from '@/service/api';
 
 const message = useMessage();
@@ -34,11 +33,6 @@ const currentDesc = ref('');
 const currentEnabled = ref(true);
 
 // ---------- 画布状态 ----------
-interface FlowNodeData {
-  nodeType: OrchNode['type'];
-  name: string;
-  config: Record<string, any>;
-}
 const flowNodes = ref<any[]>([]);
 const flowEdges = ref<any[]>([]);
 const selectedNodeId = ref<string | null>(null);
@@ -138,21 +132,26 @@ function makeNode(nodeType: string, position: { x: number; y: number }) {
   selectedNodeId.value = id;
 }
 
-// 新建编排时的示例链: 模板 -> Agent -> 结束
-function seedSampleDefinition() {
-  flowNodes.value = [];
-  flowEdges.value = [];
-  makeNode('template', { x: 60, y: 140 });
-  const tplId = selectedNodeId.value!;
-  (flowNodes.value[0].data.config as Record<string, any>).template = '请处理以下内容:\n{{.Input}}';
-  makeNode('agent', { x: 360, y: 120 });
-  const agentId = selectedNodeId.value!;
-  makeNode('end', { x: 660, y: 140 });
+// ---------- 新建 (从模板) ----------
+const showCreateModal = ref(false);
+
+function openCreate() {
+  showCreateModal.value = true;
+}
+
+function applyTemplate(t: OrchestrationTemplate) {
+  currentId.value = null;
+  currentName.value = '';
+  currentDesc.value = '';
+  currentEnabled.value = true;
+  nodeTraces.value = {};
   selectedNodeId.value = null;
-  flowEdges.value.push(
-    { id: 'e_seed_1', source: tplId, target: agentId, sourceHandle: 'out', targetHandle: 'in' },
-    { id: 'e_seed_2', source: agentId, target: flowNodes.value[2].id, sourceHandle: 'out', targetHandle: 'in' }
-  );
+  // 模板定义即标准 DSL, 复用 loadDefinition 铺画布 (画布数组替换时深 watch 会清除错误高亮)
+  loadDefinition(JSON.stringify(t.definition));
+  showCreateModal.value = false;
+  if (t.hint) {
+    message.info(t.hint, { duration: 6000 });
+  }
 }
 
 // ---------- 列表加载 ----------
@@ -184,16 +183,6 @@ function openItem(item: AIOrchestrationItem) {
   loadDefinition(item.definition);
   nodeTraces.value = {};
   selectedNodeId.value = null;
-}
-
-function openCreateWithSample() {
-  currentId.value = null;
-  currentName.value = '';
-  currentDesc.value = '';
-  currentEnabled.value = true;
-  nodeTraces.value = {};
-  selectedNodeId.value = null;
-  seedSampleDefinition();
 }
 
 // ---------- 保存 ----------
@@ -424,7 +413,7 @@ onMounted(() => {
         title="编排列表"
       >
         <div class="mb-2">
-          <NButton v-if="hasAuth('system:orchestration:create')" size="small" block secondary @click="openCreateWithSample">
+          <NButton v-if="hasAuth('system:orchestration:create')" size="small" block secondary @click="openCreate">
             <template #icon><SvgIcon icon="mdi:plus" /></template>
             新建编排
           </NButton>
@@ -461,7 +450,7 @@ onMounted(() => {
       </NCard>
 
       <!-- 画布 -->
-      <NCard :bordered="false" size="small" class="flex-1 min-h-0 flex flex-col" :body-style="'flex:1;display:flex;flex-direction:column;min-height:0;padding:0;'">
+      <NCard :bordered="false" size="small" class="flex-1 min-h-0 flex flex-col" body-style="flex:1;display:flex;flex-direction:column;min-height:0;padding:0;">
         <CanvasPanel
           v-model:nodes="flowNodes"
           v-model:edges="flowEdges"
@@ -507,6 +496,30 @@ onMounted(() => {
         @error-nodes="setErrorNodes"
       />
     </NCard>
+
+    <!-- ====== 新建编排: 模板选择 ====== -->
+    <NModal
+      v-model:show="showCreateModal"
+      preset="card"
+      title="新建编排 · 选择模板"
+      :style="{ width: appStore.isMobile ? '95vw' : '760px' }"
+    >
+      <div class="grid gap-2 max-h-[60vh] overflow-auto" :class="appStore.isMobile ? 'grid-cols-1' : 'grid-cols-3'">
+        <div
+          v-for="t in ORCHESTRATION_TEMPLATES"
+          :key="t.key"
+          class="p-3 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors"
+          @click="applyTemplate(t)"
+        >
+          <div class="flex items-center gap-2 mb-1">
+            <SvgIcon :icon="t.icon" class="text-16px text-blue-500 shrink-0" />
+            <span class="text-sm font-medium">{{ t.label }}</span>
+          </div>
+          <div class="text-xs text-gray-500 dark:text-gray-400 leading-5">{{ t.description }}</div>
+        </div>
+      </div>
+      <div class="text-xs text-gray-400 mt-2">模板预填了节点、连线与校验配置; 依赖实例资源的节点 (工具/子编排) 加载后需补选。</div>
+    </NModal>
 
     <!-- ====== 另存为弹窗 ====== -->
     <NModal v-model:show="showSaveModal" preset="card" title="保存编排" :style="{ width: appStore.isMobile ? '95vw' : '480px' }">

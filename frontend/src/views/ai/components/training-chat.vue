@@ -39,8 +39,6 @@ interface TokenUsage {
 }
 
 interface ChatMessage {
-  // 稳定 key: v-for 用 index 做 key 时, 中途 splice (编辑重发/失败重试) 会让后续行全部错位重渲染
-  id: number;
   role: "user" | "assistant" | "system";
   content: string;
   renderedContent?: string;
@@ -160,11 +158,8 @@ const parseExpressionsFromContent = (content: string): ExpressionSuggestion[] | 
   return undefined;
 };
 
-let messageIdSeq = 0;
-
 const createChatMessage = (role: ChatMessage["role"], content: string, timestamp?: number): ChatMessage => {
   return {
-    id: ++messageIdSeq,
     role,
     content,
     renderedContent: renderMessageContent(content),
@@ -175,7 +170,6 @@ const createChatMessage = (role: ChatMessage["role"], content: string, timestamp
 };
 
 const systemMessage = ref<ChatMessage>({
-  id: 0,
   role: "system",
   content: props.systemPrompt,
 });
@@ -434,59 +428,14 @@ const scheduleScrollToBottom = () => {
   });
 };
 
-// ===== 流式 markdown 渲染节流 =====
-// 防抖动动机: 流式期间全程渲染 markdown(而非渲染纯文本等结束再渲染), 结束时不会整块跳版。
-// 代价是每个 delta 都对整段累积文本重跑 markdown+KaTeX, 长回复下卡顿。
-// 折中: content/thinking 实时累积不丢字, 渲染节流到每 STREAM_RENDER_INTERVAL 一次,
-// 结束路径统一 flushAssistantRender 精确补渲染(内容与逐 delta 渲染完全一致, 只降更新频率)。
-const STREAM_RENDER_INTERVAL = 120;
-let streamRenderTimer: ReturnType<typeof setTimeout> | null = null;
-
-const cancelStreamRenderTimer = () => {
-  if (streamRenderTimer !== null) {
-    clearTimeout(streamRenderTimer);
-    streamRenderTimer = null;
-  }
-};
-
-// 用最后一条消息当前的 content/thinkingContent 精确渲染 (流式节流到点与结束补渲染共用)
-const renderLastAssistant = () => {
-  const lastIdx = messages.value.length - 1;
-  if (lastIdx < 0) return;
-  const lastMsg = messages.value[lastIdx];
-  if (lastMsg.role !== "assistant") return;
-  const next: ChatMessage = {
-    ...lastMsg,
-    renderedContent: renderMessageContent(lastMsg.content),
-  };
-  if (lastMsg.thinkingContent) {
-    next.renderedThinking = renderMarkdown(lastMsg.thinkingContent);
-  }
-  messages.value[lastIdx] = next;
-};
-
-const scheduleStreamRender = () => {
-  if (streamRenderTimer !== null) return;
-  streamRenderTimer = setTimeout(() => {
-    streamRenderTimer = null;
-    renderLastAssistant();
-  }, STREAM_RENDER_INTERVAL);
-};
-
-// 流式结束/中止时调用: 清掉待触发的节流定时器并按当前文本精确渲染, 保证结尾不缺字
-const flushAssistantRender = () => {
-  cancelStreamRenderTimer();
-  renderLastAssistant();
-};
-
 const appendAssistantContent = (content: string) => {
   const lastIdx = messages.value.length - 1;
   const nextContent = messages.value[lastIdx].content + content;
   messages.value[lastIdx] = {
     ...messages.value[lastIdx],
     content: nextContent,
+    renderedContent: renderMessageContent(nextContent),
   };
-  scheduleStreamRender();
 };
 
 // 用最终文本替换当前助手气泡 (编排运行结束后只保留图级最终输出)
@@ -495,8 +444,8 @@ const setAssistantContent = (content: string) => {
   messages.value[lastIdx] = {
     ...messages.value[lastIdx],
     content,
+    renderedContent: renderMessageContent(content),
   };
-  flushAssistantRender();
 };
 
 const appendUsage = (usage: TokenUsage) => {
@@ -544,10 +493,10 @@ const appendThinkingContent = (content: string) => {
   messages.value[lastIdx] = {
     ...messages.value[lastIdx],
     thinkingContent: nextThinking,
+    renderedThinking: renderMarkdown(nextThinking),
   };
   // 默认展开思考过程
   expandedThinking.value.add(lastIdx);
-  scheduleStreamRender();
 };
 
 const setAssistantError = (content: string) => {
@@ -555,9 +504,9 @@ const setAssistantError = (content: string) => {
   messages.value[lastIdx] = {
     ...messages.value[lastIdx],
     content,
+    renderedContent: renderMessageContent(content),
     isError: true,
   };
-  flushAssistantRender();
 };
 
 // 停止生成: 保留已收到的部分回复并追加标注(不标记为错误)
@@ -568,9 +517,9 @@ const markAssistantStopped = () => {
   messages.value[lastIdx] = {
     ...lastMsg,
     content,
+    renderedContent: renderMessageContent(content),
     isError: false,
   };
-  flushAssistantRender();
 };
 
 const handleStopGeneration = () => {
@@ -584,9 +533,9 @@ const setAssistantThinking = (thinking: string) => {
   messages.value[lastIdx] = {
     ...lastMsg,
     thinkingContent: existingThinking + thinking,
+    renderedThinking: renderMarkdown(existingThinking + thinking),
   };
   expandedThinking.value.add(lastIdx);
-  scheduleStreamRender();
 };
 
 const copyToClipboard = async (content: string) => {
@@ -603,12 +552,11 @@ const parseVocabSuggestions = () => {
   const lastMsg = messages.value[lastIdx];
   if (lastMsg.role !== "assistant") return;
 
-  // 流式渲染是节流的, 结束时先按当前文本精确补渲染, 再解析生词/表达建议
-  flushAssistantRender();
   messages.value[lastIdx] = {
-    ...messages.value[lastIdx],
-    suggestions: parseVocabsFromContent(messages.value[lastIdx].content),
-    expressions: parseExpressionsFromContent(messages.value[lastIdx].content),
+    ...lastMsg,
+    renderedContent: renderMessageContent(lastMsg.content),
+    suggestions: parseVocabsFromContent(lastMsg.content),
+    expressions: parseExpressionsFromContent(lastMsg.content),
   };
 };
 
@@ -1068,8 +1016,6 @@ const handleToolApproval = async (approved: boolean, reason?: string) => {
   } catch (err: any) {
     setAssistantError(`工具审批请求失败: ${err?.message || "未知错误"}`);
   } finally {
-    // 流式渲染是节流的, 结束时精确补渲染 (此处无 parseVocabSuggestions 兜底)
-    flushAssistantRender();
     isGenerating.value = false;
     await scrollToBottom();
   }
@@ -1300,7 +1246,7 @@ onBeforeUnmount(() => {
           <div class="flex flex-col pb-4" :class="appStore.isMobile ? 'gap-4' : 'gap-6'">
             <div
               v-for="(msg, index) in messages"
-              :key="msg.id"
+              :key="index"
               class="flex items-start"
               :class="[
                 msg.role === 'user' ? 'flex-row-reverse' : 'flex-row',
