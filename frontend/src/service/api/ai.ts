@@ -151,6 +151,8 @@ export async function fetchToolApproval(data: {
   training_type?: string;
   custom_training_id?: number;
   agent_id?: number;
+  /** 发起被中断对话时使用的模型, 恢复时用同一模型续跑 */
+  model?: string;
   messages?: { role: string; content: string }[];
 }): Promise<Response> {
   const isHttpProxy =

@@ -395,7 +395,7 @@ func (s *UserMemoryService) RunExtraction() error {
 		log.Println("[UserMemory] 抽取未启用, 跳过")
 		return nil
 	}
-	if s.agentSvc == nil || s.agentSvc.activeModel == nil {
+	if s.agentSvc == nil || !s.agentSvc.HasActiveModel() {
 		return errors.New("AI 模型未配置, 无法抽取")
 	}
 
@@ -429,7 +429,7 @@ func (s *UserMemoryService) ExtractUserSessions(userID uint) (int, error) {
 	if !cfg.Enabled {
 		return 0, errors.New("抽取未启用")
 	}
-	if s.agentSvc == nil || s.agentSvc.activeModel == nil {
+	if s.agentSvc == nil || !s.agentSvc.HasActiveModel() {
 		return 0, errors.New("AI 模型未配置, 无法抽取")
 	}
 
@@ -524,7 +524,7 @@ func (s *UserMemoryService) extractSession(sess eligibleSession, cfg MemoryExtra
 	s.setState(sess.HistoryID, sess.UserID, model.MemoryExtractionStatusProcessing, 0, "")
 
 	transcript := buildTranscript(msgs)
-	res, err := s.extractWithLLM(sess.Title, transcript, sess.CreatedAt, cfg.Model)
+	res, err := s.extractWithLLM(sess.UserID, sess.Title, transcript, sess.CreatedAt, cfg.Model)
 	if err != nil {
 		s.setState(sess.HistoryID, sess.UserID, model.MemoryExtractionStatusFailed, 0, err.Error())
 		return err
@@ -893,7 +893,7 @@ const mergeSystemPrompt = `你是用户画像维护助手。给定【当前画�
 【输出】只输出 JSON，不要解释，不要 markdown 代码块：
 {"summary":"一段话整体画像，不超过800字","dimensions":{"identity":"","background":"","goals":"","skills":"","projects":"","learning_topics":"","interests":"","preferences":"","habits":"","communication_style":"","language":"","values":"","risk_preference":"","decision_style":"","constraints":""},"tags":["标签"],"confidence":0.8}`
 
-func (s *UserMemoryService) extractWithLLM(title, transcript string, sessionTime time.Time, modelOverride string) (*extractionResult, error) {
+func (s *UserMemoryService) extractWithLLM(userID uint, title, transcript string, sessionTime time.Time, modelOverride string) (*extractionResult, error) {
 	userPrompt := fmt.Sprintf(
 		"会话标题：%s\n当前日期：%s\n会话开始时间：%s\n\n对话内容：\n%s",
 		title,
@@ -901,7 +901,7 @@ func (s *UserMemoryService) extractWithLLM(title, transcript string, sessionTime
 		sessionTime.Format("2006-01-02 15:04"),
 		transcript,
 	)
-	raw, err := s.agentSvc.GenerateText(modelOverride, extractSystemPrompt, userPrompt)
+	raw, err := s.agentSvc.GenerateText(userID, modelOverride, extractSystemPrompt, userPrompt)
 	if err != nil {
 		return nil, err
 	}
@@ -923,7 +923,7 @@ func (s *UserMemoryService) MergeProfileFacts(userID uint, facts []model.Profile
 	if !cfg.Enabled {
 		return nil
 	}
-	if s.agentSvc == nil || s.agentSvc.activeModel == nil {
+	if s.agentSvc == nil || !s.agentSvc.HasActiveModel() {
 		return errors.New("AI 模型未配置")
 	}
 	p, err := s.GetOrCreatePortrait(userID)
@@ -940,7 +940,7 @@ func (s *UserMemoryService) MergeProfileFacts(userID uint, facts []model.Profile
 	factsJSON, _ := json.Marshal(facts)
 	userPrompt := fmt.Sprintf("【当前画像】\n%s\n\n【新增事实】\n%s", string(curJSON), string(factsJSON))
 
-	raw, err := s.agentSvc.GenerateText(cfg.Model, mergeSystemPrompt, userPrompt)
+	raw, err := s.agentSvc.GenerateText(userID, cfg.Model, mergeSystemPrompt, userPrompt)
 	if err != nil {
 		return err
 	}

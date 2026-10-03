@@ -1,0 +1,158 @@
+/**
+ * highlight.js 代码块主题 (GitHub 亮/暗双主题)
+ * 亮色为默认; 暗色跟随 <html class="dark"> (toggleCssDarkMode 切换)
+ * 仅作用于 markdown 渲染输出的 .hljs 元素 (markdown.ts highlight 配置)
+ */
+
+/* ---------- 代码块容器 ---------- */
+pre.hljs {
+  display: block;
+  overflow-x: auto;
+  padding: 12px 16px;
+  margin: 8px 0;
+  border-radius: 8px;
+  line-height: 1.6;
+  font-size: 0.9em;
+}
+
+pre.hljs code {
+  display: block;
+  padding: 0;
+  background: transparent;
+  white-space: pre;
+}
+
+/* 行内 code 不加块级样式, 仅给底色区分 */
+code.hljs {
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+
+/* ---------- 亮色 (GitHub Light) ---------- */
+.hljs {
+  color: #1f2328;
+  background: #f6f8fa;
+}
+.hljs-comment,
+.hljs-quote {
+  color: #6a737d;
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag,
+.hljs-formula {
+  color: #cf222e;
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition {
+  color: #0a3069;
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: #0550ae;
+}
+.hljs-title,
+.hljs-section,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: #8250df;
+}
+.hljs-function .hljs-title,
+.hljs-title.function_ {
+  color: #8250df;
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-type,
+.hljs-selector-attr,
+.hljs-selector-pseudo,
+.hljs-title.class_ {
+  color: #953800;
+}
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-title.function_.invoke__ {
+  color: #0550ae;
+}
+.hljs-meta,
+.hljs-meta .hljs-keyword {
+  color: #116329;
+}
+.hljs-deletion {
+  color: #82071e;
+  background: #ffebe9;
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 600;
+}
+
+/* ---------- 暗色 (GitHub Dark) ---------- */
+html.dark .hljs {
+  color: #e6edf3;
+  background: #161b22;
+}
+html.dark .hljs-comment,
+html.dark .hljs-quote {
+  color: #8b949e;
+}
+html.dark .hljs-keyword,
+html.dark .hljs-selector-tag,
+html.dark .hljs-literal,
+html.dark .hljs-doctag,
+html.dark .hljs-formula {
+  color: #ff7b72;
+}
+html.dark .hljs-string,
+html.dark .hljs-regexp,
+html.dark .hljs-addition {
+  color: #a5d6ff;
+}
+html.dark .hljs-number,
+html.dark .hljs-symbol,
+html.dark .hljs-bullet,
+html.dark .hljs-link {
+  color: #79c0ff;
+}
+html.dark .hljs-title,
+html.dark .hljs-section,
+html.dark .hljs-name,
+html.dark .hljs-selector-id,
+html.dark .hljs-selector-class,
+html.dark .hljs-function .hljs-title,
+html.dark .hljs-title.function_ {
+  color: #d2a8ff;
+}
+html.dark .hljs-attr,
+html.dark .hljs-attribute,
+html.dark .hljs-variable,
+html.dark .hljs-template-variable,
+html.dark .hljs-type,
+html.dark .hljs-selector-attr,
+html.dark .hljs-selector-pseudo,
+html.dark .hljs-title.class_ {
+  color: #ffa657;
+}
+html.dark .hljs-built_in,
+html.dark .hljs-builtin-name,
+html.dark .hljs-title.function_.invoke__ {
+  color: #79c0ff;
+}
+html.dark .hljs-meta,
+html.dark .hljs-meta .hljs-keyword {
+  color: #7ee787;
+}
+html.dark .hljs-deletion {
+  color: #ffdcd7;
+  background: #67060c;
+}

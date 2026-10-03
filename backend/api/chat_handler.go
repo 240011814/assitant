@@ -43,10 +43,16 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 			return
 		}
 
+		// 只放行 user/assistant: 客户端可发任意 role, 原样透传 system 等于允许注入
+		// 系统提示; 其余角色一律降级为 user (保序保量, 不影响历史按条数差追加)
 		inputMessages := make([]*schema.Message, len(req.Messages))
 		for i, m := range req.Messages {
+			role := schema.User
+			if m.Role == "assistant" {
+				role = schema.Assistant
+			}
 			inputMessages[i] = &schema.Message{
-				Role:    schema.RoleType(m.Role),
+				Role:    role,
 				Content: m.Content,
 			}
 		}
@@ -57,11 +63,13 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 			return
 		}
 
-		iter, err := agentService.ChatStream(userID.(uint), req.AgentID, req.HistoryID, inputMessages, req.Model)
+		// 请求 ctx: 客户端断开即取消底层运行; cancel 在流结束后由 defer 释放
+		iter, cancel, err := agentService.ChatStream(c.Request.Context(), userID.(uint), req.AgentID, req.HistoryID, inputMessages, req.Model)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to call AI: " + err.Error()})
 			return
 		}
+		defer cancel()
 		log.Printf("[chat] user=%d agent=%d model=%s messages=%d init_ms=%d", userID.(uint), req.AgentID, req.Model, len(inputMessages), time.Since(requestStart).Milliseconds())
 		// 用户对话内容不落日志 (隐私), 仅记录角色与内容长度
 		for _, m := range inputMessages {

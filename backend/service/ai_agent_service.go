@@ -25,7 +25,10 @@ type AIAgentService struct {
 	activeProvider *model.AIProvider
 	activeModel    *model.AIModel
 	enabledModels  []model.AIModel
-	timeout        time.Duration
+	// providerByID 启用中的 Provider (按 id 索引): 指定模型 code 时用它解析模型
+	// 归属的 Provider, 构建 ChatModel 必须用该 Provider 的 key/baseURL
+	providerByID map[int]*model.AIProvider
+	timeout      time.Duration
 	timeoutConfig  TimeoutConfig
 	runnerCache    map[string]*adk.Runner
 	promptCache    map[string]string
@@ -221,16 +224,37 @@ func (s *AIAgentService) ClearRunnerCache() {
 }
 
 func (s *AIAgentService) ReloadConfig() error {
+	// 超时配置一并重读: 配置页保存后 SystemConfigHandler 会触发 ReloadConfig,
+	// 不重读的话改超时必须重启才生效 (查库不持锁, 结果在下方锁内合并)
+	var newTimeout time.Duration
+	if s.sysCfgService != nil {
+		if tc := s.sysCfgService.GetTimeoutConfig(); tc.AIRequestTimeout > 0 {
+			newTimeout = time.Duration(tc.AIRequestTimeout) * time.Minute
+		}
+	}
+
 	var provider model.AIProvider
 	if err := DB.Where("is_active = ?", true).First(&provider).Error; err != nil {
 		s.cacheMu.Lock()
 		s.activeProvider = nil
 		s.activeModel = nil
 		s.enabledModels = nil
+		s.providerByID = nil
 		s.clearCachesLocked()
 		s.cacheMu.Unlock()
 		return err
 	}
+
+	// 所有启用 Provider: 模型按 code 解析归属, 构建时用各自 Provider 的 key/baseURL
+	var providers []model.AIProvider
+	if err := DB.Where("is_active = ?", true).Find(&providers).Error; err != nil || len(providers) == 0 {
+		providers = []model.AIProvider{provider}
+	}
+	providerByID := make(map[int]*model.AIProvider, len(providers))
+	for i := range providers {
+		providerByID[providers[i].ID] = &providers[i]
+	}
+
 	s.cacheMu.Lock()
 	s.activeProvider = &provider
 
@@ -246,16 +270,19 @@ func (s *AIAgentService) ReloadConfig() error {
 	}
 
 	// 加载所有启用 Provider 的模型列表
-	var providers []model.AIProvider
-	if err := DB.Where("is_active = ?", true).Find(&providers).Error; err == nil {
-		providerIDs := make([]int, 0, len(providers))
-		for _, p := range providers {
-			providerIDs = append(providerIDs, p.ID)
-		}
-		var models []model.AIModel
-		if err := DB.Where("provider_id IN ?", providerIDs).Order("is_default DESC, id ASC").Find(&models).Error; err == nil {
-			s.enabledModels = models
-		}
+	var models []model.AIModel
+	providerIDs := make([]int, 0, len(providers))
+	for _, p := range providers {
+		providerIDs = append(providerIDs, p.ID)
+	}
+	if err := DB.Where("provider_id IN ?", providerIDs).Order("is_default DESC, id ASC").Find(&models).Error; err == nil {
+		s.enabledModels = models
+	} else {
+		s.enabledModels = nil
+	}
+	s.providerByID = providerByID
+	if newTimeout > 0 {
+		s.timeout = newTimeout
 	}
 
 	s.clearCachesLocked()
@@ -442,24 +469,48 @@ func (s *AIAgentService) getModel(modelOverride string) (*ark.ChatModel, error) 
 // getModelWithRetry 构建模型实例; retryTimes 非 nil 时覆盖 ark SDK 内建的
 // 模型调用重试次数 (HTTP 层, 指数退避, 仅对 5xx/429/网络错误等可重试错误生效)
 func (s *AIAgentService) getModelWithRetry(modelOverride string, retryTimes *int) (*ark.ChatModel, error) {
-	// 在锁内对 active* 做快照, 防止与 ReloadConfig 并发时的 nil/竞态问题
+	// 在锁内对 active*/enabled* 做快照, 防止与 ReloadConfig 并发时的 nil/竞态问题
 	s.cacheMu.RLock()
 	activeProvider := s.activeProvider
 	activeModel := s.activeModel
+	enabledModels := s.enabledModels
+	providerByID := s.providerByID
 	s.cacheMu.RUnlock()
 
 	if activeProvider == nil || activeModel == nil {
 		return nil, errors.New("AI 模型未配置, 请先在系统管理中启用 AI Provider")
 	}
 
+	// 指定模型时按 ai_models 的归属解析 Provider: key/baseURL 必须来自该模型
+	// 所属的 Provider, 否则多 Provider 下会用默认 Provider 的 key 去调别家模型。
+	// 不在启用列表中的模型直接拒绝, 不透传任意 model code
+	cfgProvider := activeProvider
+	cfgModel := activeModel
 	modelCode := activeModel.ModelCode
 	if modelOverride != "" {
+		var matched *model.AIModel
+		for i := range enabledModels {
+			if enabledModels[i].ModelCode == modelOverride {
+				matched = &enabledModels[i]
+				break
+			}
+		}
+		if matched == nil {
+			return nil, fmt.Errorf("模型不存在或未启用: %s", modelOverride)
+		}
+		p := providerByID[matched.ProviderID]
+		if p == nil {
+			return nil, fmt.Errorf("模型 %s 所属的 Provider 未启用", modelOverride)
+		}
+		cfgProvider = p
+		cfgModel = matched
 		modelCode = modelOverride
 	}
-	// 模型实例缓存: 同一 (model code, 重试次数) 复用 (构建含 HTTP client, 每节点/每次运行新建是编译期主要开销之一)
-	cacheKey := modelCode
+
+	// 模型实例缓存: 同一 (provider, model code, 重试次数) 复用 (构建含 HTTP client, 每节点/每次运行新建是编译期主要开销之一)
+	cacheKey := fmt.Sprintf("%d|%s", cfgProvider.ID, modelCode)
 	if retryTimes != nil {
-		cacheKey = fmt.Sprintf("%s|retry%d", modelCode, *retryTimes)
+		cacheKey = fmt.Sprintf("%s|retry%d", cacheKey, *retryTimes)
 	}
 	s.cacheMu.RLock()
 	if cm, ok := s.modelCache[cacheKey]; ok {
@@ -470,11 +521,11 @@ func (s *AIAgentService) getModelWithRetry(modelOverride string, retryTimes *int
 
 	chatConfig := &ark.ChatModelConfig{
 		Model:   modelCode,
-		APIKey:  activeProvider.APIKey,
-		BaseURL: activeProvider.BaseURL,
+		APIKey:  cfgProvider.APIKey,
+		BaseURL: cfgProvider.BaseURL,
 	}
 	var configMap map[string]interface{}
-	if err := json.Unmarshal([]byte(activeModel.ConfigJSON), &configMap); err == nil {
+	if err := json.Unmarshal([]byte(cfgModel.ConfigJSON), &configMap); err == nil {
 		if t, ok := configMap["temperature"].(float64); ok {
 			temperature := float32(t)
 			chatConfig.Temperature = &temperature
@@ -496,7 +547,7 @@ func (s *AIAgentService) getModelWithRetry(modelOverride string, retryTimes *int
 			chatConfig.PresencePenalty = &presencePenalty
 		}
 	} else {
-		log.Printf("AI model config_json parse failed model=%s config_json=%s err=%v", activeModel.ModelCode, activeModel.ConfigJSON, err)
+		log.Printf("AI model config_json parse failed model=%s config_json=%s err=%v", modelCode, cfgModel.ConfigJSON, err)
 	}
 	if retryTimes != nil {
 		rt := *retryTimes
@@ -564,16 +615,42 @@ func (s *AIAgentService) SessionTemplateVars(userID uint) map[string]any {
 	return vars
 }
 
-// GenerateText 非流式生成, 供画像/经历抽取等后台任务复用当前模型配置
-func (s *AIAgentService) GenerateText(modelOverride, systemPrompt, userPrompt string) (string, error) {
-	if s.activeProvider == nil || s.activeModel == nil {
-		return "", errors.New("AI 模型未配置")
+// HasActiveModel 是否已配置默认模型 (锁内快照读, 供后台任务做前置检查)
+func (s *AIAgentService) HasActiveModel() bool {
+	s.cacheMu.RLock()
+	defer s.cacheMu.RUnlock()
+	return s.activeProvider != nil && s.activeModel != nil
+}
+
+// resolveModelCode 返回 modelOverride 实际对应的模型 code (空串 = 默认模型),
+// 与 getModelWithRetry 同一套解析规则; 仅用于 token 用量记账的模型归属
+func (s *AIAgentService) resolveModelCode(modelOverride string) string {
+	s.cacheMu.RLock()
+	defer s.cacheMu.RUnlock()
+	if modelOverride != "" {
+		return modelOverride
 	}
+	if s.activeModel != nil {
+		return s.activeModel.ModelCode
+	}
+	return ""
+}
+
+// getTimeout 锁内快照读当前 AI 请求超时
+func (s *AIAgentService) getTimeout() time.Duration {
+	s.cacheMu.RLock()
+	defer s.cacheMu.RUnlock()
+	return s.timeout
+}
+
+// GenerateText 非流式生成, 供画像/经历抽取等后台任务复用当前模型配置。
+// userID>0 时把本次调用的 token 用量记账到该用户 (此前抽取链路漏记, 限额统计偏低)
+func (s *AIAgentService) GenerateText(userID uint, modelOverride, systemPrompt, userPrompt string) (string, error) {
 	chatModel, err := s.getModel(modelOverride)
 	if err != nil {
 		return "", err
 	}
-	ctx, cancel := context.WithTimeout(s.ctx, s.timeout)
+	ctx, cancel := context.WithTimeout(s.ctx, s.getTimeout())
 	defer cancel()
 	resp, err := chatModel.Generate(ctx, []*schema.Message{
 		{Role: schema.System, Content: systemPrompt},
@@ -582,13 +659,22 @@ func (s *AIAgentService) GenerateText(modelOverride, systemPrompt, userPrompt st
 	if err != nil {
 		return "", err
 	}
+	if resp == nil {
+		return "", errors.New("模型没有返回结果")
+	}
+	if u := resp.ResponseMeta; u != nil && u.Usage != nil && u.Usage.TotalTokens > 0 && userID > 0 {
+		RecordTokenUsage(userID, s.resolveModelCode(modelOverride), model.TokenSourceExtraction, int64(u.Usage.PromptTokens), int64(u.Usage.CompletionTokens))
+	}
 	return resp.Content, nil
 }
 
-func (s *AIAgentService) ChatStream(userID uint, agentID uint, historyID uint, messages []*schema.Message, modelOverride string) (*adk.AsyncIterator[*adk.AgentEvent], error) {
+// ChatStream 流式对话。ctx 必须传请求的 ctx: 客户端断开即取消底层运行, 不再白烧
+// token; 整次运行受 AI 请求超时约束 (与编排 DebugRun 一致)。返回的 cancel 须在
+// SSE 流结束后调用 (handler defer)
+func (s *AIAgentService) ChatStream(ctx context.Context, userID uint, agentID uint, historyID uint, messages []*schema.Message, modelOverride string) (*adk.AsyncIterator[*adk.AgentEvent], context.CancelFunc, error) {
 	runner, err := s.getOrCreateRunner(modelOverride)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	customPrompt := s.getCustomPrompt(userID, agentID)
@@ -599,18 +685,23 @@ func (s *AIAgentService) ChatStream(userID uint, agentID uint, historyID uint, m
 	}
 
 	checkPointID := fmt.Sprintf("%d_%d", userID, historyID)
-	return runner.Run(s.ctx, messages, adk.WithCheckPointID(checkPointID), adk.WithSessionValues(map[string]any{
+	runCtx, cancel := context.WithTimeout(ctx, s.getTimeout())
+	iter := runner.Run(runCtx, messages, adk.WithCheckPointID(checkPointID), adk.WithSessionValues(map[string]any{
 		"custom_prompt": customPrompt,
 		"user_profile":  userProfile,
 		"current_time":  time.Now().Format("2006-01-02 15:04:05"),
 		"user_id":       userID,
-	})), nil
+	}))
+	return iter, cancel, nil
 }
 
-func (s *AIAgentService) ResumeToolApproval(checkPointID string, interruptID string, approved bool, reason string) (*adk.AsyncIterator[*adk.AgentEvent], error) {
-	runner, err := s.getOrCreateRunner("")
+// ResumeToolApproval 恢复被工具审批中断的对话。modelOverride 传发起那次对话时
+// 使用的模型 (前端随审批请求带回), 否则会落到默认 runner, 非默认模型对话恢复后
+// 模型错乱
+func (s *AIAgentService) ResumeToolApproval(ctx context.Context, checkPointID string, interruptID string, approved bool, reason string, modelOverride string) (*adk.AsyncIterator[*adk.AgentEvent], context.CancelFunc, error) {
+	runner, err := s.getOrCreateRunner(modelOverride)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	result := &ToolApprovalResult{
@@ -618,9 +709,15 @@ func (s *AIAgentService) ResumeToolApproval(checkPointID string, interruptID str
 		Reason:   reason,
 	}
 
-	return runner.ResumeWithParams(s.ctx, checkPointID, &adk.ResumeParams{
+	runCtx, cancel := context.WithTimeout(ctx, s.getTimeout())
+	iter, err := runner.ResumeWithParams(runCtx, checkPointID, &adk.ResumeParams{
 		Targets: map[string]any{
 			interruptID: result,
 		},
 	})
+	if err != nil {
+		cancel()
+		return nil, nil, err
+	}
+	return iter, cancel, nil
 }

@@ -383,7 +383,7 @@ func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *
 			return up.CustomPrompt, true
 		},
 	}
-	c := &orchestrationCompiler{dsl: dsl, trace: trace, chatPreamble: chatPreamble, chatMode: chatMode, orchChain: orchChain}
+	c := &orchestrationCompiler{dsl: dsl, trace: trace, chatPreamble: chatPreamble, chatMode: chatMode, orchChain: orchChain, userID: userID}
 	return c.compile(ctx, deps)
 }
 

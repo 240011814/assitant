@@ -10,6 +10,8 @@ const (
 	TokenSourceOrchDebug = "orchestration_debug"
 	// TokenSourceOrchChat 编排对话 (训练中心)
 	TokenSourceOrchChat = "orchestration_chat"
+	// TokenSourceExtraction 用户画像/经历抽取 (后台任务)
+	TokenSourceExtraction = "extraction"
 )
 
 // AITokenUsage 用户 AI Token 用量明细: 每次模型调用一条 (ReAct 多轮工具调用的每轮各一条),

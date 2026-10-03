@@ -229,6 +229,9 @@ type orchestrationCompiler struct {
 	// chatMode 编排对话模式: 入口模板未引用 {{.Input}} 时把用户输入补进渲染结果,
 	// 保证"用户说了什么"一定到达模型 (画布配置失误不能吞掉对话输入)
 	chatMode bool
+	// userID 运行发起人: router 节点的分类调用不经 compose 节点 span, token 记账
+	// 在 buildRouterCond 里直接落库时归属用; 校验/单测构造为 0 (0 不记账)
+	userID uint
 	// orchChain 当前编译链上的编排 id (含自身, 草稿为空): 子编排循环引用/深度检测用
 	orchChain []uint
 	// extraNodeKeys/extraSubNodes 编译子编排节点时发现的嵌套节点 key 与子Agent 集合
@@ -2309,12 +2312,21 @@ func (c *orchestrationCompiler) buildRouterCond(id string, cfg OrchRouterConfig)
 		}
 		started := time.Now()
 		c.emitRouterEvent(id, name, "running", "", 0, "")
-		label, err := orchRouterClassify(ctx, chatModel, instructions, cases, content)
+		label, usage, err := orchRouterClassify(ctx, chatModel, instructions, cases, content)
 		if err != nil {
 			ms := time.Since(started).Milliseconds()
 			orchLog("router 失败 node=%s 耗时=%dms err=%v", id, ms, err)
 			c.emitRouterEvent(id, name, "error", "", ms, err.Error())
 			return "", fmt.Errorf("路由节点 %s 分类失败: %w", id, err)
+		}
+		// router 的分类调用不经 compose 节点 span, 摘要聚合不到, 这里直接记账
+		// (userID=0 为校验/单测构造, 不落库); 来源与本次运行一致 (调试/对话)
+		if usage != nil && usage.TotalTokens > 0 && c.userID > 0 {
+			source := coremodel.TokenSourceOrchDebug
+			if c.chatMode {
+				source = coremodel.TokenSourceOrchChat
+			}
+			RecordTokenUsage(c.userID, cfg.Model, source, int64(usage.PromptTokens), int64(usage.CompletionTokens))
 		}
 		target, matched := orchRouterMatchLabel(label, cases)
 		if !matched {
@@ -2345,8 +2357,9 @@ func (c *orchestrationCompiler) emitRouterEvent(id, name, status, label string, 
 	c.trace.emitNodeEvent(payload)
 }
 
-// orchRouterClassify 调用模型对内容做单标签分类, 返回模型原始输出 (期望就是标签文本)
-func orchRouterClassify(ctx context.Context, chatModel model.ToolCallingChatModel, instructions string, cases []OrchRouterCase, content string) (string, error) {
+// orchRouterClassify 调用模型对内容做单标签分类, 返回模型原始输出 (期望就是标签
+// 文本) 与本次调用的 token 用量 (无 ResponseMeta 时为 nil)
+func orchRouterClassify(ctx context.Context, chatModel model.ToolCallingChatModel, instructions string, cases []OrchRouterCase, content string) (string, *schema.TokenUsage, error) {
 	var sb strings.Builder
 	sb.WriteString("你是意图路由决策器。根据用户内容, 从下列分类中选出唯一一个标签。\n")
 	if instructions != "" {
@@ -2366,12 +2379,16 @@ func orchRouterClassify(ctx context.Context, chatModel model.ToolCallingChatMode
 		schema.UserMessage(content),
 	})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if msg == nil {
-		return "", errors.New("模型没有返回分类结果")
+		return "", nil, errors.New("模型没有返回分类结果")
 	}
-	return strings.TrimSpace(msg.Content), nil
+	var usage *schema.TokenUsage
+	if msg.ResponseMeta != nil {
+		usage = msg.ResponseMeta.Usage
+	}
+	return strings.TrimSpace(msg.Content), usage, nil
 }
 
 // orchRouterMatchLabel 把模型输出映射到分类目标: 先整段精确匹配 (忽略大小写与首尾

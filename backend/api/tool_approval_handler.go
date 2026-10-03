@@ -21,6 +21,8 @@ type ToolApprovalRequest struct {
 	HistoryID        uint          `json:"history_id"`
 	TrainingType     string        `json:"training_type"`
 	CustomTrainingID *uint         `json:"custom_training_id"`
+	// Model 发起被中断那次对话时使用的模型 (前端随审批带回), 恢复时用同一 runner
+	Model            string        `json:"model"`
 	Messages         []ChatMessage `json:"messages"`
 }
 
@@ -57,19 +59,25 @@ func HandleToolApproval(agentService *service.AIAgentService, historyService *se
 		}
 		historyID := uint(hid)
 
+		// 与 HandleChatStream 同规则: 只放行 user/assistant, 其余降级为 user
 		inputMessages := make([]*schema.Message, len(req.Messages))
 		for i, m := range req.Messages {
+			role := schema.User
+			if m.Role == "assistant" {
+				role = schema.Assistant
+			}
 			inputMessages[i] = &schema.Message{
-				Role:    schema.RoleType(m.Role),
+				Role:    role,
 				Content: m.Content,
 			}
 		}
 
-		iter, err := agentService.ResumeToolApproval(req.CheckPointID, req.InterruptID, req.Approved, req.Reason)
+		iter, cancel, err := agentService.ResumeToolApproval(c.Request.Context(), req.CheckPointID, req.InterruptID, req.Approved, req.Reason, req.Model)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resume: " + err.Error()})
 			return
 		}
+		defer cancel()
 
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
