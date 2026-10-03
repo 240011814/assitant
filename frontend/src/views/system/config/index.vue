@@ -39,6 +39,17 @@ const memoryEnabled = ref(true);
 const memoryExtractionModel = ref("");
 const memoryIdleMinutes = ref(15);
 const memoryMinUserMessages = ref(6);
+const savingS3 = ref(false);
+const showS3SecretKey = ref(false);
+const s3Enabled = ref(false);
+const s3Endpoint = ref("");
+const s3Region = ref("");
+const s3Bucket = ref("");
+const s3AccessKey = ref("");
+const s3SecretKey = ref("");
+const s3Secure = ref(false);
+const s3UsePathStyle = ref(false);
+const s3MaxUploadMB = ref(20);
 
 async function loadConfig() {
   loading.value = true;
@@ -121,6 +132,33 @@ async function loadConfig() {
         (c: any) => c.key === "memory_min_min_user_messages"
       );
       memoryMinUserMessages.value = memoryMinConfig ? Number(memoryMinConfig.value) : 6;
+
+      const s3EnabledConfig = data.find((c: any) => c.key === "s3_enabled");
+      s3Enabled.value = s3EnabledConfig?.value === "true";
+
+      const s3EndpointConfig = data.find((c: any) => c.key === "s3_endpoint");
+      s3Endpoint.value = s3EndpointConfig?.value || "";
+
+      const s3RegionConfig = data.find((c: any) => c.key === "s3_region");
+      s3Region.value = s3RegionConfig?.value || "";
+
+      const s3BucketConfig = data.find((c: any) => c.key === "s3_bucket");
+      s3Bucket.value = s3BucketConfig?.value || "";
+
+      const s3AccessKeyConfig = data.find((c: any) => c.key === "s3_access_key");
+      s3AccessKey.value = s3AccessKeyConfig?.value || "";
+
+      const s3SecretKeyConfig = data.find((c: any) => c.key === "s3_secret_key");
+      s3SecretKey.value = s3SecretKeyConfig?.value || "";
+
+      const s3SecureConfig = data.find((c: any) => c.key === "s3_secure");
+      s3Secure.value = s3SecureConfig?.value === "true";
+
+      const s3PathStyleConfig = data.find((c: any) => c.key === "s3_use_path_style");
+      s3UsePathStyle.value = s3PathStyleConfig?.value === "true";
+
+      const s3MaxConfig = data.find((c: any) => c.key === "s3_max_upload_mb");
+      s3MaxUploadMB.value = s3MaxConfig ? Number(s3MaxConfig.value) : 20;
     }
   } catch (err: any) {
     message.error(`加载配置失败: ${err?.message || "未知错误"}`);
@@ -260,6 +298,43 @@ async function handleSaveSmtp() {
     message.error(`保存失败: ${err?.message || "未知错误"}`);
   } finally {
     savingSmtp.value = false;
+  }
+}
+
+async function handleToggleS3(val: boolean) {
+  savingS3.value = true;
+  try {
+    await saveConfig("s3_enabled", val ? "true" : "false", "用户文档存储开关");
+    message.success(val ? "用户文档存储已启用" : "用户文档存储已关闭");
+  } catch (err: any) {
+    s3Enabled.value = !val;
+    message.error(`保存失败: ${err?.message || "未知错误"}`);
+  } finally {
+    savingS3.value = false;
+  }
+}
+
+async function handleSaveS3() {
+  savingS3.value = true;
+  try {
+    await saveConfig("s3_enabled", s3Enabled.value ? "true" : "false", "用户文档存储开关");
+    await saveConfig("s3_endpoint", s3Endpoint.value, "S3 兼容存储 Endpoint");
+    await saveConfig("s3_region", s3Region.value, "S3 Region (可选)");
+    await saveConfig("s3_bucket", s3Bucket.value, "S3 Bucket");
+    await saveConfig("s3_access_key", s3AccessKey.value, "S3 Access Key");
+    await saveConfig("s3_secret_key", s3SecretKey.value, "S3 Secret Key");
+    await saveConfig("s3_secure", s3Secure.value ? "true" : "false", "是否使用 HTTPS");
+    await saveConfig(
+      "s3_use_path_style",
+      s3UsePathStyle.value ? "true" : "false",
+      "Path-Style 寻址 (MinIO 等自建服务开启)"
+    );
+    await saveConfig("s3_max_upload_mb", String(s3MaxUploadMB.value), "单文件上传上限 MB");
+    message.success("S3 存储配置已保存, 用户文档功能即时生效");
+  } catch (err: any) {
+    message.error(`保存失败: ${err?.message || "未知错误"}`);
+  } finally {
+    savingS3.value = false;
   }
 }
 
@@ -690,6 +765,108 @@ onMounted(() => {
                     发送测试邮件
                   </NButton>
                 </NSpace>
+              </NFormItem>
+            </NForm>
+          </div>
+
+          <!-- S3 用户文档存储 -->
+          <div class="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <div class="font-bold text-gray-800 dark:text-gray-200">
+                  用户文档存储 (S3 兼容)
+                </div>
+                <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  配置 S3 兼容对象存储 (MinIO / 阿里云 OSS / 腾讯 COS
+                  等)，供用户上传文档供 AI 读取。保存后立即生效。
+                </div>
+              </div>
+              <NSwitch
+                v-model:value="s3Enabled"
+                :loading="savingS3"
+                @update:value="handleToggleS3"
+              >
+                <template #checked>开启</template>
+                <template #unchecked>关闭</template>
+              </NSwitch>
+            </div>
+            <NForm label-placement="left" label-width="120">
+              <NGrid :cols="2" :x-gap="12" :y-gap="8">
+                <NFormItemGi label="Endpoint" path="s3Endpoint">
+                  <NInput
+                    v-model:value="s3Endpoint"
+                    placeholder="127.0.0.1:9000 或 oss-cn-hangzhou.aliyuncs.com"
+                    :disabled="!s3Enabled"
+                  />
+                </NFormItemGi>
+                <NFormItemGi label="Bucket" path="s3Bucket">
+                  <NInput
+                    v-model:value="s3Bucket"
+                    placeholder="user-documents"
+                    :disabled="!s3Enabled"
+                  />
+                </NFormItemGi>
+                <NFormItemGi label="Access Key" path="s3AccessKey">
+                  <NInput
+                    v-model:value="s3AccessKey"
+                    placeholder="Access Key ID"
+                    :disabled="!s3Enabled"
+                  />
+                </NFormItemGi>
+                <NFormItemGi label="Secret Key" path="s3SecretKey">
+                  <NInput
+                    v-model:value="s3SecretKey"
+                    :type="showS3SecretKey ? 'text' : 'password'"
+                    placeholder="Secret Access Key"
+                    :disabled="!s3Enabled"
+                  >
+                    <template #suffix>
+                      <div
+                        class="cursor-pointer text-gray-400 hover:text-gray-600"
+                        :class="showS3SecretKey ? 'i-mdi:eye-off' : 'i-mdi:eye'"
+                        @click="showS3SecretKey = !showS3SecretKey"
+                      />
+                    </template>
+                  </NInput>
+                </NFormItemGi>
+                <NFormItemGi label="Region" path="s3Region">
+                  <NInput
+                    v-model:value="s3Region"
+                    placeholder="留空即可 (AWS 等需要时填写)"
+                    :disabled="!s3Enabled"
+                  />
+                </NFormItemGi>
+                <NFormItemGi label="单文件上限 (MB)" path="s3MaxUploadMB">
+                  <NInputNumber
+                    v-model:value="s3MaxUploadMB"
+                    :min="1"
+                    :max="512"
+                    :disabled="!s3Enabled"
+                    size="small"
+                  />
+                </NFormItemGi>
+                <NFormItemGi label="HTTPS" path="s3Secure">
+                  <NSwitch v-model:value="s3Secure" :disabled="!s3Enabled">
+                    <template #checked>HTTPS</template>
+                    <template #unchecked>HTTP</template>
+                  </NSwitch>
+                </NFormItemGi>
+                <NFormItemGi label="Path-Style" path="s3UsePathStyle">
+                  <NSwitch v-model:value="s3UsePathStyle" :disabled="!s3Enabled">
+                    <template #checked>Path-Style</template>
+                    <template #unchecked>虚拟域名</template>
+                  </NSwitch>
+                </NFormItemGi>
+              </NGrid>
+              <NFormItem class="mt-4">
+                <NButton
+                  type="primary"
+                  :loading="savingS3"
+                  :disabled="!s3Enabled"
+                  @click="handleSaveS3"
+                >
+                  保存 S3 存储配置
+                </NButton>
               </NFormItem>
             </NForm>
           </div>

@@ -210,6 +210,7 @@ const routeMap: RouteMap = {
   "tool_stockscreen": "/tool/stockscreen",
   "tool_watchlist": "/tool/watchlist",
   "user": "/user",
+  "user_document": "/user/document",
   "user_portrait": "/user/portrait",
   "user_profile": "/user/profile"
 };

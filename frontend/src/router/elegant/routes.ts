@@ -570,6 +570,16 @@ export const generatedRoutes: GeneratedRoute[] = [
         }
       },
       {
+        name: 'user_document',
+        path: '/user/document',
+        component: 'view.user_document',
+        meta: {
+          title: 'user_document',
+          i18nKey: 'route.user_document',
+          icon: 'mdi:file-document-multiple-outline'
+        }
+      },
+      {
         name: 'user_profile',
         path: '/user/profile',
         component: 'view.user_profile',

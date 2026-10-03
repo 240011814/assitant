@@ -272,6 +272,7 @@ const local: App.I18n.Schema = {
     tool_macro: "宏观经济数据",
     user: "用户",
     user_profile: "个人中心",
+    user_document: "文档管理",
     user_portrait: "用户画像",
     share: "分享对话",
   },

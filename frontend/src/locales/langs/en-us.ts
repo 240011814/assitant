@@ -276,6 +276,7 @@ const local: App.I18n.Schema = {
     tool_macro: "Macro Economy",
     user: "User",
     user_profile: "Profile",
+    user_document: "Documents",
     user_portrait: "Portrait",
     share: "Shared Conversation",
   },

@@ -13,6 +13,7 @@ type SystemConfigHandler struct {
 	telegramService *service.TelegramService
 	aiAgentSvc      *service.AIAgentService
 	emailNotifier   *service.EmailNotifier
+	docSvc          *service.UserDocumentService
 }
 
 func NewSystemConfigHandler(configSvc *service.SystemConfigService, telegramService *service.TelegramService, emailNotifier *service.EmailNotifier, aiAgentSvc ...*service.AIAgentService) *SystemConfigHandler {
@@ -25,6 +26,11 @@ func NewSystemConfigHandler(configSvc *service.SystemConfigService, telegramServ
 		h.aiAgentSvc = aiAgentSvc[0]
 	}
 	return h
+}
+
+// SetUserDocumentService 注入用户文档服务 (S3 存储配置变更后热刷新用)
+func (h *SystemConfigHandler) SetUserDocumentService(docSvc *service.UserDocumentService) {
+	h.docSvc = docSvc
 }
 
 func (h *SystemConfigHandler) GetAll(c *gin.Context) {
@@ -81,6 +87,17 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 	for _, key := range smtpKeys {
 		if req.Key == key {
 			h.emailNotifier.RefreshConfig()
+			break
+		}
+	}
+
+	// S3 存储配置变更后热刷新用户文档存储连接
+	s3Keys := []string{"s3_enabled", "s3_endpoint", "s3_region", "s3_bucket", "s3_access_key", "s3_secret_key", "s3_secure", "s3_use_path_style", "s3_max_upload_mb"}
+	for _, key := range s3Keys {
+		if req.Key == key {
+			if h.docSvc != nil {
+				go h.docSvc.RefreshStorageConfig()
+			}
 			break
 		}
 	}

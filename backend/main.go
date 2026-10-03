@@ -85,6 +85,11 @@ func main() {
 	mem0Svc.LoadFromTool()
 	tools.SetMem0Service(mem0Svc)
 
+	// 用户文档 (S3 存储, 配置在系统配置页 s3_* 键): 上传管理 + AI 文档读取工具
+	userDocumentService := service.NewUserDocumentService(systemConfigService)
+	tools.SetUserDocumentStore(userDocumentService)
+	userDocumentHandler := api.NewUserDocumentHandler(userDocumentService)
+
 	adminHandler := api.NewAdminHandler(adminService, aiAgentService, authService, mem0Svc)
 
 	dashboardService := service.NewDashboardService()
@@ -117,6 +122,7 @@ func main() {
 	tools.SetReminderService(reminderService)
 
 	systemConfigHandler := api.NewSystemConfigHandler(systemConfigService, telegramService, emailNotifier, aiAgentService)
+	systemConfigHandler.SetUserDocumentService(userDocumentService)
 
 	userPrefService := service.NewUserPreferenceService()
 	userPrefHandler := api.NewUserPreferenceHandler(userPrefService)
@@ -295,6 +301,16 @@ func main() {
 			memoryGroup.POST("", mem0Handler.HandleAddMemory)
 			memoryGroup.POST("/search", mem0Handler.HandleSearchMemories)
 			memoryGroup.DELETE("/:id", mem0Handler.HandleDeleteMemory)
+		}
+
+		// 用户文档管理 (S3 存储; AI 经 read_document/list_user_documents 工具读取)
+		docGroup := apiGroup.Group("/documents")
+		{
+			docGroup.GET("", api.RequirePermission("document:view"), userDocumentHandler.HandleList)
+			docGroup.GET("/:id/text", api.RequirePermission("document:view"), userDocumentHandler.HandleText)
+			docGroup.GET("/:id/download", api.RequirePermission("document:view"), userDocumentHandler.HandleDownload)
+			docGroup.POST("/upload", api.RequirePermission("document:upload"), userDocumentHandler.HandleUpload)
+			docGroup.DELETE("/:id", api.RequirePermission("document:delete"), userDocumentHandler.HandleDelete)
 		}
 
 		// 用户画像与经历 (本地, 与 mem0 并存; 本人数据仅登录+归属校验)
