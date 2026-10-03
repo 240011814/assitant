@@ -558,9 +558,9 @@ func main() {
 			// 系统概览 (管理员视角统计)
 			adminGroup.GET("/dashboard", api.RequirePermission("system:dashboard:view"), dashboardHandler.GetAdminStats)
 
-			// Token 用量统计 (管理员)
-			adminGroup.GET("/token-usages", api.RequirePermission("system:tokenusage:view"), api.HandleTokenUsageList)
-			adminGroup.GET("/token-usages/stats", api.RequirePermission("system:tokenusage:view"), api.HandleTokenUsageStats)
+			// Token 用量统计 (管理员; 已并入系统概览页 Tab, 与概览共用一个权限)
+			adminGroup.GET("/token-usages", api.RequirePermission("system:dashboard:view"), api.HandleTokenUsageList)
+			adminGroup.GET("/token-usages/stats", api.RequirePermission("system:dashboard:view"), api.HandleTokenUsageStats)
 		}
 	}
 

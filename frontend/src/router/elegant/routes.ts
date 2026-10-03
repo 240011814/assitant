@@ -432,18 +432,6 @@ export const generatedRoutes: GeneratedRoute[] = [
         }
       },
       {
-        name: 'system_token-usage',
-        path: '/system/token-usage',
-        component: 'view.system_token-usage',
-        meta: {
-          title: 'system_token-usage',
-          i18nKey: 'route.system_token-usage',
-          icon: 'mdi:chart-box-outline',
-          permissions: ['system:tokenusage:view'],
-          order: 11
-        }
-      },
-      {
         name: 'system_user',
         path: '/system/user',
         component: 'view.system_user',

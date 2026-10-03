@@ -4,7 +4,7 @@ import { NButton, NProgress, NTag } from 'naive-ui';
 import { useEcharts } from '@/hooks/common/echarts';
 import { fetchTokenUsageRecords, fetchTokenUsageStats } from '@/service/api';
 
-defineOptions({ name: 'SystemTokenUsage' });
+defineOptions({ name: 'TokenUsagePanel' });
 
 const loading = ref(false);
 const stats = ref<Api.TokenUsage.Stats | null>(null);
@@ -303,7 +303,7 @@ const showExport = computed(() => records.value.length > 0);
 </script>
 
 <template>
-  <div class="h-full overflow-auto p-6">
+  <div>
     <NCard :bordered="false" shadow="sm" title="Token 用量统计">
       <NSpace class="mb-4" align="center" wrap>
         <NSelect v-model:value="granularity" :options="granularityOptions" style="width: 110px" />

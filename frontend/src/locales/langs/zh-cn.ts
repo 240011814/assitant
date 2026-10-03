@@ -251,7 +251,6 @@ const local: App.I18n.Schema = {
     lottery: "抽奖活动",
     system: "系统管理",
     system_user: "用户管理",
-    "system_token-usage": "Token 用量",
     system_permission: "权限管理",
     "system_ai-config": "AI 配置",
     "system_audit-log": "审计日志",

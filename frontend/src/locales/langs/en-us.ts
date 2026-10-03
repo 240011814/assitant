@@ -255,7 +255,6 @@ const local: App.I18n.Schema = {
     lottery: "Lottery",
     system: "System",
     system_user: "User Management",
-    "system_token-usage": "Token Usage",
     system_permission: "Permission Management",
     "system_ai-config": "AI Config Management",
     "system_audit-log": "Audit Logs",
