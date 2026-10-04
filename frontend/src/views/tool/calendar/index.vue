@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, h } from 'vue';
-import { useMessage, useDialog, NButton, NSpace } from 'naive-ui';
+import { useMessage, useDialog, NButton, NSpace, NTabPane, NTabs } from 'naive-ui';
 import type { FormInst } from 'naive-ui';
 import {
   fetchGetReminders,
@@ -9,6 +9,7 @@ import {
   fetchDeleteReminder,
 } from '@/service/api';
 import type { Reminder, CreateReminderParams, UpdateReminderParams } from '@/service/api';
+import AgentTaskPanel from './agent-task-panel.vue';
 
 defineOptions({ name: 'ToolCalendar' });
 
@@ -255,27 +256,30 @@ onMounted(() => {
 
 <template>
   <div class="h-full p-4 overflow-auto">
-    <NCard size="small">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <div class="w-40px h-40px rounded-lg bg-primary/10 flex items-center justify-center">
-            <SvgIcon icon="mdi:calendar-month" class="text-24px text-primary" />
+    <NTabs type="line" animated>
+      <!-- 日历备忘 (原有功能) -->
+      <NTabPane name="reminder" tab="日历备忘">
+        <NCard size="small">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-40px h-40px rounded-lg bg-primary/10 flex items-center justify-center">
+                <SvgIcon icon="mdi:calendar-month" class="text-24px text-primary" />
+              </div>
+              <div>
+                <div class="text-16px font-bold">日历备忘</div>
+                <div class="text-13px text-gray-400">管理您的备忘提醒，支持重复提醒</div>
+              </div>
+            </div>
+            <NButton type="primary" @click="openCreateModal">
+              <template #icon>
+                <SvgIcon icon="mdi:plus" />
+              </template>
+              新增备忘
+            </NButton>
           </div>
-          <div>
-            <div class="text-16px font-bold">日历备忘</div>
-            <div class="text-13px text-gray-400">管理您的备忘提醒，支持重复提醒</div>
-          </div>
-        </div>
-        <NButton type="primary" @click="openCreateModal">
-          <template #icon>
-            <SvgIcon icon="mdi:plus" />
-          </template>
-          新增备忘
-        </NButton>
-      </div>
-    </NCard>
+        </NCard>
 
-    <div class="flex gap-4">
+        <div class="flex gap-4">
       <NCard size="small" class="flex-[7]">
         <NCalendar
           :value="currentDate.getTime()"
@@ -359,7 +363,14 @@ onMounted(() => {
           </div>
         </NSpin>
       </NCard>
-    </div>
+      </div>
+      </NTabPane>
+
+      <!-- 定时 Agent 任务 -->
+      <NTabPane name="agent-task" tab="Agent 任务">
+        <AgentTaskPanel />
+      </NTabPane>
+    </NTabs>
 
     <NModal v-model:show="showModal" preset="card" :title="editingId ? '编辑备忘' : '新增备忘'" style="width: 520px">
       <NForm ref="formRef" :model="form" :rules="rules" label-placement="left" label-width="80">

@@ -27,3 +27,4 @@ export * from './user-portrait';
 export * from './token-usage';
 export * from './user-document';
 export * from './mcp';
+export * from './agent-task';

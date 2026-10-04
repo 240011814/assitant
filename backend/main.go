@@ -155,6 +155,10 @@ func main() {
 	orchestrationService := service.NewAIOrchestrationService(aiAgentService, promptService, cfg.AI.TimeoutMinutes)
 	orchestrationHandler := api.NewAIOrchestrationHandler(orchestrationService, historyService)
 
+	// 定时 Agent 任务 (到点让 Agent/编排带着输入跑一遍, 结果落训练历史 + 可选通知)
+	agentTaskService := service.NewAgentTaskService(jobScheduler, aiAgentService, orchestrationService, historyService, emailNotifier, telegramService)
+	agentTaskHandler := api.NewAgentTaskHandler(agentTaskService)
+
 	courseService := service.NewCourseService()
 	courseHandler := api.NewCourseHandler(courseService)
 
@@ -234,6 +238,16 @@ func main() {
 		apiGroup.GET("/reminders", reminderHandler.List)
 		apiGroup.POST("/reminders", reminderHandler.Create)
 		apiGroup.PUT("/reminders/:id", reminderHandler.Update)
+
+		// 定时 Agent 任务 (用户侧, 仅本人数据)
+		agentTaskGroup := apiGroup.Group("/agent-tasks")
+		{
+			agentTaskGroup.GET("", agentTaskHandler.HandleList)
+			agentTaskGroup.POST("", agentTaskHandler.HandleCreate)
+			agentTaskGroup.PUT("/:id", agentTaskHandler.HandleUpdate)
+			agentTaskGroup.DELETE("/:id", agentTaskHandler.HandleDelete)
+			agentTaskGroup.POST("/:id/run", agentTaskHandler.HandleRunNow)
+		}
 		apiGroup.DELETE("/reminders/:id", reminderHandler.Delete)
 
 		apiGroup.GET("/dashboard/stats", dashboardHandler.GetStats)

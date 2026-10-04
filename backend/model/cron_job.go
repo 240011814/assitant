@@ -23,6 +23,40 @@ const (
 // 用户备忘专用任务
 const TaskNameReminder = "reminder.notify"
 
+// 定时 Agent 任务: 到点让指定 Agent/编排带着输入文本跑一遍, 结果落训练历史并可选通知
+const TaskNameAgentTask = "agent_task.run"
+
+// AgentTaskParams 定时 Agent 任务参数 (job_definitions.params)
+type AgentTaskParams struct {
+	AgentID        uint   `json:"agent_id"`
+	AgentType      string `json:"agent_type"` // chat / orchestration
+	Input          string `json:"input"`
+	NotifyEmail    bool   `json:"notify_email"`
+	NotifyTelegram bool   `json:"notify_telegram"`
+}
+
+type CreateAgentTaskRequest struct {
+	AgentID        uint       `json:"agent_id" binding:"required"`
+	AgentType      string     `json:"agent_type" binding:"required"`
+	Input          string     `json:"input" binding:"required"`
+	ScheduleType   string     `json:"schedule_type" binding:"required"` // once / cron
+	RunAt          *time.Time `json:"run_at"`                           // once: 执行时间
+	CronExpr       string     `json:"cron_expr"`                        // cron: 5 段表达式
+	NotifyEmail    bool       `json:"notify_email"`
+	NotifyTelegram bool       `json:"notify_telegram"`
+	Enabled        *bool      `json:"enabled"`
+}
+
+type UpdateAgentTaskRequest struct {
+	Input          *string    `json:"input"`
+	ScheduleType   *string    `json:"schedule_type"`
+	RunAt          *time.Time `json:"run_at"`
+	CronExpr       *string    `json:"cron_expr"`
+	NotifyEmail    *bool      `json:"notify_email"`
+	NotifyTelegram *bool      `json:"notify_telegram"`
+	Enabled        *bool      `json:"enabled"`
+}
+
 // JobDefinition 定时任务定义
 type JobDefinition struct {
 	ID             uint            `gorm:"primaryKey;autoIncrement" json:"id"`
