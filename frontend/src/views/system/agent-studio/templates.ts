@@ -226,6 +226,73 @@ export const ORCHESTRATION_TEMPLATES: OrchestrationTemplate[] = [
     }
   },
   {
+    key: 'vote',
+    label: '多Agent 投票决策',
+    icon: 'mdi:vote-outline',
+    description: '三个不同视角的评审 Agent 并行独立给出意见, 合并后由裁决 Agent 汇总出最终决策与分歧点',
+    definition: {
+      nodes: [
+        {
+          id: 'tpl',
+          type: 'template',
+          name: '决策议题',
+          config: tplConfig('待评审事项：\n{{.Input}}\n\n请独立给出你的评审意见。'),
+          position: { x: 40, y: 200 }
+        },
+        { id: 'dispatch', type: 'branch', name: '并行分发', config: { mode: 'parallel', cases: [], default_target: '' }, position: { x: 240, y: 200 } },
+        {
+          id: 'voter_a',
+          type: 'agent',
+          name: '评审·稳健派',
+          config: agentConfig(
+            '你是评审团中的「稳健派」评审。对收到的议题独立评审: 给出明确结论 (赞成/反对/倾向的方案)、2~3 条理由、主要顾虑。只依据你自己的判断, 不要揣测其他评审的看法, 不要输出与评审无关的内容。'
+          ),
+          position: { x: 440, y: 60 }
+        },
+        {
+          id: 'voter_b',
+          type: 'agent',
+          name: '评审·进取派',
+          config: agentConfig(
+            '你是评审团中的「进取派」评审。对收到的议题独立评审: 给出明确结论 (赞成/反对/倾向的方案)、2~3 条理由、潜在收益与机会。只依据你自己的判断, 不要揣测其他评审的看法, 不要输出与评审无关的内容。'
+          ),
+          position: { x: 440, y: 200 }
+        },
+        {
+          id: 'voter_c',
+          type: 'agent',
+          name: '评审·风控派',
+          config: agentConfig(
+            '你是评审团中的「风控派」评审。对收到的议题独立评审: 给出明确结论 (赞成/反对/倾向的方案)、2~3 条理由, 重点评估成本、执行难度、合规与失败后果。只依据你自己的判断, 不要揣测其他评审的看法, 不要输出与评审无关的内容。'
+          ),
+          position: { x: 440, y: 340 }
+        },
+        { id: 'merge', type: 'merge', name: '意见汇总', config: { separator: '\n\n———\n\n' }, position: { x: 700, y: 200 } },
+        {
+          id: 'judge',
+          type: 'agent',
+          name: '裁决Agent',
+          config: agentConfig(
+            '你是评审团主持人。上面是多位评审对同一议题的独立意见, 请汇总裁决:\n1. 对比各评审的结论与理由, 指出共识;\n2. 按多数意见与论证质量给出最终决策;\n3. 列出仍未达成一致的分歧点与建议补充的信息。\n输出格式:\n## 最终决策\n## 决策依据\n## 分歧点'
+          ),
+          position: { x: 900, y: 200 }
+        },
+        { id: 'end', type: 'end', name: '结束', config: {}, position: { x: 1120, y: 200 } }
+      ],
+      edges: [
+        { source: 'tpl', target: 'dispatch' },
+        { source: 'dispatch', target: 'voter_a' },
+        { source: 'dispatch', target: 'voter_b' },
+        { source: 'dispatch', target: 'voter_c' },
+        { source: 'voter_a', target: 'merge' },
+        { source: 'voter_b', target: 'merge' },
+        { source: 'voter_c', target: 'merge' },
+        { source: 'merge', target: 'judge' },
+        { source: 'judge', target: 'end' }
+      ]
+    }
+  },
+  {
     key: 'extract',
     label: '字段提取',
     icon: 'mdi:code-json',
