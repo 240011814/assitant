@@ -112,6 +112,7 @@ func main() {
 
 	// Notification
 	emailNotifier := service.NewEmailNotifier(systemConfigService)
+	tools.SetEmailNotifier(emailNotifier)
 
 	// Job Scheduler
 	jobAlertService := service.NewJobAlertService(emailNotifier)
