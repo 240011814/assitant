@@ -50,6 +50,16 @@ const s3SecretKey = ref("");
 const s3Secure = ref(false);
 const s3UsePathStyle = ref(false);
 const s3MaxUploadMB = ref(20);
+const savingRag = ref(false);
+const testingEmbedding = ref(false);
+const showRagApiKey = ref(false);
+const ragEnabled = ref(false);
+const ragBaseUrl = ref("");
+const ragModel = ref("");
+const ragApiKey = ref("");
+const ragChunkSize = ref(500);
+const ragChunkOverlap = ref(80);
+const ragTopK = ref(5);
 
 async function loadConfig() {
   loading.value = true;
@@ -159,6 +169,27 @@ async function loadConfig() {
 
       const s3MaxConfig = data.find((c: any) => c.key === "s3_max_upload_mb");
       s3MaxUploadMB.value = s3MaxConfig ? Number(s3MaxConfig.value) : 20;
+
+      const ragEnabledConfig = data.find((c: any) => c.key === "rag_enabled");
+      ragEnabled.value = ragEnabledConfig?.value === "true";
+
+      const ragBaseUrlConfig = data.find((c: any) => c.key === "rag_embedding_base_url");
+      ragBaseUrl.value = ragBaseUrlConfig?.value || "";
+
+      const ragModelConfig = data.find((c: any) => c.key === "rag_embedding_model");
+      ragModel.value = ragModelConfig?.value || "";
+
+      const ragApiKeyConfig = data.find((c: any) => c.key === "rag_embedding_api_key");
+      ragApiKey.value = ragApiKeyConfig?.value || "";
+
+      const ragChunkSizeConfig = data.find((c: any) => c.key === "rag_chunk_size");
+      ragChunkSize.value = ragChunkSizeConfig ? Number(ragChunkSizeConfig.value) : 500;
+
+      const ragOverlapConfig = data.find((c: any) => c.key === "rag_chunk_overlap");
+      ragChunkOverlap.value = ragOverlapConfig ? Number(ragOverlapConfig.value) : 80;
+
+      const ragTopKConfig = data.find((c: any) => c.key === "rag_top_k");
+      ragTopK.value = ragTopKConfig ? Number(ragTopKConfig.value) : 5;
     }
   } catch (err: any) {
     message.error(`加载配置失败: ${err?.message || "未知错误"}`);
@@ -335,6 +366,69 @@ async function handleSaveS3() {
     message.error(`保存失败: ${err?.message || "未知错误"}`);
   } finally {
     savingS3.value = false;
+  }
+}
+
+async function handleToggleRag(val: boolean) {
+  savingRag.value = true;
+  try {
+    await saveConfig("rag_enabled", val ? "true" : "false", "文档语义检索开关");
+    message.success(val ? "文档语义检索已启用" : "文档语义检索已关闭");
+  } catch (err: any) {
+    ragEnabled.value = !val;
+    message.error(`保存失败: ${err?.message || "未知错误"}`);
+  } finally {
+    savingRag.value = false;
+  }
+}
+
+async function handleSaveRag() {
+  savingRag.value = true;
+  try {
+    await saveConfig("rag_enabled", ragEnabled.value ? "true" : "false", "文档语义检索开关");
+    await saveConfig(
+      "rag_embedding_base_url",
+      ragBaseUrl.value,
+      "嵌入服务地址 (OpenAI 兼容, 含 /v1)"
+    );
+    await saveConfig("rag_embedding_model", ragModel.value, "嵌入模型名");
+    await saveConfig("rag_embedding_api_key", ragApiKey.value, "嵌入服务 API Key (本地服务可留空)");
+    await saveConfig("rag_chunk_size", String(ragChunkSize.value), "向量切块字符数");
+    await saveConfig("rag_chunk_overlap", String(ragChunkOverlap.value), "相邻切块重叠字符数");
+    await saveConfig("rag_top_k", String(ragTopK.value), "检索返回片段数");
+    message.success("文档 RAG 配置已保存, 即时生效");
+  } catch (err: any) {
+    message.error(`保存失败: ${err?.message || "未知错误"}`);
+  } finally {
+    savingRag.value = false;
+  }
+}
+
+async function handleTestEmbedding() {
+  if (!ragBaseUrl.value || !ragModel.value) {
+    message.warning("请先填写嵌入服务地址与模型名");
+    return;
+  }
+  testingEmbedding.value = true;
+  try {
+    const { data, error } = await request<{ dims: number; message: string }>({
+      url: "/api/admin/system-config/test-embedding",
+      method: "post",
+      data: {
+        base_url: ragBaseUrl.value,
+        model: ragModel.value,
+        api_key: ragApiKey.value
+      }
+    });
+    if (error || !data) {
+      message.error(error?.message || "嵌入测试失败");
+      return;
+    }
+    message.success(data.message || "连接成功");
+  } catch (err: any) {
+    message.error(`嵌入测试失败: ${err?.message || "未知错误"}`);
+  } finally {
+    testingEmbedding.value = false;
   }
 }
 
@@ -867,6 +961,112 @@ onMounted(() => {
                 >
                   保存 S3 存储配置
                 </NButton>
+              </NFormItem>
+            </NForm>
+          </div>
+
+          <!-- 文档 RAG (语义检索) -->
+          <div class="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <div class="font-bold text-gray-800 dark:text-gray-200">
+                  文档 RAG (语义检索)
+                </div>
+                <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  解析后的文档切块并向量化存入 ClickHouse, AI
+                  可用文档语义检索工具按相关度召回片段。嵌入走 OpenAI 兼容接口，本地
+                  Ollama 填 http://127.0.0.1:11434/v1 + 模型
+                  bge-m3。保存后立即生效；更换嵌入模型后需在文档管理页重建索引。
+                </div>
+              </div>
+              <NSwitch
+                v-model:value="ragEnabled"
+                :loading="savingRag"
+                @update:value="handleToggleRag"
+              >
+                <template #checked>开启</template>
+                <template #unchecked>关闭</template>
+              </NSwitch>
+            </div>
+            <NForm label-placement="left" label-width="120">
+              <NGrid :cols="2" :x-gap="12" :y-gap="8">
+                <NFormItemGi label="服务地址" path="ragBaseUrl">
+                  <NInput
+                    v-model:value="ragBaseUrl"
+                    placeholder="http://127.0.0.1:11434/v1"
+                    :disabled="!ragEnabled"
+                  />
+                </NFormItemGi>
+                <NFormItemGi label="嵌入模型" path="ragModel">
+                  <NInput
+                    v-model:value="ragModel"
+                    placeholder="bge-m3"
+                    :disabled="!ragEnabled"
+                  />
+                </NFormItemGi>
+                <NFormItemGi label="API Key" path="ragApiKey">
+                  <NInput
+                    v-model:value="ragApiKey"
+                    :type="showRagApiKey ? 'text' : 'password'"
+                    placeholder="本地服务可留空"
+                    :disabled="!ragEnabled"
+                  >
+                    <template #suffix>
+                      <div
+                        class="cursor-pointer text-gray-400 hover:text-gray-600"
+                        :class="showRagApiKey ? 'i-mdi:eye-off' : 'i-mdi:eye'"
+                        @click="showRagApiKey = !showRagApiKey"
+                      />
+                    </template>
+                  </NInput>
+                </NFormItemGi>
+                <NFormItemGi label="切块字符数" path="ragChunkSize">
+                  <NInputNumber
+                    v-model:value="ragChunkSize"
+                    :min="100"
+                    :max="2000"
+                    :disabled="!ragEnabled"
+                    size="small"
+                  />
+                </NFormItemGi>
+                <NFormItemGi label="切块重叠" path="ragChunkOverlap">
+                  <NInputNumber
+                    v-model:value="ragChunkOverlap"
+                    :min="0"
+                    :max="500"
+                    :disabled="!ragEnabled"
+                    size="small"
+                  />
+                </NFormItemGi>
+                <NFormItemGi label="返回片段数" path="ragTopK">
+                  <NInputNumber
+                    v-model:value="ragTopK"
+                    :min="1"
+                    :max="20"
+                    :disabled="!ragEnabled"
+                    size="small"
+                  />
+                </NFormItemGi>
+              </NGrid>
+              <NFormItem class="mt-4">
+                <div class="flex items-center gap-3">
+                  <NButton
+                    type="primary"
+                    :loading="savingRag"
+                    :disabled="!ragEnabled"
+                    @click="handleSaveRag"
+                  >
+                    保存文档 RAG 配置
+                  </NButton>
+                  <NButton
+                    secondary
+                    :loading="testingEmbedding"
+                    :disabled="!ragEnabled"
+                    @click="handleTestEmbedding"
+                  >
+                    测试连接
+                  </NButton>
+                </div>
               </NFormItem>
             </NForm>
           </div>

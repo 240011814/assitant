@@ -15,8 +15,12 @@ type UserDocument struct {
 	ObjectKey   string    `gorm:"size:512;not null" json:"-"`
 	ParseStatus string    `gorm:"size:20;not null;default:'none'" json:"parse_status"`
 	ParseError  string    `gorm:"size:500;not null;default:''" json:"parse_error"`
-	TextKey     string    `gorm:"size:512;not null;default:''" json:"-"`
-	TextChars   int       `gorm:"not null;default:0" json:"text_chars"`
+	// 向量索引 (RAG): 状态机 none未索引/pending排队/indexing索引中/ok完成/failed失败
+	IndexStatus string `gorm:"size:20;not null;default:'none'" json:"index_status"`
+	IndexError  string `gorm:"size:500;not null;default:''" json:"index_error"`
+	ChunkCount  int    `gorm:"not null;default:0" json:"chunk_count"`
+	TextKey     string `gorm:"size:512;not null;default:''" json:"-"`
+	TextChars   int    `gorm:"not null;default:0" json:"text_chars"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

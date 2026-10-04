@@ -1,6 +1,10 @@
 package api
 
 import (
+	"context"
+	"fmt"
+	"time"
+
 	iface "backend/interface"
 	"backend/model"
 	"backend/service"
@@ -14,6 +18,7 @@ type SystemConfigHandler struct {
 	aiAgentSvc      *service.AIAgentService
 	emailNotifier   *service.EmailNotifier
 	docSvc          *service.UserDocumentService
+	ragSvc          *service.RagService
 }
 
 func NewSystemConfigHandler(configSvc *service.SystemConfigService, telegramService *service.TelegramService, emailNotifier *service.EmailNotifier, aiAgentSvc ...*service.AIAgentService) *SystemConfigHandler {
@@ -31,6 +36,11 @@ func NewSystemConfigHandler(configSvc *service.SystemConfigService, telegramServ
 // SetUserDocumentService 注入用户文档服务 (S3 存储配置变更后热刷新用)
 func (h *SystemConfigHandler) SetUserDocumentService(docSvc *service.UserDocumentService) {
 	h.docSvc = docSvc
+}
+
+// SetRAGService 注入 RAG 服务 (rag_* 配置变更后热刷新 + 嵌入测试连接用)
+func (h *SystemConfigHandler) SetRAGService(ragSvc *service.RagService) {
+	h.ragSvc = ragSvc
 }
 
 func (h *SystemConfigHandler) GetAll(c *gin.Context) {
@@ -102,6 +112,17 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 		}
 	}
 
+	// RAG (文档语义检索) 配置变更后热刷新
+	ragKeys := []string{"rag_enabled", "rag_embedding_base_url", "rag_embedding_model", "rag_embedding_api_key", "rag_chunk_size", "rag_chunk_overlap", "rag_top_k"}
+	for _, key := range ragKeys {
+		if req.Key == key {
+			if h.ragSvc != nil {
+				go h.ragSvc.RefreshConfig()
+			}
+			break
+		}
+	}
+
 	SendSuccess(c, nil)
 }
 
@@ -113,6 +134,31 @@ func (h *SystemConfigHandler) GetRegisterStatus(c *gin.Context) {
 		return
 	}
 	SendSuccess(c, gin.H{"enabled": val == "true"})
+}
+
+// HandleTestEmbedding 测试嵌入模型连通性 (OpenAI 兼容 /embeddings, 如本地 Ollama), 返回向量维度
+func (h *SystemConfigHandler) HandleTestEmbedding(c *gin.Context) {
+	var req struct {
+		BaseURL string `json:"base_url"`
+		Model   string `json:"model"`
+		APIKey  string `json:"api_key"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请求参数错误")
+		return
+	}
+	if h.ragSvc == nil {
+		SendError(c, "500", "RAG 服务未初始化")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+	dims, err := h.ragSvc.TestEmbedding(ctx, req.BaseURL, req.Model, req.APIKey)
+	if err != nil {
+		SendError(c, "500", "嵌入测试失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, gin.H{"dims": dims, "message": fmt.Sprintf("连接成功, 向量维度 %d", dims)})
 }
 
 // SendTestEmail 发送测试邮件

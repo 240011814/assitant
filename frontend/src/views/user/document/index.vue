@@ -22,6 +22,7 @@ import {
   fetchDeleteDocument,
   fetchDocumentDownloadUrl,
   fetchDocumentText,
+  fetchReindexDocument,
   fetchUploadDocument,
   type UserDocumentItem
 } from '@/service/api';
@@ -43,6 +44,15 @@ const parseStatusMap: Record<string, { label: string; type: 'success' | 'error' 
   ok: { label: '已解析', type: 'success' },
   failed: { label: '解析失败', type: 'error' },
   none: { label: '不支持解析', type: 'default' }
+};
+
+// 向量索引状态展示 (RAG 语义检索)
+const indexStatusMap: Record<string, { label: string; type: 'success' | 'error' | 'default' | 'info' | 'warning' }> = {
+  ok: { label: '已索引', type: 'success' },
+  failed: { label: '索引失败', type: 'error' },
+  indexing: { label: '索引中', type: 'info' },
+  pending: { label: '排队中', type: 'warning' },
+  none: { label: '未索引', type: 'default' }
 };
 
 function formatSize(bytes: number) {
@@ -116,6 +126,23 @@ async function handleDelete(doc: UserDocumentItem) {
   }
   message.success('删除成功');
   await loadList();
+}
+
+// 建立/重建向量索引 (后台执行, 轮询列表看结果)
+const reindexingId = ref<number | null>(null);
+async function handleReindex(doc: UserDocumentItem) {
+  reindexingId.value = doc.id;
+  try {
+    const { error } = await fetchReindexDocument(doc.id);
+    if (error) {
+      message.error(error?.message || '重建索引失败');
+      return;
+    }
+    message.success(`「${doc.filename}」已加入索引队列`);
+    await loadList();
+  } finally {
+    reindexingId.value = null;
+  }
 }
 
 // 文本预览抽屉 (按字符区间分页拉取, 与 AI 读取同一套语义)
@@ -202,11 +229,39 @@ onMounted(() => {
                 </template>
                 {{ doc.parse_error }}
               </NTooltip>
+              <NTag
+                v-if="doc.parse_status === 'ok'"
+                :type="indexStatusMap[doc.index_status]?.type || 'default'"
+                size="tiny"
+                :bordered="false"
+              >
+                {{
+                  doc.index_status === 'ok' && doc.chunk_count > 0
+                    ? `已索引 · ${doc.chunk_count} 块`
+                    : indexStatusMap[doc.index_status]?.label || doc.index_status
+                }}
+              </NTag>
+              <NTooltip v-if="doc.index_status === 'failed' && doc.index_error">
+                <template #trigger>
+                  <span class="text-red-400 cursor-help">索引失败原因</span>
+                </template>
+                {{ doc.index_error }}
+              </NTooltip>
               <span>{{ doc.created_at?.slice(0, 16).replace('T', ' ') }}</span>
             </div>
           </div>
           <div class="flex items-center gap-1 shrink-0">
             <NButton v-if="doc.parse_status === 'ok'" size="tiny" quaternary @click="openPreview(doc)">预览</NButton>
+            <NButton
+              v-if="doc.parse_status === 'ok' && hasAuth('document:upload')"
+              size="tiny"
+              quaternary
+              :loading="reindexingId === doc.id"
+              :disabled="doc.index_status === 'pending' || doc.index_status === 'indexing'"
+              @click="handleReindex(doc)"
+            >
+              {{ doc.index_status === 'ok' ? '重建索引' : '建立索引' }}
+            </NButton>
             <NButton size="tiny" quaternary @click="handleDownload(doc)">下载</NButton>
             <NPopconfirm v-if="hasAuth('document:delete')" @positive-click="handleDelete(doc)">
               <template #trigger>

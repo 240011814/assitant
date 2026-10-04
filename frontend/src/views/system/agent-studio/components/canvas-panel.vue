@@ -288,7 +288,7 @@ function isLoopEdgeById(id?: string): boolean {
 function setEdgeLoop(edgeId: string, isLoop: boolean) {
   edges.value = edges.value.map(e =>
     e.id === edgeId
-      ? { ...e, data: isLoop ? { ...(e.data || {}), kind: 'loop' } : undefined, class: isLoop ? 'orch-loop-edge' : undefined }
+      ? { ...e, data: isLoop ? { ...e.data, kind: 'loop' } : undefined, class: isLoop ? 'orch-loop-edge' : undefined }
       : e
   );
 }

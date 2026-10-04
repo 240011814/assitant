@@ -86,8 +86,12 @@ func main() {
 	tools.SetMem0Service(mem0Svc)
 
 	// 用户文档 (S3 存储, 配置在系统配置页 s3_* 键): 上传管理 + AI 文档读取工具
-	userDocumentService := service.NewUserDocumentService(systemConfigService)
+	// RAG 文档语义检索 (向量存储当前用 ClickHouse, 换后端只需换 NewXxxVectorStore + OpenAI 兼容嵌入, 本地 Ollama):
+	// 配置在系统配置页 rag_* 键
+	ragService := service.NewRagService(systemConfigService, service.NewCHVectorStore())
+	userDocumentService := service.NewUserDocumentService(systemConfigService, ragService)
 	tools.SetUserDocumentStore(userDocumentService)
+	tools.SetDocumentSearcher(userDocumentService)
 	userDocumentHandler := api.NewUserDocumentHandler(userDocumentService)
 
 	adminHandler := api.NewAdminHandler(adminService, aiAgentService, authService, mem0Svc)
@@ -123,6 +127,7 @@ func main() {
 
 	systemConfigHandler := api.NewSystemConfigHandler(systemConfigService, telegramService, emailNotifier, aiAgentService)
 	systemConfigHandler.SetUserDocumentService(userDocumentService)
+	systemConfigHandler.SetRAGService(ragService)
 
 	userPrefService := service.NewUserPreferenceService()
 	userPrefHandler := api.NewUserPreferenceHandler(userPrefService)
@@ -303,13 +308,14 @@ func main() {
 			memoryGroup.DELETE("/:id", mem0Handler.HandleDeleteMemory)
 		}
 
-		// 用户文档管理 (S3 存储; AI 经 read_document/list_user_documents 工具读取)
+		// 用户文档管理 (S3 存储; AI 经 search_user_documents/read_document/list_user_documents 工具使用)
 		docGroup := apiGroup.Group("/documents")
 		{
 			docGroup.GET("", api.RequirePermission("document:view"), userDocumentHandler.HandleList)
 			docGroup.GET("/:id/text", api.RequirePermission("document:view"), userDocumentHandler.HandleText)
 			docGroup.GET("/:id/download", api.RequirePermission("document:view"), userDocumentHandler.HandleDownload)
 			docGroup.POST("/upload", api.RequirePermission("document:upload"), userDocumentHandler.HandleUpload)
+			docGroup.POST("/:id/reindex", api.RequirePermission("document:upload"), userDocumentHandler.HandleReindex)
 			docGroup.DELETE("/:id", api.RequirePermission("document:delete"), userDocumentHandler.HandleDelete)
 		}
 
@@ -538,6 +544,7 @@ func main() {
 				configGroup.GET("", systemConfigHandler.GetAll)
 				configGroup.PUT("", systemConfigHandler.Update)
 				configGroup.POST("/test-email", systemConfigHandler.SendTestEmail)
+				configGroup.POST("/test-embedding", systemConfigHandler.HandleTestEmbedding)
 			}
 
 			// Job Management (定时任务后台管理)

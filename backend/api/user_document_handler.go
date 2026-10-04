@@ -72,6 +72,21 @@ func (h *UserDocumentHandler) HandleDelete(c *gin.Context) {
 	SendSuccess(c, nil)
 }
 
+// HandleReindex 重建文档向量索引 (RAG 语义检索; 排队后台执行, 结果看列表的索引状态)
+func (h *UserDocumentHandler) HandleReindex(c *gin.Context) {
+	userID := GetUserID(c)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil || id == 0 {
+		SendError(c, "400", "无效的文档 ID")
+		return
+	}
+	if err := h.docSvc.ReindexDocument(userID, uint(id)); err != nil {
+		SendError(c, "500", "重建索引失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, nil)
+}
+
 // HandleDownload 返回预签名下载 URL (前端拿 URL 新窗口打开)
 func (h *UserDocumentHandler) HandleDownload(c *gin.Context) {
 	userID := GetUserID(c)

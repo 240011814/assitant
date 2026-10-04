@@ -9,6 +9,9 @@ export interface UserDocumentItem {
   size_bytes: number;
   parse_status: 'none' | 'ok' | 'failed';
   parse_error: string;
+  index_status: 'none' | 'pending' | 'indexing' | 'ok' | 'failed';
+  index_error: string;
+  chunk_count: number;
   text_chars: number;
   created_at: string;
   updated_at: string;
@@ -48,6 +51,11 @@ export function fetchDocuments(page = 1, pageSize = 20) {
 /** 删除文档 */
 export function fetchDeleteDocument(id: number) {
   return request<null>({ url: `/api/documents/${id}`, method: 'delete' });
+}
+
+/** 建立/重建向量索引 (RAG 语义检索; 后台执行, 结果看列表索引状态) */
+export function fetchReindexDocument(id: number) {
+  return request<null>({ url: `/api/documents/${id}/reindex`, method: 'post' });
 }
 
 /** 获取预签名下载 URL (短期有效) */
