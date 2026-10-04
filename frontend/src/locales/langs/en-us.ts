@@ -265,6 +265,7 @@ const local: App.I18n.Schema = {
     "system_model-scenario": "Models & Scenarios",
     "system_agent-studio": "Agent Studio",
     system_skill: "Skill Management",
+    system_mcp: "MCP Servers",
     tool: "Tools",
     tool_backtest: "Strategy Backtest",
     tool_calendar: "Calendar",

@@ -47,8 +47,7 @@ type toolEntry struct {
 	configType reflect.Type
 }
 
-func Register(name, displayName, description string, configType any, factory ToolFactory) {
-	var params []ToolParam
+func Register(name, displayName, description string, configType any, factory ToolFactory) {	var params []ToolParam
 	if configType != nil {
 		t := reflect.TypeOf(configType)
 		if t.Kind() == reflect.Ptr {
@@ -98,6 +97,13 @@ func GetAllToolMeta() []ToolMeta {
 		result = append(result, entry.meta)
 	}
 	return result
+}
+
+// Unregister 注销动态注册的工具 (MCP server 删除/禁用时调用); 不存在时静默
+func Unregister(names ...string) {
+	for _, n := range names {
+		delete(registry, n)
+	}
 }
 
 func GetToolMeta(name string) (ToolMeta, bool) {

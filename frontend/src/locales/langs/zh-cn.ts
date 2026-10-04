@@ -261,6 +261,7 @@ const local: App.I18n.Schema = {
     "system_model-scenario": "模型场景",
     "system_agent-studio": "Agent 编排",
     system_skill: "Skill 管理",
+    system_mcp: "MCP 服务",
     tool: "工具",
     tool_backtest: "策略回测",
     tool_calendar: "日历备忘",

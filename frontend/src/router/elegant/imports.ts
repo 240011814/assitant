@@ -48,6 +48,7 @@ export const views: Record<LastLevelRouteKey, RouteComponent | (() => Promise<Ro
   "system_model-scenario": () => import("@/views/system/model-scenario/index.vue"),
   system_permission: () => import("@/views/system/permission/index.vue"),
   system_skill: () => import("@/views/system/skill/index.vue"),
+  system_mcp: () => import("@/views/system/mcp/index.vue"),
   system_user: () => import("@/views/system/user/index.vue"),
   tool_backtest: () => import("@/views/tool/backtest/index.vue"),
   tool_calendar: () => import("@/views/tool/calendar/index.vue"),

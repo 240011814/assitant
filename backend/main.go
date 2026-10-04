@@ -94,6 +94,13 @@ func main() {
 	tools.SetDocumentSearcher(userDocumentService)
 	userDocumentHandler := api.NewUserDocumentHandler(userDocumentService)
 
+	// MCP 服务动态注册 (配置在 mcp_servers 表, 管理页 CRUD):
+	// 连接 -> 发现工具 -> 注册 mcp_<server>_<tool>; ai_tools 行用户手动管理, 删服务同步删行/禁用同步禁行
+	mcpService := service.NewMCPService()
+	mcpService.SetAgentService(aiAgentService)
+	mcpService.Init()
+	mcpHandler := api.NewMCPHandler(mcpService)
+
 	adminHandler := api.NewAdminHandler(adminService, aiAgentService, authService, mem0Svc)
 
 	dashboardService := service.NewDashboardService()
@@ -537,6 +544,17 @@ func main() {
 			adminGroup.POST("/ai-tools", api.RequirePermission("system:ai-tool:create"), adminHandler.HandleCreateAITool)
 			adminGroup.PUT("/ai-tools/:id", api.RequirePermission("system:ai-tool:update"), adminHandler.HandleUpdateAITool)
 			adminGroup.DELETE("/ai-tools/:id", api.RequirePermission("system:ai-tool:delete"), adminHandler.HandleDeleteAITool)
+
+			// MCP 服务管理 (动态注册/发现工具)
+			mcpGroup := adminGroup.Group("/mcp-servers")
+			mcpGroup.Use(api.RequirePermission("system:mcp:manage"))
+			{
+				mcpGroup.GET("", mcpHandler.HandleList)
+				mcpGroup.POST("", mcpHandler.HandleCreate)
+				mcpGroup.PUT("/:id", mcpHandler.HandleUpdate)
+				mcpGroup.POST("/:id/connect", mcpHandler.HandleConnect)
+				mcpGroup.DELETE("/:id", mcpHandler.HandleDelete)
+			}
 
 			// System Config (R_SUPER only)
 			configGroup := adminGroup.Group("/system-config")

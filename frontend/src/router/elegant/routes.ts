@@ -432,6 +432,18 @@ export const generatedRoutes: GeneratedRoute[] = [
         }
       },
       {
+        name: 'system_mcp',
+        path: '/system/mcp',
+        component: 'view.system_mcp',
+        meta: {
+          title: 'system_mcp',
+          i18nKey: 'route.system_mcp',
+          icon: 'mdi:server-network-outline',
+          permissions: ['system:mcp:manage'],
+          order: 9
+        }
+      },
+      {
         name: 'system_user',
         path: '/system/user',
         component: 'view.system_user',

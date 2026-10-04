@@ -26,3 +26,4 @@ export * from './skill';
 export * from './user-portrait';
 export * from './token-usage';
 export * from './user-document';
+export * from './mcp';
