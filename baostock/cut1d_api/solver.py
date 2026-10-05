@@ -1,4 +1,4 @@
-"""一维切割精确求解 (OR-Tools 列生成), 挂载在 baostock sidecar 的 /cut1d/solve。
+"""一维切割精确求解 (OR-Tools 列生成)。
 
 算法 (参考外部 Java 版 CuttingBarService, 修正其定价跨类型 kerf 近似):
   1. 主问题 LP (GLOP): min Σ 新料长度
@@ -14,59 +14,20 @@
              − 1000 [偏好用旧料];  列不足导致不可行时回退 stage1 解 (同 Java 版)
 """
 
-import math
+from __future__ import annotations
+
 import time
 from typing import Optional
 
-from fastapi import APIRouter
-from pydantic import BaseModel, Field
 from ortools.linear_solver import pywraplp
 from ortools.sat.python import cp_model
 
-router = APIRouter()
+from cut1d_api.models import Bar, SolveRequest, SolveResponse
 
 EPS = 1e-6
 MAX_ITERATIONS = 300
 MAX_SCRAP_GROUPS = 64  # 旧料按长度分组定价, 防御异常库存规模
 UNLIMITED = 10**9
-
-
-class Item(BaseModel):
-    length: float = Field(gt=0)
-    demand: int = Field(ge=0)
-
-
-class Material(BaseModel):
-    label: str = ""
-    length: float = Field(gt=0)
-
-
-class Scrap(BaseModel):
-    length: float = Field(gt=0)
-
-
-class SolveRequest(BaseModel):
-    kerf: float = Field(default=0, ge=0)
-    items: list[Item]
-    materials: list[Material] = []
-    scraps: list[Scrap] = []
-    time_limit_ms: int = Field(default=3000, ge=200, le=60000)
-    utilization_weight: float = Field(default=5, ge=1, le=8)
-
-
-class Bar(BaseModel):
-    source: str  # "material" | "scrap"
-    material_index: Optional[int] = None
-    scrap_length: Optional[float] = None
-    pattern: list[int]  # 每种零件的切割数量 (按 items 下标)
-    count: int = 1      # 同模式同来源的根数
-
-
-class SolveResponse(BaseModel):
-    bars: list[Bar]
-    unplaced: list[dict]  # [{item_index, count}]
-    iterations: int = 0
-    elapsed_ms: int = 0
 
 
 def _scale_for(kerf: float) -> int:
@@ -179,7 +140,6 @@ def _read_solution(var_rows) -> list[tuple[int, int, list[int]]]:
     return [(int(round(v.solution_value())), s_i, pat) for v, s_i, pat in var_rows]
 
 
-@router.post("/cut1d/solve", response_model=SolveResponse)
 def solve(req: SolveRequest) -> SolveResponse:
     t0 = time.time()
     deadline_ms = req.time_limit_ms

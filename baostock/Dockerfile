@@ -28,8 +28,11 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
 COPY pyproject.toml ./
 COPY main.py ./
 COPY baostock_api ./baostock_api
+COPY cut1d_api ./cut1d_api
 
-# 非 root 用户运行; data 目录(usage.json)需要写权限
+# 非 root 用户运行; data 目录(usage.json)需要写权限:
+# 部署侧若把宿主目录挂载到 /app/data, 属主必须是 10001:10001
+# (chown -R 10001:10001 <宿主目录>), 否则 usage 计数无法持久化 (启动日志报 persist failed, 不影响服务)
 RUN mkdir -p /app/data \
     && useradd --create-home --uid 10001 baostock \
     && chown -R baostock:baostock /app

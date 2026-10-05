@@ -33,7 +33,9 @@ except ModuleNotFoundError as error:
 HOST = os.environ.get("BAOSTOCK_API_HOST", "127.0.0.1")
 PORT = int(os.environ.get("BAOSTOCK_API_PORT", "3002"))
 DAILY_LIMIT = int(os.environ.get("BAOSTOCK_API_DAILY_LIMIT", "45000"))
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+# usage 计数落盘目录 (默认 <项目>/data, 容器内 /app/data);
+# 可用 BAOSTOCK_API_DATA_DIR 覆盖, 便于部署侧把可写挂载放到任意路径
+DATA_DIR = Path(os.environ.get("BAOSTOCK_API_DATA_DIR") or Path(__file__).resolve().parent.parent / "data")
 USAGE_FILE = DATA_DIR / "usage.json"
 
 

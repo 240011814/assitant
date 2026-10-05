@@ -61,6 +61,8 @@ from baostock_api.shared import (
     make_error_payload,
     usage_counter,
 )
+# 一维切割精确求解 (OR-Tools 列生成, 供 Go 后端「精确模式」调用; 失败由 Go 侧回退内置快速算法)
+from cut1d_api import router as cut1d_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -69,9 +71,6 @@ logging.basicConfig(
 )
 
 app = FastAPI(title="baostock-api", version=__version__)
-
-# 一维切割精确求解 (OR-Tools 列生成, 供 Go 后端「精确模式」调用; 失败由 Go 侧回退内置快速算法)
-from cut1d import router as cut1d_router  # noqa: E402
 
 app.include_router(cut1d_router)
 

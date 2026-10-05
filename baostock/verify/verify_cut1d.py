@@ -1,13 +1,13 @@
 """cutopt 自验脚本 (部署侧运行): baostock/.venv/Scripts/python.exe verify_cut1d.py
 
-构造已知最优解的实例直调 cut1d.solve, 校验需求覆盖 / kerf 语义 / 旧料数量约束 /
+构造已知最优解的实例直调 cut1d_api.solve, 校验需求覆盖 / kerf 语义 / 旧料数量约束 /
 最少根数; 全部通过打印 ALL CHECKS PASSED。HTTP 冒烟: 启动 uvicorn 后
 POST /cut1d/solve (Go 后端「精确模式」走同一端点)。
 """
 
 import sys
 
-from cut1d import Item, Material, Scrap, SolveRequest, solve
+from cut1d_api import Item, Material, Scrap, SolveRequest, solve
 
 
 def check_invariants(req: SolveRequest, label: str, expect_new_bars: int | None = None) -> None:
