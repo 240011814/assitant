@@ -36,8 +36,9 @@ def check_solution(req: SolveRequest, label: str, expect_pieces: int | None = No
                          (req.items[pi.item].width, req.items[pi.item].height)
                 wj, hj = (req.items[pj.item].height, req.items[pj.item].width) if pj.rotated else \
                          (req.items[pj.item].width, req.items[pj.item].height)
-                sep = pi.x + wi <= pj.x + 1e-6 or pj.x + wj <= pi.x + 1e-6 or \
-                      pi.y + hi <= pj.y + 1e-6 or pj.y + hj <= pi.y + 1e-6
+                sep_x = pi.x + wi <= pj.x + 1e-6 or pj.x + wj <= pi.x + 1e-6
+                sep_y = pi.y + hi <= pj.y + 1e-6 or pj.y + hj <= pi.y + 1e-6
+                sep = sep_x or sep_y
                 assert sep, f"[{label}] 板 {bi} 上零件 {pi.item}/{pj.item} 重叠"
     if expect_pieces is not None:
         assert len(resp.pieces) == expect_pieces, f"[{label}] 排入件数应 {expect_pieces}, 实际 {len(resp.pieces)}"
