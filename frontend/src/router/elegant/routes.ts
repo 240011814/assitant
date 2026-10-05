@@ -591,7 +591,8 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'user_document',
           i18nKey: 'route.user_document',
-          icon: 'mdi:file-document-multiple-outline'
+          icon: 'mdi:file-document-multiple-outline',
+          permissions: ['document:view']
         }
       },
       {
