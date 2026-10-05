@@ -24,7 +24,7 @@ func (s *VocabularyService) AddWord(userID uint, req model.CreateVocabularyReque
 		return nil, err
 	}
 	if count > 0 {
-		return nil, errors.New("该单词已存在 ")
+		return nil, errors.New("该单词已存在")
 	}
 
 	word := model.Vocabulary{
