@@ -28,8 +28,7 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
 COPY pyproject.toml ./
 COPY main.py ./
 COPY baostock_api ./baostock_api
-COPY cut1d_api ./cut1d_api
-COPY cut2d_api ./cut2d_api
+COPY cut_api ./cut_api
 
 # 非 root 用户运行; data 目录(usage.json)需要写权限:
 # 部署侧若把宿主目录挂载到 /app/data, 属主必须是 10001:10001

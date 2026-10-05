@@ -22,7 +22,7 @@ from typing import Optional
 from ortools.linear_solver import pywraplp
 from ortools.sat.python import cp_model
 
-from cut1d_api.models import Bar, SolveRequest, SolveResponse
+from cut_api.models_1d import Bar, SolveRequest, SolveResponse
 
 EPS = 1e-6
 MAX_ITERATIONS = 300

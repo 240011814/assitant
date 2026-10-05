@@ -61,10 +61,8 @@ from baostock_api.shared import (
     make_error_payload,
     usage_counter,
 )
-# 一维切割精确求解 (OR-Tools 列生成, 供 Go 后端「精确模式」调用; 失败由 Go 侧回退内置快速算法)
-from cut1d_api import router as cut1d_router
-# 二维切割精确求解 (OR-Tools CP-SAT NoOverlap2D; 失败/超时由 Go 侧回退 MaxRects 启发式)
-from cut2d_api import router as cut2d_router
+# 切割优化精确求解 (cut_api: 一维列生成 / 二维 CP-SAT; 供 Go 后端「精确模式」调用, 失败由 Go 侧回退内置算法)
+from cut_api import router as cut_api_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -74,8 +72,7 @@ logging.basicConfig(
 
 app = FastAPI(title="baostock-api", version=__version__)
 
-app.include_router(cut1d_router)
-app.include_router(cut2d_router)
+app.include_router(cut_api_router)
 
 QUERY_ENDPOINTS: dict[str, Any] = {
     "/query_all_stock": query_all_stock_endpoint,

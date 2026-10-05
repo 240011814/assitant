@@ -14,7 +14,7 @@ import (
 	"backend/model"
 )
 
-// ===== 二维精确求解 sidecar 客户端 (cut2d_api/, 与一维 cut1d_api 同款 sidecar 模式) =====
+// ===== 二维精确求解 sidecar 客户端 (cut_api/solver_2d, 与一维同款 sidecar 模式) =====
 // 策略 Precise: 先跑 MaxRects 得到保底解, 再把启发式解作为完整 warm start 传给 sidecar
 // CP-SAT (NoOverlap2D) 优化。未配置求解地址/规模超限/求解失败/解不完备/超时一律回退
 // 启发式结果, 保证精确模式的产出永不劣于 MaxRects。

@@ -257,7 +257,7 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 	return resp, nil
 }
 
-// precisePlaneCut 二维精确求解 (OR-Tools sidecar, cut2d_api): MaxRects 保底 + CP-SAT 优化。
+// precisePlaneCut 二维精确求解 (OR-Tools sidecar, cut_api/solver_2d): MaxRects 保底 + CP-SAT 优化。
 // 未配置求解地址/规模超限/求解失败/超时一律回退 MaxRects, 结果不劣于启发式。
 func (s *CutService) precisePlaneCut(req model.BinRequest) (*model.PlaneCutResponse, error) {
 	fallback, err := s.maxRectsCut(req)

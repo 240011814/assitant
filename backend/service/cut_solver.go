@@ -13,7 +13,7 @@ import (
 	"backend/model"
 )
 
-// ===== OR-Tools 精确求解 sidecar 客户端 (cutopt/, 与 baostock 同款 sidecar 模式) =====
+// ===== OR-Tools 精确求解 sidecar 客户端 (cut_api/, 与 baostock 同款 sidecar 模式) =====
 // 求解地址存 system_config `cut_solver_url` (空 = 未启用精确模式, 每次请求现读无需热刷新)。
 // sidecar 失败/超时/解不完备时 BarCut 自动回退内置快速算法 (DP+贪心), 不阻断功能。
 

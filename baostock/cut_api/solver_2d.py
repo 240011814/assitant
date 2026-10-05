@@ -19,7 +19,7 @@ import time
 
 from ortools.sat.python import cp_model
 
-from cut2d_api.models import Placement, SolveRequest, SolveResponse
+from cut_api.models_2d import Placement, SolveRequest, SolveResponse
 
 EPS = 1e-6
 MAX_PIECES = 400   # 展开件数上限 (Go 侧已先挡, 这里兜底)

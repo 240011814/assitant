@@ -1,13 +1,14 @@
 """cut2d 自验脚本 (部署侧运行): baostock/.venv/Scripts/python.exe verify/verify_cut2d.py
 
-构造已知最优/已知行为的实例直调 cut2d_api.solve, 校验完全覆盖 / 无重叠 / 尺寸不越界 /
+构造已知最优/已知行为的实例直调 cut_api.solver_2d.solve, 校验完全覆盖 / 无重叠 / 尺寸不越界 /
 旋转生效 / 旧料优先 / hint 不劣化 / oversized 报告; 全部通过打印 ALL CHECKS PASSED。
 HTTP 冒烟: 启动 uvicorn 后 POST /cut2d/solve (Go 后端「精确模式」走同一端点)。
 """
 
 import sys
 
-from cut2d_api import Board, Item, Placement, SolveRequest, solve
+from cut_api.models_2d import Board, Item, Placement, SolveRequest
+from cut_api.solver_2d import solve
 
 
 def check_solution(req: SolveRequest, label: str, expect_pieces: int | None = None) -> list[Placement]:
