@@ -80,6 +80,12 @@ func IntItems(lengths ...int) BarItemList {
 	return out
 }
 
+// 一维求解模式
+const (
+	BarModeFast    = "fast"    // 内置 DP+贪心 (默认)
+	BarModePrecise = "precise" // OR-Tools sidecar 精确求解 (需系统配置 cut_solver_url; 失败自动回退 fast)
+)
+
 // BarRequest 一维切割请求
 type BarRequest struct {
 	Items     BarItemList    `json:"items" binding:"required,min=1"`
@@ -89,6 +95,8 @@ type BarRequest struct {
 	NewMaterialLength int           `json:"newMaterialLength"`
 	Loss              float64       `json:"loss"`
 	UtilizationWeight int           `json:"utilizationWeight"`
+	// Mode 求解模式: fast (默认) / precise (OR-Tools 列生成; 未配置求解地址或求解失败时自动回退 fast)
+	Mode string `json:"mode"`
 	// UseInventory 自动导入余料库存: 把当前用户的一维余料库存并入旧料参与计算,
 	// 被消费的库存条目 id 通过响应 consumedScrapIds 返回 (由前端确认后调 consume 扣减)
 	UseInventory bool `json:"useInventory"`

@@ -181,6 +181,8 @@ declare namespace Api {
       newMaterials?: NewMaterialSpec[];
       loss: number;
       utilizationWeight: number;
+      /** 求解模式: fast (默认, DP+贪心) / precise (OR-Tools 列生成, 需服务端配置求解地址) */
+      mode?: 'fast' | 'precise';
       /** 自动导入当前用户的一维余料库存参与计算 */
       useInventory?: boolean;
     }

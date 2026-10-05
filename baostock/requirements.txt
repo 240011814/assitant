@@ -6,3 +6,4 @@ starlette==1.7.0
 pydantic==2.13.5
 pandas==3.0.6
 uvicorn==0.54.0
+ortools==9.15.6755

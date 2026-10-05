@@ -4,6 +4,7 @@ import (
 	"backend/model"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"sort"
 	"time"
@@ -12,10 +13,12 @@ import (
 	"gorm.io/gorm"
 )
 
-type CutService struct{}
+type CutService struct {
+	configSvc *SystemConfigService // 精确求解地址 (cut_solver_url) 读取; 可为 nil
+}
 
-func NewCutService() *CutService {
-	return &CutService{}
+func NewCutService(configSvc *SystemConfigService) *CutService {
+	return &CutService{configSvc: configSvc}
 }
 
 // ===== 一维切割算法（列生成 + 贪心分配）=====
@@ -205,30 +208,41 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 			restScraps[i] = groupScraps[idx]
 		}
 
+		// 精确模式: OR-Tools sidecar 列生成 (未配置地址或求解失败自动回退内置快速算法)
+		var results []model.BarResult
+		var usedRestIdxs []int
+		if req.Mode == model.BarModePrecise {
+			if client := s.solverClient(); client != nil {
+				precise, used, err := s.solvePreciseGroup(client, aggItems, remainingDemand, materialLens, materialLabels,
+					restScraps, restLabelsFrom(groupScraps, groupLabels, restIdxs), kerf,
+					float64(max(1, req.UtilizationWeight)), newIdx)
+				if err == nil {
+					results = precise
+					usedRestIdxs = used
+					newIdx += len(results)
+					allResults = append(allResults, results...)
+					if req.UseInventory {
+						consumedInvIDs = append(consumedInvIDs, collectConsumedInv(groupInvIDs, restIdxs, usedRestIdxs)...)
+					}
+					continue
+				}
+				log.Printf("[Cut] 精确求解失败 (回退快速模式): %v", err)
+			} else {
+				log.Printf("[Cut] 精确模式未配置求解地址 (cut_solver_url), 回退快速模式")
+			}
+		}
+
 		var patterns []pattern
 		for _, l := range materialLens {
 			patterns = append(patterns, s.generateInitialPatterns(aggItems, remainingDemand, l, restScraps, kerf)...)
 		}
-		results, usedRestIdxs := s.solveGreedy(patterns, aggItems, remainingDemand, materialLens, materialLabels, restScraps, restLabelsFrom(groupScraps, groupLabels, restIdxs), kerf, newIdx)
+		results, usedRestIdxs = s.solveGreedy(patterns, aggItems, remainingDemand, materialLens, materialLabels, restScraps, restLabelsFrom(groupScraps, groupLabels, restIdxs), kerf, newIdx)
 		newIdx += len(results)
 		allResults = append(allResults, fixed...)
 		allResults = append(allResults, results...)
 
 		if req.UseInventory {
-			isRest := make(map[int]bool, len(restIdxs))
-			for _, idx := range restIdxs {
-				isRest[idx] = true
-			}
-			for idx := range groupScraps {
-				if !isRest[idx] && groupInvIDs[idx] > 0 {
-					consumedInvIDs = append(consumedInvIDs, groupInvIDs[idx])
-				}
-			}
-			for _, restPos := range usedRestIdxs {
-				if origIdx := restIdxs[restPos]; groupInvIDs[origIdx] > 0 {
-					consumedInvIDs = append(consumedInvIDs, groupInvIDs[origIdx])
-				}
-			}
+			consumedInvIDs = append(consumedInvIDs, collectConsumedInv(groupInvIDs, restIdxs, usedRestIdxs)...)
 		}
 	}
 
@@ -419,15 +433,26 @@ func (s *CutService) generateInitialPatterns(items []aggItem, demand []int, L fl
 		patterns = append(patterns, *p)
 	}
 
-	// 4. 高利用率模式枚举
-	s.enumerateEfficientPatterns(items, demand, L, kerf, &patterns, &seen)
+	// 4. DP 背包精确模式 (替代原 DFS 全组合枚举: O(类型×容量) 无组合爆炸, 大订单不再放弃)
+	for _, p := range s.dpPatternsForCapacity(items, demand, L, kerf, true, -1, seen) {
+		patterns = append(patterns, p)
+	}
 
 	// 5. 旧料模式
+	dpScrapQty := make(map[int][]int) // 相同长度的旧料共享一次 DP 求解
 	for idx, scrap := range scraps {
 		if scrap <= 0 {
 			continue
 		}
-		qty := s.greedyPack(items, float64(scrap), demand, kerf)
+		qty, ok := dpScrapQty[scrap]
+		if !ok {
+			if q, found := s.dpScrapBest(items, demand, float64(scrap), kerf); found {
+				qty = q
+			} else {
+				qty = nil
+			}
+			dpScrapQty[scrap] = qty
+		}
 		cuts := 0
 		for _, q := range qty {
 			cuts += q
@@ -452,6 +477,42 @@ func (s *CutService) generateInitialPatterns(items []aggItem, demand []int, L fl
 	}
 
 	return patterns
+}
+
+// dpScrapBest 旧料容量的 DP 最优填充 (按长度缓存, DP 不可行时回退贪心)
+func (s *CutService) dpScrapBest(items []aggItem, demand []int, scrapLen float64, kerf float64) ([]int, bool) {
+	types := len(items)
+	if types == 0 || types > dpMaxTypes {
+		return nil, false
+	}
+	scale := dpScale(kerf)
+	C := int(math.Round((scrapLen + kerf) * float64(scale)))
+	if C <= 0 || C > dpMaxCapacity {
+		return nil, false
+	}
+	weights := make([]int, types)
+	caps := make([]int, types)
+	for t := 0; t < types; t++ {
+		weights[t] = int(math.Round((items[t].length + kerf) * float64(scale)))
+		caps[t] = min(int(scrapLen/items[t].length), demand[t])
+		if weights[t] <= 0 || weights[t] > C {
+			caps[t] = 0
+		}
+	}
+	qty, ok := dpBestPattern(weights, caps, C)
+	if !ok {
+		return nil, false
+	}
+	// 浮点口径复核 (离散化舍入防御)
+	cuts := 0
+	for _, q := range qty {
+		cuts += q
+	}
+	used := s.dot(qty, items) + kerf*float64(max(0, cuts-1))
+	if cuts == 0 || used > scrapLen+1e-6 {
+		return nil, false
+	}
+	return qty, true
 }
 
 // greedyPattern 贪心生成模式
@@ -556,77 +617,6 @@ func (s *CutService) mixedPattern(items []aggItem, demand []int, L float64, kerf
 	return nil
 }
 
-// enumerateEfficientPatterns 枚举高利用率模式
-func (s *CutService) enumerateEfficientPatterns(items []aggItem, demand []int, L float64, kerf float64, patterns *[]pattern, seen *map[string]bool) {
-	types := len(items)
-	maxPieces := make([]int, types)
-	for t := 0; t < types; t++ {
-		maxPieces[t] = min(demand[t], int(L/items[t].length))
-	}
-
-	// 枚举空间上界 Π(maxPieces+1): 无剪枝的全组合枚举在类型多/需求大时组合爆炸,
-	// 会卡死 HTTP 请求, 超过上限直接放弃枚举 (generateInitialPatterns 的贪心/混合模式仍然可用)
-	const maxEnumSpace = 1_000_000
-	space := 1
-	for t := 0; t < types; t++ {
-		space *= maxPieces[t] + 1
-		if space > maxEnumSpace {
-			return
-		}
-	}
-
-	current := make([]int, types)
-	s.dfsEnumerate(items, L, maxPieces, demand, current, 0, patterns, seen, kerf)
-}
-
-// dfsEnumerate 深度优先枚举
-func (s *CutService) dfsEnumerate(items []aggItem, L float64, maxPieces []int, demand []int, current []int, typeIdx int, patterns *[]pattern, seen *map[string]bool, kerf float64) {
-	if typeIdx == len(items) {
-		cuts := 0
-		for _, q := range current {
-			cuts += q
-		}
-		if cuts == 0 {
-			return
-		}
-
-		used := 0.0
-		for t, q := range current {
-			used += float64(q) * items[t].length
-		}
-		used += kerf * float64(max(0, cuts-1))
-
-		if used <= L+1e-9 {
-			utilization := used / L
-			isHighUtilization := utilization > 0.90
-			isSmallButUseful := cuts >= 2 && used > 0.1*L
-
-			if isHighUtilization || isSmallButUseful {
-				qty := make([]int, len(current))
-				copy(qty, current)
-				key := s.patternKey(qty)
-				if !(*seen)[key] {
-					(*seen)[key] = true
-					*patterns = append(*patterns, pattern{
-						qty:      qty,
-						used:     used,
-						capacity: L,
-						cuts:     cuts,
-						isNew:    true,
-						scrapIdx: -1,
-					})
-				}
-			}
-		}
-		return
-	}
-
-	for n := 0; n <= maxPieces[typeIdx]; n++ {
-		current[typeIdx] = n
-		s.dfsEnumerate(items, L, maxPieces, demand, current, typeIdx+1, patterns, seen, kerf)
-	}
-}
-
 // greedyPack 贪心装箱
 func (s *CutService) greedyPack(items []aggItem, capLen float64, maxCount []int, kerf float64) []int {
 	types := len(items)
@@ -665,7 +655,6 @@ func (s *CutService) greedyPack(items []aggItem, capLen float64, maxCount []int,
 	return take
 }
 
-// solveGreedy 贪心求解 (多材料规格: 新料 pattern 按各自容量利用率参与排序, 总长取 pattern.capacity)
 // solveGreedy 贪心求解 (多材料规格: 新料 pattern 按各自容量利用率参与排序, 总长取 pattern.capacity)
 // startIdx 为结果编号起点 (按规格分组求解时全局连续); 返回: 结果 / 被消费旧料在 scraps 中的下标
 func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []int, materialLens []float64, materialLabels []string, scraps []int, scrapLabels []string, kerf float64, startIdx int) ([]model.BarResult, []int) {

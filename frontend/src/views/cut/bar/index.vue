@@ -31,6 +31,12 @@ const utilizationWeight = ref(4);
 const group = ref(false);
 // 自动导入库存余料参与计算, 确认后自动扣减
 const useInventory = ref(false);
+// 求解模式: fast=内置 DP+贪心; precise=OR-Tools 精确求解 (服务端未配置时自动回退 fast)
+const solveMode = ref<'fast' | 'precise'>('fast');
+const solveModeOptions = [
+  { label: '快速 (DP+贪心)', value: 'fast' },
+  { label: '精确 (OR-Tools)', value: 'precise' }
+];
 const cutResult = ref<Api.Cut.BarResult[] | null>(null);
 const summaryData = ref<Api.Cut.BarSummary | null>(null);
 const loading = ref(false);
@@ -268,6 +274,9 @@ async function fetchData() {
   };
   if (useInventory.value) {
     request.useInventory = true;
+  }
+  if (solveMode.value === 'precise') {
+    request.mode = 'precise';
   }
 
   loading.value = true;
@@ -566,6 +575,15 @@ onUnmounted(() => {
               <NSwitch v-model:value="useInventory" />
             </template>
             计算时自动使用当前库存中的一维余料参与计算, 确认结果后自动扣减库存
+          </NTooltip>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-24">求解模式</span>
+          <NTooltip trigger="hover" placement="top-start">
+            <template #trigger>
+              <NSelect v-model:value="solveMode" class="w-44" :options="solveModeOptions" />
+            </template>
+            精确模式使用 OR-Tools 列生成求全局更优解, 需服务端配置求解地址; 未配置或求解失败时自动回退快速模式
           </NTooltip>
         </div>
       </div>

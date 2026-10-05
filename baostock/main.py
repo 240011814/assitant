@@ -70,6 +70,11 @@ logging.basicConfig(
 
 app = FastAPI(title="baostock-api", version=__version__)
 
+# 一维切割精确求解 (OR-Tools 列生成, 供 Go 后端「精确模式」调用; 失败由 Go 侧回退内置快速算法)
+from cut1d import router as cut1d_router  # noqa: E402
+
+app.include_router(cut1d_router)
+
 QUERY_ENDPOINTS: dict[str, Any] = {
     "/query_all_stock": query_all_stock_endpoint,
     "/query_adjust_factor": query_adjust_factor_endpoint,
