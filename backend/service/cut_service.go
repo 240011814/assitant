@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -256,6 +257,22 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 	return resp, nil
 }
 
+// precisePlaneCut 二维精确求解 (OR-Tools sidecar, cut2d_api): MaxRects 保底 + CP-SAT 优化。
+// 未配置求解地址/规模超限/求解失败/超时一律回退 MaxRects, 结果不劣于启发式。
+func (s *CutService) precisePlaneCut(req model.BinRequest) (*model.PlaneCutResponse, error) {
+	fallback, err := s.maxRectsCut(req)
+	if err != nil {
+		return nil, err
+	}
+	client := s.solverClient()
+	if client == nil {
+		log.Printf("[Cut] 精确模式未配置求解地址 (cut_solver_url), 回退 MaxRects")
+		return fallback, nil
+	}
+	return s.solvePlanePrecise(client, req, fallback), nil
+}
+
+// containsSpec 规格名列表包含判断
 func containsSpec(specs []string, label string) bool {
 	for _, s := range specs {
 		if s == label {
@@ -865,6 +882,9 @@ func (s *CutService) PlaneCut(req model.BinRequest) (*model.PlaneCutResponse, er
 		resp, err = s.guillotineCut(req)
 	case "MaxRects":
 		resp, err = s.maxRectsCut(req)
+	case "Precise":
+		// 精确模式 (OR-Tools sidecar): 内部已含 MaxRects 回退, 任何失败不阻断
+		resp, err = s.precisePlaneCut(req)
 	default:
 		return nil, errors.New("不支持的切割策略: " + req.Strategy)
 	}
@@ -1500,7 +1520,7 @@ func (s *CutService) expandItems(items []model.Item) []model.Item {
 		for i := 0; i < count; i++ {
 			label := item.Label
 			if count > 1 {
-				label = item.Label + "_" + itoa(i+1)
+				label = item.Label + "_" + strconv.Itoa(i+1)
 			}
 			expanded = append(expanded, model.Item{
 				Label:  label,

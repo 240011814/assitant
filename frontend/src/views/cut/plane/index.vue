@@ -30,7 +30,9 @@ const unplaced = ref<Api.Cut.UnplacedItem[]>([]);
 const summaryData = ref<Api.Cut.PlaneSummary | null>(null);
 const strategyOptions = [
   { label: '刀切法', value: 'Guillotine' },
-  { label: '最大空闲法', value: 'MaxRects' }
+  { label: '最大空闲法', value: 'MaxRects' },
+  // OR-Tools 精确求解 (限时 2 分钟, 超时/失败自动回退最大空闲法)
+  { label: '精确 (OR-Tools)', value: 'Precise' }
 ];
 
 // 旧料库 / 导出 / 打印状态
