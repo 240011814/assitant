@@ -26,11 +26,12 @@ export function deleteCutScrap(id: number) {
   });
 }
 
-/** 扣减一维余料库存 (每条 quantity-1, 归零自动删除), 返回扣减后的一维库存列表 */
-export function fetchConsumeCutScraps(ids: number[]) {
-  return request<Api.Cut.CutScrap[]>({
-    url: '/api/cut/scraps/consume',
-    method: 'post',
-    data: { ids }
+
+/** 修改库存余料 (数量/名称/备注) */
+export function updateCutScrap(id: number, data: Api.Cut.UpdateCutScrapRequest) {
+  return request<null>({
+    url: `/api/cut/scraps/${id}`,
+    method: 'put',
+    data
   });
 }

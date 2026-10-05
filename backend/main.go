@@ -362,7 +362,7 @@ func main() {
 			cutGroup.POST("/plane", api.RequirePermission("cut:plane:compute"), cutHandler.HandlePlaneCut)
 			cutGroup.GET("/scraps", api.RequirePermission("cut:record:view"), cutHandler.HandleListScraps)
 			cutGroup.POST("/scraps", api.RequirePermission("cut:record:create"), cutHandler.HandleAddScraps)
-			cutGroup.POST("/scraps/consume", api.RequirePermission("cut:record:create"), cutHandler.HandleConsumeScraps)
+			cutGroup.PUT("/scraps/:id", api.RequirePermission("cut:record:create"), cutHandler.HandleUpdateScrap)
 			cutGroup.DELETE("/scraps/:id", api.RequirePermission("cut:record:delete"), cutHandler.HandleDeleteScrap)
 		}
 

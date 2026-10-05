@@ -30,8 +30,6 @@ declare namespace Api {
     interface BarCutResponse {
       results: BarResult[];
       summary: BarSummary;
-      /** useInventory=true 时, 本次计算消费掉的库存条目 id */
-      consumedScrapIds?: number[];
     }
 
     /** 二维切割未排入零件 */
@@ -150,6 +148,15 @@ declare namespace Api {
       request: string;
       response: string;
       name: string;
+      /** 保存时扣减的库存余料 (从库存带入且被本次切割消耗的旧料) */
+      deductScraps?: { id: number; count: number }[];
+    }
+
+    /** 修改库存余料 */
+    interface UpdateCutScrapRequest {
+      label: string;
+      quantity: number;
+      note: string;
     }
 
     interface Item {
@@ -183,8 +190,6 @@ declare namespace Api {
       utilizationWeight: number;
       /** 求解模式: fast (默认, DP+贪心) / precise (OR-Tools 列生成, 需服务端配置求解地址) */
       mode?: 'fast' | 'precise';
-      /** 自动导入当前用户的一维余料库存参与计算 */
-      useInventory?: boolean;
     }
   }
 }

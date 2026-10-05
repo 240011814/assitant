@@ -35,22 +35,6 @@ func (h *CutHandler) HandleBarCut(c *gin.Context) {
 	SendSuccess(c, result)
 }
 
-// HandleConsumeScraps 批量扣减库存余料 (自动导入计算确认后调用)
-func (h *CutHandler) HandleConsumeScraps(c *gin.Context) {
-	userID := GetUserID(c)
-	var req model.ConsumeScrapsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		SendError(c, "400", "请求参数错误")
-		return
-	}
-	list, err := h.svc.ConsumeScraps(userID, req.IDs)
-	if err != nil {
-		SendError(c, "500", "扣减余料失败: "+err.Error())
-		return
-	}
-	SendSuccess(c, list)
-}
-
 // HandlePlaneCut 平面切割
 func (h *CutHandler) HandlePlaneCut(c *gin.Context) {
 	var req model.BinRequest
@@ -66,6 +50,26 @@ func (h *CutHandler) HandlePlaneCut(c *gin.Context) {
 	}
 
 	SendSuccess(c, result)
+}
+
+// HandleUpdateScrap 修改库存余料 (数量/名称/备注)
+func (h *CutHandler) HandleUpdateScrap(c *gin.Context) {
+	userID := GetUserID(c)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		SendError(c, "400", "余料 ID 不合法")
+		return
+	}
+	var req model.UpdateScrapRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请求参数错误")
+		return
+	}
+	if err := h.svc.UpdateScrap(userID, uint(id), req); err != nil {
+		SendError(c, "500", "修改余料失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, nil)
 }
 
 // HandleListScraps 余料库存列表

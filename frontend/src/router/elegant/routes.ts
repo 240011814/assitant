@@ -191,6 +191,7 @@ export const generatedRoutes: GeneratedRoute[] = [
           title: 'cut_bar',
           i18nKey: 'route.cut_bar',
           icon: 'mdi:angle-acute',
+          order: 1,
           permissions: ['cut:bar:compute'],
           keepAlive: true
         }
@@ -214,6 +215,19 @@ export const generatedRoutes: GeneratedRoute[] = [
           title: 'cut_history',
           i18nKey: 'route.cut_history',
           icon: 'mdi:history',
+          order: 4,
+          permissions: ['cut:record:view']
+        }
+      },
+      {
+        name: 'cut_inventory',
+        path: '/cut/inventory',
+        component: 'view.cut_inventory',
+        meta: {
+          title: 'cut_inventory',
+          i18nKey: 'route.cut_inventory',
+          icon: 'mdi:package-variant-closed',
+          order: 3,
           permissions: ['cut:record:view']
         }
       },
@@ -225,6 +239,7 @@ export const generatedRoutes: GeneratedRoute[] = [
           title: 'cut_plane',
           i18nKey: 'route.cut_plane',
           icon: 'mdi:grid-large',
+          order: 2,
           permissions: ['cut:plane:compute'],
           keepAlive: true
         }

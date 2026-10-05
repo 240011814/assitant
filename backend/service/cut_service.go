@@ -77,11 +77,10 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 	}
 	kerf := math.Max(0, req.Loss)
 
-	// 旧料展开: 用户输入 + (可选) 自动导入的一维余料库存, 统一 label 与库存 id
+	// 旧料展开: 用户输入
 	type scrapUnit struct {
 		length float64
 		label  string
-		invID  uint
 	}
 	var allScraps []scrapUnit
 	for _, m := range req.Materials {
@@ -90,21 +89,6 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 		}
 		for i := 0; i < 1; i++ { // materials 每条即一根 (与旧语义一致)
 			allScraps = append(allScraps, scrapUnit{length: m.Length, label: m.Label})
-		}
-	}
-	if req.UseInventory && userID > 0 {
-		var inv []model.CutScrap
-		if err := DB.Where("user_id = ? AND scrap_type = ? AND quantity > 0", userID, 1).
-			Order("length_value ASC").Find(&inv).Error; err == nil {
-			for _, item := range inv {
-				for i := 0; i < item.Quantity; i++ {
-					label := item.Label
-					if label == "" {
-						label = "库存余料"
-					}
-					allScraps = append(allScraps, scrapUnit{length: item.LengthValue, label: label, invID: item.ID})
-				}
-			}
 		}
 	}
 
@@ -140,7 +124,6 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 
 	// 旧料按 label 分配到组: 非通用组拿同名旧料; 其余 (无 label / 无人认领) 归通用组
 	claimed := make([]bool, len(allScraps))
-	var consumedInvIDs []uint
 	var allResults []model.BarResult
 	newIdx := 1
 
@@ -180,7 +163,6 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 		// 组内旧料: 非通用组认领同名旧料; 通用组拿全部未被认领的
 		var groupScraps []float64
 		var groupLabels []string
-		var groupInvIDs []uint
 		for i, sc := range allScraps {
 			if claimed[i] {
 				continue
@@ -195,7 +177,6 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 			claimed[i] = true
 			groupScraps = append(groupScraps, sc.length)
 			groupLabels = append(groupLabels, sc.label)
-			groupInvIDs = append(groupInvIDs, sc.invID)
 		}
 
 		aggItems := s.aggregateItems(lengths)
@@ -211,20 +192,15 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 
 		// 精确模式: OR-Tools sidecar 列生成 (未配置地址或求解失败自动回退内置快速算法)
 		var results []model.BarResult
-		var usedRestIdxs []int
 		if req.Mode == model.BarModePrecise {
 			if client := s.solverClient(); client != nil {
-				precise, used, err := s.solvePreciseGroup(client, aggItems, remainingDemand, materialLens, materialLabels,
+				precise, _, err := s.solvePreciseGroup(client, aggItems, remainingDemand, materialLens, materialLabels,
 					restScraps, restLabelsFrom(groupScraps, groupLabels, restIdxs), kerf,
 					math.Max(1, req.UtilizationWeight), newIdx)
 				if err == nil {
 					results = precise
-					usedRestIdxs = used
 					newIdx += len(results)
 					allResults = append(allResults, results...)
-					if req.UseInventory {
-						consumedInvIDs = append(consumedInvIDs, collectConsumedInv(groupInvIDs, restIdxs, usedRestIdxs)...)
-					}
 					continue
 				}
 				log.Printf("[Cut] 精确求解失败 (回退快速模式): %v", err)
@@ -237,22 +213,15 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 		for _, l := range materialLens {
 			patterns = append(patterns, s.generateInitialPatterns(aggItems, remainingDemand, l, restScraps, kerf)...)
 		}
-		results, usedRestIdxs = s.solveGreedy(patterns, aggItems, remainingDemand, materialLens, materialLabels, restScraps, restLabelsFrom(groupScraps, groupLabels, restIdxs), kerf, newIdx)
+		results, _ = s.solveGreedy(patterns, aggItems, remainingDemand, materialLens, materialLabels, restScraps, restLabelsFrom(groupScraps, groupLabels, restIdxs), kerf, newIdx)
 		newIdx += len(results)
 		allResults = append(allResults, fixed...)
 		allResults = append(allResults, results...)
-
-		if req.UseInventory {
-			consumedInvIDs = append(consumedInvIDs, collectConsumedInv(groupInvIDs, restIdxs, usedRestIdxs)...)
-		}
 	}
 
 	resp := &model.BarCutResponse{
 		Results: allResults,
 		Summary: summarizeBarResults(allResults),
-	}
-	if req.UseInventory && len(consumedInvIDs) > 0 {
-		resp.ConsumedScrapIds = dedupeUint(consumedInvIDs)
 	}
 	return resp, nil
 }
@@ -280,18 +249,6 @@ func containsSpec(specs []string, label string) bool {
 		}
 	}
 	return false
-}
-
-func dedupeUint(in []uint) []uint {
-	seen := make(map[uint]bool, len(in))
-	out := make([]uint, 0, len(in))
-	for _, v := range in {
-		if !seen[v] {
-			seen[v] = true
-			out = append(out, v)
-		}
-	}
-	return out
 }
 
 // restLabelsFrom 从原下标映射出剩余旧料的类型名
@@ -1532,8 +1489,14 @@ func (s *CutService) expandItems(items []model.Item) []model.Item {
 	return expanded
 }
 
-// SaveCutRecord 保存切割记录
+// SaveCutRecord 保存切割记录; 随单扣减从库存带入且被消耗的旧料 (扣减失败则整体失败, 不产生记录)
 func (s *CutService) SaveCutRecord(userID uint, req model.RecordRequest) (*model.CutRecord, error) {
+	if len(req.DeductScraps) > 0 {
+		if err := s.DeductScraps(userID, req.DeductScraps); err != nil {
+			return nil, err
+		}
+	}
+
 	code := s.generateCode(req.Type)
 
 	record := model.CutRecord{
@@ -1663,21 +1626,38 @@ func (s *CutService) DeleteScrap(userID, id uint) error {
 	return nil
 }
 
-// ConsumeScraps 批量扣减库存余料 (自动导入计算确认后调用): quantity-1, 减到 0 自动删除
-func (s *CutService) ConsumeScraps(userID uint, ids []uint) ([]model.CutScrap, error) {
-	if len(ids) == 0 {
-		return nil, errors.New("无可扣减的余料")
+// DeductScraps 批量扣减库存余料 (一维, quantity -= count, 归零自动删除); 库存不足报错
+func (s *CutService) DeductScraps(userID uint, items []model.DeductScrapItem) error {
+	for _, item := range items {
+		if item.ID == 0 || item.Count < 1 {
+			return errors.New("扣减项非法")
+		}
+		result := DB.Model(&model.CutScrap{}).
+			Where("id = ? AND user_id = ? AND scrap_type = ? AND quantity >= ?", item.ID, userID, 1, item.Count).
+			Update("quantity", gorm.Expr("quantity - ?", item.Count))
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return errors.New("余料库存不足, 请检查库存数量")
+		}
 	}
-	if err := DB.Model(&model.CutScrap{}).
-		Where("user_id = ? AND id IN ? AND scrap_type = ?", userID, ids, 1).
-		Update("quantity", gorm.Expr("quantity - 1")).Error; err != nil {
-		return nil, err
+	// 扣至归零的条目自动清理
+	return DB.Where("user_id = ? AND quantity <= 0", userID).Delete(&model.CutScrap{}).Error
+}
+
+// UpdateScrap 修改库存余料 (仅本人)
+func (s *CutService) UpdateScrap(userID, id uint, req model.UpdateScrapRequest) error {
+	result := DB.Model(&model.CutScrap{}).
+		Where("id = ? AND user_id = ?", id, userID).
+		Updates(map[string]any{"label": req.Label, "quantity": req.Quantity, "note": req.Note})
+	if result.Error != nil {
+		return result.Error
 	}
-	// 数量归零的条目自动清理
-	if err := DB.Where("user_id = ? AND quantity <= 0", userID).Delete(&model.CutScrap{}).Error; err != nil {
-		return nil, err
+	if result.RowsAffected == 0 {
+		return errors.New("余料不存在")
 	}
-	return s.ListScraps(userID, 1)
+	return nil
 }
 
 func itoa(i int) string {

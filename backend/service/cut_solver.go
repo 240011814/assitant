@@ -223,24 +223,3 @@ func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem,
 	}
 	return results, usedRest, nil
 }
-
-// collectConsumedInv 汇总本次被消费的库存余料 id (精确/快速两条路径共用):
-// 未进入本组旧料池的库存条目视为已消费; 使用的 rest 下标映射回原库存 id
-func collectConsumedInv(groupInvIDs []uint, restIdxs []int, usedRestIdxs []int) []uint {
-	isRest := make(map[int]bool, len(restIdxs))
-	for _, ri := range restIdxs {
-		isRest[ri] = true
-	}
-	var out []uint
-	for idx, invID := range groupInvIDs {
-		if !isRest[idx] && invID > 0 {
-			out = append(out, invID)
-		}
-	}
-	for _, restPos := range usedRestIdxs {
-		if origIdx := restIdxs[restPos]; origIdx < len(groupInvIDs) && groupInvIDs[origIdx] > 0 {
-			out = append(out, groupInvIDs[origIdx])
-		}
-	}
-	return out
-}

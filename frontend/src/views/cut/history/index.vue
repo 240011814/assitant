@@ -2,7 +2,7 @@
 import { h, onMounted, ref, computed } from 'vue';
 import { NButton, NCard, NDataTable, NPopconfirm, NTag, NSelect, NDatePicker, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
-import { cutList, deleteRecod } from '@/service/api';
+import { cutList, deleteRecod, addCutScraps } from '@/service/api';
 import { useRouterPush } from '@/hooks/common/router';
 import { $t } from '@/locales';
 
@@ -60,14 +60,39 @@ const columns = computed<DataTableColumns<any>>(() => [
     key: 'operate',
     title: '操作',
     align: 'center',
-    width: 180,
+    width: 240,
     render(row) {
-      return h('div', { class: 'flex gap-2' }, [
+      const buttons = [
         h(
           NButton,
           { size: 'small', type: 'primary', quaternary: true, onClick: () => edit(row) },
           { default: () => '查看' }
-        ),
+        )
+      ];
+      // 一维记录且有可入库余料 (remaining > 0) 时提供入库入口
+      if (scrapRowsOf(row).length > 0) {
+        buttons.push(
+          h(
+            NPopconfirm,
+            { onPositiveClick: () => stockInFromRecord(row) },
+            {
+              trigger: () =>
+                h(
+                  NButton,
+                  {
+                    size: 'small',
+                    type: 'warning',
+                    quaternary: true,
+                    loading: stockingId.value === row.id
+                  },
+                  { default: () => '余料入库' }
+                ),
+              default: () => `确认将 ${scrapRowsOf(row).length} 根余料入库?`
+            }
+          )
+        );
+      }
+      buttons.push(
         h(
           NPopconfirm,
           { onPositiveClick: () => deleteData(row.id) },
@@ -77,7 +102,8 @@ const columns = computed<DataTableColumns<any>>(() => [
             default: () => '确认删除?'
           }
         )
-      ]);
+      );
+      return h('div', { class: 'flex gap-2 justify-center' }, buttons);
     }
   }
 ]);
@@ -133,6 +159,55 @@ function edit(row: Api.Cut.CutRecord) {
       params: { id: row.id },
       query: { request: row.request, response: row.response }
     });
+  }
+}
+
+// 一维记录的可入库余料: response.results 中 remaining > 0 的每根料 (解析失败视为无)
+function scrapRowsOf(row: Api.Cut.CutRecord): Api.Cut.BarResult[] {
+  if (row.type !== '1' || !row.response) return [];
+  try {
+    const resp = JSON.parse(row.response) as Api.Cut.BarCutResponse;
+    return (resp.results ?? []).filter(item => item.remaining > 0);
+  } catch {
+    return [];
+  }
+}
+
+// 余料名称: 多规格新材料时按 totalLength 匹配规格名 (与计算页 stockInScraps 同规则)
+function scrapLabelFor(row: Api.Cut.CutRecord, item: Api.Cut.BarResult): string | undefined {
+  try {
+    const saved = JSON.parse(row.request || '{}') as { newMaterials?: Api.Cut.NewMaterialSpec[] };
+    const specs = saved.newMaterials ?? [];
+    if (specs.length < 2) return undefined;
+    const spec = specs.find(s => s.length === item.totalLength);
+    const name = spec?.label?.trim();
+    return name ? `${name}${$t('page.cut.scrapLabelSuffix')}` : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const stockingId = ref<string | null>(null);
+
+// 历史记录余料入库: 把该记录切割剩余的每根料登记为一维余料库存
+async function stockInFromRecord(row: Api.Cut.CutRecord) {
+  const scrapRows = scrapRowsOf(row);
+  if (scrapRows.length === 0) return;
+  stockingId.value = row.id;
+  try {
+    const { error } = await addCutScraps(
+      scrapRows.map(item => ({
+        scrapType: 1 as const,
+        label: scrapLabelFor(row, item),
+        lengthValue: item.remaining,
+        quantity: 1,
+        note: $t('page.cut.scrapFromCutting')
+      }))
+    );
+    if (error) return;
+    message.success($t('page.cut.scrapStockInSuccess', { count: scrapRows.length }));
+  } finally {
+    stockingId.value = null;
   }
 }
 

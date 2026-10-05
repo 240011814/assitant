@@ -35,6 +35,7 @@ declare module "@elegant-router/types" {
     "cut_bar": "/cut/bar";
     "cut_bar-detail": "/cut/bar-detail/:id";
     "cut_history": "/cut/history";
+    "cut_inventory": "/cut/inventory";
     "cut_plane": "/cut/plane";
     "cut_plane-detail": "/cut/plane-detail/:id";
     "home": "/home";
@@ -145,6 +146,7 @@ declare module "@elegant-router/types" {
     | "cut_bar-detail"
     | "cut_bar"
     | "cut_history"
+    | "cut_inventory"
     | "cut_plane-detail"
     | "cut_plane"
     | "home"

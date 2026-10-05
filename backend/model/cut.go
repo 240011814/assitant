@@ -97,9 +97,6 @@ type BarRequest struct {
 	UtilizationWeight float64       `json:"utilizationWeight"`
 	// Mode 求解模式: fast (默认) / precise (OR-Tools 列生成; 未配置求解地址或求解失败时自动回退 fast)
 	Mode string `json:"mode"`
-	// UseInventory 自动导入余料库存: 把当前用户的一维余料库存并入旧料参与计算,
-	// 被消费的库存条目 id 通过响应 consumedScrapIds 返回 (由前端确认后调 consume 扣减)
-	UseInventory bool `json:"useInventory"`
 }
 
 // BarResult 一维切割结果
@@ -126,13 +123,19 @@ type BarSummary struct {
 type BarCutResponse struct {
 	Results []BarResult `json:"results"`
 	Summary BarSummary  `json:"summary"`
-	// ConsumedScrapIds 本计算消费掉的库存余料条目 id (useInventory=true 时返回, 前端确认后调 consume 扣减)
-	ConsumedScrapIds []uint `json:"consumedScrapIds"`
 }
 
-// ConsumeScrapsRequest 扣减库存余料 (切割确认后调用)
-type ConsumeScrapsRequest struct {
-	IDs []uint `json:"ids" binding:"required,min=1"`
+// DeductScrapItem 保存记录时随单扣减的库存余料条目
+type DeductScrapItem struct {
+	ID    uint `json:"id"`
+	Count int  `json:"count"`
+}
+
+// UpdateScrapRequest 修改库存余料 (数量/名称/备注)
+type UpdateScrapRequest struct {
+	Label    string `json:"label"`
+	Quantity int    `json:"quantity" binding:"min=1"`
+	Note     string `json:"note"`
 }
 
 // PlaneSummary 平面切割汇总
@@ -233,6 +236,8 @@ type RecordRequest struct {
 	Request  string `json:"request" binding:"required"`
 	Response string `json:"response" binding:"required"`
 	Name     string `json:"name" binding:"required"`
+	// DeductScraps 保存时随单扣减的库存余料 (从库存带入且被本次切割消耗的旧料)
+	DeductScraps []DeductScrapItem `json:"deductScraps,omitempty"`
 }
 
 // CutRecordSearchParams 切割记录搜索参数

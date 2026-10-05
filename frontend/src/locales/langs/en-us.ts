@@ -250,6 +250,7 @@ const local: App.I18n.Schema = {
     cut_bar: "1D Cutting",
     cut_plane: "2D Cutting",
     cut_history: "History",
+    cut_inventory: "Inventory",
     "cut_bar-detail": "1D Cutting Detail",
     "cut_plane-detail": "2D Cutting Detail",
     lottery: "Lottery",

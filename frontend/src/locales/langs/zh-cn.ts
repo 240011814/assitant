@@ -246,6 +246,7 @@ const local: App.I18n.Schema = {
     cut_bar: "一维切割",
     cut_plane: "平面切割",
     cut_history: "历史记录",
+    cut_inventory: "库存管理",
     "cut_bar-detail": "一维切割详情",
     "cut_plane-detail": "平面切割详情",
     lottery: "抽奖活动",

@@ -2,7 +2,7 @@
 import { computed, h, onMounted, onUnmounted, ref } from 'vue';
 import { NButton, NGi, NGrid, NInput, NInputNumber, NModal, NSelect, NSpin, NStatistic, NTooltip, useMessage } from 'naive-ui';
 import { $t } from '@/locales';
-import { addCutScraps, cutBar, fetchConsumeCutScraps, fetchCutScraps } from '@/service/api';
+import { addCutScraps, cutBar, fetchCutScraps } from '@/service/api';
 import ScrapLibraryModal from '@/components/cut/ScrapLibraryModal.vue';
 import { exportBarCutPDF, exportBarCutPNG, printBarCut } from './cut-export';
 
@@ -11,10 +11,18 @@ interface NewMaterialRow {
   length: number | null;
 }
 
+/** 旧料行: 带入库存余料时保留来源条目 id, 保存记录时按此扣减库存 */
+interface MaterialRow {
+  label?: string;
+  length: number;
+  quantity: number;
+  invId?: number;
+}
+
 const message = useMessage();
 
 const itemsData = ref<Api.Cut.BarItem[]>([]);
-const materialsData = ref<Api.Cut.BarItem[]>([]);
+const materialsData = ref<MaterialRow[]>([]);
 
 const itemLength = ref<number | null>(null);
 const itemQty = ref<number | null>(null);
@@ -29,8 +37,6 @@ const newMaterialRows = ref<NewMaterialRow[]>([{ label: '', length: 600 }]);
 const loss = ref(0.2);
 const utilizationWeight = ref(4);
 const group = ref(false);
-// 自动导入库存余料参与计算, 确认后自动扣减
-const useInventory = ref(false);
 // 求解模式: fast=内置 DP+贪心; precise=OR-Tools 精确求解 (服务端未配置时自动回退 fast)
 const solveMode = ref<'fast' | 'precise'>('fast');
 const solveModeOptions = [
@@ -272,9 +278,6 @@ async function fetchData() {
     loss: loss.value,
     utilizationWeight: utilizationWeight.value
   };
-  if (useInventory.value) {
-    request.useInventory = true;
-  }
   if (solveMode.value === 'precise') {
     request.mode = 'precise';
   }
@@ -292,25 +295,37 @@ async function fetchData() {
       request: JSON.stringify({ rowItems: itemsData.value, rowMaterials: materialsData.value, ...request }),
       // 序列化完整响应(results + summary), 供详情页展示
       response: JSON.stringify(data),
-      name: ``
+      name: ``,
+      // 从库存带入且被本次切割消耗的旧料, 保存时扣减库存
+      deductScraps: collectDeductScraps()
     };
     disabledPrint.value = false;
-    // 自动扣减本次计算消费的一维余料库存(失败不影响切割结果展示)
-    await consumeScrapInventory(data.consumedScrapIds ?? []);
   } finally {
     loading.value = false;
   }
 }
 
-// 自动扣减本次计算消费的一维余料库存 (useInventory 开启时后端返回 consumedScrapIds)
-async function consumeScrapInventory(ids: number[]) {
-  if (ids.length === 0) return;
-  const { error } = await fetchConsumeCutScraps(ids);
-  if (error) {
-    message.warning('库存余料扣减失败, 请手动检查库存, 不影响本次切割结果');
-    return;
+// 从库存带入的旧料行 (invId) 的实际消耗根数 → 保存记录时随请求扣减库存。
+// 消耗口径: 结果里每根 (materialType, totalLength) 匹配的旧料即消耗一根;
+// 多行导入同一 (类型,长度) 时按行序分摊, 上限为该行数量。
+function collectDeductScraps(): Array<{ id: number; count: number }> {
+  if (!cutResult.value) return [];
+  const consumedPool = new Map<string, number>();
+  for (const r of cutResult.value) {
+    const key = `${r.materialType ?? ''}|${r.totalLength}`;
+    consumedPool.set(key, (consumedPool.get(key) ?? 0) + 1);
   }
-  message.success(`已扣减 ${ids.length} 条库存余料`);
+  const out = new Map<number, number>();
+  for (const row of materialsData.value) {
+    if (!row.invId) continue;
+    const key = `${row.label?.trim() ?? ''}|${row.length}`;
+    const pool = consumedPool.get(key) ?? 0;
+    if (pool <= 0) continue;
+    const take = Math.min(pool, row.quantity);
+    out.set(row.invId, (out.get(row.invId) ?? 0) + take);
+    consumedPool.set(key, pool - take);
+  }
+  return Array.from(out.entries()).map(([id, count]) => ({ id, count }));
 }
 
 // 余料名称: 多规格新材料时, 按该根料的 totalLength 匹配规格名 -> "<规格名>余料"; 无规格名/单规格留空
@@ -350,7 +365,8 @@ function applyScraps(rows: Api.Cut.CutScrap[]) {
     materialsData.value.push({
       label: row.label?.trim() ? row.label.trim() : $t('page.cut.scrapMaterialLabel'),
       length: row.lengthValue,
-      quantity: row.quantity
+      quantity: row.quantity,
+      invId: row.id
     });
   });
   // 库存可能新增了类型, 刷新下拉候选
@@ -567,15 +583,6 @@ onUnmounted(() => {
         <div class="flex items-center gap-2">
           <span class="w-24">聚合显示</span>
           <NSwitch v-model:value="group" class="w-40" />
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="w-28">自动导入库存余料</span>
-          <NTooltip trigger="hover" placement="top-start">
-            <template #trigger>
-              <NSwitch v-model:value="useInventory" />
-            </template>
-            计算时自动使用当前库存中的一维余料参与计算, 确认结果后自动扣减库存
-          </NTooltip>
         </div>
         <div class="flex items-center gap-2">
           <span class="w-24">求解模式</span>
