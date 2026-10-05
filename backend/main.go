@@ -333,6 +333,7 @@ func main() {
 		// 用户文档管理 (S3 存储; AI 经 search_user_documents/read_document/list_user_documents 工具使用)
 		docGroup := apiGroup.Group("/documents")
 		{
+			docGroup.GET("/status", userDocumentHandler.HandleStatus)
 			docGroup.GET("", api.RequirePermission("document:view"), userDocumentHandler.HandleList)
 			docGroup.GET("/:id/text", api.RequirePermission("document:view"), userDocumentHandler.HandleText)
 			docGroup.GET("/:id/download", api.RequirePermission("document:view"), userDocumentHandler.HandleDownload)

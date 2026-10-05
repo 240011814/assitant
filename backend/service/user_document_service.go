@@ -54,6 +54,25 @@ func (s *UserDocumentService) ragReady() bool {
 	return s.rag != nil && s.rag.Enabled() && s.rag.Available()
 }
 
+// DocumentStatus 文档功能状态 (供前端展示"未开启"引导)
+type DocumentStatus struct {
+	// Enabled S3 存储已配置且可用, 文档上传/管理可用
+	Enabled bool `json:"enabled"`
+	// RAGReady 语义检索就绪 (RAG 配置开启 + ClickHouse 可用)
+	RAGReady bool `json:"rag_ready"`
+	// MaxUploadMB 单文件上传上限 MB
+	MaxUploadMB int64 `json:"max_upload_mb"`
+}
+
+// Status 返回文档功能当前状态 (前端文档页判断展示"未开启"引导)
+func (s *UserDocumentService) Status() DocumentStatus {
+	return DocumentStatus{
+		Enabled:     GetS3() != nil,
+		RAGReady:    s.ragReady(),
+		MaxUploadMB: s.MaxUploadBytes() / 1024 / 1024,
+	}
+}
+
 // NewUserDocumentService configSvc 为空时无法读取存储配置, 文档功能保持关闭态;
 // rag 允许为 nil (仅关闭向量索引/检索)
 func NewUserDocumentService(configSvc *SystemConfigService, rag *RagService) *UserDocumentService {

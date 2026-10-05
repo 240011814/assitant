@@ -29,6 +29,22 @@ export interface DocumentTextChunk {
   offset: number;
 }
 
+/** 文档功能状态 (存储未开启时前端展示引导) */
+export interface DocumentStatus {
+  /** S3 存储已启用, 上传/管理可用 */
+  enabled: boolean;
+  /** 语义检索就绪 (RAG 开启 + ClickHouse 可用) */
+  rag_ready: boolean;
+  /** 单文件上传上限 MB */
+  max_upload_mb: number;
+}
+
+/** 获取文档功能状态 (存储/检索/上传上限) */
+export function fetchDocumentStatus() {
+  return request<DocumentStatus>({ url: '/api/documents/status', method: 'get' });
+}
+
+
 /** 上传文档 (multipart; 后端限制类型与大小) */
 export function fetchUploadDocument(file: File) {
   const formData = new FormData();

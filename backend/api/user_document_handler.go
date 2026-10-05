@@ -19,6 +19,12 @@ func NewUserDocumentHandler(docSvc *service.UserDocumentService) *UserDocumentHa
 	return &UserDocumentHandler{docSvc: docSvc}
 }
 
+// HandleStatus 文档功能状态: 存储是否启用 / 检索是否就绪 / 上传上限。
+// 仅要求登录 (与 mem0 status 同款), 前端据此展示"未开启"引导
+func (h *UserDocumentHandler) HandleStatus(c *gin.Context) {
+	SendSuccess(c, h.docSvc.Status())
+}
+
 // HandleUpload multipart 上传 (form 字段名 file)
 func (h *UserDocumentHandler) HandleUpload(c *gin.Context) {
 	userID := GetUserID(c)
