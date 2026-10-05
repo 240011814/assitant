@@ -83,7 +83,7 @@ func IntItems(lengths ...float64) BarItemList {
 // 一维求解模式
 const (
 	BarModeFast    = "fast"    // 内置 DP+贪心 (默认)
-	BarModePrecise = "precise" // OR-Tools sidecar 精确求解 (需系统配置 cut_solver_url; 失败自动回退 fast)
+	BarModePrecise = "precise" // OR-Tools sidecar 精确求解 (需服务端配置 BAOSTOCK_API_URL; 失败自动回退 fast)
 )
 
 // BarRequest 一维切割请求

@@ -15,11 +15,11 @@ import (
 )
 
 type CutService struct {
-	configSvc *SystemConfigService // 精确求解地址 (cut_solver_url) 读取; 可为 nil
+	baostockURL string // Baostock sidecar 地址 (BAOSTOCK_API_URL), 兼任精确求解服务; 空 = 未启用精确模式
 }
 
-func NewCutService(configSvc *SystemConfigService) *CutService {
-	return &CutService{configSvc: configSvc}
+func NewCutService(baostockURL string) *CutService {
+	return &CutService{baostockURL: baostockURL}
 }
 
 // ===== 一维切割算法（列生成 + 贪心分配）=====
@@ -205,7 +205,7 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 				}
 				log.Printf("[Cut] 精确求解失败 (回退快速模式): %v", err)
 			} else {
-				log.Printf("[Cut] 精确模式未配置求解地址 (cut_solver_url), 回退快速模式")
+				log.Printf("[Cut] 精确模式未配置求解地址 (BAOSTOCK_API_URL), 回退快速模式")
 			}
 		}
 
@@ -235,7 +235,7 @@ func (s *CutService) precisePlaneCut(req model.BinRequest) (*model.PlaneCutRespo
 	}
 	client := s.solverClient()
 	if client == nil {
-		log.Printf("[Cut] 精确模式未配置求解地址 (cut_solver_url), 回退 MaxRects")
+		log.Printf("[Cut] 精确模式未配置求解地址 (BAOSTOCK_API_URL), 回退 MaxRects")
 		return fallback, nil
 	}
 	return s.solvePlanePrecise(client, req, fallback), nil

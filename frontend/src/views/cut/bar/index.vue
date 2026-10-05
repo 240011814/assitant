@@ -590,7 +590,7 @@ onUnmounted(() => {
             <template #trigger>
               <NSelect v-model:value="solveMode" class="w-44" :options="solveModeOptions" />
             </template>
-            精确模式使用 OR-Tools 列生成求全局更优解, 需服务端配置求解地址; 未配置或求解失败时自动回退快速模式
+            精确模式使用 OR-Tools 列生成求全局更优解, 由服务端 BAOSTOCK_API_URL 指向的求解服务计算; 未配置或求解失败时自动回退快速模式
           </NTooltip>
         </div>
       </div>

@@ -13,7 +13,7 @@ import (
 // 多材料规格/材料类型/旧料消费行为在这里固化
 
 func TestBarCutOversizedItem(t *testing.T) {
-	s := NewCutService(nil)
+	s := NewCutService("")
 	done := make(chan struct{})
 	var err error
 	go func() {
@@ -38,7 +38,7 @@ func TestBarCutOversizedItem(t *testing.T) {
 }
 
 func TestBarCutZeroItem(t *testing.T) {
-	s := NewCutService(nil)
+	s := NewCutService("")
 	_, err := s.BarCut(1, model.BarRequest{Items: model.IntItems(0), NewMaterialLength: 6000})
 	if err == nil {
 		t.Fatal("零长度零件应报错")
@@ -47,7 +47,7 @@ func TestBarCutZeroItem(t *testing.T) {
 }
 
 func TestBarCutNormal(t *testing.T) {
-	s := NewCutService(nil)
+	s := NewCutService("")
 	start := time.Now()
 	resp, err := s.BarCut(1, model.BarRequest{
 		Items:             model.IntItems(2000, 1500, 1500, 1000, 3000, 2500),
@@ -74,7 +74,7 @@ func TestBarCutNormal(t *testing.T) {
 
 func TestBarCutEnumExplosion(t *testing.T) {
 	// 6 种长度 × 每种 50 件: 旧实现 DFS 组合数 51^6 ≈ 1.8e10, 必然卡死; 新实现应跳过枚举快速返回
-	s := NewCutService(nil)
+	s := NewCutService("")
 	items := model.IntItems(111, 233, 457, 789, 1024, 1899)
 	for i := 0; i < 5; i++ {
 		items = append(items, items...)
@@ -106,7 +106,7 @@ func TestBarCutEnumExplosion(t *testing.T) {
 
 func TestPlaneCutUnplacedAndScraps(t *testing.T) {
 	// 二维: 零件大于所有材料 => 未排入(oversized); guillotine 应消费旧料
-	s := NewCutService(nil)
+	s := NewCutService("")
 	resp, err := s.PlaneCut(model.BinRequest{
 		Items: []model.Item{
 			{Label: "大件", Width: 3000, Height: 2000, Quantity: 1}, // 超出板材
@@ -153,7 +153,7 @@ func TestPlaneCutUnplacedAndScraps(t *testing.T) {
 
 func TestBarCutMultiMaterial(t *testing.T) {
 	// 多材料规格: 7000 与 4000 两种新材料; 零件 4500 只能进 7000, 小件应优先用 4000 减少浪费
-	s := NewCutService(nil)
+	s := NewCutService("")
 	resp, err := s.BarCut(1, model.BarRequest{
 		Items: model.IntItems(4500, 4500, 3500, 3500, 3500),
 		NewMaterials: []model.BarMaterial{
@@ -186,7 +186,7 @@ func TestBarCutMultiMaterial(t *testing.T) {
 
 func TestBarCutMultiMaterialOversize(t *testing.T) {
 	// 零件超过最长材料(6500 > 6000) => 入口报错
-	s := NewCutService(nil)
+	s := NewCutService("")
 	_, err := s.BarCut(1, model.BarRequest{
 		Items: model.IntItems(6500),
 		NewMaterials: []model.BarMaterial{
@@ -212,7 +212,7 @@ func TestBarCutMultiMaterialOversize(t *testing.T) {
 
 func TestBarCutMaterialTypes(t *testing.T) {
 	// 旧料对象形态(带类型) + 多规格新材料: 每根结果的 materialType 应正确标注
-	s := NewCutService(nil)
+	s := NewCutService("")
 	resp, err := s.BarCut(1, model.BarRequest{
 		Items: model.IntItems(3000, 3500, 3500),
 		Materials: model.BarMaterialList{

@@ -60,8 +60,6 @@ const ragApiKey = ref("");
 const ragChunkSize = ref(500);
 const ragChunkOverlap = ref(80);
 const ragTopK = ref(5);
-const savingCutSolver = ref(false);
-const cutSolverUrl = ref("");
 
 async function loadConfig() {
   loading.value = true;
@@ -192,9 +190,6 @@ async function loadConfig() {
 
       const ragTopKConfig = data.find((c: any) => c.key === "rag_top_k");
       ragTopK.value = ragTopKConfig ? Number(ragTopKConfig.value) : 5;
-
-      const cutSolverUrlConfig = data.find((c: any) => c.key === "cut_solver_url");
-      cutSolverUrl.value = cutSolverUrlConfig?.value || "";
     }
   } catch (err: any) {
     message.error(`加载配置失败: ${err?.message || "未知错误"}`);
@@ -406,22 +401,6 @@ async function handleSaveRag() {
     message.error(`保存失败: ${err?.message || "未知错误"}`);
   } finally {
     savingRag.value = false;
-  }
-}
-
-async function handleSaveCutSolver() {
-  savingCutSolver.value = true;
-  try {
-    await saveConfig(
-      "cut_solver_url",
-      cutSolverUrl.value.trim(),
-      "一维切割精确求解服务地址 (baostock sidecar, 留空=仅用内置快速算法)"
-    );
-    message.success("切割求解配置已保存, 即时生效");
-  } catch (err: any) {
-    message.error(`保存失败: ${err?.message || "未知错误"}`);
-  } finally {
-    savingCutSolver.value = false;
   }
 }
 
@@ -1088,27 +1067,6 @@ onMounted(() => {
                     测试连接
                   </NButton>
                 </div>
-              </NFormItem>
-            </NForm>
-          </div>
-
-          <!-- 切割求解 (OR-Tools) -->
-          <div class="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-            <div class="mb-4">
-              <div class="font-bold text-gray-800 dark:text-gray-200">切割求解 (OR-Tools)</div>
-              <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                一维切割「精确模式」的求解服务地址 (baostock 服务,
-                如 http://127.0.0.1:3002)。留空时仅使用内置快速算法；求解失败会自动回退，不影响计算。
-              </div>
-            </div>
-            <NForm label-placement="left" label-width="120">
-              <NFormItem label="服务地址">
-                <NInput v-model:value="cutSolverUrl" placeholder="http://127.0.0.1:3003" />
-              </NFormItem>
-              <NFormItem>
-                <NButton type="primary" :loading="savingCutSolver" @click="handleSaveCutSolver">
-                  保存切割求解配置
-                </NButton>
               </NFormItem>
             </NForm>
           </div>

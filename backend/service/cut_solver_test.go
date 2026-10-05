@@ -32,7 +32,7 @@ func TestSolvePreciseGroupAssembly(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := NewCutService(nil)
+	s := NewCutService("")
 	client := &cutSolverClient{baseURL: srv.URL, httpClient: &http.Client{}}
 	items := []aggItem{{length: 10, demand: 3}, {length: 7, demand: 2}}
 	demand := []int{3, 2}
@@ -71,7 +71,7 @@ func TestSolvePreciseGroupScrapShortage(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := NewCutService(nil)
+	s := NewCutService("")
 	client := &cutSolverClient{baseURL: srv.URL, httpClient: &http.Client{}}
 	items := []aggItem{{length: 10, demand: 3}}
 	_, _, err := s.solvePreciseGroup(client, items, []int{3}, []float64{60}, []string{""}, []float64{25, 25}, []string{"", ""}, 0, 5, 1)
@@ -82,7 +82,7 @@ func TestSolvePreciseGroupScrapShortage(t *testing.T) {
 
 // 未配置求解地址时, precise 模式自动回退快速算法, 结果照常产出
 func TestBarCutPreciseFallbackWithoutSolver(t *testing.T) {
-	s := NewCutService(nil)
+	s := NewCutService("")
 	resp, err := s.BarCut(1, model.BarRequest{
 		Items:             model.BarItemList{{Length: 2000}, {Length: 1500}},
 		NewMaterialLength: 6000,
@@ -101,7 +101,7 @@ func TestBarCutPreciseFallbackWithoutSolver(t *testing.T) {
 // 吸收 → 13 根/利用率 77.9%; 模式复用后 11 根/92.07%。
 // 下界: 零件总长 6076.4 / 600 = 10.13 → ≥11 根, 故 11 根为最优。
 func TestBarCutGreedyReusesHighUtilizationPatterns(t *testing.T) {
-	s := NewCutService(nil)
+	s := NewCutService("")
 	items := model.BarItemList{}
 	for i := 0; i < 20; i++ {
 		items = append(items, model.BarItem{Length: 185.5, Spec: "1"})
@@ -142,7 +142,7 @@ func TestBarCutGreedyReusesHighUtilizationPatterns(t *testing.T) {
 // 回归: 通用组多规格下, 兜底开料应选能装下零件的更大规格; 旧实现从 materialLens[0]
 // (最短规格) 起选, 装不下时 cuts=0 直接 break, 剩余需求被静默丢弃
 func TestBarCutLeftoverFallsBackToLargerSpec(t *testing.T) {
-	s := NewCutService(nil)
+	s := NewCutService("")
 	resp, err := s.BarCut(1, model.BarRequest{
 		Items: model.IntItems(500, 500, 500, 500, 500),
 		NewMaterials: []model.BarMaterial{

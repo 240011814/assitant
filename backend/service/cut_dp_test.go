@@ -7,7 +7,7 @@ import (
 // 贪心降序会失败的经典案例: L=100, 零件 {65, 60, 41, 39} 各 1 件
 // 贪心降序只能放下 65 (利用率 0.65); DP 精确解 60+39=99 (利用率 0.99)
 func TestDPPatternBeatsGreedy(t *testing.T) {
-	s := NewCutService(nil)
+	s := NewCutService("")
 	items := []aggItem{{length: 65, demand: 1}, {length: 60, demand: 1}, {length: 41, demand: 1}, {length: 39, demand: 1}}
 	demand := []int{1, 1, 1, 1}
 	patterns := s.generateInitialPatterns(items, demand, 100, nil, 0)
@@ -25,7 +25,7 @@ func TestDPPatternBeatsGreedy(t *testing.T) {
 
 // kerf 语义: used = n×len + kerf×(n−1)。L=10, kerf=2, len=4 → 最多 2 件 (8+2=10 恰好)
 func TestDPPatternKerfSemantics(t *testing.T) {
-	s := NewCutService(nil)
+	s := NewCutService("")
 	items := []aggItem{{length: 4, demand: 5}}
 	demand := []int{5}
 	patterns := s.generateInitialPatterns(items, demand, 10, nil, 2)
@@ -45,7 +45,7 @@ func TestDPPatternKerfSemantics(t *testing.T) {
 
 // 爆炸规模: 40 种类型 (旧 DFS 枚举空间远超 1e6 会直接放弃), DP 仍产出高利用率模式
 func TestDPPatternLargeScale(t *testing.T) {
-	s := NewCutService(nil)
+	s := NewCutService("")
 	types := 40
 	items := make([]aggItem, types)
 	demand := make([]int, types)
@@ -77,7 +77,7 @@ func TestDPPatternLargeScale(t *testing.T) {
 // 必含长料变体: 全局最优是 51+49=100 (不含 30), 贪心降序同样产出 51+49;
 // 只有"必含一件 30"的变体能产出 30+49=79 —— 保证 30 长度件有机会被认领
 func TestDPPatternForcedLongPiece(t *testing.T) {
-	s := NewCutService(nil)
+	s := NewCutService("")
 	items := []aggItem{
 		{length: 51, demand: 1},
 		{length: 49, demand: 1},

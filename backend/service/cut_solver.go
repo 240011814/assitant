@@ -14,11 +14,10 @@ import (
 )
 
 // ===== OR-Tools 精确求解 sidecar 客户端 (cut_api/, 与 baostock 同款 sidecar 模式) =====
-// 求解地址存 system_config `cut_solver_url` (空 = 未启用精确模式, 每次请求现读无需热刷新)。
+// 求解地址取 Baostock ENV `BAOSTOCK_API_URL` (sidecar 路由与行情同进程; 空 = 未启用精确模式)。
 // sidecar 失败/超时/解不完备时 BarCut 自动回退内置快速算法 (DP+贪心), 不阻断功能。
 
 const (
-	cutSolverURLKey  = "cut_solver_url"
 	cutSolverTimeout = 20 * time.Second
 	cutSolverBudget  = 8000 // 传给 sidecar 的求解预算 ms (含列生成 + 整数化)
 )
@@ -28,13 +27,9 @@ type cutSolverClient struct {
 	httpClient *http.Client
 }
 
-// solverClient 读配置构建客户端; 未配置返回 nil
+// solverClient 按 Baostock ENV 注入的地址构建客户端; 未配置返回 nil
 func (s *CutService) solverClient() *cutSolverClient {
-	if s.configSvc == nil {
-		return nil
-	}
-	url, _ := s.configSvc.GetValue(cutSolverURLKey)
-	url = strings.TrimSpace(url)
+	url := strings.TrimSpace(s.baostockURL)
 	if url == "" {
 		return nil
 	}

@@ -188,7 +188,7 @@ declare namespace Api {
       newMaterials?: NewMaterialSpec[];
       loss: number;
       utilizationWeight: number;
-      /** 求解模式: fast (默认, DP+贪心) / precise (OR-Tools 列生成, 需服务端配置求解地址) */
+      /** 求解模式: fast (默认, DP+贪心) / precise (OR-Tools 列生成, 走服务端 BAOSTOCK_API_URL 求解服务) */
       mode?: 'fast' | 'precise';
     }
   }

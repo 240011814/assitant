@@ -106,7 +106,7 @@ func main() {
 	dashboardService := service.NewDashboardService()
 	dashboardHandler := api.NewDashboardHandler(dashboardService)
 
-	cutService := service.NewCutService(systemConfigService)
+	cutService := service.NewCutService(cfg.Baostock.URL)
 	cutHandler := api.NewCutHandler(cutService)
 
 	promptHandler := api.NewPromptHandler(promptService)

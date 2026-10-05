@@ -54,7 +54,7 @@ func TestSolvePlanePreciseAssembly(t *testing.T) {
 	})
 	defer srv.Close()
 
-	s := NewCutService(nil)
+	s := NewCutService("")
 	req := cut2dTestRequest()
 	fallback, err := s.maxRectsCut(req)
 	if err != nil {
@@ -102,7 +102,7 @@ func TestSolvePlanePreciseOversizedAccepted(t *testing.T) {
 	})
 	defer srv.Close()
 
-	s := NewCutService(nil)
+	s := NewCutService("")
 	req := model.BinRequest{
 		Items: []model.Item{
 			{Label: "大件", Width: 3000, Height: 2000, Quantity: 1}, // 超出所有板
@@ -133,7 +133,7 @@ func TestSolvePlanePreciseOversizedAccepted(t *testing.T) {
 
 // 求解服务 500 / "unfit" 未排入 / 解不完备 / 规模超限 → 一律回退启发式结果
 func TestSolvePlanePreciseFallback(t *testing.T) {
-	s := NewCutService(nil)
+	s := NewCutService("")
 	req := cut2dTestRequest()
 	fallback, err := s.maxRectsCut(req)
 	if err != nil {
@@ -207,7 +207,7 @@ func TestSolvePlanePreciseFallback(t *testing.T) {
 
 // 未配置求解地址时 Precise 策略整体回退 MaxRects, 结果照常产出
 func TestPlaneCutPreciseFallbackWithoutSolver(t *testing.T) {
-	s := NewCutService(nil)
+	s := NewCutService("")
 	resp, err := s.PlaneCut(model.BinRequest{
 		Items: []model.Item{
 			{Label: "件A", Width: 400, Height: 300, Quantity: 3},
