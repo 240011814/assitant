@@ -265,10 +265,6 @@ onMounted(() => {
       <div v-if="docStatus && !docStatus.enabled" class="flex flex-col items-center gap-3 py-16">
         <SvgIcon icon="mdi:cloud-off-outline" class="text-56px text-gray-300 dark:text-gray-600" />
         <div class="text-base font-medium">文档功能未开启</div>
-        <div class="text-sm text-gray-400 text-center max-w-100 leading-6">
-          上传与管理文档依赖 S3 兼容对象存储, 当前未开启。
-          请先在「系统配置 → 文档存储」中开启并填写 Endpoint / Bucket / 密钥等配置, 配置保存后立即生效。
-        </div>
         <div class="flex items-center gap-2 mt-1">
           <NButton v-if="hasAuth('R_SUPER')" size="small" type="primary" @click="goConfig">
             <template #icon><SvgIcon icon="mdi:tune-variant" /></template>

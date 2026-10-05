@@ -23,8 +23,8 @@ func (CutRecord) TableName() string {
 
 // BarMaterial 一维材料 (旧料/新材料规格统一模型, 带类型名)
 type BarMaterial struct {
-	Label  string `json:"label"` // 类型名 (如: 长料 / 45#方管余料), 可空
-	Length int    `json:"length" binding:"required,min=1"`
+	Label  string  `json:"label"` // 类型名 (如: 长料 / 45#方管余料), 可空
+	Length float64 `json:"length" binding:"required,min=1"`
 }
 
 // BarMaterialList 兼容两种 JSON 形态: 旧请求的 [6000,4000] (纯长度) 与新的 [{label,length}]
@@ -34,7 +34,7 @@ func (l *BarMaterialList) UnmarshalJSON(data []byte) error {
 	var numbers []int
 	if err := json.Unmarshal(data, &numbers); err == nil {
 		for _, n := range numbers {
-			*l = append(*l, BarMaterial{Length: n})
+			*l = append(*l, BarMaterial{Length: float64(n)})
 		}
 		return nil
 	}
@@ -48,8 +48,8 @@ func (l *BarMaterialList) UnmarshalJSON(data []byte) error {
 
 // BarItem 一维切割尺寸 (零件), 可指定归属材料规格
 type BarItem struct {
-	Length int    `json:"length"`
-	Spec   string `json:"spec"` // 归属材料规格名 (newMaterials 的 label); 空=通用 (算法自由选料)
+	Length float64 `json:"length"`
+	Spec   string  `json:"spec"` // 归属材料规格名 (newMaterials 的 label); 空=通用 (算法自由选料)
 }
 
 // BarItemList 兼容两种 JSON 形态: 旧请求的 [2000,1500] (纯长度, 无规格) 与新的 [{length, spec}]
@@ -59,7 +59,7 @@ func (l *BarItemList) UnmarshalJSON(data []byte) error {
 	var numbers []int
 	if err := json.Unmarshal(data, &numbers); err == nil {
 		for _, n := range numbers {
-			*l = append(*l, BarItem{Length: n})
+			*l = append(*l, BarItem{Length: float64(n)})
 		}
 		return nil
 	}
@@ -72,7 +72,7 @@ func (l *BarItemList) UnmarshalJSON(data []byte) error {
 }
 
 // IntItems 由纯长度列表构造 ItemList (测试/内部便捷用)
-func IntItems(lengths ...int) BarItemList {
+func IntItems(lengths ...float64) BarItemList {
 	out := make(BarItemList, 0, len(lengths))
 	for _, n := range lengths {
 		out = append(out, BarItem{Length: n})
@@ -92,9 +92,9 @@ type BarRequest struct {
 	Materials BarMaterialList `json:"materials"` // 旧料 (带类型, 兼容纯长度数组)
 	// NewMaterials 新材料类型列表; 为空时回退 NewMaterialLength 单一规格 (兼容旧请求)
 	NewMaterials      []BarMaterial `json:"newMaterials"`
-	NewMaterialLength int           `json:"newMaterialLength"`
+	NewMaterialLength float64       `json:"newMaterialLength"`
 	Loss              float64       `json:"loss"`
-	UtilizationWeight int           `json:"utilizationWeight"`
+	UtilizationWeight float64       `json:"utilizationWeight"`
 	// Mode 求解模式: fast (默认) / precise (OR-Tools 列生成; 未配置求解地址或求解失败时自动回退 fast)
 	Mode string `json:"mode"`
 	// UseInventory 自动导入余料库存: 把当前用户的一维余料库存并入旧料参与计算,
@@ -104,12 +104,12 @@ type BarRequest struct {
 
 // BarResult 一维切割结果
 type BarResult struct {
-	Index        int     `json:"index"`
-	TotalLength  int     `json:"totalLength"`
-	Cuts         []int   `json:"cuts"`
-	Used         float64 `json:"used"`
-	Remaining    float64 `json:"remaining"`
-	MaterialType string  `json:"materialType"` // 材料类型 (新料规格名/旧料类型名, 空则前端显示"新材料")
+	Index        int       `json:"index"`
+	TotalLength  float64   `json:"totalLength"`
+	Cuts         []float64 `json:"cuts"`
+	Used         float64   `json:"used"`
+	Remaining    float64   `json:"remaining"`
+	MaterialType string    `json:"materialType"` // 材料类型 (新料规格名/旧料类型名, 空则前端显示"新材料")
 }
 
 // BarSummary 一维切割汇总 (利用率/余料统计, 供结果页展示与余料入库)

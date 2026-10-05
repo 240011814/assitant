@@ -50,12 +50,12 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 	// label -> 长度 (同名规格取首个定义)
 	specLen := make(map[string]float64)
 	specOrder := make([]string, 0, len(req.NewMaterials)+1)
-	registerSpec := func(label string, length int) error {
+	registerSpec := func(label string, length float64) error {
 		if length <= 0 {
 			return errors.New("新材料长度必须大于0")
 		}
 		if _, ok := specLen[label]; !ok {
-			specLen[label] = float64(length)
+			specLen[label] = length
 			specOrder = append(specOrder, label)
 		}
 		return nil
@@ -78,7 +78,7 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 
 	// 旧料展开: 用户输入 + (可选) 自动导入的一维余料库存, 统一 label 与库存 id
 	type scrapUnit struct {
-		length int
+		length float64
 		label  string
 		invID  uint
 	}
@@ -101,7 +101,7 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 					if label == "" {
 						label = "库存余料"
 					}
-					allScraps = append(allScraps, scrapUnit{length: int(item.LengthValue), label: label, invID: item.ID})
+					allScraps = append(allScraps, scrapUnit{length: item.LengthValue, label: label, invID: item.ID})
 				}
 			}
 		}
@@ -110,16 +110,16 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 	// 零件按规格分组: spec 非空的零件只从同名规格的材料上切, 空 spec 进通用组
 	genericSpec := "\x00generic" // 内部占位: 空 spec 归入通用组 (通用组可用全部规格的新料)
 	groupOrder := make([]string, 0, 4)
-	groupItems := make(map[string][]int)
+	groupItems := make(map[string][]float64)
 	for _, it := range req.Items {
 		if it.Length <= 0 {
-			return nil, fmt.Errorf("切割项目长度必须大于0, 存在非法项: %d", it.Length)
+			return nil, fmt.Errorf("切割项目长度必须大于0, 存在非法项: %v", it.Length)
 		}
 		spec := it.Spec
 		if spec == "" {
 			spec = genericSpec
 		} else if _, ok := specLen[spec]; !ok {
-			return nil, fmt.Errorf("尺寸长度 %d 引用了未定义的材料规格: %s", it.Length, spec)
+			return nil, fmt.Errorf("尺寸长度 %v 引用了未定义的材料规格: %s", it.Length, spec)
 		}
 		if _, ok := groupItems[spec]; !ok {
 			groupOrder = append(groupOrder, spec)
@@ -167,17 +167,17 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 
 		// 组内校验: 零件必须能装进该组最长材料, 否则死循环
 		for _, length := range lengths {
-			if float64(length) > maxLen {
+			if length > maxLen {
 				specName := spec
 				if spec == genericSpec {
 					specName = "通用"
 				}
-				return nil, fmt.Errorf("切割项目长度 %d 超过材料规格 %s 的最长材料 %d, 无法切割", length, specName, int(maxLen))
+				return nil, fmt.Errorf("切割项目长度 %v 超过材料规格 %s 的最长材料 %v, 无法切割", length, specName, maxLen)
 			}
 		}
 
 		// 组内旧料: 非通用组认领同名旧料; 通用组拿全部未被认领的
-		var groupScraps []int
+		var groupScraps []float64
 		var groupLabels []string
 		var groupInvIDs []uint
 		for i, sc := range allScraps {
@@ -203,7 +203,7 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 			fixed[i].Index = newIdx
 			newIdx++
 		}
-		restScraps := make([]int, len(restIdxs))
+		restScraps := make([]float64, len(restIdxs))
 		for i, idx := range restIdxs {
 			restScraps[i] = groupScraps[idx]
 		}
@@ -215,7 +215,7 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 			if client := s.solverClient(); client != nil {
 				precise, used, err := s.solvePreciseGroup(client, aggItems, remainingDemand, materialLens, materialLabels,
 					restScraps, restLabelsFrom(groupScraps, groupLabels, restIdxs), kerf,
-					float64(max(1, req.UtilizationWeight)), newIdx)
+					math.Max(1, req.UtilizationWeight), newIdx)
 				if err == nil {
 					results = precise
 					usedRestIdxs = used
@@ -278,7 +278,7 @@ func dedupeUint(in []uint) []uint {
 }
 
 // restLabelsFrom 从原下标映射出剩余旧料的类型名
-func restLabelsFrom(scraps []int, labels []string, restIdxs []int) []string {
+func restLabelsFrom(scraps []float64, labels []string, restIdxs []int) []string {
 	out := make([]string, len(restIdxs))
 	for i, idx := range restIdxs {
 		if idx < len(labels) {
@@ -293,9 +293,9 @@ func summarizeBarResults(results []model.BarResult) model.BarSummary {
 	summary := model.BarSummary{}
 	for _, r := range results {
 		summary.MaterialCount++
-		summary.TotalMaterialLength += float64(r.TotalLength)
+		summary.TotalMaterialLength += r.TotalLength
 		for _, c := range r.Cuts {
-			summary.TotalCutLength += float64(c)
+			summary.TotalCutLength += c
 		}
 		if r.Remaining > 0 {
 			summary.ScrapCount++
@@ -311,14 +311,14 @@ func summarizeBarResults(results []model.BarResult) model.BarSummary {
 }
 
 // aggregateItems 聚合相同长度的项目
-func (s *CutService) aggregateItems(items []int) []aggItem {
-	typeMap := make(map[int]*aggItem)
-	order := []int{}
+func (s *CutService) aggregateItems(items []float64) []aggItem {
+	typeMap := make(map[float64]*aggItem)
+	order := []float64{}
 
 	for i, item := range items {
 		if _, exists := typeMap[item]; !exists {
 			typeMap[item] = &aggItem{
-				length:  float64(item),
+				length:  item,
 				demand:  0,
 				indices: []int{},
 			}
@@ -337,7 +337,7 @@ func (s *CutService) aggregateItems(items []int) []aggItem {
 
 // preAssignExactScraps 旧料直配预分配
 // preAssignExactScraps 旧料直配预分配 (返回: 结果 / 剩余旧料的原下标 / 剩余需求)
-func (s *CutService) preAssignExactScraps(items []aggItem, scraps []int, scrapLabels []string, kerf float64) ([]model.BarResult, []int, []int) {
+func (s *CutService) preAssignExactScraps(items []aggItem, scraps []float64, scrapLabels []string, kerf float64) ([]model.BarResult, []int, []int) {
 	var results []model.BarResult
 	remainingDemand := make([]int, len(items))
 	for i, item := range items {
@@ -353,14 +353,14 @@ func (s *CutService) preAssignExactScraps(items []aggItem, scraps []int, scrapLa
 				continue
 			}
 			// 精确匹配
-			if item.length == float64(scrap) && remainingDemand[t] > 0 {
+			if item.length == scrap && remainingDemand[t] > 0 {
 				used[i] = true
 				remainingDemand[t]--
 
 				results = append(results, model.BarResult{
 					Index:        i + 1,
 					TotalLength:  scrap,
-					Cuts:         []int{int(item.length)},
+					Cuts:         []float64{item.length},
 					Used:         round2(item.length),
 					Remaining:    0,
 					MaterialType: scrapLabels[i],
@@ -387,7 +387,7 @@ func (s *CutService) preAssignExactScraps(items []aggItem, scraps []int, scrapLa
 }
 
 // generateInitialPatterns 生成初始切割模式
-func (s *CutService) generateInitialPatterns(items []aggItem, demand []int, L float64, scraps []int, kerf float64) []pattern {
+func (s *CutService) generateInitialPatterns(items []aggItem, demand []int, L float64, scraps []float64, kerf float64) []pattern {
 	var patterns []pattern
 	seen := make(map[string]bool)
 
@@ -395,7 +395,7 @@ func (s *CutService) generateInitialPatterns(items []aggItem, demand []int, L fl
 
 	// 1. 单一类型模式
 	for t := 0; t < types; t++ {
-		maxPieces := int(L / items[t].length)
+		maxPieces := int(L/items[t].length + 1e-9)
 		maxPieces = min(maxPieces, demand[t])
 
 		for p := 1; p <= maxPieces; p++ {
@@ -439,14 +439,14 @@ func (s *CutService) generateInitialPatterns(items []aggItem, demand []int, L fl
 	}
 
 	// 5. 旧料模式
-	dpScrapQty := make(map[int][]int) // 相同长度的旧料共享一次 DP 求解
+	dpScrapQty := make(map[float64][]int) // 相同长度的旧料共享一次 DP 求解
 	for idx, scrap := range scraps {
 		if scrap <= 0 {
 			continue
 		}
 		qty, ok := dpScrapQty[scrap]
 		if !ok {
-			if q, found := s.dpScrapBest(items, demand, float64(scrap), kerf); found {
+			if q, found := s.dpScrapBest(items, demand, scrap, kerf); found {
 				qty = q
 			} else {
 				qty = nil
@@ -459,14 +459,14 @@ func (s *CutService) generateInitialPatterns(items []aggItem, demand []int, L fl
 		}
 		if cuts > 0 {
 			used := s.dot(qty, items) + kerf*float64(max(0, cuts-1))
-			if used <= float64(scrap)+1e-6 {
+			if used <= scrap+1e-6 {
 				key := s.patternKey(qty) + "_scrap_" + itoa(idx)
 				if !seen[key] {
 					seen[key] = true
 					patterns = append(patterns, pattern{
 						qty:      qty,
 						used:     used,
-						capacity: float64(scrap),
+						capacity: scrap,
 						cuts:     cuts,
 						isNew:    false,
 						scrapIdx: idx,
@@ -485,7 +485,7 @@ func (s *CutService) dpScrapBest(items []aggItem, demand []int, scrapLen float64
 	if types == 0 || types > dpMaxTypes {
 		return nil, false
 	}
-	scale := dpScale(kerf)
+	scale := dpScale(kerf, items)
 	C := int(math.Round((scrapLen + kerf) * float64(scale)))
 	if C <= 0 || C > dpMaxCapacity {
 		return nil, false
@@ -494,7 +494,7 @@ func (s *CutService) dpScrapBest(items []aggItem, demand []int, scrapLen float64
 	caps := make([]int, types)
 	for t := 0; t < types; t++ {
 		weights[t] = int(math.Round((items[t].length + kerf) * float64(scale)))
-		caps[t] = min(int(scrapLen/items[t].length), demand[t])
+		caps[t] = min(int(scrapLen/items[t].length+1e-9), demand[t])
 		if weights[t] <= 0 || weights[t] > C {
 			caps[t] = 0
 		}
@@ -657,16 +657,16 @@ func (s *CutService) greedyPack(items []aggItem, capLen float64, maxCount []int,
 
 // solveGreedy 贪心求解 (多材料规格: 新料 pattern 按各自容量利用率参与排序, 总长取 pattern.capacity)
 // startIdx 为结果编号起点 (按规格分组求解时全局连续); 返回: 结果 / 被消费旧料在 scraps 中的下标
-func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []int, materialLens []float64, materialLabels []string, scraps []int, scrapLabels []string, kerf float64, startIdx int) ([]model.BarResult, []int) {
+func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []int, materialLens []float64, materialLabels []string, scraps []float64, scrapLabels []string, kerf float64, startIdx int) ([]model.BarResult, []int) {
 	types := len(items)
 	remaining := make([]int, len(demand))
 	copy(remaining, demand)
 
 	// 新料规格名: 长度 -> label (供结果标注材料类型)
-	lengthLabel := make(map[int]string, len(materialLens))
+	lengthLabel := make(map[float64]string, len(materialLens))
 	for i, l := range materialLens {
 		if i < len(materialLabels) && materialLabels[i] != "" {
-			lengthLabel[int(l)] = materialLabels[i]
+			lengthLabel[l] = materialLabels[i]
 		}
 	}
 
@@ -705,15 +705,15 @@ func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []i
 
 		if canUse {
 			// 使用此模式
-			cuts := []int{}
+			cuts := []float64{}
 			for t := 0; t < types; t++ {
 				for i := 0; i < p.qty[t]; i++ {
-					cuts = append(cuts, int(items[t].length))
+					cuts = append(cuts, items[t].length)
 				}
 			}
 
 			// 新料长度来自 pattern 所属材料规格 (capacity), 旧料取旧料原长
-			totalLength := int(p.capacity)
+			totalLength := p.capacity
 			materialType := lengthLabel[totalLength]
 			if !p.isNew && p.scrapIdx >= 0 {
 				totalLength = scraps[p.scrapIdx]
@@ -795,10 +795,10 @@ func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []i
 				}
 			}
 
-			cutLengths := []int{}
+			cutLengths := []float64{}
 			for t2, q := range qty {
 				for i := 0; i < q; i++ {
-					cutLengths = append(cutLengths, int(items[t2].length))
+					cutLengths = append(cutLengths, items[t2].length)
 				}
 			}
 
@@ -809,11 +809,11 @@ func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []i
 
 			results = append(results, model.BarResult{
 				Index:        newIdx,
-				TotalLength:  int(L),
+				TotalLength:  L,
 				Cuts:         cutLengths,
 				Used:         round2(used),
 				Remaining:    round2(L - used),
-				MaterialType: lengthLabel[int(L)],
+				MaterialType: lengthLabel[L],
 			})
 			newIdx++
 		}

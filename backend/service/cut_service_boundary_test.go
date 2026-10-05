@@ -166,17 +166,17 @@ func TestBarCutMultiMaterial(t *testing.T) {
 		t.Fatalf("多材料切割不应报错: %v", err)
 	}
 	// 校验: 每根材料要么是 7000 要么是 4000; 零件总长 19500 应全部切出
-	totalCut := 0
+	totalCut := 0.0
 	for _, r := range resp.Results {
 		if r.TotalLength != 7000 && r.TotalLength != 4000 {
-			t.Fatalf("材料长度 %d 不在规格列表内", r.TotalLength)
+			t.Fatalf("材料长度 %v 不在规格列表内", r.TotalLength)
 		}
 		for _, c := range r.Cuts {
 			totalCut += c
 		}
 	}
 	if totalCut != 19500 {
-		t.Fatalf("零件总长期望 19500, 实际 %d", totalCut)
+		t.Fatalf("零件总长期望 19500, 实际 %v", totalCut)
 	}
 	if resp.Summary.MaterialCount != len(resp.Results) {
 		t.Fatalf("汇总材料根数与结果不一致")

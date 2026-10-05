@@ -19,10 +19,25 @@ const (
 	dpMaxMemory    = 64 << 20 // DP 表内存上限, 超限跳过 DP (回退贪心路径)
 )
 
-// dpScale 离散化倍率: 使 kerf×scale 为整数 (kerf 精度最高 0.01)
-func dpScale(kerf float64) int {
-	for _, s := range []int{1, 10, 100} {
-		if v := kerf * float64(s); v == math.Trunc(v) {
+// dpScale 离散化倍率: 使 kerf×scale 与所有零件长度×scale 均为整数 (常规精度 0.01;
+// 长度带小数时自动升档, 无法整离散化时回退 0.01 粒度, 由调用方浮点复核兜底)
+func dpScale(kerf float64, items []aggItem) int {
+	integral := func(v float64) bool {
+		return math.Abs(v-math.Round(v)) < 1e-6
+	}
+	for _, s := range []int{1, 10, 100, 1000} {
+		fs := float64(s)
+		if !integral(kerf * fs) {
+			continue
+		}
+		ok := true
+		for _, it := range items {
+			if !integral(it.length * fs) {
+				ok = false
+				break
+			}
+		}
+		if ok {
 			return s
 		}
 	}
@@ -113,7 +128,7 @@ func (s *CutService) dpPatternsForCapacity(items []aggItem, demand []int, L floa
 	if types == 0 || types > dpMaxTypes || L <= 0 {
 		return nil
 	}
-	scale := dpScale(kerf)
+	scale := dpScale(kerf, items)
 	C := int(math.Round((L + kerf) * float64(scale)))
 	if C <= 0 || C > dpMaxCapacity {
 		return nil
@@ -124,7 +139,7 @@ func (s *CutService) dpPatternsForCapacity(items []aggItem, demand []int, L floa
 	order := make([]int, types) // 按长度降序 (必含变体用)
 	for t := 0; t < types; t++ {
 		weights[t] = int(math.Round((items[t].length + kerf) * float64(scale)))
-		maxPieces := int(L / items[t].length)
+		maxPieces := int(L/items[t].length + 1e-9)
 		caps[t] = min(maxPieces, demand[t])
 		if weights[t] <= 0 || weights[t] > C {
 			caps[t] = 0

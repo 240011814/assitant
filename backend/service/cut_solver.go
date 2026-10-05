@@ -87,7 +87,7 @@ type cutSolverResponse struct {
 // solvePreciseGroup 对一个规格组调 sidecar 精确求解。
 // 返回组装好的结果与被消费旧料下标 (相对 restScraps); 任何异常返回 error 由调用方回退快速模式。
 func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem, demand []int,
-	materialLens []float64, materialLabels []string, restScraps []int, restLabels []string,
+	materialLens []float64, materialLabels []string, restScraps []float64, restLabels []string,
 	kerf float64, utilWeight float64, startIdx int) ([]model.BarResult, []int, error) {
 
 	reqBody := cutSolverRequest{Kerf: kerf, TimeLimitMS: cutSolverBudget, UtilizationWeight: utilWeight}
@@ -102,7 +102,7 @@ func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem,
 		reqBody.Materials = append(reqBody.Materials, cutSolverMaterial{Label: label, Length: l})
 	}
 	for _, sc := range restScraps {
-		reqBody.Scraps = append(reqBody.Scraps, cutSolverScrap{Length: float64(sc)})
+		reqBody.Scraps = append(reqBody.Scraps, cutSolverScrap{Length: sc})
 	}
 
 	payload, err := json.Marshal(reqBody)
@@ -137,7 +137,7 @@ func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem,
 	}
 
 	// 旧料按长度排队 (保持输入顺序), 每消耗一根出队一个物理下标
-	scrapQueue := make(map[int][]int, len(restScraps))
+	scrapQueue := make(map[float64][]int, len(restScraps))
 	for idx, sc := range restScraps {
 		scrapQueue[sc] = append(scrapQueue[sc], idx)
 	}
@@ -175,9 +175,9 @@ func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem,
 			if bar.ScrapLength == nil {
 				return nil, nil, fmt.Errorf("求解响应旧料缺长度")
 			}
-			length := int(*bar.ScrapLength)
+			length := *bar.ScrapLength
 			if _, ok := scrapQueue[length]; !ok || len(scrapQueue[length]) == 0 {
-				return nil, nil, fmt.Errorf("旧料长度 %d 数量不足", length)
+				return nil, nil, fmt.Errorf("旧料长度 %v 数量不足", length)
 			}
 			capacity = float64(length)
 			materialType = "库存余料"
@@ -185,10 +185,10 @@ func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem,
 			return nil, nil, fmt.Errorf("未知求解来源: %s", bar.Source)
 		}
 
-		cutLengths := make([]int, 0, pieceCount)
+		cutLengths := make([]float64, 0, pieceCount)
 		for t, q := range bar.Pattern {
 			for i := 0; i < q; i++ {
-				cutLengths = append(cutLengths, int(items[t].length))
+				cutLengths = append(cutLengths, items[t].length)
 			}
 		}
 		used := s.dot(bar.Pattern, items) + kerf*float64(max(0, pieceCount-1))
@@ -198,10 +198,10 @@ func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem,
 
 		for k := 0; k < bar.Count; k++ {
 			if bar.Source == "scrap" {
-				length := int(*bar.ScrapLength)
+				length := *bar.ScrapLength
 				queue := scrapQueue[length]
 				if len(queue) == 0 {
-					return nil, nil, fmt.Errorf("旧料长度 %d 数量不足", length)
+					return nil, nil, fmt.Errorf("旧料长度 %v 数量不足", length)
 				}
 				scrapIdx := queue[0]
 				scrapQueue[length] = queue[1:]
@@ -212,7 +212,7 @@ func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem,
 			}
 			results = append(results, model.BarResult{
 				Index:        idx,
-				TotalLength:  int(capacity),
+				TotalLength:  capacity,
 				Cuts:         cutLengths,
 				Used:         round2(used),
 				Remaining:    round2(capacity - used),

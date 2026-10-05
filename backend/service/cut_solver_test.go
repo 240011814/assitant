@@ -37,7 +37,7 @@ func TestSolvePreciseGroupAssembly(t *testing.T) {
 	items := []aggItem{{length: 10, demand: 3}, {length: 7, demand: 2}}
 	demand := []int{3, 2}
 	results, usedRest, err := s.solvePreciseGroup(client, items, demand,
-		[]float64{60}, []string{"6m"}, []int{25, 25}, []string{"余料A", "余料B"}, 1, 5, 1)
+		[]float64{60}, []string{"6m"}, []float64{25, 25}, []string{"余料A", "余料B"}, 1, 5, 1)
 	if err != nil {
 		t.Fatalf("精确求解失败: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestSolvePreciseGroupScrapShortage(t *testing.T) {
 	s := NewCutService(nil)
 	client := &cutSolverClient{baseURL: srv.URL, httpClient: &http.Client{}}
 	items := []aggItem{{length: 10, demand: 3}}
-	_, _, err := s.solvePreciseGroup(client, items, []int{3}, []float64{60}, []string{""}, []int{25, 25}, []string{"", ""}, 0, 5, 1)
+	_, _, err := s.solvePreciseGroup(client, items, []int{3}, []float64{60}, []string{""}, []float64{25, 25}, []string{"", ""}, 0, 5, 1)
 	if err == nil {
 		t.Fatal("旧料超卖应报错")
 	}
