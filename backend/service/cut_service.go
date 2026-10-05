@@ -663,21 +663,25 @@ func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []i
 	scrapUsed := make([]bool, len(scraps))
 
 	for _, p := range patterns {
-		// 检查是否可以使用此模式
-		canUse := true
-		for t := 0; t < types; t++ {
-			if p.qty[t] > remaining[t] {
+		// 同一模式按剩余需求连续开多根 (旧料一根一发: 消费后 scrapUsed 置位, canUse 自然转 false)
+		for {
+			// 检查是否可以使用此模式
+			canUse := true
+			for t := 0; t < types; t++ {
+				if p.qty[t] > remaining[t] {
+					canUse = false
+					break
+				}
+			}
+
+			// 检查旧料是否已使用
+			if !p.isNew && p.scrapIdx >= 0 && scrapUsed[p.scrapIdx] {
 				canUse = false
+			}
+			if !canUse {
 				break
 			}
-		}
 
-		// 检查旧料是否已使用
-		if !p.isNew && p.scrapIdx >= 0 && scrapUsed[p.scrapIdx] {
-			canUse = false
-		}
-
-		if canUse {
 			// 使用此模式
 			cuts := []float64{}
 			for t := 0; t < types; t++ {
@@ -712,14 +716,25 @@ func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []i
 			for t := 0; t < types; t++ {
 				remaining[t] -= p.qty[t]
 			}
+
+			if !p.isNew {
+				break
+			}
 		}
 	}
 
 	// 处理剩余需求 (多材料: 每根新料选用"能容纳本类型零件的最小材料规格", 减少浪费)
 	for t := 0; t < types; t++ {
 		for remaining[t] > 0 {
-			// 选能容纳当前零件的最小材料长度
-			curLen := materialLens[0]
+			// 选能容纳当前零件的最小材料长度; 从最长规格起步 (BarCut 入口已校验装得下),
+			// 避免 materialLens[0] 装不下时 cuts=0 静默丢件
+			maxLen := materialLens[0]
+			for _, l := range materialLens {
+				if l > maxLen {
+					maxLen = l
+				}
+			}
+			curLen := maxLen
 			for _, l := range materialLens {
 				if l >= items[t].length && l < curLen {
 					curLen = l

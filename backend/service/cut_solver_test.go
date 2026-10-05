@@ -95,3 +95,72 @@ func TestBarCutPreciseFallbackWithoutSolver(t *testing.T) {
 		t.Fatalf("回退后应有结果: %+v", resp.Summary)
 	}
 }
+
+// 回归 (真实订单): 20×185.5 + 24×98.6, kerf 0.2, 600 新料。
+// 旧实现每个模式只开一根, 高利用率模式 (6×98.6) 用两根后剩余零件被低利用率模式零散
+// 吸收 → 13 根/利用率 77.9%; 模式复用后 11 根/92.07%。
+// 下界: 零件总长 6076.4 / 600 = 10.13 → ≥11 根, 故 11 根为最优。
+func TestBarCutGreedyReusesHighUtilizationPatterns(t *testing.T) {
+	s := NewCutService(nil)
+	items := model.BarItemList{}
+	for i := 0; i < 20; i++ {
+		items = append(items, model.BarItem{Length: 185.5, Spec: "1"})
+	}
+	for i := 0; i < 24; i++ {
+		items = append(items, model.BarItem{Length: 98.6, Spec: "1"})
+	}
+	resp, err := s.BarCut(1, model.BarRequest{
+		Items:        items,
+		NewMaterials: []model.BarMaterial{{Label: "1", Length: 600}},
+		Loss:         0.2,
+	})
+	if err != nil {
+		t.Fatalf("求解失败: %v", err)
+	}
+	if resp.Summary.MaterialCount != 11 {
+		t.Fatalf("应开 11 根新料, 实际 %d 根 (summary=%+v)", resp.Summary.MaterialCount, resp.Summary)
+	}
+	long, short := 0, 0
+	for _, r := range resp.Results {
+		for _, c := range r.Cuts {
+			switch c {
+			case 185.5:
+				long++
+			case 98.6:
+				short++
+			}
+		}
+	}
+	if long != 20 || short != 24 {
+		t.Fatalf("零件应全部切出: 185.5×%d (应 20), 98.6×%d (应 24)", long, short)
+	}
+	if resp.Summary.Utilization < 92 {
+		t.Fatalf("利用率应 ≥92%%, 实际 %v%%", resp.Summary.Utilization)
+	}
+}
+
+// 回归: 通用组多规格下, 兜底开料应选能装下零件的更大规格; 旧实现从 materialLens[0]
+// (最短规格) 起选, 装不下时 cuts=0 直接 break, 剩余需求被静默丢弃
+func TestBarCutLeftoverFallsBackToLargerSpec(t *testing.T) {
+	s := NewCutService(nil)
+	resp, err := s.BarCut(1, model.BarRequest{
+		Items: model.IntItems(500, 500, 500, 500, 500),
+		NewMaterials: []model.BarMaterial{
+			{Label: "short", Length: 100},
+			{Label: "long", Length: 600},
+		},
+	})
+	if err != nil {
+		t.Fatalf("求解失败: %v", err)
+	}
+	if len(resp.Results) != 5 {
+		t.Fatalf("5 件 500 应全部切出 (开 5 根 600 新料), 实际 %d 根: %+v", len(resp.Results), resp.Results)
+	}
+	totalCut := 0
+	for _, r := range resp.Results {
+		totalCut += len(r.Cuts)
+	}
+	if totalCut != 5 {
+		t.Fatalf("期望切出 5 件, 实际 %d", totalCut)
+	}
+}
