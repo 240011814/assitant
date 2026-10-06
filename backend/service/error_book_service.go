@@ -2,6 +2,7 @@ package service
 
 import (
 	"backend/model"
+	"log"
 )
 
 type ErrorBookService struct{}
@@ -117,10 +118,18 @@ func (s *ErrorBookService) GetErrorBookStats(userID uint) (map[string]interface{
 	var wordCount int64
 	var sentenceCount int64
 
-	DB.Model(&model.ErrorBook{}).Where("user_id = ?", userID).Count(&total)
-	DB.Model(&model.ErrorBook{}).Where("user_id = ? AND is_mastered = ?", userID, true).Count(&mastered)
-	DB.Model(&model.ErrorBook{}).Where("user_id = ? AND source_type = ?", userID, "vocabulary").Count(&wordCount)
-	DB.Model(&model.ErrorBook{}).Where("user_id = ? AND source_type = ?", userID, "course").Count(&sentenceCount)
+	if err := DB.Model(&model.ErrorBook{}).Where("user_id = ?", userID).Count(&total).Error; err != nil {
+		log.Printf("[error_book] 统计 total 失败 userID=%d: %v", userID, err)
+	}
+	if err := DB.Model(&model.ErrorBook{}).Where("user_id = ? AND is_mastered = ?", userID, true).Count(&mastered).Error; err != nil {
+		log.Printf("[error_book] 统计 mastered 失败 userID=%d: %v", userID, err)
+	}
+	if err := DB.Model(&model.ErrorBook{}).Where("user_id = ? AND source_type = ?", userID, "vocabulary").Count(&wordCount).Error; err != nil {
+		log.Printf("[error_book] 统计 wordCount 失败 userID=%d: %v", userID, err)
+	}
+	if err := DB.Model(&model.ErrorBook{}).Where("user_id = ? AND source_type = ?", userID, "course").Count(&sentenceCount).Error; err != nil {
+		log.Printf("[error_book] 统计 sentenceCount 失败 userID=%d: %v", userID, err)
+	}
 
 	return map[string]interface{}{
 		"total":         total,

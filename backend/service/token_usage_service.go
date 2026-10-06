@@ -251,9 +251,7 @@ func (s *TokenUsageService) ListRecords(p TokenUsageStatsParams, page, pageSize 
 	if err := query.Session(&gorm.Session{}).Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	if page < 1 {
-		page = 1
-	}
+	page = NormalizePage(page)
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}

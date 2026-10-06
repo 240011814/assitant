@@ -1,9 +1,0 @@
-{
-  "meta": {
-    "title": "tool_stock_screen",
-    "i18nKey": "route.tool_stock_screen",
-    "icon": "mdi:chart-line",
-    "permissions": ["stock:screen:view"],
-    "order": 11
-  }
-}

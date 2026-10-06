@@ -6,7 +6,6 @@ import (
 	"log"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
@@ -106,8 +105,7 @@ func (h *AIOrchestrationHandler) HandleValidate(c *gin.Context) {
 		SendError(c, "400", "请求参数错误: "+err.Error())
 		return
 	}
-	userID, _ := c.Get("userId")
-	uid, _ := userID.(uint)
+	uid, _ := currentUserID(c)
 	SendSuccess(c, h.svc.Validate(req.Definition, uid))
 }
 
@@ -128,26 +126,20 @@ func (h *AIOrchestrationHandler) HandleDebugRun(c *gin.Context) {
 		SendError(c, "400", "请求参数错误: "+err.Error())
 		return
 	}
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
 
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
+	setupSSE(c)
 
 	// SSE 写串行化: 节点事件来自回调 goroutine, delta 来自主循环
-	var mu sync.Mutex
-	emit := func(event string, payload any) {
-		mu.Lock()
-		defer mu.Unlock()
-		c.SSEvent(event, payload)
-	}
+	emit := newSSEEmitter(c).emit
 
-	_ = h.svc.DebugRun(c.Request.Context(), userID.(uint), &req, emit)
+	if err := h.svc.DebugRun(c.Request.Context(), userID, &req, emit); err != nil {
+		log.Printf("[orchestration] debug run error: id=%v err=%v", req.ID, err)
+	}
 }
 
 // HandleResolveApproval 处理一次编排工具审批决定 (调试/编排对话共用)。
@@ -165,7 +157,7 @@ func (h *AIOrchestrationHandler) HandleResolveApproval(c *gin.Context) {
 		SendError(c, "400", "请求参数错误: "+err.Error())
 		return
 	}
-	if _, exists := c.Get("userId"); !exists {
+	if _, ok := currentUserID(c); !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
@@ -232,12 +224,12 @@ func (h *AIOrchestrationHandler) HandleChatRun(c *gin.Context) {
 		SendError(c, "400", "请求参数错误: "+err.Error())
 		return
 	}
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
-	uid := userID.(uint)
+	uid := userID
 
 	orchID := int(id)
 	req := &model.DebugRunRequest{
@@ -258,11 +250,9 @@ func (h *AIOrchestrationHandler) HandleChatRun(c *gin.Context) {
 	var finalOutput string
 	var thinking strings.Builder
 
-	// SSE 写串行化: 节点事件来自回调 goroutine, delta 来自主循环
-	var mu sync.Mutex
+	// SSE 写串行化: 节点事件来自回调 goroutine, delta 来自主循环; 顺带捕获最终答案与思考供落库
+	em := newSSEEmitter(c)
 	emit := func(event string, payload any) {
-		mu.Lock()
-		defer mu.Unlock()
 		switch event {
 		case "summary":
 			if res, ok := payload.(*service.DebugRunResult); ok {
@@ -275,10 +265,12 @@ func (h *AIOrchestrationHandler) HandleChatRun(c *gin.Context) {
 				}
 			}
 		}
-		c.SSEvent(event, payload)
+		em.emit(event, payload)
 	}
 
-	_ = h.svc.DebugRun(c.Request.Context(), uid, req, emit)
+	if err := h.svc.DebugRun(c.Request.Context(), uid, req, emit); err != nil {
+		log.Printf("[orchestration] chat run error: orchID=%d userID=%d err=%v", orchID, uid, err)
+	}
 
 	// 「编排对话」持久化: 把本轮 user + 图级最终答案写入 training_histories。
 	// 无输出 (编译/启动失败) 时不落库, 避免留下空的半截会话。
@@ -298,9 +290,7 @@ func (h *AIOrchestrationHandler) HandleChatRun(c *gin.Context) {
 		if saveErr != nil {
 			log.Printf("[orchestration] save chat history failed user=%d orch=%d err=%v", uid, orchID, saveErr)
 		} else if body.HistoryID == 0 {
-			mu.Lock()
-			c.SSEvent("history_id", gin.H{"history_id": historyID, "title": "编排对话"})
-			mu.Unlock()
+			em.emit("history_id", gin.H{"history_id": historyID, "title": "编排对话"})
 		}
 	}
 }

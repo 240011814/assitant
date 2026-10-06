@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { NButton, NPopconfirm, NTag, useMessage } from 'naive-ui'
 import { useAuth } from '@/hooks/business/auth'
 import { deleteWatchlist, getWatchlist, stockConcepts, stockIndustries } from '@/service/api'
+import { $t } from '@/locales'
 
 defineOptions({ name: 'ToolWatchlist' })
 
@@ -36,17 +37,19 @@ const filterForm = reactive({
   excludeSt: true
 })
 
-const groupOptions = computed(() => Array.from(new Set(list.value.map(item => item.groupName || '默认'))))
+const groupOptions = computed(() =>
+  Array.from(new Set(list.value.map(item => item.groupName || $t('page.tool.watchlist.defaultGroup'))))
+)
 
 const filterTemplates = [
-  { label: 'PE(TTM)', field: 'peTtm', type: 'number' },
-  { label: 'PB', field: 'pb', type: 'number' },
-  { label: 'ROE(%)', field: 'roe', type: 'number' },
-  { label: '营收增长率(%)', field: 'revenueYoy', type: 'number' },
-  { label: '净利润增长率(%)', field: 'netProfitYoy', type: 'number' },
-  { label: '涨跌幅(%)', field: 'changePct', type: 'number' },
-  { label: '换手率(%)', field: 'turnoverRate', type: 'number' },
-  { label: '总市值(亿)', field: 'marketCap', type: 'number' }
+  { label: $t('page.tool.watchlist.field.peTtm'), field: 'peTtm', type: 'number' },
+  { label: $t('page.tool.watchlist.field.pb'), field: 'pb', type: 'number' },
+  { label: $t('page.tool.watchlist.field.roe'), field: 'roe', type: 'number' },
+  { label: $t('page.tool.watchlist.field.revenueYoy'), field: 'revenueYoy', type: 'number' },
+  { label: $t('page.tool.watchlist.field.netProfitYoy'), field: 'netProfitYoy', type: 'number' },
+  { label: $t('page.tool.watchlist.field.changePct'), field: 'changePct', type: 'number' },
+  { label: $t('page.tool.watchlist.field.turnoverRate'), field: 'turnoverRate', type: 'number' },
+  { label: $t('page.tool.watchlist.field.marketCap'), field: 'marketCap', type: 'number' }
 ]
 
 const operatorOptions = [
@@ -55,19 +58,19 @@ const operatorOptions = [
   { label: '<', value: 'lt' },
   { label: '<=', value: 'lte' },
   { label: '=', value: 'eq' },
-  { label: '区间', value: 'between' }
+  { label: $t('page.tool.watchlist.between'), value: 'between' }
 ]
 
 const marketOptions = [
-  { label: '沪市', value: 'SH' },
-  { label: '深市', value: 'SZ' },
-  { label: '北交所', value: 'BJ' }
+  { label: $t('page.tool.watchlist.marketSh'), value: 'SH' },
+  { label: $t('page.tool.watchlist.marketSz'), value: 'SZ' },
+  { label: $t('page.tool.watchlist.marketBj'), value: 'BJ' }
 ]
 
 const securityTypeOptions = [
-  { label: '股票', value: 1 },
-  { label: '指数', value: 2 },
-  { label: 'ETF', value: 5 }
+  { label: $t('page.tool.watchlist.typeStock'), value: 1 },
+  { label: $t('page.tool.watchlist.typeIndex'), value: 2 },
+  { label: $t('page.tool.watchlist.typeEtf'), value: 5 }
 ]
 
 const dynamicFilters = ref<
@@ -121,7 +124,11 @@ const filteredList = computed(() => {
   const kw = filterForm.keyword.trim().toLowerCase()
   return list.value.filter(item => {
     if (filterForm.excludeSt && item.isSt) return false
-    if (filterForm.groupNames.length > 0 && !filterForm.groupNames.includes(item.groupName || '默认')) return false
+    if (
+      filterForm.groupNames.length > 0 &&
+      !filterForm.groupNames.includes(item.groupName || $t('page.tool.watchlist.defaultGroup'))
+    )
+      return false
     if (filterForm.securityTypes.length > 0 && !filterForm.securityTypes.includes(item.type)) return false
     if (filterForm.markets.length > 0 && !filterForm.markets.includes(item.market)) return false
     if (filterForm.industries.length > 0 && !filterForm.industries.includes(item.industry)) return false
@@ -164,7 +171,7 @@ function rowKey(row: Api.Stock.WatchlistItem) {
 
 const columns = [
   {
-    title: '代码',
+    title: $t('page.tool.watchlist.code'),
     key: 'code',
     width: 80,
     fixed: 'left' as const,
@@ -178,27 +185,46 @@ const columns = [
         displayCode(row.code)
       )
   },
-  { title: '名称', key: 'name', width: 100, fixed: 'left' as const },
+  { title: $t('page.tool.watchlist.name'), key: 'name', width: 100, fixed: 'left' as const },
   {
-    title: '分组',
+    title: $t('page.tool.watchlist.group'),
     key: 'groupName',
     width: 100,
     render: (row: Api.Stock.WatchlistItem) =>
-      h(NTag, { size: 'small', bordered: false }, { default: () => row.groupName || '默认' })
+      h(
+        NTag,
+        { size: 'small', bordered: false },
+        { default: () => row.groupName || $t('page.tool.watchlist.defaultGroup') }
+      )
   },
   {
-    title: '类型',
+    title: $t('page.tool.watchlist.type'),
     key: 'type',
     width: 60,
     render: (row: Api.Stock.WatchlistItem) => {
-      if (row.type === 2) return h(NTag, { size: 'small', type: 'info', bordered: false }, { default: () => '指数' })
-      if (row.type === 5) return h(NTag, { size: 'small', type: 'warning', bordered: false }, { default: () => 'ETF' })
-      return '股票'
+      if (row.type === 2)
+        return h(
+          NTag,
+          { size: 'small', type: 'info', bordered: false },
+          { default: () => $t('page.tool.watchlist.typeIndex') }
+        )
+      if (row.type === 5)
+        return h(
+          NTag,
+          { size: 'small', type: 'warning', bordered: false },
+          { default: () => $t('page.tool.watchlist.typeEtf') }
+        )
+      return $t('page.tool.watchlist.typeStock')
     }
   },
-  { title: '现价', key: 'price', width: 80, render: (row: Api.Stock.WatchlistItem) => row.price?.toFixed(2) || '-' },
   {
-    title: '涨跌%',
+    title: $t('page.tool.watchlist.price'),
+    key: 'price',
+    width: 80,
+    render: (row: Api.Stock.WatchlistItem) => row.price?.toFixed(2) || '-'
+  },
+  {
+    title: $t('page.tool.watchlist.changePct'),
     key: 'changePct',
     width: 80,
     render: (row: Api.Stock.WatchlistItem) => {
@@ -208,47 +234,62 @@ const columns = [
     }
   },
   {
-    title: 'PE(TTM)',
+    title: $t('page.tool.watchlist.peTtm'),
     key: 'peTtm',
     width: 80,
     render: (row: Api.Stock.WatchlistItem) => row.peTtm?.toFixed(2) || '-'
   },
-  { title: 'PB', key: 'pb', width: 60, render: (row: Api.Stock.WatchlistItem) => row.pb?.toFixed(2) || '-' },
-  { title: 'ROE%', key: 'roe', width: 70, render: (row: Api.Stock.WatchlistItem) => row.roe?.toFixed(2) || '-' },
   {
-    title: '换手率%',
+    title: $t('page.tool.watchlist.pb'),
+    key: 'pb',
+    width: 60,
+    render: (row: Api.Stock.WatchlistItem) => row.pb?.toFixed(2) || '-'
+  },
+  {
+    title: $t('page.tool.watchlist.roe'),
+    key: 'roe',
+    width: 70,
+    render: (row: Api.Stock.WatchlistItem) => row.roe?.toFixed(2) || '-'
+  },
+  {
+    title: $t('page.tool.watchlist.turnoverRate'),
     key: 'turnoverRate',
     width: 80,
     render: (row: Api.Stock.WatchlistItem) => row.turnoverRate?.toFixed(2) || '-'
   },
   {
-    title: '市值(亿)',
+    title: $t('page.tool.watchlist.marketCap'),
     key: 'marketCap',
     width: 90,
     render: (row: Api.Stock.WatchlistItem) => row.marketCap?.toFixed(2) || '-'
   },
   {
-    title: '营收增长%',
+    title: $t('page.tool.watchlist.revenueYoy'),
     key: 'revenueYoy',
     width: 90,
     render: (row: Api.Stock.WatchlistItem) => row.revenueYoy?.toFixed(2) || '-'
   },
-  { title: '行业', key: 'industry', width: 80 },
+  { title: $t('page.tool.watchlist.industry'), key: 'industry', width: 80 },
   {
-    title: '操作',
+    title: $t('common.action'),
     key: 'actions',
     width: 100,
     fixed: 'right' as const,
     render: (row: Api.Stock.WatchlistItem) =>
       h('div', { class: 'flex gap-2' }, [
-        h(NButton, { size: 'tiny', text: true, onClick: () => goToDetail(row.code) }, { default: () => '详情' }),
+        h(
+          NButton,
+          { size: 'tiny', text: true, onClick: () => goToDetail(row.code) },
+          { default: () => $t('page.tool.watchlist.detail') }
+        ),
         canEdit.value
           ? h(
               NPopconfirm,
               { onPositiveClick: () => handleDelete(row.id) },
               {
-                trigger: () => h(NButton, { size: 'tiny', text: true, type: 'error' }, { default: () => '删除' }),
-                default: () => '确定删除该自选股?'
+                trigger: () =>
+                  h(NButton, { size: 'tiny', text: true, type: 'error' }, { default: () => $t('common.delete') }),
+                default: () => $t('page.tool.watchlist.deleteConfirm')
               }
             )
           : null
@@ -264,7 +305,7 @@ async function loadWatchlist() {
       list.value = data
     }
   } catch (e: any) {
-    message.error(e.message || '加载自选股失败')
+    message.error(e.message || $t('page.tool.watchlist.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -273,7 +314,7 @@ async function loadWatchlist() {
 async function handleDelete(id: number) {
   try {
     await deleteWatchlist(id)
-    message.success('已删除')
+    message.success($t('page.tool.watchlist.deleted'))
     await loadWatchlist()
     // 客户端分页: 删除后若当前页超出最大页, 回退避免空页
     const maxPage = Math.max(1, Math.ceil(filteredList.value.length / pageSize.value))
@@ -281,7 +322,7 @@ async function handleDelete(id: number) {
       currentPage.value = maxPage
     }
   } catch (e: any) {
-    message.error(e.message || '删除失败')
+    message.error(e.message || $t('page.tool.watchlist.deleteFailed'))
   }
 }
 
@@ -308,77 +349,83 @@ onMounted(async () => {
   <div class="flex h-full">
     <!-- 左侧筛选面板 -->
     <div class="w-72 border-r border-gray-200 p-4 overflow-y-auto flex-shrink-0">
-      <h3 class="text-lg font-bold mb-3">筛选条件</h3>
+      <h3 class="text-lg font-bold mb-3">{{ $t('page.tool.watchlist.filters') }}</h3>
 
       <div class="space-y-3">
-        <NInput v-model:value="filterForm.keyword" placeholder="输入股票代码或名称" clearable />
+        <NInput
+          v-model:value="filterForm.keyword"
+          :placeholder="$t('page.tool.watchlist.keywordPlaceholder')"
+          clearable
+        />
 
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">分组</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">{{ $t('page.tool.watchlist.group') }}</label>
           <NSelect
             v-model:value="filterForm.groupNames"
             :options="groupOptions.map(g => ({ label: g, value: g }))"
             multiple
-            placeholder="选择分组"
+            :placeholder="$t('page.tool.watchlist.groupPlaceholder')"
             clearable
           />
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">行业</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">{{ $t('page.tool.watchlist.industry') }}</label>
           <NSelect
             v-model:value="filterForm.industries"
             :options="industryOptions.map(i => ({ label: i, value: i }))"
             multiple
-            placeholder="选择行业"
+            :placeholder="$t('page.tool.watchlist.industryPlaceholder')"
             clearable
           />
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">概念板块</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">{{ $t('page.tool.watchlist.concept') }}</label>
           <NSelect
             v-model:value="filterForm.conceptNames"
             :options="conceptOptions"
             multiple
-            placeholder="选择概念"
+            :placeholder="$t('page.tool.watchlist.conceptPlaceholder')"
             clearable
             filterable
           />
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">证券类型</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            {{ $t('page.tool.watchlist.securityType') }}
+          </label>
           <NSelect
             v-model:value="filterForm.securityTypes"
             :options="securityTypeOptions"
             multiple
-            placeholder="不选=全部"
+            :placeholder="$t('page.tool.watchlist.securityTypePlaceholder')"
             clearable
           />
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">上市板块</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">{{ $t('page.tool.watchlist.market') }}</label>
           <NSelect
             v-model:value="filterForm.markets"
             :options="marketOptions"
             multiple
-            placeholder="选择板块"
+            :placeholder="$t('page.tool.watchlist.marketPlaceholder')"
             clearable
           />
         </div>
 
         <div class="flex items-center">
-          <NCheckbox v-model:checked="filterForm.excludeSt">排除ST</NCheckbox>
+          <NCheckbox v-model:checked="filterForm.excludeSt">{{ $t('page.tool.watchlist.excludeSt') }}</NCheckbox>
         </div>
       </div>
 
       <!-- 动态指标筛选 -->
       <div class="mt-4">
         <div class="flex items-center justify-between mb-2">
-          <h3 class="text-sm font-bold">指标筛选</h3>
-          <NButton size="small" @click="addFilter">+ 添加</NButton>
+          <h3 class="text-sm font-bold">{{ $t('page.tool.watchlist.metricFilters') }}</h3>
+          <NButton size="small" @click="addFilter">{{ $t('page.tool.watchlist.add') }}</NButton>
         </div>
         <div class="space-y-2">
           <div v-for="(filter, index) in dynamicFilters" :key="index" class="flex items-center gap-1">
@@ -394,13 +441,18 @@ onMounted(async () => {
               "
             />
             <NSelect v-model:value="filter.operator" :options="operatorOptions" size="small" class="w-16" />
-            <NInputNumber v-model:value="filter.value" size="small" class="w-20" placeholder="值" />
+            <NInputNumber
+              v-model:value="filter.value"
+              size="small"
+              class="w-20"
+              :placeholder="$t('page.tool.watchlist.valuePlaceholder')"
+            />
             <NInputNumber
               v-if="filter.operator === 'between'"
               v-model:value="filter.value2"
               size="small"
               class="w-20"
-              placeholder="至"
+              :placeholder="$t('page.tool.watchlist.toPlaceholder')"
             />
             <NButton size="small" text @click="removeFilter(index)">
               <template #icon><span class="i-material-icons-close text-red-500" /></template>
@@ -410,8 +462,8 @@ onMounted(async () => {
       </div>
 
       <div class="mt-4 space-y-2">
-        <NButton block :loading="loading" @click="loadWatchlist">刷新自选</NButton>
-        <NButton block @click="resetFilters">重置条件</NButton>
+        <NButton block :loading="loading" @click="loadWatchlist">{{ $t('page.tool.watchlist.refresh') }}</NButton>
+        <NButton block @click="resetFilters">{{ $t('page.tool.watchlist.reset') }}</NButton>
       </div>
     </div>
 
@@ -419,7 +471,9 @@ onMounted(async () => {
     <div class="flex-1 flex flex-col overflow-hidden">
       <div class="p-3 border-b border-gray-200 flex items-center justify-between">
         <span class="text-sm text-gray-600">
-          共 <strong>{{ filteredList.length }}</strong> 只自选股
+          {{ $t('page.tool.watchlist.totalPrefix') }}
+          <strong>{{ filteredList.length }}</strong>
+          {{ $t('page.tool.watchlist.totalSuffix') }}
         </span>
       </div>
 
@@ -434,7 +488,7 @@ onMounted(async () => {
           striped
         >
           <template #empty>
-            <NEmpty description="暂无自选股, 可在股票筛选中加入自选" />
+            <NEmpty :description="$t('page.tool.watchlist.empty')" />
           </template>
         </NDataTable>
       </div>

@@ -19,7 +19,7 @@ import {
   fetchResetUserPrompt,
   fetchSwitchUserPrompt,
   fetchDeleteUserPromptVersion,
-} from "@/service/api/ai";
+} from "@/service/api";
 import { format } from "date-fns";
 
  

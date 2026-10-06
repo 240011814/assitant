@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	iface "backend/interface"
@@ -76,7 +77,11 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 	// Telegram Bot Token 变更后重启 Bot
 	if req.Key == "telegram_bot_token" || req.Key == "telegram_enabled" || req.Key == "telegram_webhook_url" {
 		if h.telegramService != nil {
-			go h.telegramService.RestartBot()
+			go func() {
+				if err := h.telegramService.RestartBot(); err != nil {
+					log.Printf("[system_config] 重启 Telegram Bot 失败: %v", err)
+				}
+			}()
 		}
 	}
 
@@ -86,7 +91,11 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 		if req.Key == key {
 			h.configSvc.ReloadTimeoutConfig()
 			if h.aiAgentSvc != nil {
-				go h.aiAgentSvc.ReloadConfig()
+				go func() {
+					if err := h.aiAgentSvc.ReloadConfig(); err != nil {
+						log.Printf("[system_config] 超时配置重载失败: %v", err)
+					}
+				}()
 			}
 			break
 		}

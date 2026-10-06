@@ -411,6 +411,18 @@ export const generatedRoutes: GeneratedRoute[] = [
         }
       },
       {
+        name: 'system_mcp',
+        path: '/system/mcp',
+        component: 'view.system_mcp',
+        meta: {
+          title: 'system_mcp',
+          i18nKey: 'route.system_mcp',
+          icon: 'mdi:server-network-outline',
+          permissions: ['system:mcp:manage'],
+          order: 9
+        }
+      },
+      {
         name: 'system_model-scenario',
         path: '/system/model-scenario',
         component: 'view.system_model-scenario',
@@ -444,18 +456,6 @@ export const generatedRoutes: GeneratedRoute[] = [
           icon: 'mdi:puzzle-outline',
           permissions: ['system:skill:view'],
           order: 8
-        }
-      },
-      {
-        name: 'system_mcp',
-        path: '/system/mcp',
-        component: 'view.system_mcp',
-        meta: {
-          title: 'system_mcp',
-          i18nKey: 'route.system_mcp',
-          icon: 'mdi:server-network-outline',
-          permissions: ['system:mcp:manage'],
-          order: 9
         }
       },
       {
@@ -580,16 +580,6 @@ export const generatedRoutes: GeneratedRoute[] = [
     },
     children: [
       {
-        name: 'user_portrait',
-        path: '/user/portrait',
-        component: 'view.user_portrait',
-        meta: {
-          title: 'user_portrait',
-          i18nKey: 'route.user_portrait',
-          icon: 'mdi:account-details-outline'
-        }
-      },
-      {
         name: 'user_document',
         path: '/user/document',
         component: 'view.user_document',
@@ -598,6 +588,16 @@ export const generatedRoutes: GeneratedRoute[] = [
           i18nKey: 'route.user_document',
           icon: 'mdi:file-document-multiple-outline',
           permissions: ['document:view']
+        }
+      },
+      {
+        name: 'user_portrait',
+        path: '/user/portrait',
+        component: 'view.user_portrait',
+        meta: {
+          title: 'user_portrait',
+          i18nKey: 'route.user_portrait',
+          icon: 'mdi:account-details-outline'
         }
       },
       {

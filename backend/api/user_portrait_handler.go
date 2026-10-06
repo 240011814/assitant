@@ -4,7 +4,9 @@ import (
 	"backend/model"
 	"backend/service"
 	"encoding/json"
+	"log"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -60,8 +62,12 @@ func toPortraitView(p *model.UserPortrait) *portraitView {
 		ExtractionEnabled: p.ExtractionEnabled,
 		UpdatedAt:         &p.UpdatedAt,
 	}
-	_ = json.Unmarshal([]byte(p.Dimensions), &v.Dimensions)
-	_ = json.Unmarshal([]byte(p.Tags), &v.Tags)
+	if err := json.Unmarshal([]byte(p.Dimensions), &v.Dimensions); err != nil && strings.TrimSpace(p.Dimensions) != "" {
+		log.Printf("[user_portrait] dimensions JSON 解析失败 portraitID=%d: %v", p.ID, err)
+	}
+	if err := json.Unmarshal([]byte(p.Tags), &v.Tags); err != nil && strings.TrimSpace(p.Tags) != "" {
+		log.Printf("[user_portrait] tags JSON 解析失败 portraitID=%d: %v", p.ID, err)
+	}
 	if v.Dimensions == nil {
 		v.Dimensions = map[string]string{}
 	}
@@ -75,7 +81,9 @@ func toExperienceViews(list []model.UserExperience) []experienceView {
 	views := make([]experienceView, 0, len(list))
 	for _, e := range list {
 		var tags []string
-		_ = json.Unmarshal([]byte(e.Tags), &tags)
+		if err := json.Unmarshal([]byte(e.Tags), &tags); err != nil && strings.TrimSpace(e.Tags) != "" {
+			log.Printf("[user_portrait] 经历 tags JSON 解析失败 experienceID=%d: %v", e.ID, err)
+		}
 		if tags == nil {
 			tags = []string{}
 		}
@@ -101,18 +109,9 @@ func toExperienceViews(list []model.UserExperience) []experienceView {
 	return views
 }
 
-func userIDFromContext(c *gin.Context) (uint, bool) {
-	val, exists := c.Get("userId")
-	if !exists {
-		return 0, false
-	}
-	id, ok := val.(uint)
-	return id, ok
-}
-
 // GetPortrait 获取画像 + 经历列表(首屏)
 func (h *UserPortraitHandler) GetPortrait(c *gin.Context) {
-	userID, ok := userIDFromContext(c)
+	userID, ok := currentUserID(c)
 	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
@@ -136,7 +135,7 @@ func (h *UserPortraitHandler) GetPortrait(c *gin.Context) {
 }
 
 func (h *UserPortraitHandler) UpdatePortrait(c *gin.Context) {
-	userID, ok := userIDFromContext(c)
+	userID, ok := currentUserID(c)
 	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
@@ -155,7 +154,7 @@ func (h *UserPortraitHandler) UpdatePortrait(c *gin.Context) {
 }
 
 func (h *UserPortraitHandler) ListExperiences(c *gin.Context) {
-	userID, ok := userIDFromContext(c)
+	userID, ok := currentUserID(c)
 	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
@@ -178,7 +177,7 @@ func (h *UserPortraitHandler) ListExperiences(c *gin.Context) {
 }
 
 func (h *UserPortraitHandler) CreateExperience(c *gin.Context) {
-	userID, ok := userIDFromContext(c)
+	userID, ok := currentUserID(c)
 	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
@@ -198,7 +197,7 @@ func (h *UserPortraitHandler) CreateExperience(c *gin.Context) {
 }
 
 func (h *UserPortraitHandler) UpdateExperience(c *gin.Context) {
-	userID, ok := userIDFromContext(c)
+	userID, ok := currentUserID(c)
 	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
@@ -222,7 +221,7 @@ func (h *UserPortraitHandler) UpdateExperience(c *gin.Context) {
 }
 
 func (h *UserPortraitHandler) DeleteExperience(c *gin.Context) {
-	userID, ok := userIDFromContext(c)
+	userID, ok := currentUserID(c)
 	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
@@ -241,7 +240,7 @@ func (h *UserPortraitHandler) DeleteExperience(c *gin.Context) {
 
 // TriggerExtract 手动触发当前用户的画像/经历抽取
 func (h *UserPortraitHandler) TriggerExtract(c *gin.Context) {
-	userID, ok := userIDFromContext(c)
+	userID, ok := currentUserID(c)
 	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return

@@ -1,7 +1,0 @@
-{
-  "title": "系统概览",
-  "i18nKey": "route.system_dashboard",
-  "icon": "mdi:view-dashboard-outline",
-  "permissions": ["system:dashboard:view"],
-  "order": 1
-}

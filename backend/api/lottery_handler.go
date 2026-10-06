@@ -285,9 +285,7 @@ func (h *LotteryHandler) HandleListRecords(c *gin.Context) {
 	page, _ := strconv.Atoi(pageStr)
 	pageSize, _ := strconv.Atoi(pageSizeStr)
 
-	if page < 1 {
-		page = 1
-	}
+	page = service.NormalizePage(page)
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 10
 	}
@@ -333,9 +331,7 @@ func (h *LotteryHandler) HandleListWinners(c *gin.Context) {
 	page, _ := strconv.Atoi(pageStr)
 	pageSize, _ := strconv.Atoi(pageSizeStr)
 
-	if page < 1 {
-		page = 1
-	}
+	page = service.NormalizePage(page)
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 10
 	}

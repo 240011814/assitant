@@ -103,9 +103,13 @@ func (s *UserMemoryService) BuildProfilePrompt(userID uint) string {
 	}
 
 	var dims map[string]string
-	_ = json.Unmarshal([]byte(p.Dimensions), &dims)
+	if err := json.Unmarshal([]byte(p.Dimensions), &dims); err != nil && strings.TrimSpace(p.Dimensions) != "" {
+		log.Printf("[user_memory] 画像 dimensions JSON 解析失败 userID=%d: %v", userID, err)
+	}
 	var tags []string
-	_ = json.Unmarshal([]byte(p.Tags), &tags)
+	if err := json.Unmarshal([]byte(p.Tags), &tags); err != nil && strings.TrimSpace(p.Tags) != "" {
+		log.Printf("[user_memory] 画像 tags JSON 解析失败 userID=%d: %v", userID, err)
+	}
 
 	if strings.TrimSpace(p.Summary) == "" && len(dims) == 0 && len(tags) == 0 {
 		return ""
@@ -119,7 +123,7 @@ func (s *UserMemoryService) BuildProfilePrompt(userID uint) string {
 	written := make(map[string]bool, len(dims))
 	for _, k := range dimensionOrder {
 		if v, ok := dims[k]; ok && strings.TrimSpace(v) != "" {
-			b.WriteString(fmt.Sprintf("- %s：%s\n", dimensionLabel(k), strings.TrimSpace(v)))
+			fmt.Fprintf(&b, "- %s：%s\n", dimensionLabel(k), strings.TrimSpace(v))
 			written[k] = true
 		}
 	}
@@ -127,7 +131,7 @@ func (s *UserMemoryService) BuildProfilePrompt(userID uint) string {
 		if written[k] || strings.TrimSpace(v) == "" {
 			continue
 		}
-		b.WriteString(fmt.Sprintf("- %s：%s\n", k, strings.TrimSpace(v)))
+		fmt.Fprintf(&b, "- %s：%s\n", k, strings.TrimSpace(v))
 	}
 	if len(tags) > 0 {
 		b.WriteString("标签：" + strings.Join(tags, "、") + "\n")
@@ -194,9 +198,7 @@ func (s *UserMemoryService) UpdatePortrait(userID uint, req model.UpdateUserPort
 // ============ 经历 CRUD ============
 
 func (s *UserMemoryService) ListExperiences(userID uint, page, pageSize int, domain, keyword string) (int64, []model.UserExperience, error) {
-	if page < 1 {
-		page = 1
-	}
+	page = NormalizePage(page)
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
@@ -220,9 +222,7 @@ func (s *UserMemoryService) ListExperiences(userID uint, page, pageSize int, dom
 }
 
 func (s *UserMemoryService) SearchExperiences(userID uint, query string, page, pageSize int) (int64, []model.UserExperience, error) {
-	if page < 1 {
-		page = 1
-	}
+	page = NormalizePage(page)
 	if pageSize <= 0 || pageSize > 50 {
 		pageSize = 10
 	}
@@ -729,7 +729,9 @@ func (s *UserMemoryService) setState(historyID, userID uint, status string, last
 			now := time.Now()
 			st.ExtractedAt = &now
 		}
-		DB.Create(&st)
+		if err := DB.Create(&st).Error; err != nil {
+			log.Printf("[user_memory] 抽取状态落库失败 historyID=%d status=%s: %v", historyID, status, err)
+		}
 		return
 	}
 	updates := map[string]interface{}{"status": status, "error": errMsg}
@@ -739,7 +741,9 @@ func (s *UserMemoryService) setState(historyID, userID uint, status string, last
 	if status == model.MemoryExtractionStatusDone {
 		updates["extracted_at"] = time.Now()
 	}
-	DB.Model(&model.MemoryExtractionState{}).Where("history_id = ?", historyID).Updates(updates)
+	if err := DB.Model(&model.MemoryExtractionState{}).Where("history_id = ?", historyID).Updates(updates).Error; err != nil {
+		log.Printf("[user_memory] 抽取状态更新失败 historyID=%d status=%s: %v", historyID, status, err)
+	}
 }
 
 // ============ LLM ============

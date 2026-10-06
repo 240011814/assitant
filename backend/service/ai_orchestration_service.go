@@ -209,7 +209,7 @@ func orchIssueMessages(issues []orchValidateIssue) []string {
 func orchIssueDTOs(issues []orchValidateIssue) []OrchestrationValidationIssue {
 	out := make([]OrchestrationValidationIssue, 0, len(issues))
 	for _, is := range issues {
-		out = append(out, OrchestrationValidationIssue{NodeID: is.NodeID, Message: is.Message})
+		out = append(out, OrchestrationValidationIssue(is))
 	}
 	return out
 }

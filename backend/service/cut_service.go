@@ -87,9 +87,8 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 		if m.Length <= 0 {
 			continue
 		}
-		for i := 0; i < 1; i++ { // materials 每条即一根 (与旧语义一致)
-			allScraps = append(allScraps, scrapUnit{length: m.Length, label: m.Label})
-		}
+		// materials 每条即一根 (与旧语义一致)
+		allScraps = append(allScraps, scrapUnit{length: m.Length, label: m.Label})
 	}
 
 	// 零件按规格分组: spec 非空的零件只从同名规格的材料上切, 空 spec 进通用组
@@ -408,9 +407,7 @@ func (s *CutService) generateInitialPatterns(items []aggItem, demand []int, L fl
 	}
 
 	// 4. DP 背包精确模式 (替代原 DFS 全组合枚举: O(类型×容量) 无组合爆炸, 大订单不再放弃)
-	for _, p := range s.dpPatternsForCapacity(items, demand, L, kerf, true, -1, seen) {
-		patterns = append(patterns, p)
-	}
+	patterns = append(patterns, s.dpPatternsForCapacity(items, demand, L, kerf, true, -1, seen)...)
 
 	// 5. 旧料模式
 	dpScrapQty := make(map[float64][]int) // 相同长度的旧料共享一次 DP 求解
@@ -589,44 +586,6 @@ func (s *CutService) mixedPattern(items []aggItem, demand []int, L float64, kerf
 		}
 	}
 	return nil
-}
-
-// greedyPack 贪心装箱
-func (s *CutService) greedyPack(items []aggItem, capLen float64, maxCount []int, kerf float64) []int {
-	types := len(items)
-	take := make([]int, types)
-	used := 0.0
-	cuts := 0
-
-	// 按长度降序排列
-	indices := make([]int, types)
-	for i := range indices {
-		indices[i] = i
-	}
-	sort.Slice(indices, func(i, j int) bool {
-		return items[indices[i]].length > items[indices[j]].length
-	})
-
-	updated := true
-	for updated {
-		updated = false
-		for _, id := range indices {
-			if take[id] >= maxCount[id] {
-				continue
-			}
-			next := used + items[id].length
-			if cuts > 0 {
-				next += kerf
-			}
-			if next <= capLen+1e-9 {
-				take[id]++
-				cuts++
-				used = next
-				updated = true
-			}
-		}
-	}
-	return take
 }
 
 // solveGreedy 贪心求解 (多材料规格: 新料 pattern 按各自容量利用率参与排序, 总长取 pattern.capacity)
@@ -1506,14 +1465,7 @@ func (s *CutService) expandItems(items []model.Item) []model.Item {
 
 // SaveCutRecord 保存切割记录; 随单扣减从库存带入且被消耗的旧料 (扣减失败则整体失败, 不产生记录)
 func (s *CutService) SaveCutRecord(userID uint, req model.RecordRequest) (*model.CutRecord, error) {
-	if len(req.DeductScraps) > 0 {
-		if err := s.DeductScraps(userID, req.DeductScraps); err != nil {
-			return nil, err
-		}
-	}
-
 	code := s.generateCode(req.Type)
-
 	record := model.CutRecord{
 		ID:         uuid.New().String(),
 		Type:       req.Type,
@@ -1525,10 +1477,18 @@ func (s *CutService) SaveCutRecord(userID uint, req model.RecordRequest) (*model
 		Name:       req.Name,
 	}
 
-	if err := DB.Create(&record).Error; err != nil {
+	// 扣减与建记录必须同事务: 只扣减不落记录 = 库存凭空消失
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if len(req.DeductScraps) > 0 {
+			if err := deductScrapsTx(tx, userID, req.DeductScraps); err != nil {
+				return err
+			}
+		}
+		return tx.Create(&record).Error
+	})
+	if err != nil {
 		return nil, err
 	}
-
 	return &record, nil
 }
 
@@ -1641,13 +1601,19 @@ func (s *CutService) DeleteScrap(userID, id uint) error {
 	return nil
 }
 
-// DeductScraps 批量扣减库存余料 (一维, quantity -= count, 归零自动删除); 库存不足报错
+// DeductScraps 批量扣减库存余料 (一维, quantity -= count, 归零自动删除); 库存不足报错整体回滚
 func (s *CutService) DeductScraps(userID uint, items []model.DeductScrapItem) error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		return deductScrapsTx(tx, userID, items)
+	})
+}
+
+func deductScrapsTx(tx *gorm.DB, userID uint, items []model.DeductScrapItem) error {
 	for _, item := range items {
 		if item.ID == 0 || item.Count < 1 {
 			return errors.New("扣减项非法")
 		}
-		result := DB.Model(&model.CutScrap{}).
+		result := tx.Model(&model.CutScrap{}).
 			Where("id = ? AND user_id = ? AND scrap_type = ? AND quantity >= ?", item.ID, userID, 1, item.Count).
 			Update("quantity", gorm.Expr("quantity - ?", item.Count))
 		if result.Error != nil {
@@ -1658,7 +1624,7 @@ func (s *CutService) DeductScraps(userID uint, items []model.DeductScrapItem) er
 		}
 	}
 	// 扣至归零的条目自动清理
-	return DB.Where("user_id = ? AND quantity <= 0", userID).Delete(&model.CutScrap{}).Error
+	return tx.Where("user_id = ? AND quantity <= 0", userID).Delete(&model.CutScrap{}).Error
 }
 
 // UpdateScrap 修改库存余料 (仅本人)
@@ -1676,7 +1642,8 @@ func (s *CutService) UpdateScrap(userID, id uint, req model.UpdateScrapRequest) 
 }
 
 func itoa(i int) string {
-	return string(rune('0'+i)) + ""
+	// 请求内临时 map key 的数字后缀, 三处调用点共用, 必须同一实现 (旧 rune 写法 i>=10 会变标点)
+	return strconv.Itoa(i)
 }
 
 func min(a, b int) int {

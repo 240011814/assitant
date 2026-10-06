@@ -289,9 +289,7 @@ func (s *UserDocumentService) parseAndStore(ctx context.Context, doc *model.User
 
 // List 分页列出用户文档 (时间倒序)
 func (s *UserDocumentService) List(userID uint, page, pageSize int) ([]model.UserDocument, int64, error) {
-	if page <= 0 {
-		page = 1
-	}
+	page = NormalizePage(page)
 	if pageSize <= 0 || pageSize > 100 {
 		pageSize = 20
 	}
@@ -357,7 +355,30 @@ func (s *UserDocumentService) DownloadURL(userID uint, id uint) (string, error) 
 	return s3s.PresignGet(ctx, doc.ObjectKey, docPresignExpiry)
 }
 
-// ReadDocumentChunk 按字符区间读取解析文本 (rune 级分页, 避免切断多字节字符)
+// docChunk 按 rune 区间切片 (rune 级分页, 避免切断多字节字符):
+// offset<0 归 0, length<=0 取默认 6000, 超 docMaxChunk 封顶, offset 越界返回空串
+func docChunk(text string, offset, length int) (string, int) {
+	runes := []rune(text)
+	if offset < 0 {
+		offset = 0
+	}
+	if length <= 0 {
+		length = docDefaultChunk
+	}
+	if length > docMaxChunk {
+		length = docMaxChunk
+	}
+	if offset >= len(runes) {
+		return "", len(runes)
+	}
+	end := offset + length
+	if end > len(runes) {
+		end = len(runes)
+	}
+	return string(runes[offset:end]), len(runes)
+}
+
+// ReadDocumentChunk 按字符区间读取解析文本
 func (s *UserDocumentService) ReadDocumentChunk(userID uint, id uint, offset, length int) (string, int, string, error) {
 	doc, err := s.Get(userID, id)
 	if err != nil {
@@ -376,24 +397,8 @@ func (s *UserDocumentService) ReadDocumentChunk(userID uint, id uint, offset, le
 	if err != nil {
 		return "", 0, "", fmt.Errorf("读取解析文本失败: %w", err)
 	}
-	runes := []rune(string(data))
-	if offset < 0 {
-		offset = 0
-	}
-	if length <= 0 {
-		length = docDefaultChunk
-	}
-	if length > docMaxChunk {
-		length = docMaxChunk
-	}
-	if offset >= len(runes) {
-		return "", len(runes), doc.Filename, nil
-	}
-	end := offset + length
-	if end > len(runes) {
-		end = len(runes)
-	}
-	return string(runes[offset:end]), len(runes), doc.Filename, nil
+	chunk, total := docChunk(string(data), offset, length)
+	return chunk, total, doc.Filename, nil
 }
 
 // ListDocuments / ReadDocumentChunk 实现 interfaces.UserDocumentStore (注入 AI 工具)

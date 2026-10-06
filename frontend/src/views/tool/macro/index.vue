@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { NButton, useMessage } from 'naive-ui'
 import { useAuth } from '@/hooks/business/auth'
+import { $t } from '@/locales'
 import {
   fetchSyncStatus,
   getDepositRates,
@@ -71,7 +72,7 @@ async function loadAll() {
     if (pmiRes.data) pmiData.value = pmiRes.data
     if (ppiRes.data) ppiData.value = ppiRes.data
   } catch (e: any) {
-    message.error(e.message || '加载宏观经济数据失败')
+    message.error(e.message || $t('page.tool.macro.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -110,9 +111,9 @@ async function refreshSyncStatus() {
       syncRunning.value = data.running
       if (wasRunning && !data.running) {
         if (data.lastError) {
-          message.error(`同步失败: ${data.lastError}`)
+          message.error($t('page.tool.macro.syncFailed', { error: data.lastError }))
         } else {
-          message.success('数据同步完成，已刷新')
+          message.success($t('page.tool.macro.syncDone'))
         }
         loadAll()
       }
@@ -130,14 +131,14 @@ async function handleSync() {
   try {
     await syncMacroData()
     syncRunning.value = true
-    message.success('同步任务已启动')
+    message.success($t('page.tool.macro.syncStarted'))
     if (syncPollTimer) {
       clearTimeout(syncPollTimer)
       syncPollTimer = null
     }
     refreshSyncStatus()
   } catch (e: any) {
-    message.error(e.message || '启动同步失败')
+    message.error(e.message || $t('page.tool.macro.syncStartFailed'))
   }
 }
 
@@ -155,45 +156,49 @@ onUnmounted(() => {
   <div class="h-full flex flex-col gap-4 p-4 overflow-auto">
     <div class="flex items-center justify-between">
       <div>
-        <h2 class="text-lg font-bold">宏观经济数据</h2>
+        <h2 class="text-lg font-bold">{{ $t('page.tool.macro.title') }}</h2>
       </div>
       <div class="flex items-center gap-3">
-        <span v-if="syncRunning" class="text-sm text-blue-500">同步中...</span>
-        <span v-else-if="syncFinishedText" class="text-sm text-gray-500">上次同步: {{ syncFinishedText }}</span>
-        <NButton v-if="canSync" type="primary" size="small" :loading="syncRunning" @click="handleSync">同步数据</NButton>
+        <span v-if="syncRunning" class="text-sm text-blue-500">{{ $t('page.tool.macro.syncing') }}</span>
+        <span v-else-if="syncFinishedText" class="text-sm text-gray-500">
+          {{ $t('page.tool.macro.lastSync', { time: syncFinishedText }) }}
+        </span>
+        <NButton v-if="canSync" type="primary" size="small" :loading="syncRunning" @click="handleSync">
+          {{ $t('page.tool.macro.sync') }}
+        </NButton>
       </div>
     </div>
 
     <NCard :bordered="false" size="small">
       <NTabs type="line" animated>
-        <NTabPane name="deposit-rate" tab="存款利率">
+        <NTabPane name="deposit-rate" :tab="$t('page.tool.macro.depositRate')">
           <DepositRatePanel :data="depositRates" :loading="loading" />
         </NTabPane>
-        <NTabPane name="loan-rate" tab="贷款利率">
+        <NTabPane name="loan-rate" :tab="$t('page.tool.macro.loanRate')">
           <LoanRatePanel :data="loanRates" :loading="loading" />
         </NTabPane>
-        <NTabPane name="lpr" tab="LPR贷款市场报价利率">
+        <NTabPane name="lpr" :tab="$t('page.tool.macro.lpr')">
           <LprPanel :data="lprData" :loading="loading" />
         </NTabPane>
-        <NTabPane name="reserve" tab="存款准备金率">
+        <NTabPane name="reserve" :tab="$t('page.tool.macro.reserveRatio')">
           <ReserveRatioPanel :data="reserveRatios" :loading="loading" />
         </NTabPane>
-        <NTabPane name="month" tab="货币供应量(月度)">
+        <NTabPane name="month" :tab="$t('page.tool.macro.moneySupplyMonth')">
           <MoneySupplyMonthPanel :data="moneySupplyMonth" :loading="loading" />
         </NTabPane>
-        <NTabPane name="year" tab="货币供应量(年底余额)">
+        <NTabPane name="year" :tab="$t('page.tool.macro.moneySupplyYear')">
           <MoneySupplyYearPanel :data="moneySupplyYear" :loading="loading" />
         </NTabPane>
-        <NTabPane name="gdp" tab="GDP">
+        <NTabPane name="gdp" :tab="$t('page.tool.macro.gdp')">
           <GDPPanel :data="gdpData" :loading="loading" />
         </NTabPane>
-        <NTabPane name="cpi" tab="CPI">
+        <NTabPane name="cpi" :tab="$t('page.tool.macro.cpi')">
           <CPIPanel :data="cpiData" :loading="loading" />
         </NTabPane>
-        <NTabPane name="pmi" tab="PMI">
+        <NTabPane name="pmi" :tab="$t('page.tool.macro.pmi')">
           <PMIPanel :data="pmiData" :loading="loading" />
         </NTabPane>
-        <NTabPane name="ppi" tab="PPI">
+        <NTabPane name="ppi" :tab="$t('page.tool.macro.ppi')">
           <PPIPanel :data="ppiData" :loading="loading" />
         </NTabPane>
       </NTabs>

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/cloudwego/eino/components/tool"
 	"gorm.io/gorm"
@@ -39,7 +40,11 @@ type ToolMeta struct {
 
 type ToolFactory func(config map[string]any) (tool.BaseTool, error)
 
-var registry = map[string]*toolEntry{}
+// registry 由 MCP 动态注册在 goroutine 里写、请求路径并发读, 必须持锁访问
+var (
+	registryMu sync.RWMutex
+	registry   = map[string]*toolEntry{}
+)
 
 type toolEntry struct {
 	meta    ToolMeta
@@ -50,7 +55,7 @@ type toolEntry struct {
 func Register(name, displayName, description string, configType any, factory ToolFactory) {	var params []ToolParam
 	if configType != nil {
 		t := reflect.TypeOf(configType)
-		if t.Kind() == reflect.Ptr {
+		if t.Kind() == reflect.Pointer {
 			t = t.Elem()
 		}
 		if t.Kind() == reflect.Struct {
@@ -66,19 +71,19 @@ func Register(name, displayName, description string, configType any, factory Too
 				if param.Name == "" {
 					param.Name = strings.ToLower(f.Name)
 				}
-				if param.Type == "string" {
-					param.Type = "string"
-				} else if param.Type == "int" || param.Type == "int64" {
+				switch param.Type {
+				case "int", "int64":
 					param.Type = "integer"
-				} else if param.Type == "float32" || param.Type == "float64" {
+				case "float32", "float64":
 					param.Type = "number"
-				} else if param.Type == "bool" {
+				case "bool":
 					param.Type = "boolean"
 				}
 				params = append(params, param)
 			}
 		}
 	}
+	registryMu.Lock()
 	registry[name] = &toolEntry{
 		meta: ToolMeta{
 			Name:        name,
@@ -87,13 +92,21 @@ func Register(name, displayName, description string, configType any, factory Too
 			Params:      params,
 		},
 		factory:     factory,
-		configType: reflect.TypeOf(configType),
+		configType:  reflect.TypeOf(configType),
 	}
+	registryMu.Unlock()
 }
 
 func GetAllToolMeta() []ToolMeta {
-	var result []ToolMeta
+	registryMu.RLock()
+	entries := make([]*toolEntry, 0, len(registry))
 	for _, entry := range registry {
+		entries = append(entries, entry)
+	}
+	registryMu.RUnlock()
+
+	var result []ToolMeta
+	for _, entry := range entries {
 		result = append(result, entry.meta)
 	}
 	return result
@@ -101,13 +114,17 @@ func GetAllToolMeta() []ToolMeta {
 
 // Unregister 注销动态注册的工具 (MCP server 删除/禁用时调用); 不存在时静默
 func Unregister(names ...string) {
+	registryMu.Lock()
 	for _, n := range names {
 		delete(registry, n)
 	}
+	registryMu.Unlock()
 }
 
 func GetToolMeta(name string) (ToolMeta, bool) {
+	registryMu.RLock()
 	entry, ok := registry[name]
+	registryMu.RUnlock()
 	if !ok {
 		return ToolMeta{}, false
 	}
@@ -115,7 +132,9 @@ func GetToolMeta(name string) (ToolMeta, bool) {
 }
 
 func CreateTool(name string, configJSON string) (tool.BaseTool, error) {
+	registryMu.RLock()
 	entry, ok := registry[name]
+	registryMu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("tool not found: %s", name)
 	}

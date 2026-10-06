@@ -76,7 +76,7 @@ func (s *chVectorStore) SearchChunks(ctx context.Context, userID uint, queryVec 
 	if err != nil {
 		return nil, fmt.Errorf("向量检索失败: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	hits := make([]VectorHit, 0, topK)
 	for rows.Next() {
 		var h VectorHit

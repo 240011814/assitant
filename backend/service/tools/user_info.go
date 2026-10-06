@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"strings"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/tool"
@@ -296,7 +298,9 @@ func toExperienceViews(list []model.UserExperience) []experienceView {
 	views := make([]experienceView, 0, len(list))
 	for _, e := range list {
 		var tags []string
-		_ = json.Unmarshal([]byte(e.Tags), &tags)
+		if err := json.Unmarshal([]byte(e.Tags), &tags); err != nil && strings.TrimSpace(e.Tags) != "" {
+			log.Printf("[user_info] 经历 tags JSON 解析失败 experienceID=%d: %v", e.ID, err)
+		}
 		views = append(views, experienceView{
 			ID:          e.ID,
 			Domain:      e.Domain,

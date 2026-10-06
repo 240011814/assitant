@@ -2,6 +2,7 @@
 import { ref, onMounted } from "vue";
 import { useMessage } from "naive-ui";
 import { request } from "@/service/request";
+import { $t } from "@/locales";
 
 defineOptions({ name: "SystemConfig" });
 
@@ -192,7 +193,7 @@ async function loadConfig() {
       ragTopK.value = ragTopKConfig ? Number(ragTopKConfig.value) : 5;
     }
   } catch (err: any) {
-    message.error(`加载配置失败: ${err?.message || "未知错误"}`);
+    message.error($t("page.system.config.loadFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     loading.value = false;
   }
@@ -209,11 +210,11 @@ async function saveConfig(key: string, value: string, remark: string) {
 async function handleToggleRegister(val: boolean) {
   savingRegister.value = true;
   try {
-    await saveConfig("register_enabled", val ? "true" : "false", "注册功能开关");
-    message.success(val ? "注册功能已开启" : "注册功能已关闭");
+    await saveConfig("register_enabled", val ? "true" : "false", $t("page.system.config.remarkRegister"));
+    message.success(val ? $t("page.system.config.registerEnabledMsg") : $t("page.system.config.registerDisabledMsg"));
   } catch (err: any) {
     registerEnabled.value = !val;
-    message.error(`保存失败: ${err?.message || "未知错误"}`);
+    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     savingRegister.value = false;
   }
@@ -225,12 +226,12 @@ async function handleToggleAdmin2FA(val: boolean) {
     await saveConfig(
       "admin_2fa_enabled",
       val ? "true" : "false",
-      "管理员二次验证(TOTP)开关"
+      $t("page.system.config.remarkAdmin2fa")
     );
-    message.success(val ? "管理员二次验证已开启" : "管理员二次验证已关闭");
+    message.success(val ? $t("page.system.config.admin2faEnabledMsg") : $t("page.system.config.admin2faDisabledMsg"));
   } catch (err: any) {
     admin2faEnabled.value = !val;
-    message.error(`保存失败: ${err?.message || "未知错误"}`);
+    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     saving2fa.value = false;
   }
@@ -239,11 +240,11 @@ async function handleToggleAdmin2FA(val: boolean) {
 async function handleToggleTelegram(val: boolean) {
   savingTelegram.value = true;
   try {
-    await saveConfig("telegram_enabled", val ? "true" : "false", "Telegram Bot 开关");
-    message.success(val ? "Telegram Bot 已启用" : "Telegram Bot 已禁用");
+    await saveConfig("telegram_enabled", val ? "true" : "false", $t("page.system.config.remarkTelegramEnabled"));
+    message.success(val ? $t("page.system.config.telegramEnabledMsg") : $t("page.system.config.telegramDisabledMsg"));
   } catch (err: any) {
     telegramEnabled.value = !val;
-    message.error(`保存失败: ${err?.message || "未知错误"}`);
+    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     savingTelegram.value = false;
   }
@@ -256,11 +257,11 @@ async function handleSaveTelegram() {
     await saveConfig(
       "telegram_webhook_url",
       telegramWebhookUrl.value,
-      "Telegram Webhook 回调地址 (留空使用 Long Polling 模式)"
+      $t("page.system.config.remarkTelegramWebhook")
     );
-    message.success("Telegram 配置已保存，Bot 将自动重启");
+    message.success($t("page.system.config.telegramSaved"));
   } catch (err: any) {
-    message.error(`保存失败: ${err?.message || "未知错误"}`);
+    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     savingTelegram.value = false;
   }
@@ -272,26 +273,26 @@ async function handleSaveTimeout() {
     await saveConfig(
       "ai_timeout_minutes",
       String(aiTimeoutMinutes.value),
-      "AI 请求超时时间（分钟）"
+      $t("page.system.config.remarkAiTimeout")
     );
     await saveConfig(
       "ai_tls_handshake_timeout",
       String(aiTlsHandshakeTimeout.value),
-      "AI TLS 握手超时时间（秒）"
+      $t("page.system.config.remarkAiTlsHandshake")
     );
     await saveConfig(
       "ai_response_header_timeout",
       String(aiResponseHeaderTimeout.value),
-      "AI 响应头超时时间（秒）"
+      $t("page.system.config.remarkAiResponseHeader")
     );
     await saveConfig(
       "http_timeout_seconds",
       String(httpTimeoutSeconds.value),
-      "HTTP 请求超时时间（秒）"
+      $t("page.system.config.remarkHttpTimeout")
     );
-    message.success("超时配置已保存");
+    message.success($t("page.system.config.timeoutSaved"));
   } catch (err: any) {
-    message.error(`保存失败: ${err?.message || "未知错误"}`);
+    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     savingTimeout.value = false;
   }
@@ -300,11 +301,11 @@ async function handleSaveTimeout() {
 async function handleToggleSmtp(val: boolean) {
   savingSmtp.value = true;
   try {
-    await saveConfig("smtp_enabled", val ? "true" : "false", "SMTP邮件服务开关");
-    message.success(val ? "SMTP 邮件服务已启用" : "SMTP 邮件服务已禁用");
+    await saveConfig("smtp_enabled", val ? "true" : "false", $t("page.system.config.remarkSmtpEnabled"));
+    message.success(val ? $t("page.system.config.smtpEnabledMsg") : $t("page.system.config.smtpDisabledMsg"));
   } catch (err: any) {
     smtpEnabled.value = !val;
-    message.error(`保存失败: ${err?.message || "未知错误"}`);
+    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     savingSmtp.value = false;
   }
@@ -313,20 +314,20 @@ async function handleToggleSmtp(val: boolean) {
 async function handleSaveSmtp() {
   savingSmtp.value = true;
   try {
-    await saveConfig("smtp_host", smtpHost.value, "SMTP服务器地址");
-    await saveConfig("smtp_port", String(smtpPort.value), "SMTP服务器端口");
+    await saveConfig("smtp_host", smtpHost.value, $t("page.system.config.remarkSmtpHost"));
+    await saveConfig("smtp_port", String(smtpPort.value), $t("page.system.config.remarkSmtpPort"));
     await saveConfig(
       "smtp_encryption",
       smtpEncryption.value,
-      "SMTP加密方式(none/ssl/starttls)"
+      $t("page.system.config.remarkSmtpEncryption")
     );
-    await saveConfig("smtp_user", smtpUser.value, "SMTP用户名");
-    await saveConfig("smtp_password", smtpPassword.value, "SMTP密码");
-    await saveConfig("smtp_from", smtpFrom.value, "发件人邮箱地址");
-    await saveConfig("smtp_from_name", smtpFromName.value, "发件人显示名称");
-    message.success("SMTP 配置已保存");
+    await saveConfig("smtp_user", smtpUser.value, $t("page.system.config.remarkSmtpUser"));
+    await saveConfig("smtp_password", smtpPassword.value, $t("page.system.config.remarkSmtpPassword"));
+    await saveConfig("smtp_from", smtpFrom.value, $t("page.system.config.remarkSmtpFrom"));
+    await saveConfig("smtp_from_name", smtpFromName.value, $t("page.system.config.remarkSmtpFromName"));
+    message.success($t("page.system.config.smtpSaved"));
   } catch (err: any) {
-    message.error(`保存失败: ${err?.message || "未知错误"}`);
+    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     savingSmtp.value = false;
   }
@@ -335,11 +336,11 @@ async function handleSaveSmtp() {
 async function handleToggleS3(val: boolean) {
   savingS3.value = true;
   try {
-    await saveConfig("s3_enabled", val ? "true" : "false", "用户文档存储开关");
-    message.success(val ? "用户文档存储已启用" : "用户文档存储已关闭");
+    await saveConfig("s3_enabled", val ? "true" : "false", $t("page.system.config.remarkS3Enabled"));
+    message.success(val ? $t("page.system.config.s3EnabledMsg") : $t("page.system.config.s3DisabledMsg"));
   } catch (err: any) {
     s3Enabled.value = !val;
-    message.error(`保存失败: ${err?.message || "未知错误"}`);
+    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     savingS3.value = false;
   }
@@ -348,22 +349,22 @@ async function handleToggleS3(val: boolean) {
 async function handleSaveS3() {
   savingS3.value = true;
   try {
-    await saveConfig("s3_enabled", s3Enabled.value ? "true" : "false", "用户文档存储开关");
-    await saveConfig("s3_endpoint", s3Endpoint.value, "S3 兼容存储 Endpoint");
-    await saveConfig("s3_region", s3Region.value, "S3 Region (可选)");
+    await saveConfig("s3_enabled", s3Enabled.value ? "true" : "false", $t("page.system.config.remarkS3Enabled"));
+    await saveConfig("s3_endpoint", s3Endpoint.value, $t("page.system.config.remarkS3Endpoint"));
+    await saveConfig("s3_region", s3Region.value, $t("page.system.config.remarkS3Region"));
     await saveConfig("s3_bucket", s3Bucket.value, "S3 Bucket");
     await saveConfig("s3_access_key", s3AccessKey.value, "S3 Access Key");
     await saveConfig("s3_secret_key", s3SecretKey.value, "S3 Secret Key");
-    await saveConfig("s3_secure", s3Secure.value ? "true" : "false", "是否使用 HTTPS");
+    await saveConfig("s3_secure", s3Secure.value ? "true" : "false", $t("page.system.config.remarkS3Secure"));
     await saveConfig(
       "s3_use_path_style",
       s3UsePathStyle.value ? "true" : "false",
-      "Path-Style 寻址 (MinIO 等自建服务开启)"
+      $t("page.system.config.remarkS3PathStyle")
     );
-    await saveConfig("s3_max_upload_mb", String(s3MaxUploadMB.value), "单文件上传上限 MB");
-    message.success("S3 存储配置已保存, 用户文档功能即时生效");
+    await saveConfig("s3_max_upload_mb", String(s3MaxUploadMB.value), $t("page.system.config.remarkS3MaxUpload"));
+    message.success($t("page.system.config.s3Saved"));
   } catch (err: any) {
-    message.error(`保存失败: ${err?.message || "未知错误"}`);
+    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     savingS3.value = false;
   }
@@ -372,11 +373,11 @@ async function handleSaveS3() {
 async function handleToggleRag(val: boolean) {
   savingRag.value = true;
   try {
-    await saveConfig("rag_enabled", val ? "true" : "false", "文档语义检索开关");
-    message.success(val ? "文档语义检索已启用" : "文档语义检索已关闭");
+    await saveConfig("rag_enabled", val ? "true" : "false", $t("page.system.config.remarkRagEnabled"));
+    message.success(val ? $t("page.system.config.ragEnabledMsg") : $t("page.system.config.ragDisabledMsg"));
   } catch (err: any) {
     ragEnabled.value = !val;
-    message.error(`保存失败: ${err?.message || "未知错误"}`);
+    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     savingRag.value = false;
   }
@@ -385,20 +386,20 @@ async function handleToggleRag(val: boolean) {
 async function handleSaveRag() {
   savingRag.value = true;
   try {
-    await saveConfig("rag_enabled", ragEnabled.value ? "true" : "false", "文档语义检索开关");
+    await saveConfig("rag_enabled", ragEnabled.value ? "true" : "false", $t("page.system.config.remarkRagEnabled"));
     await saveConfig(
       "rag_embedding_base_url",
       ragBaseUrl.value,
-      "嵌入服务地址 (OpenAI 兼容, 含 /v1)"
+      $t("page.system.config.remarkRagBaseUrl")
     );
-    await saveConfig("rag_embedding_model", ragModel.value, "嵌入模型名");
-    await saveConfig("rag_embedding_api_key", ragApiKey.value, "嵌入服务 API Key (本地服务可留空)");
-    await saveConfig("rag_chunk_size", String(ragChunkSize.value), "向量切块字符数");
-    await saveConfig("rag_chunk_overlap", String(ragChunkOverlap.value), "相邻切块重叠字符数");
-    await saveConfig("rag_top_k", String(ragTopK.value), "检索返回片段数");
-    message.success("文档 RAG 配置已保存, 即时生效");
+    await saveConfig("rag_embedding_model", ragModel.value, $t("page.system.config.remarkRagModel"));
+    await saveConfig("rag_embedding_api_key", ragApiKey.value, $t("page.system.config.remarkRagApiKey"));
+    await saveConfig("rag_chunk_size", String(ragChunkSize.value), $t("page.system.config.remarkRagChunkSize"));
+    await saveConfig("rag_chunk_overlap", String(ragChunkOverlap.value), $t("page.system.config.remarkRagChunkOverlap"));
+    await saveConfig("rag_top_k", String(ragTopK.value), $t("page.system.config.remarkRagTopK"));
+    message.success($t("page.system.config.ragSaved"));
   } catch (err: any) {
-    message.error(`保存失败: ${err?.message || "未知错误"}`);
+    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     savingRag.value = false;
   }
@@ -406,7 +407,7 @@ async function handleSaveRag() {
 
 async function handleTestEmbedding() {
   if (!ragBaseUrl.value || !ragModel.value) {
-    message.warning("请先填写嵌入服务地址与模型名");
+    message.warning($t("page.system.config.embeddingConfigRequired"));
     return;
   }
   testingEmbedding.value = true;
@@ -421,12 +422,12 @@ async function handleTestEmbedding() {
       }
     });
     if (error || !data) {
-      message.error(error?.message || "嵌入测试失败");
+      message.error(error?.message || $t("page.system.config.embeddingTestFailed"));
       return;
     }
-    message.success(data.message || "连接成功");
+    message.success(data.message || $t("page.system.config.connectionSuccess"));
   } catch (err: any) {
-    message.error(`嵌入测试失败: ${err?.message || "未知错误"}`);
+    message.error($t("page.system.config.embeddingTestFailedWithReason", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     testingEmbedding.value = false;
   }
@@ -438,12 +439,12 @@ async function handleToggleMemory(val: boolean) {
     await saveConfig(
       "memory_extraction_enabled",
       val ? "true" : "false",
-      "用户画像/经历抽取开关"
+      $t("page.system.config.remarkMemoryEnabled")
     );
-    message.success(val ? "画像/经历抽取已开启" : "画像/经历抽取已关闭");
+    message.success(val ? $t("page.system.config.memoryEnabledMsg") : $t("page.system.config.memoryDisabledMsg"));
   } catch (err: any) {
     memoryEnabled.value = !val;
-    message.error(`保存失败: ${err?.message || "未知错误"}`);
+    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     savingMemory.value = false;
   }
@@ -455,21 +456,21 @@ async function handleSaveMemory() {
     await saveConfig(
       "memory_extraction_model",
       memoryExtractionModel.value,
-      "画像/经历抽取使用的模型代码(空则用默认模型)"
+      $t("page.system.config.remarkMemoryModel")
     );
     await saveConfig(
       "memory_session_idle_minutes",
       String(memoryIdleMinutes.value),
-      "会话静默多少分钟后触发抽取"
+      $t("page.system.config.remarkMemoryIdle")
     );
     await saveConfig(
       "memory_min_min_user_messages",
       String(memoryMinUserMessages.value),
-      "纳入抽取的最小用户消息数(大于该值)"
+      $t("page.system.config.remarkMemoryMinMessages")
     );
-    message.success("画像/经历抽取配置已保存");
+    message.success($t("page.system.config.memorySaved"));
   } catch (err: any) {
-    message.error(`保存失败: ${err?.message || "未知错误"}`);
+    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     savingMemory.value = false;
   }
@@ -478,16 +479,15 @@ async function handleSaveMemory() {
 function openTestEmailModal() {
   testEmailForm.value = {
     email: "",
-    subject: "测试邮件",
-    content:
-      "这是一封 SMTP 邮件服务的测试邮件。\n\n如果您收到此邮件，说明 SMTP 配置正确。",
+    subject: $t("page.system.config.testEmailSubject"),
+    content: $t("page.system.config.testEmailContent"),
   };
   showTestEmailModal.value = true;
 }
 
 async function handleSendTestEmail() {
   if (!testEmailForm.value.email) {
-    message.warning("请输入收件人邮箱");
+    message.warning($t("page.system.config.recipientRequired"));
     return;
   }
   sendingTestEmail.value = true;
@@ -501,10 +501,10 @@ async function handleSendTestEmail() {
         content: testEmailForm.value.content,
       },
     });
-    message.success("测试邮件已发送，请检查收件箱");
+    message.success($t("page.system.config.testEmailSent"));
     showTestEmailModal.value = false;
   } catch (err: any) {
-    message.error(`发送失败: ${err?.message || "未知错误"}`);
+    message.error($t("page.system.config.sendFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     sendingTestEmail.value = false;
   }
@@ -517,7 +517,7 @@ onMounted(() => {
 
 <template>
   <div class="h-full overflow-auto p-6">
-    <NCard :bordered="false" shadow="sm" title="系统配置">
+    <NCard :bordered="false" shadow="sm" :title="$t('page.system.config.title')">
       <NSpin :show="loading">
         <div class="space-y-6">
           <!-- 注册开关 -->
@@ -525,9 +525,9 @@ onMounted(() => {
             class="flex items-center justify-between p-4 rounded-lg border border-gray-200 dark:border-gray-700"
           >
             <div>
-              <div class="font-bold text-gray-800 dark:text-gray-200">注册功能</div>
+              <div class="font-bold text-gray-800 dark:text-gray-200">{{ $t("page.system.config.register") }}</div>
               <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                控制登录页面是否显示注册按钮。关闭后新用户无法自行注册。
+                {{ $t("page.system.config.registerDesc") }}
               </div>
             </div>
             <NSwitch
@@ -535,8 +535,8 @@ onMounted(() => {
               :loading="savingRegister"
               @update:value="handleToggleRegister"
             >
-              <template #checked>开启</template>
-              <template #unchecked>关闭</template>
+              <template #checked>{{ $t("page.system.config.on") }}</template>
+              <template #unchecked>{{ $t("page.system.config.off") }}</template>
             </NSwitch>
           </div>
 
@@ -546,11 +546,10 @@ onMounted(() => {
           >
             <div>
               <div class="font-bold text-gray-800 dark:text-gray-200">
-                管理员二次验证 (2FA)
+                {{ $t("page.system.config.admin2fa") }}
               </div>
               <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                开启后，超级管理员登录时需要输入 TOTP
-                动态验证码。首次开启时需扫描二维码绑定验证器。
+                {{ $t("page.system.config.admin2faDesc") }}
               </div>
             </div>
             <NSwitch
@@ -558,36 +557,35 @@ onMounted(() => {
               :loading="saving2fa"
               @update:value="handleToggleAdmin2FA"
             >
-              <template #checked>开启</template>
-              <template #unchecked>关闭</template>
+              <template #checked>{{ $t("page.system.config.on") }}</template>
+              <template #unchecked>{{ $t("page.system.config.off") }}</template>
             </NSwitch>
           </div>
 
           <!-- Telegram Bot 配置 -->
           <div class="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
             <div class="flex items-center justify-between mb-4">
-              <div>
-                <div class="font-bold text-gray-800 dark:text-gray-200">Telegram Bot</div>
-                <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                  启用后用户可绑定 Telegram 使用学习助手功能。配置 Webhook URL
-                  后使用回调模式，留空使用 Long Polling 模式。
-                </div>
+            <div>
+              <div class="font-bold text-gray-800 dark:text-gray-200">{{ $t("page.system.config.telegram") }}</div>
+              <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {{ $t("page.system.config.telegramDesc") }}
               </div>
+            </div>
               <NSwitch
                 v-model:value="telegramEnabled"
                 :loading="savingTelegram"
                 @update:value="handleToggleTelegram"
               >
-                <template #checked>开启</template>
-                <template #unchecked>关闭</template>
+                <template #checked>{{ $t("page.system.config.on") }}</template>
+                <template #unchecked>{{ $t("page.system.config.off") }}</template>
               </NSwitch>
             </div>
             <NForm label-placement="left" label-width="100">
-              <NFormItem label="Bot Token">
+              <NFormItem :label="$t('page.system.config.botToken')">
                 <NInput
                   v-model:value="telegramBotToken"
                   :type="showTelegramToken ? 'text' : 'password'"
-                  placeholder="输入 Telegram Bot Token (从 @BotFather 获取)"
+                  :placeholder="$t('page.system.config.botTokenPlaceholder')"
                   :disabled="!telegramEnabled"
                 >
                   <template #suffix>
@@ -599,10 +597,10 @@ onMounted(() => {
                   </template>
                 </NInput>
               </NFormItem>
-              <NFormItem label="Webhook URL">
+              <NFormItem :label="$t('page.system.config.webhookUrl')">
                 <NInput
                   v-model:value="telegramWebhookUrl"
-                  placeholder="https://your-domain.com (留空使用 Long Polling)"
+                  :placeholder="$t('page.system.config.webhookPlaceholder')"
                   :disabled="!telegramEnabled"
                 />
               </NFormItem>
@@ -613,7 +611,7 @@ onMounted(() => {
                   :disabled="!telegramEnabled"
                   @click="handleSaveTelegram"
                 >
-                  保存 Telegram 配置
+                  {{ $t("page.system.config.saveTelegram") }}
                 </NButton>
               </NFormItem>
             </NForm>
@@ -622,14 +620,14 @@ onMounted(() => {
           <!-- 超时配置 -->
           <div class="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
             <div class="mb-4">
-              <div class="font-bold text-gray-800 dark:text-gray-200">超时配置</div>
+              <div class="font-bold text-gray-800 dark:text-gray-200">{{ $t("page.system.config.timeout") }}</div>
               <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                配置各服务的超时时间，修改后立即生效。
+                {{ $t("page.system.config.timeoutDesc") }}
               </div>
             </div>
             <NForm label-placement="left" label-width="100">
               <NGrid :cols="2" :x-gap="12" :y-gap="8">
-                <NFormItemGi label="AI 请求超时">
+                <NFormItemGi :label="$t('page.system.config.aiTimeout')">
                   <NInputNumber
                     v-model:value="aiTimeoutMinutes"
                     :min="1"
@@ -637,10 +635,10 @@ onMounted(() => {
                     :disabled="savingTimeout"
                     size="small"
                   >
-                    <template #suffix>分钟</template>
+                    <template #suffix>{{ $t("page.system.config.minutes") }}</template>
                   </NInputNumber>
                 </NFormItemGi>
-                <NFormItemGi label="AI TLS 握手">
+                <NFormItemGi :label="$t('page.system.config.aiTlsHandshake')">
                   <NInputNumber
                     v-model:value="aiTlsHandshakeTimeout"
                     :min="5"
@@ -648,10 +646,10 @@ onMounted(() => {
                     :disabled="savingTimeout"
                     size="small"
                   >
-                    <template #suffix>秒</template>
+                    <template #suffix>{{ $t("page.system.config.seconds") }}</template>
                   </NInputNumber>
                 </NFormItemGi>
-                <NFormItemGi label="AI 响应头超时">
+                <NFormItemGi :label="$t('page.system.config.aiResponseHeader')">
                   <NInputNumber
                     v-model:value="aiResponseHeaderTimeout"
                     :min="5"
@@ -659,10 +657,10 @@ onMounted(() => {
                     :disabled="savingTimeout"
                     size="small"
                   >
-                    <template #suffix>秒</template>
+                    <template #suffix>{{ $t("page.system.config.seconds") }}</template>
                   </NInputNumber>
                 </NFormItemGi>
-                <NFormItemGi label="HTTP 请求超时">
+                <NFormItemGi :label="$t('page.system.config.httpTimeout')">
                   <NInputNumber
                     v-model:value="httpTimeoutSeconds"
                     :min="5"
@@ -670,7 +668,7 @@ onMounted(() => {
                     :disabled="savingTimeout"
                     size="small"
                   >
-                    <template #suffix>秒</template>
+                    <template #suffix>{{ $t("page.system.config.seconds") }}</template>
                   </NInputNumber>
                 </NFormItemGi>
               </NGrid>
@@ -680,7 +678,7 @@ onMounted(() => {
                   :loading="savingTimeout"
                   @click="handleSaveTimeout"
                 >
-                  保存超时配置
+                  {{ $t("page.system.config.saveTimeout") }}
                 </NButton>
               </NFormItem>
             </NForm>
@@ -689,33 +687,33 @@ onMounted(() => {
           <!-- 用户画像 / 经历抽取配置 -->
           <div class="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
             <div class="flex items-center justify-between mb-4">
-              <div>
-                <div class="font-bold text-gray-800 dark:text-gray-200">
-                  用户画像 / 经历抽取
-                </div>
-                <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                  从聊天会话中抽取并总结用户画像与个人经历（与 Mem0 并存），修改后立即生效。
-                </div>
+            <div>
+              <div class="font-bold text-gray-800 dark:text-gray-200">
+                {{ $t("page.system.config.memory") }}
               </div>
+              <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {{ $t("page.system.config.memoryDesc") }}
+              </div>
+            </div>
               <NSwitch
                 v-model:value="memoryEnabled"
                 :loading="savingMemory"
                 @update:value="handleToggleMemory"
               >
-                <template #checked>开启</template>
-                <template #unchecked>关闭</template>
+                <template #checked>{{ $t("page.system.config.on") }}</template>
+                <template #unchecked>{{ $t("page.system.config.off") }}</template>
               </NSwitch>
             </div>
             <NForm label-placement="left" label-width="120">
               <NGrid :cols="2" :x-gap="12" :y-gap="8">
-                <NFormItemGi label="抽取模型">
+                <NFormItemGi :label="$t('page.system.config.extractionModel')">
                   <NInput
                     v-model:value="memoryExtractionModel"
-                    placeholder="留空使用默认模型"
+                    :placeholder="$t('page.system.config.extractionModelPlaceholder')"
                     :disabled="!memoryEnabled"
                   />
                 </NFormItemGi>
-                <NFormItemGi label="会话静默(分钟)">
+                <NFormItemGi :label="$t('page.system.config.sessionIdle')">
                   <NInputNumber
                     v-model:value="memoryIdleMinutes"
                     :min="1"
@@ -723,10 +721,10 @@ onMounted(() => {
                     :disabled="!memoryEnabled"
                     size="small"
                   >
-                    <template #suffix>分钟</template>
+                    <template #suffix>{{ $t("page.system.config.minutes") }}</template>
                   </NInputNumber>
                 </NFormItemGi>
-                <NFormItemGi label="最少用户消息数">
+                <NFormItemGi :label="$t('page.system.config.minUserMessages')">
                   <NInputNumber
                     v-model:value="memoryMinUserMessages"
                     :min="1"
@@ -734,7 +732,7 @@ onMounted(() => {
                     :disabled="!memoryEnabled"
                     size="small"
                   >
-                    <template #suffix>条</template>
+                    <template #suffix>{{ $t("page.system.config.messages") }}</template>
                   </NInputNumber>
                 </NFormItemGi>
               </NGrid>
@@ -745,7 +743,7 @@ onMounted(() => {
                   :disabled="!memoryEnabled"
                   @click="handleSaveMemory"
                 >
-                  保存画像抽取配置
+                  {{ $t("page.system.config.saveMemory") }}
                 </NButton>
               </NFormItem>
             </NForm>
@@ -754,33 +752,33 @@ onMounted(() => {
           <!-- SMTP 邮件配置 -->
           <div class="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
             <div class="flex items-center justify-between mb-4">
-              <div>
-                <div class="font-bold text-gray-800 dark:text-gray-200">
-                  SMTP 邮件服务
-                </div>
-                <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                  配置 SMTP 邮件服务器，用于发送系统通知邮件。
-                </div>
+            <div>
+              <div class="font-bold text-gray-800 dark:text-gray-200">
+                {{ $t("page.system.config.smtp") }}
               </div>
+              <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {{ $t("page.system.config.smtpDesc") }}
+              </div>
+            </div>
               <NSwitch
                 v-model:value="smtpEnabled"
                 :loading="savingSmtp"
                 @update:value="handleToggleSmtp"
               >
-                <template #checked>开启</template>
-                <template #unchecked>关闭</template>
+                <template #checked>{{ $t("page.system.config.on") }}</template>
+                <template #unchecked>{{ $t("page.system.config.off") }}</template>
               </NSwitch>
             </div>
             <NForm label-placement="left" label-width="120">
               <NGrid :cols="2" :x-gap="12" :y-gap="8">
-                <NFormItemGi label="SMTP 主机" path="smtpHost">
+                <NFormItemGi :label="$t('page.system.config.smtpHost')" path="smtpHost">
                   <NInput
                     v-model:value="smtpHost"
                     placeholder="smtp.example.com"
                     :disabled="!smtpEnabled"
                   />
                 </NFormItemGi>
-                <NFormItemGi label="SMTP 端口" path="smtpPort">
+                <NFormItemGi :label="$t('page.system.config.smtpPort')" path="smtpPort">
                   <NInputNumber
                     v-model:value="smtpPort"
                     :min="1"
@@ -789,29 +787,29 @@ onMounted(() => {
                     size="small"
                   />
                 </NFormItemGi>
-                <NFormItemGi label="加密方式" path="smtpEncryption">
+                <NFormItemGi :label="$t('page.system.config.encryption')" path="smtpEncryption">
                   <NSelect
                     v-model:value="smtpEncryption"
                     :options="[
                       { label: 'SSL/TLS', value: 'ssl' },
                       { label: 'STARTTLS', value: 'starttls' },
-                      { label: '无加密', value: 'none' },
+                      { label: $t('page.system.config.noEncryption'), value: 'none' },
                     ]"
                     :disabled="!smtpEnabled"
                   />
                 </NFormItemGi>
-                <NFormItemGi label="用户名" path="smtpUser">
+                <NFormItemGi :label="$t('page.system.config.username')" path="smtpUser">
                   <NInput
                     v-model:value="smtpUser"
-                    placeholder="SMTP 用户名"
+                    :placeholder="$t('page.system.config.usernamePlaceholder')"
                     :disabled="!smtpEnabled"
                   />
                 </NFormItemGi>
-                <NFormItemGi label="密码" path="smtpPassword">
+                <NFormItemGi :label="$t('page.system.config.password')" path="smtpPassword">
                   <NInput
                     v-model:value="smtpPassword"
                     :type="showSmtpPassword ? 'text' : 'password'"
-                    placeholder="SMTP 密码"
+                    :placeholder="$t('page.system.config.passwordPlaceholder')"
                     :disabled="!smtpEnabled"
                   >
                     <template #suffix>
@@ -823,17 +821,17 @@ onMounted(() => {
                     </template>
                   </NInput>
                 </NFormItemGi>
-                <NFormItemGi label="发件人邮箱" path="smtpFrom">
+                <NFormItemGi :label="$t('page.system.config.fromEmail')" path="smtpFrom">
                   <NInput
                     v-model:value="smtpFrom"
                     placeholder="noreply@example.com"
                     :disabled="!smtpEnabled"
                   />
                 </NFormItemGi>
-                <NFormItemGi label="发件人名称" path="smtpFromName">
+                <NFormItemGi :label="$t('page.system.config.fromName')" path="smtpFromName">
                   <NInput
                     v-model:value="smtpFromName"
-                    placeholder="系统通知"
+                    :placeholder="$t('page.system.config.fromNamePlaceholder')"
                     :disabled="!smtpEnabled"
                   />
                 </NFormItemGi>
@@ -846,7 +844,7 @@ onMounted(() => {
                     :disabled="!smtpEnabled"
                     @click="handleSaveSmtp"
                   >
-                    保存 SMTP 配置
+                    {{ $t("page.system.config.saveSmtp") }}
                   </NButton>
                   <NButton
                     type="info"
@@ -856,7 +854,7 @@ onMounted(() => {
                     <template #icon>
                       <SvgIcon icon="mdi:email-fast-outline" />
                     </template>
-                    发送测试邮件
+                    {{ $t("page.system.config.sendTestEmail") }}
                   </NButton>
                 </NSpace>
               </NFormItem>
@@ -866,22 +864,21 @@ onMounted(() => {
           <!-- S3 用户文档存储 -->
           <div class="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
             <div class="flex items-center justify-between mb-4">
-              <div>
-                <div class="font-bold text-gray-800 dark:text-gray-200">
-                  用户文档存储 (S3 兼容)
-                </div>
-                <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                  配置 S3 兼容对象存储 (MinIO / 阿里云 OSS / 腾讯 COS
-                  等)，供用户上传文档供 AI 读取。保存后立即生效。
-                </div>
+            <div>
+              <div class="font-bold text-gray-800 dark:text-gray-200">
+                {{ $t("page.system.config.s3") }}
               </div>
+              <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {{ $t("page.system.config.s3Desc") }}
+              </div>
+            </div>
               <NSwitch
                 v-model:value="s3Enabled"
                 :loading="savingS3"
                 @update:value="handleToggleS3"
               >
-                <template #checked>开启</template>
-                <template #unchecked>关闭</template>
+                <template #checked>{{ $t("page.system.config.on") }}</template>
+                <template #unchecked>{{ $t("page.system.config.off") }}</template>
               </NSwitch>
             </div>
             <NForm label-placement="left" label-width="120">
@@ -889,7 +886,7 @@ onMounted(() => {
                 <NFormItemGi label="Endpoint" path="s3Endpoint">
                   <NInput
                     v-model:value="s3Endpoint"
-                    placeholder="127.0.0.1:9000 或 oss-cn-hangzhou.aliyuncs.com"
+                    :placeholder="$t('page.system.config.s3EndpointPlaceholder')"
                     :disabled="!s3Enabled"
                   />
                 </NFormItemGi>
@@ -926,11 +923,11 @@ onMounted(() => {
                 <NFormItemGi label="Region" path="s3Region">
                   <NInput
                     v-model:value="s3Region"
-                    placeholder="留空即可 (AWS 等需要时填写)"
+                    :placeholder="$t('page.system.config.s3RegionPlaceholder')"
                     :disabled="!s3Enabled"
                   />
                 </NFormItemGi>
-                <NFormItemGi label="单文件上限 (MB)" path="s3MaxUploadMB">
+                <NFormItemGi :label="$t('page.system.config.s3MaxUpload')" path="s3MaxUploadMB">
                   <NInputNumber
                     v-model:value="s3MaxUploadMB"
                     :min="1"
@@ -948,7 +945,7 @@ onMounted(() => {
                 <NFormItemGi label="Path-Style" path="s3UsePathStyle">
                   <NSwitch v-model:value="s3UsePathStyle" :disabled="!s3Enabled">
                     <template #checked>Path-Style</template>
-                    <template #unchecked>虚拟域名</template>
+                    <template #unchecked>{{ $t("page.system.config.virtualHostStyle") }}</template>
                   </NSwitch>
                 </NFormItemGi>
               </NGrid>
@@ -959,7 +956,7 @@ onMounted(() => {
                   :disabled="!s3Enabled"
                   @click="handleSaveS3"
                 >
-                  保存 S3 存储配置
+                  {{ $t("page.system.config.saveS3") }}
                 </NButton>
               </NFormItem>
             </NForm>
@@ -968,36 +965,33 @@ onMounted(() => {
           <!-- 文档 RAG (语义检索) -->
           <div class="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
             <div class="flex items-center justify-between mb-4">
-              <div>
-                <div class="font-bold text-gray-800 dark:text-gray-200">
-                  文档 RAG (语义检索)
-                </div>
-                <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                  解析后的文档切块并向量化存入 ClickHouse, AI
-                  可用文档语义检索工具按相关度召回片段。嵌入走 OpenAI 兼容接口，本地
-                  Ollama 填 http://127.0.0.1:11434/v1 + 模型
-                  bge-m3。保存后立即生效；更换嵌入模型后需在文档管理页重建索引。
-                </div>
+            <div>
+              <div class="font-bold text-gray-800 dark:text-gray-200">
+                {{ $t("page.system.config.rag") }}
               </div>
+              <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {{ $t("page.system.config.ragDesc") }}
+              </div>
+            </div>
               <NSwitch
                 v-model:value="ragEnabled"
                 :loading="savingRag"
                 @update:value="handleToggleRag"
               >
-                <template #checked>开启</template>
-                <template #unchecked>关闭</template>
+                <template #checked>{{ $t("page.system.config.on") }}</template>
+                <template #unchecked>{{ $t("page.system.config.off") }}</template>
               </NSwitch>
             </div>
             <NForm label-placement="left" label-width="120">
               <NGrid :cols="2" :x-gap="12" :y-gap="8">
-                <NFormItemGi label="服务地址" path="ragBaseUrl">
+                <NFormItemGi :label="$t('page.system.config.ragBaseUrl')" path="ragBaseUrl">
                   <NInput
                     v-model:value="ragBaseUrl"
                     placeholder="http://127.0.0.1:11434/v1"
                     :disabled="!ragEnabled"
                   />
                 </NFormItemGi>
-                <NFormItemGi label="嵌入模型" path="ragModel">
+                <NFormItemGi :label="$t('page.system.config.ragModel')" path="ragModel">
                   <NInput
                     v-model:value="ragModel"
                     placeholder="bge-m3"
@@ -1008,7 +1002,7 @@ onMounted(() => {
                   <NInput
                     v-model:value="ragApiKey"
                     :type="showRagApiKey ? 'text' : 'password'"
-                    placeholder="本地服务可留空"
+                    :placeholder="$t('page.system.config.ragApiKeyPlaceholder')"
                     :disabled="!ragEnabled"
                   >
                     <template #suffix>
@@ -1020,7 +1014,7 @@ onMounted(() => {
                     </template>
                   </NInput>
                 </NFormItemGi>
-                <NFormItemGi label="切块字符数" path="ragChunkSize">
+                <NFormItemGi :label="$t('page.system.config.chunkSize')" path="ragChunkSize">
                   <NInputNumber
                     v-model:value="ragChunkSize"
                     :min="100"
@@ -1029,7 +1023,7 @@ onMounted(() => {
                     size="small"
                   />
                 </NFormItemGi>
-                <NFormItemGi label="切块重叠" path="ragChunkOverlap">
+                <NFormItemGi :label="$t('page.system.config.chunkOverlap')" path="ragChunkOverlap">
                   <NInputNumber
                     v-model:value="ragChunkOverlap"
                     :min="0"
@@ -1038,7 +1032,7 @@ onMounted(() => {
                     size="small"
                   />
                 </NFormItemGi>
-                <NFormItemGi label="返回片段数" path="ragTopK">
+                <NFormItemGi :label="$t('page.system.config.topK')" path="ragTopK">
                   <NInputNumber
                     v-model:value="ragTopK"
                     :min="1"
@@ -1056,7 +1050,7 @@ onMounted(() => {
                     :disabled="!ragEnabled"
                     @click="handleSaveRag"
                   >
-                    保存文档 RAG 配置
+                    {{ $t("page.system.config.saveRag") }}
                   </NButton>
                   <NButton
                     secondary
@@ -1064,7 +1058,7 @@ onMounted(() => {
                     :disabled="!ragEnabled"
                     @click="handleTestEmbedding"
                   >
-                    测试连接
+                    {{ $t("page.system.config.testConnection") }}
                   </NButton>
                 </div>
               </NFormItem>
@@ -1078,30 +1072,30 @@ onMounted(() => {
     <NModal
       v-model:show="showTestEmailModal"
       preset="card"
-      title="发送测试邮件"
+      :title="$t('page.system.config.sendTestEmailTitle')"
       style="width: 500px"
     >
       <NForm label-placement="left" label-width="80">
-        <NFormItem label="收件邮箱" required>
-          <NInput v-model:value="testEmailForm.email" placeholder="请输入收件人邮箱" />
+        <NFormItem :label="$t('page.system.config.recipient')" required>
+          <NInput v-model:value="testEmailForm.email" :placeholder="$t('page.system.config.recipientPlaceholder')" />
         </NFormItem>
-        <NFormItem label="邮件主题">
-          <NInput v-model:value="testEmailForm.subject" placeholder="测试邮件" />
+        <NFormItem :label="$t('page.system.config.emailSubject')">
+          <NInput v-model:value="testEmailForm.subject" :placeholder="$t('page.system.config.testEmailSubject')" />
         </NFormItem>
-        <NFormItem label="邮件内容">
+        <NFormItem :label="$t('page.system.config.emailContent')">
           <NInput
             v-model:value="testEmailForm.content"
             type="textarea"
-            placeholder="请输入邮件内容"
+            :placeholder="$t('page.system.config.emailContentPlaceholder')"
             :rows="6"
           />
         </NFormItem>
       </NForm>
       <template #footer>
         <NSpace justify="end">
-          <NButton @click="showTestEmailModal = false">取消</NButton>
+          <NButton @click="showTestEmailModal = false">{{ $t("common.cancel") }}</NButton>
           <NButton type="primary" :loading="sendingTestEmail" @click="handleSendTestEmail">
-            发送
+            {{ $t("page.system.config.send") }}
           </NButton>
         </NSpace>
       </template>

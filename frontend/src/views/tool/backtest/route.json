@@ -1,8 +1,0 @@
-{
-  "meta": {
-    "title": "tool_backtest",
-    "i18nKey": "route.tool_backtest",
-    "icon": "mdi:chart-bar",
-    "permissions": ["stock:screen:view"]
-  }
-}

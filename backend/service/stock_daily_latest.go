@@ -44,7 +44,7 @@ func refreshLatestSnapshot(rows []model.StockDaily) error {
 			sb.WriteString(",")
 		}
 		// 新交易日 >= 已存交易日才采用新值, 否则保持快照不倒退
-		sb.WriteString(fmt.Sprintf("`%s`=IF(VALUES(`trade_date`) >= `stock_daily_latest`.`trade_date`, VALUES(`%s`), `stock_daily_latest`.`%s`)", col, col, col))
+		fmt.Fprintf(&sb, "`%s`=IF(VALUES(`trade_date`) >= `stock_daily_latest`.`trade_date`, VALUES(`%s`), `stock_daily_latest`.`%s`)", col, col, col)
 	}
 	return DB.Exec(sb.String(), args...).Error
 }

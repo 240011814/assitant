@@ -26,6 +26,7 @@ import {
   type AgentTaskItem
 } from '@/service/api';
 import { fetchAIAgentList, fetchOrchestrationChatList } from '@/service/api';
+import { $t } from '@/locales';
 
 defineOptions({ name: 'AgentTaskPanel' });
 
@@ -38,15 +39,18 @@ const chatAgents = ref<{ id: number; title: string }[]>([]);
 const orchestrations = ref<{ id: number; title: string }[]>([]);
 const agentOptions = computed(() => [
   ...chatAgents.value.map(a => ({ label: a.title, value: `chat:${a.id}` })),
-  ...orchestrations.value.map(o => ({ label: `${o.title}（编排）`, value: `orchestration:${o.id}` }))
+  ...orchestrations.value.map(o => ({
+    label: $t('page.tool.calendar.agentTask.orchestrationLabel', { title: o.title }),
+    value: `orchestration:${o.id}`
+  }))
 ]);
 
 const cronPresets = [
-  { label: '每天 09:00', value: '0 9 * * *' },
-  { label: '工作日 09:00', value: '0 9 * * 1-5' },
-  { label: '每周一 09:00', value: '0 9 * * 1' },
-  { label: '每月 1 日 09:00', value: '0 9 1 * *' },
-  { label: '自定义…', value: 'custom' }
+  { label: $t('page.tool.calendar.agentTask.cronPresetDaily'), value: '0 9 * * *' },
+  { label: $t('page.tool.calendar.agentTask.cronPresetWeekday'), value: '0 9 * * 1-5' },
+  { label: $t('page.tool.calendar.agentTask.cronPresetMonday'), value: '0 9 * * 1' },
+  { label: $t('page.tool.calendar.agentTask.cronPresetMonthly'), value: '0 9 1 * *' },
+  { label: $t('page.tool.calendar.agentTask.cronPresetCustom'), value: 'custom' }
 ];
 
 const form = ref({
@@ -66,7 +70,7 @@ async function loadList() {
   try {
     const { data, error } = await fetchAgentTasks();
     if (error || !data) {
-      message.error(error?.message || '获取任务列表失败');
+      message.error(error?.message || $t('page.tool.calendar.agentTask.loadFailed'));
       return;
     }
     tasks.value = data.items;
@@ -83,7 +87,10 @@ async function loadAgents() {
       .map((a: any) => ({ id: a.id, title: a.title || `Agent #${a.id}` }));
   }
   if (orchRes.status === 'fulfilled' && orchRes.value.data) {
-    orchestrations.value = (orchRes.value.data as any[]).map((o: any) => ({ id: o.id, title: o.title || o.name || `编排 #${o.id}` }));
+    orchestrations.value = (orchRes.value.data as any[]).map((o: any) => ({
+      id: o.id,
+      title: o.title || o.name || $t('page.tool.calendar.agentTask.orchestrationFallback', { id: o.id })
+    }));
   }
 }
 
@@ -133,13 +140,13 @@ function presetChange(v: string) {
 }
 
 function validate(): string | null {
-  if (!form.value.agentValue) return '请选择要执行的 Agent';
-  if (!form.value.input.trim()) return '请输入任务内容';
+  if (!form.value.agentValue) return $t('page.tool.calendar.agentTask.agentRequired');
+  if (!form.value.input.trim()) return $t('page.tool.calendar.agentTask.inputRequired');
   if (form.value.scheduleType === 'once') {
-    if (!form.value.runAt) return '请选择执行时间';
-    if (form.value.runAt <= Date.now()) return '执行时间必须晚于当前时间';
+    if (!form.value.runAt) return $t('page.tool.calendar.agentTask.runAtRequired');
+    if (form.value.runAt <= Date.now()) return $t('page.tool.calendar.agentTask.runAtInvalid');
   } else if (!form.value.cronExpr.trim()) {
-    return '请填写 cron 表达式';
+    return $t('page.tool.calendar.agentTask.cronRequired');
   }
   return null;
 }
@@ -170,10 +177,10 @@ async function handleSave() {
     const { error } =
       editingId.value === null ? await fetchCreateAgentTask(payload) : await fetchUpdateAgentTask(editingId.value, payload);
     if (error) {
-      message.error(error?.message || '保存失败');
+      message.error(error?.message || $t('page.tool.calendar.agentTask.saveFailed'));
       return;
     }
-    message.success(editingId.value === null ? '任务已创建' : '任务已更新');
+    message.success(editingId.value === null ? $t('page.tool.calendar.agentTask.created') : $t('page.tool.calendar.agentTask.updated'));
     showModal.value = false;
     await loadList();
   } finally {
@@ -184,29 +191,29 @@ async function handleSave() {
 async function handleRun(task: AgentTaskItem) {
   const { error } = await fetchRunAgentTask(task.id);
   if (error) {
-    message.error(error?.message || '触发失败');
+    message.error(error?.message || $t('page.tool.calendar.agentTask.runFailed'));
     return;
   }
-  message.success('已触发执行, 结果将写入训练历史');
+  message.success($t('page.tool.calendar.agentTask.runTriggered'));
 }
 
 async function handleToggleEnabled(task: AgentTaskItem) {
   const { error } = await fetchUpdateAgentTask(task.id, { enabled: !task.enabled });
   if (error) {
-    message.error(error?.message || '操作失败');
+    message.error(error?.message || $t('page.tool.calendar.agentTask.operationFailed'));
     return;
   }
-  message.success(task.enabled ? '任务已停用' : '任务已启用');
+  message.success(task.enabled ? $t('page.tool.calendar.agentTask.disabledMsg') : $t('page.tool.calendar.agentTask.enabledMsg'));
   await loadList();
 }
 
 async function handleDelete(task: AgentTaskItem) {
   const { error } = await fetchDeleteAgentTask(task.id);
   if (error) {
-    message.error(error?.message || '删除失败');
+    message.error(error?.message || $t('page.tool.calendar.agentTask.deleteFailed'));
     return;
   }
-  message.success('任务已删除');
+  message.success($t('page.tool.calendar.agentTask.deleted'));
   await loadList();
 }
 
@@ -215,14 +222,19 @@ function agentTitle(task: AgentTaskItem): string {
   const pool = agent_type === 'orchestration' ? orchestrations.value : chatAgents.value;
   const found = pool.find(a => a.id === agent_id);
   if (found) return found.title;
-  return `${agent_type === 'orchestration' ? '编排' : 'Agent'} #${agent_id} (已删除)`;
+  return $t(
+    agent_type === 'orchestration'
+      ? 'page.tool.calendar.agentTask.deletedOrchestration'
+      : 'page.tool.calendar.agentTask.deletedAgent',
+    { id: agent_id }
+  );
 }
 
 function scheduleLabel(task: AgentTaskItem): string {
   if (task.scheduleType === 'once') {
-    return task.runAt ? new Date(task.runAt).toLocaleString('zh-CN') : '单次';
+    return task.runAt ? new Date(task.runAt).toLocaleString('zh-CN') : $t('page.tool.calendar.agentTask.once');
   }
-  return `cron: ${task.cronExpr}`;
+  return $t('page.tool.calendar.agentTask.scheduleCron', { expr: task.cronExpr });
 }
 
 function formatTime(dateStr: string | null): string {
@@ -240,11 +252,11 @@ onMounted(() => {
   <div>
     <div class="flex items-center justify-between mb-3">
       <div class="text-13px text-gray-400">
-        到点让选定的 Agent / 编排带着输入文本完整执行（含工具调用），结果写入训练历史；可推送邮件 / Telegram。
+        {{ $t('page.tool.calendar.agentTask.desc') }}
       </div>
       <NButton type="primary" size="small" @click="openCreate">
         <template #icon><SvgIcon icon="mdi:plus" /></template>
-        新建任务
+        {{ $t('page.tool.calendar.agentTask.create') }}
       </NButton>
     </div>
 
@@ -261,12 +273,12 @@ onMounted(() => {
             <NTag size="tiny" :bordered="false" class="ml-1" :type="task.params_data.agent_type === 'orchestration' ? 'info' : 'default'">
               {{ agentTitle(task) }}
             </NTag>
-            <NTag v-if="!task.enabled" size="tiny" :bordered="false" type="warning" class="ml-1">已停用</NTag>
+            <NTag v-if="!task.enabled" size="tiny" :bordered="false" type="warning" class="ml-1">{{ $t('page.tool.calendar.agentTask.disabledTag') }}</NTag>
           </div>
           <div class="text-xs text-gray-400 flex items-center gap-2 mt-0.5 flex-wrap">
             <span>{{ scheduleLabel(task) }}</span>
-            <span>下次: {{ task.enabled ? formatTime(task.next_run_at) : '-' }}</span>
-            <NTag v-if="task.params_data.notify_email" size="tiny" :bordered="false">邮件</NTag>
+            <span>{{ $t('page.tool.calendar.agentTask.nextRun', { time: task.enabled ? formatTime(task.next_run_at) : '-' }) }}</span>
+            <NTag v-if="task.params_data.notify_email" size="tiny" :bordered="false">{{ $t('page.tool.calendar.agentTask.email') }}</NTag>
             <NTag v-if="task.params_data.notify_telegram" size="tiny" :bordered="false">TG</NTag>
           </div>
         </div>
@@ -274,57 +286,67 @@ onMounted(() => {
           <NSwitch size="small" :value="task.enabled" @update:value="handleToggleEnabled(task)" />
           <NTooltip>
             <template #trigger>
-              <NButton size="tiny" quaternary type="primary" @click="handleRun(task)">立即运行</NButton>
+              <NButton size="tiny" quaternary type="primary" @click="handleRun(task)">{{ $t('page.tool.calendar.agentTask.runNow') }}</NButton>
             </template>
-            手动执行一次, 不影响调度
+            {{ $t('page.tool.calendar.agentTask.runNowTip') }}
           </NTooltip>
-          <NButton size="tiny" quaternary @click="openEdit(task)">编辑</NButton>
+          <NButton size="tiny" quaternary @click="openEdit(task)">{{ $t('common.edit') }}</NButton>
           <NPopconfirm @positive-click="handleDelete(task)">
             <template #trigger>
-              <NButton size="tiny" quaternary type="error">删除</NButton>
+              <NButton size="tiny" quaternary type="error">{{ $t('common.delete') }}</NButton>
             </template>
-            确认删除该任务？
+            {{ $t('page.tool.calendar.agentTask.deleteConfirm') }}
           </NPopconfirm>
         </div>
       </div>
-      <NEmpty v-if="tasks.length === 0 && !loading" description="暂无定时 Agent 任务" class="py-10" />
+      <NEmpty v-if="tasks.length === 0 && !loading" :description="$t('page.tool.calendar.agentTask.empty')" class="py-10" />
     </div>
 
-    <NModal v-model:show="showModal" preset="card" :title="editingId === null ? '新建 Agent 任务' : '编辑 Agent 任务'" style="width: 560px">
+    <NModal
+      v-model:show="showModal"
+      preset="card"
+      :title="editingId === null ? $t('page.tool.calendar.agentTask.createModal') : $t('page.tool.calendar.agentTask.editModal')"
+      style="width: 560px"
+    >
       <NForm label-placement="left" label-width="100">
-        <NFormItem label="执行者" required>
-          <NSelect v-model:value="form.agentValue" :options="agentOptions" placeholder="选择 Agent 或编排" filterable />
+        <NFormItem :label="$t('page.tool.calendar.agentTask.executor')" required>
+          <NSelect
+            v-model:value="form.agentValue"
+            :options="agentOptions"
+            :placeholder="$t('page.tool.calendar.agentTask.executorPlaceholder')"
+            filterable
+          />
         </NFormItem>
-        <NFormItem label="任务内容" required>
+        <NFormItem :label="$t('page.tool.calendar.agentTask.taskContent')" required>
           <NInput
             v-model:value="form.input"
             type="textarea"
             :rows="3"
-            placeholder="到点发给 Agent 的指令, 如: 搜索今天 AI 行业的新闻, 总结成 5 条要点"
+            :placeholder="$t('page.tool.calendar.agentTask.taskContentPlaceholder')"
           />
         </NFormItem>
-        <NFormItem label="执行方式" required>
+        <NFormItem :label="$t('page.tool.calendar.agentTask.scheduleType')" required>
           <NRadioGroup v-model:value="form.scheduleType">
-            <NRadioButton value="once">单次</NRadioButton>
-            <NRadioButton value="cron">周期 (cron)</NRadioButton>
+            <NRadioButton value="once">{{ $t('page.tool.calendar.agentTask.once') }}</NRadioButton>
+            <NRadioButton value="cron">{{ $t('page.tool.calendar.agentTask.cronRadio') }}</NRadioButton>
           </NRadioGroup>
         </NFormItem>
-        <NFormItem v-if="form.scheduleType === 'once'" label="执行时间" required>
+        <NFormItem v-if="form.scheduleType === 'once'" :label="$t('page.tool.calendar.agentTask.runAt')" required>
           <NDatePicker v-model:value="form.runAt" type="datetime" style="width: 100%" />
         </NFormItem>
         <template v-else>
-          <NFormItem label="快捷预设">
+          <NFormItem :label="$t('page.tool.calendar.agentTask.cronPreset')">
             <NSelect v-model:value="form.cronPreset" :options="cronPresets" @update:value="presetChange" />
           </NFormItem>
-          <NFormItem v-if="isCustomCron" label="cron 表达式" required>
-            <NInput v-model:value="form.cronExpr" placeholder="分 时 日 月 周, 如 30 8 * * 1-5" />
+          <NFormItem v-if="isCustomCron" :label="$t('page.tool.calendar.agentTask.cronExpr')" required>
+            <NInput v-model:value="form.cronExpr" :placeholder="$t('page.tool.calendar.agentTask.cronExprPlaceholder')" />
           </NFormItem>
         </template>
-        <NFormItem label="结果通知">
+        <NFormItem :label="$t('page.tool.calendar.agentTask.resultNotify')">
           <div class="flex items-center gap-4">
             <div class="flex items-center gap-1">
               <NSwitch v-model:value="form.notifyEmail" size="small" />
-              <span class="text-13px">邮件</span>
+              <span class="text-13px">{{ $t('page.tool.calendar.agentTask.email') }}</span>
             </div>
             <div class="flex items-center gap-1">
               <NSwitch v-model:value="form.notifyTelegram" size="small" />
@@ -332,14 +354,14 @@ onMounted(() => {
             </div>
           </div>
         </NFormItem>
-        <NFormItem label="启用">
+        <NFormItem :label="$t('page.tool.calendar.agentTask.enabled')">
           <NSwitch v-model:value="form.enabled" />
         </NFormItem>
       </NForm>
       <template #footer>
         <div class="flex justify-end gap-2">
-          <NButton @click="showModal = false">取消</NButton>
-          <NButton type="primary" :loading="saving" @click="handleSave">保存</NButton>
+          <NButton @click="showModal = false">{{ $t('common.cancel') }}</NButton>
+          <NButton type="primary" :loading="saving" @click="handleSave">{{ $t('common.save') }}</NButton>
         </div>
       </template>
     </NModal>

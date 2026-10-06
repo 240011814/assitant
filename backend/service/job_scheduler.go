@@ -145,7 +145,7 @@ func (js *JobScheduler) ScheduleDefinition(def *model.JobDefinition) error {
 func (js *JobScheduler) scheduleDefinitionLocked(def *model.JobDefinition) error {
 	key := defKey(def.ID)
 	if existing, ok := js.cronJobs[key]; ok {
-		js.scheduler.RemoveJob(existing.ID())
+		_ = js.scheduler.RemoveJob(existing.ID())
 		delete(js.cronJobs, key)
 	}
 
@@ -225,7 +225,7 @@ func (js *JobScheduler) UnscheduleDefinition(defID uint) {
 
 	key := defKey(defID)
 	if existing, ok := js.cronJobs[key]; ok {
-		js.scheduler.RemoveJob(existing.ID())
+		_ = js.scheduler.RemoveJob(existing.ID())
 		delete(js.cronJobs, key)
 	}
 }

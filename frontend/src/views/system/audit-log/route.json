@@ -1,7 +1,0 @@
-{
-  "title": "审计日志",
-  "i18nKey": "route.system_audit-log",
-  "icon": "mdi:shield-check-outline",
-  "permissions": ["system:audit:view"],
-  "order": 10
-}

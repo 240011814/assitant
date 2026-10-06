@@ -1,8 +1,0 @@
-{
-  "meta": {
-    "title": "tool_calendar",
-    "i18nKey": "route.tool_calendar",
-    "icon": "mdi:calendar-month-outline",
-    "order": 10
-  }
-}

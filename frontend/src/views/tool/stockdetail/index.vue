@@ -15,6 +15,7 @@ import { useMessage, NButton, NDataTable, NTag, NSpin, NTabs, NTabPane } from "n
 import { useEcharts } from '@/hooks/common/echarts';
 import type { ECOption } from '@/hooks/common/echarts';
 import type { BarSeriesOption, LineSeriesOption } from 'echarts/charts';
+import { $t } from "@/locales";
 
 defineOptions({ name: "ToolStockdetail" });
 
@@ -60,53 +61,53 @@ const { domRef: klineChartRef, updateOptions: updateKlineChart } = useEcharts<EC
   grid: { left: 50, right: 50, top: 40, bottom: 30 },
   xAxis: { type: 'category', data: [], axisLabel: { fontSize: 11, rotate: 30 } },
   yAxis: [
-    { type: 'value', name: '价格', position: 'left', axisLabel: { fontSize: 11 } },
-    { type: 'value', name: '涨跌%', position: 'right', show: false, axisLabel: { fontSize: 11 } }
+    { type: 'value', name: $t('page.tool.stockDetail.axisPrice'), position: 'left', axisLabel: { fontSize: 11 } },
+    { type: 'value', name: $t('page.tool.stockDetail.changePct'), position: 'right', show: false, axisLabel: { fontSize: 11 } }
   ],
   series: []
 }));
 
 const allKlineColumns = [
-  { title: "日期", key: "date", width: 100, fixed: "left" as const },
+  { title: $t("page.tool.stockDetail.date"), key: "date", width: 100, fixed: "left" as const },
   {
-    title: "状态",
+    title: $t("page.tool.stockDetail.status"),
     key: "tradeStatus",
     width: 60,
     render: (row: Api.Stock.KlineData) =>
-      row.tradeStatus === null ? "-" : row.tradeStatus === 0 ? "停牌" : "交易",
+      row.tradeStatus === null ? "-" : row.tradeStatus === 0 ? $t("page.tool.stockDetail.suspended") : $t("page.tool.stockDetail.trading"),
   },
   {
-    title: "开盘",
+    title: $t("page.tool.stockDetail.open"),
     key: "open",
     width: 80,
     render: (row: Api.Stock.KlineData) => row.open?.toFixed(2) || "-",
   },
   {
-    title: "最高",
+    title: $t("page.tool.stockDetail.high"),
     key: "high",
     width: 80,
     render: (row: Api.Stock.KlineData) => row.high?.toFixed(2) || "-",
   },
   {
-    title: "最低",
+    title: $t("page.tool.stockDetail.low"),
     key: "low",
     width: 80,
     render: (row: Api.Stock.KlineData) => row.low?.toFixed(2) || "-",
   },
   {
-    title: "昨收",
+    title: $t("page.tool.stockDetail.preclose"),
     key: "preclose",
     width: 80,
     render: (row: Api.Stock.KlineData) => row.preclose?.toFixed(2) || "-",
   },
   {
-    title: "收盘",
+    title: $t("page.tool.stockDetail.close"),
     key: "close",
     width: 80,
     render: (row: Api.Stock.KlineData) => row.close?.toFixed(2) || "-",
   },
   {
-    title: "涨跌%",
+    title: $t("page.tool.stockDetail.changePct"),
     key: "changePct",
     width: 80,
     render: (row: Api.Stock.KlineData) =>
@@ -115,38 +116,38 @@ const allKlineColumns = [
         : "-",
   },
   {
-    title: "换手%",
+    title: $t("page.tool.stockDetail.turnoverPct"),
     key: "turnoverRate",
     width: 80,
     render: (row: Api.Stock.KlineData) => row.turnoverRate?.toFixed(2) || "-",
   },
   {
-    title: "成交量",
+    title: $t("page.tool.stockDetail.volume"),
     key: "volume",
     width: 100,
     render: (row: Api.Stock.KlineData) =>
-      row.volume ? `${(row.volume / 10000).toFixed(2)}万手` : "-",
+      row.volume ? $t("page.tool.stockDetail.volumeWan", { value: (row.volume / 10000).toFixed(2) }) : "-",
   },
   {
-    title: "PE(TTM)",
+    title: $t("page.tool.stockDetail.peTtm"),
     key: "peTtm",
     width: 90,
     render: (row: Api.Stock.KlineData) => row.peTtm?.toFixed(2) || "-",
   },
   {
-    title: "PB",
+    title: $t("page.tool.stockDetail.pb"),
     key: "pbMrq",
     width: 70,
     render: (row: Api.Stock.KlineData) => row.pbMrq?.toFixed(2) || "-",
   },
   {
-    title: "PS(TTM)",
+    title: $t("page.tool.stockDetail.psTtm"),
     key: "psTtm",
     width: 90,
     render: (row: Api.Stock.KlineData) => row.psTtm?.toFixed(2) || "-",
   },
   {
-    title: "市现率",
+    title: $t("page.tool.stockDetail.pcf"),
     key: "pcfNcfTtm",
     width: 80,
     render: (row: Api.Stock.KlineData) => row.pcfNcfTtm?.toFixed(2) || "-",
@@ -168,7 +169,7 @@ const klineColumns = computed(() => {
   if (!isHourly.value) return allKlineColumns;
   return allKlineColumns
     .filter((c) => !hourlyHiddenKlineKeys.includes(c.key))
-    .map((c) => (c.key === "date" ? { ...c, title: "时间", width: 145 } : c));
+    .map((c) => (c.key === "date" ? { ...c, title: $t("page.tool.stockDetail.time"), width: 145 } : c));
 });
 const klineScrollX = computed(() =>
   klineColumns.value.reduce((sum, c) => sum + c.width, 0)
@@ -176,38 +177,38 @@ const klineScrollX = computed(() =>
 
 const financeColumns = [
   {
-    title: "报告期",
+    title: $t("page.tool.stockDetail.reportDate"),
     key: "reportDate",
     width: 100,
     fixed: "left" as const,
     render: (row: Api.Stock.FinanceHistory) => row.reportDate?.slice(0, 10) || "-",
   },
   {
-    title: "ROE%",
+    title: $t("page.tool.stockDetail.roePct"),
     key: "roe",
     width: 70,
     render: (row: Api.Stock.FinanceHistory) => row.roe?.toFixed(2) || "-",
   },
   {
-    title: "毛利率%",
+    title: $t("page.tool.stockDetail.grossMarginPct"),
     key: "grossMargin",
     width: 70,
     render: (row: Api.Stock.FinanceHistory) => row.grossMargin?.toFixed(2) || "-",
   },
   {
-    title: "净利率%",
+    title: $t("page.tool.stockDetail.netMarginPct"),
     key: "netMargin",
     width: 70,
     render: (row: Api.Stock.FinanceHistory) => row.netMargin?.toFixed(2) || "-",
   },
   {
-    title: "营收(万)",
+    title: $t("page.tool.stockDetail.revenueWan"),
     key: "revenue",
     width: 80,
     render: (row: Api.Stock.FinanceHistory) => row.revenue?.toFixed(0) || "-",
   },
   {
-    title: "营收同比%",
+    title: $t("page.tool.stockDetail.revenueYoyPct"),
     key: "revenueYoy",
     width: 80,
     render: (row: Api.Stock.FinanceHistory) =>
@@ -216,13 +217,13 @@ const financeColumns = [
         : "-",
   },
   {
-    title: "净利润(万)",
+    title: $t("page.tool.stockDetail.netProfitWan"),
     key: "netProfit",
     width: 80,
     render: (row: Api.Stock.FinanceHistory) => row.netProfit?.toFixed(0) || "-",
   },
   {
-    title: "净利同比%",
+    title: $t("page.tool.stockDetail.netProfitYoyPct"),
     key: "netProfitYoy",
     width: 80,
     render: (row: Api.Stock.FinanceHistory) =>
@@ -231,13 +232,13 @@ const financeColumns = [
         : "-",
   },
   {
-    title: "EPS",
+    title: $t("page.tool.stockDetail.eps"),
     key: "eps",
     width: 60,
     render: (row: Api.Stock.FinanceHistory) => row.eps?.toFixed(3) || "-",
   },
   {
-    title: "净资产同比%",
+    title: $t("page.tool.stockDetail.equityYoyPct"),
     key: "yoyEquity",
     width: 80,
     render: (row: Api.Stock.FinanceHistory) =>
@@ -246,7 +247,7 @@ const financeColumns = [
         : "-",
   },
   {
-    title: "总资产同比%",
+    title: $t("page.tool.stockDetail.assetYoyPct"),
     key: "yoyAsset",
     width: 80,
     render: (row: Api.Stock.FinanceHistory) =>
@@ -255,7 +256,7 @@ const financeColumns = [
         : "-",
   },
   {
-    title: "EPS同比%",
+    title: $t("page.tool.stockDetail.epsYoyPct"),
     key: "yoyEps",
     width: 80,
     render: (row: Api.Stock.FinanceHistory) =>
@@ -264,61 +265,61 @@ const financeColumns = [
         : "-",
   },
   {
-    title: "资产负债率%",
+    title: $t("page.tool.stockDetail.debtRatioPct"),
     key: "debtRatio",
     width: 80,
     render: (row: Api.Stock.FinanceHistory) => row.debtRatio?.toFixed(2) || "-",
   },
   {
-    title: "流动比率",
+    title: $t("page.tool.stockDetail.currentRatio"),
     key: "currentRatio",
     width: 70,
     render: (row: Api.Stock.FinanceHistory) => row.currentRatio?.toFixed(2) || "-",
   },
   {
-    title: "速动比率",
+    title: $t("page.tool.stockDetail.quickRatio"),
     key: "quickRatio",
     width: 70,
     render: (row: Api.Stock.FinanceHistory) => row.quickRatio?.toFixed(2) || "-",
   },
   {
-    title: "现金比率",
+    title: $t("page.tool.stockDetail.cashRatio"),
     key: "cashRatio",
     width: 70,
     render: (row: Api.Stock.FinanceHistory) => row.cashRatio?.toFixed(2) || "-",
   },
   {
-    title: "应收周转",
+    title: $t("page.tool.stockDetail.nrTurn"),
     key: "nrTurnRatio",
     width: 70,
     render: (row: Api.Stock.FinanceHistory) => row.nrTurnRatio?.toFixed(2) || "-",
   },
   {
-    title: "存货周转",
+    title: $t("page.tool.stockDetail.invTurn"),
     key: "invTurnRatio",
     width: 70,
     render: (row: Api.Stock.FinanceHistory) => row.invTurnRatio?.toFixed(2) || "-",
   },
   {
-    title: "流动资产周转",
+    title: $t("page.tool.stockDetail.caTurn"),
     key: "caTurnRatio",
     width: 80,
     render: (row: Api.Stock.FinanceHistory) => row.caTurnRatio?.toFixed(2) || "-",
   },
   {
-    title: "总资产周转",
+    title: $t("page.tool.stockDetail.assetTurn"),
     key: "assetTurnRatio",
     width: 80,
     render: (row: Api.Stock.FinanceHistory) => row.assetTurnRatio?.toFixed(2) || "-",
   },
   {
-    title: "现金流/营收",
+    title: $t("page.tool.stockDetail.cfoToOr"),
     key: "cfoToOr",
     width: 80,
     render: (row: Api.Stock.FinanceHistory) => row.cfoToOr?.toFixed(2) || "-",
   },
   {
-    title: "现金流/净利",
+    title: $t("page.tool.stockDetail.cfoToNp"),
     key: "cfoToNp",
     width: 80,
     render: (row: Api.Stock.FinanceHistory) => row.cfoToNp?.toFixed(2) || "-",
@@ -343,7 +344,7 @@ const realtimeUrl = computed(() => {
 
 async function loadDetail() {
   if (!code.value) {
-    message.error("股票代码不能为空");
+    message.error($t("page.tool.stockDetail.codeRequired"));
     return;
   }
   loading.value = true;
@@ -359,7 +360,7 @@ async function loadDetail() {
     ]);
     // flat request 永不 reject, 需显式判 error
     if (detailRes.error || klineRes.error || syncStateRes?.error) {
-      message.error("加载失败");
+      message.error($t("page.tool.stockDetail.loadFailed"));
       return;
     }
     if (detailRes.data) {
@@ -386,7 +387,7 @@ async function loadFinance() {
     financeHistory.value = res.data || [];
   } catch (e: any) {
     if (seq !== financeReqSeq) return;
-    message.error(e.message || "财务数据加载失败");
+    message.error(e.message || $t("page.tool.stockDetail.financeLoadFailed"));
   } finally {
     if (seq === financeReqSeq) {
       financeLoading.value = false;
@@ -412,7 +413,7 @@ async function loadKline() {
     klineEmpty.value = !res.data || res.data.length === 0;
   } catch (e: any) {
     if (seq !== klineReqSeq) return;
-    message.error(e.message || "K线数据加载失败");
+    message.error(e.message || $t("page.tool.stockDetail.klineLoadFailed"));
   } finally {
     if (seq === klineReqSeq) {
       klineLoading.value = false;
@@ -486,7 +487,7 @@ function waitForSyncDone(onDone: () => void) {
       }
       stopSyncPolling();
       if (data.lastError) {
-        message.error(`同步失败: ${data.lastError}`);
+        message.error($t("page.tool.stockDetail.syncFailedWithReason", { error: data.lastError }));
       }
       onDone();
     } catch {
@@ -501,13 +502,13 @@ async function handleSync() {
   const { error } = await syncSingleStock(code.value, detail.value?.market || "");
   syncLoading.value = false;
   if (error) {
-    message.warning(error.message || "同步启动失败，可能有其他同步任务在运行");
+    message.warning(error.message || $t("page.tool.stockDetail.syncStartFailed"));
     waitForSyncDone(() => loadDetail());
     return;
   }
-  message.loading("正在同步最新数据，请稍候...");
+  message.loading($t("page.tool.stockDetail.syncInProgress"));
   waitForSyncDone(() => {
-    message.success("同步完成");
+    message.success($t("page.tool.stockDetail.syncDone"));
     loadDetail();
   });
 }
@@ -525,42 +526,47 @@ const infoItems = computed(() => {
   if (!detail.value) return [];
   const d = detail.value;
   const all = [
-    { label: "代码", value: d.code, tip: "" },
-    { label: "名称", value: d.name, tip: "" },
-    { label: "市场", value: d.market, tip: "" },
-    { label: "行业", value: d.industry || "-", tip: "" },
-    { label: "现价", value: d.price?.toFixed(2) || "-", tip: "" },
+    { key: "code", label: $t("page.tool.stockDetail.infoCode"), value: d.code, tip: "" },
+    { key: "name", label: $t("page.tool.stockDetail.infoName"), value: d.name, tip: "" },
+    { key: "market", label: $t("page.tool.stockDetail.infoMarket"), value: d.market, tip: "" },
+    { key: "industry", label: $t("page.tool.stockDetail.infoIndustry"), value: d.industry || "-", tip: "" },
+    { key: "price", label: $t("page.tool.stockDetail.infoPrice"), value: d.price?.toFixed(2) || "-", tip: "" },
     {
-      label: "涨跌幅",
+      key: "changePct",
+      label: $t("page.tool.stockDetail.infoChangePct"),
       value:
         d.changePct !== null
           ? `${d.changePct >= 0 ? "+" : ""}${d.changePct.toFixed(2)}%`
           : "-",
-      tip: "公式: (当前价-昨收价)/昨收价×100%",
+      tip: $t("page.tool.stockDetail.tipChangePct"),
     },
     {
-      label: "换手率",
+      key: "turnoverRate",
+      label: $t("page.tool.stockDetail.infoTurnover"),
       value: d.turnoverRate?.toFixed(2) ? `${d.turnoverRate.toFixed(2)}%` : "-",
-      tip: "公式: 成交量/流通股本×100%。<3%冷门，3-7%正常，>10%非常活跃",
+      tip: $t("page.tool.stockDetail.tipTurnover"),
     },
     {
-      label: "成交额",
-      value: d.amount ? `${(d.amount / 10000).toFixed(2)}亿` : "-",
+      key: "amount",
+      label: $t("page.tool.stockDetail.infoAmount"),
+      value: d.amount ? $t("page.tool.stockDetail.yiValue", { value: (d.amount / 10000).toFixed(2) }) : "-",
       tip: "",
     },
     {
-      label: "总市值",
-      value: d.marketCap ? `${d.marketCap.toFixed(2)}亿` : "-",
-      tip: "公式: 股价×总股本。<50亿小盘，50-200亿中盘，>1000亿超大盘",
+      key: "marketCap",
+      label: $t("page.tool.stockDetail.infoMarketCap"),
+      value: d.marketCap ? $t("page.tool.stockDetail.yiValue", { value: d.marketCap.toFixed(2) }) : "-",
+      tip: $t("page.tool.stockDetail.tipMarketCap"),
     },
     {
-      label: "流通市值",
-      value: d.floatMarketCap ? `${d.floatMarketCap.toFixed(2)}亿` : "-",
+      key: "floatMarketCap",
+      label: $t("page.tool.stockDetail.infoFloatMcap"),
+      value: d.floatMarketCap ? $t("page.tool.stockDetail.yiValue", { value: d.floatMarketCap.toFixed(2) }) : "-",
       tip: "",
     },
   ];
   if (d.type === 2 || d.type === 5) {
-    return all.filter((i) => !["行业", "换手率", "总市值", "流通市值"].includes(i.label));
+    return all.filter((i) => !["industry", "turnoverRate", "marketCap", "floatMarketCap"].includes(i.key));
   }
   return all;
 });
@@ -570,90 +576,90 @@ const financeItems = computed(() => {
   const d = detail.value;
   return [
     {
-      label: "PE(TTM)",
+      label: $t("page.tool.stockDetail.peTtm"),
       value: d.peTtm?.toFixed(2) || "-",
-      tip: "公式: 股价/最近四个季度每股收益之和。<20低估，20-30合理，>30高估",
+      tip: $t("page.tool.stockDetail.tipPeTtm"),
     },
     {
-      label: "PB",
+      label: $t("page.tool.stockDetail.pb"),
       value: d.pb?.toFixed(2) || "-",
-      tip: "公式: 股价/每股净资产。<1破净，1-2低估，>3高估",
+      tip: $t("page.tool.stockDetail.tipPb"),
     },
     {
-      label: "ROE",
+      label: $t("page.tool.stockDetail.fiRoe"),
       value: d.roe?.toFixed(2) ? `${d.roe.toFixed(2)}%` : "-",
-      tip: "公式: 净利润/净资产×100%。>15%优秀，10-15%良好，<10%一般",
+      tip: $t("page.tool.stockDetail.tipRoe"),
     },
     {
-      label: "营收增长",
+      label: $t("page.tool.stockDetail.fiRevenueGrowth"),
       value: d.revenueYoy?.toFixed(2) ? `${d.revenueYoy.toFixed(2)}%` : "-",
-      tip: "公式: (本期营收-去年同期营收)/去年同期营收×100%。>20%高增长",
+      tip: $t("page.tool.stockDetail.tipRevenueGrowth"),
     },
     {
-      label: "净利润增长",
+      label: $t("page.tool.stockDetail.fiNetProfitGrowth"),
       value: d.netProfitYoy?.toFixed(2) ? `${d.netProfitYoy.toFixed(2)}%` : "-",
-      tip: "公式: (本期净利润-去年同期净利润)/去年同期净利润×100%",
+      tip: $t("page.tool.stockDetail.tipNetProfitGrowth"),
     },
     {
-      label: "毛利率",
+      label: $t("page.tool.stockDetail.fiGrossMargin"),
       value: d.grossMargin?.toFixed(2) ? `${d.grossMargin.toFixed(2)}%` : "-",
-      tip: "公式: (营业收入-营业成本)/营业收入×100%",
+      tip: $t("page.tool.stockDetail.tipGrossMargin"),
     },
     {
-      label: "净利率",
+      label: $t("page.tool.stockDetail.fiNetMargin"),
       value: d.netMargin?.toFixed(2) ? `${d.netMargin.toFixed(2)}%` : "-",
-      tip: "公式: 净利润/营业收入×100%",
+      tip: $t("page.tool.stockDetail.tipNetMargin"),
     },
     {
-      label: "资产负债率",
+      label: $t("page.tool.stockDetail.fiDebtRatio"),
       value: d.debtRatio?.toFixed(2) ? `${d.debtRatio.toFixed(2)}%` : "-",
-      tip: "公式: 总负债/总资产×100%。<50%低风险，50-70%正常，>70%高风险",
+      tip: $t("page.tool.stockDetail.tipDebtRatio"),
     },
     {
-      label: "流动比率",
+      label: $t("page.tool.stockDetail.currentRatio"),
       value: d.currentRatio?.toFixed(2) || "-",
-      tip: "公式: 流动资产/流动负债。>2优秀，1-2正常，<1有风险",
+      tip: $t("page.tool.stockDetail.tipCurrentRatio"),
     },
     {
-      label: "速动比率",
+      label: $t("page.tool.stockDetail.quickRatio"),
       value: d.quickRatio?.toFixed(2) || "-",
-      tip: "公式: (流动资产-存货)/流动负债。>1优秀，0.5-1正常",
+      tip: $t("page.tool.stockDetail.tipQuickRatio"),
     },
     {
-      label: "现金比率",
+      label: $t("page.tool.stockDetail.cashRatio"),
       value: d.cashRatio?.toFixed(2) || "-",
-      tip: "公式: (货币资金+交易性金融资产)/流动负债。>0.5充裕，0.2-0.5正常，<0.2偏紧",
+      tip: $t("page.tool.stockDetail.tipCashRatio"),
     },
     {
-      label: "应收周转率",
+      label: $t("page.tool.stockDetail.fiNrTurnover"),
       value: d.nrTurnRatio?.toFixed(2) || "-",
-      tip: "公式: 营业收入/应收账款。越高回款越快；金融股无此指标",
+      tip: $t("page.tool.stockDetail.tipNrTurnover"),
     },
     {
-      label: "存货周转率",
+      label: $t("page.tool.stockDetail.fiInvTurnover"),
       value: d.invTurnRatio?.toFixed(2) || "-",
-      tip: "公式: 营业成本/存货。越高存货消化越快",
+      tip: $t("page.tool.stockDetail.tipInvTurnover"),
     },
     {
-      label: "净资产同比",
+      label: $t("page.tool.stockDetail.fiEquityYoy"),
       value:
         d.yoyEquity !== null
           ? `${d.yoyEquity >= 0 ? "+" : ""}${d.yoyEquity.toFixed(2)}%`
           : "-",
-      tip: "净资产较上年同期增速，反映内生积累能力",
+      tip: $t("page.tool.stockDetail.tipEquityYoy"),
     },
     {
-      label: "总资产同比",
+      label: $t("page.tool.stockDetail.fiAssetYoy"),
       value:
         d.yoyAsset !== null
           ? `${d.yoyAsset >= 0 ? "+" : ""}${d.yoyAsset.toFixed(2)}%`
           : "-",
-      tip: "总资产较上年同期增速，反映扩张速度",
+      tip: $t("page.tool.stockDetail.tipAssetYoy"),
     },
     {
-      label: "现金流/营收",
+      label: $t("page.tool.stockDetail.cfoToOr"),
       value: d.cfoToOr?.toFixed(2) || "-",
-      tip: "公式: 经营现金流净额/营业收入。>0.2较好，持续为负需警惕",
+      tip: $t("page.tool.stockDetail.tipCfoToOr"),
     },
   ];
 });
@@ -669,9 +675,9 @@ function fmtSyncDateTime(v: string | null | undefined) {
 const klineStatusMeta = computed(() => {
   const s = syncState.value?.klineStatus || "pending";
   const meta: Record<string, { label: string; type: "success" | "error" | "default" }> = {
-    ok: { label: "已同步", type: "success" },
-    failed: { label: "同步失败", type: "error" },
-    pending: { label: "未同步", type: "default" },
+    ok: { label: $t("page.tool.stockDetail.synced"), type: "success" },
+    failed: { label: $t("page.tool.stockDetail.syncFailed"), type: "error" },
+    pending: { label: $t("page.tool.stockDetail.notSynced"), type: "default" },
   };
   return meta[s] || meta.pending;
 });
@@ -682,10 +688,10 @@ const financeStatusMeta = computed(() => {
     string,
     { label: string; type: "success" | "error" | "default" | "info" }
   > = {
-    ok: { label: "已同步", type: "success" },
-    failed: { label: "同步失败", type: "error" },
-    pending: { label: "未同步", type: "default" },
-    skipped: { label: "无财务数据", type: "info" },
+    ok: { label: $t("page.tool.stockDetail.synced"), type: "success" },
+    failed: { label: $t("page.tool.stockDetail.syncFailed"), type: "error" },
+    pending: { label: $t("page.tool.stockDetail.notSynced"), type: "default" },
+    skipped: { label: $t("page.tool.stockDetail.noFinanceData"), type: "info" },
   };
   return meta[s] || meta.pending;
 });
@@ -693,18 +699,18 @@ const financeStatusMeta = computed(() => {
 const syncItems = computed(() => {
   const st = syncState.value;
   const items = [
-    { label: "日K已到", value: fmtSyncDate(st?.klineDailyTo) },
-    { label: "周K已到", value: fmtSyncDate(st?.klineWeeklyTo) },
-    { label: "月K已到", value: fmtSyncDate(st?.klineMonthlyTo) },
+    { label: $t("page.tool.stockDetail.dailyKTo"), value: fmtSyncDate(st?.klineDailyTo) },
+    { label: $t("page.tool.stockDetail.weeklyKTo"), value: fmtSyncDate(st?.klineWeeklyTo) },
+    { label: $t("page.tool.stockDetail.monthlyKTo"), value: fmtSyncDate(st?.klineMonthlyTo) },
   ];
   if (!isIndex.value) {
-    items.push({ label: "小时K已到", value: fmtSyncDateTime(st?.klineHourlyTo) });
+    items.push({ label: $t("page.tool.stockDetail.hourlyKTo"), value: fmtSyncDateTime(st?.klineHourlyTo) });
   }
-  items.push({ label: "K线同步时间", value: fmtSyncDateTime(st?.klineSyncedAt) });
+  items.push({ label: $t("page.tool.stockDetail.klineSyncedAt"), value: fmtSyncDateTime(st?.klineSyncedAt) });
   if (!noFinance.value) {
     items.push(
-      { label: "财务已到", value: fmtSyncDate(st?.financeTo) },
-      { label: "财务同步时间", value: fmtSyncDateTime(st?.financeSyncedAt) }
+      { label: $t("page.tool.stockDetail.financeTo"), value: fmtSyncDate(st?.financeTo) },
+      { label: $t("page.tool.stockDetail.financeSyncedAt"), value: fmtSyncDateTime(st?.financeSyncedAt) }
     );
   }
   return items;
@@ -720,46 +726,46 @@ const financeChartGroups: Record<
   }
 > = {
   profit: {
-    name: "盈利",
+    name: $t("page.tool.stockDetail.groupProfit"),
     unit: "%",
     series: [
-      { key: "roe", name: "ROE%", color: "#1890ff" },
-      { key: "grossMargin", name: "毛利率%", color: "#52c41a" },
-      { key: "netMargin", name: "净利率%", color: "#faad14" },
-      { key: "debtRatio", name: "资产负债率%", color: "#f5222d" },
+      { key: "roe", name: $t("page.tool.stockDetail.roePct"), color: "#1890ff" },
+      { key: "grossMargin", name: $t("page.tool.stockDetail.grossMarginPct"), color: "#52c41a" },
+      { key: "netMargin", name: $t("page.tool.stockDetail.netMarginPct"), color: "#faad14" },
+      { key: "debtRatio", name: $t("page.tool.stockDetail.debtRatioPct"), color: "#f5222d" },
     ],
   },
   growth: {
-    name: "成长",
+    name: $t("page.tool.stockDetail.groupGrowth"),
     unit: "%",
     series: [
-      { key: "revenueYoy", name: "营收同比%", color: "#1890ff" },
-      { key: "netProfitYoy", name: "净利润同比%", color: "#52c41a" },
-      { key: "yoyEquity", name: "净资产同比%", color: "#faad14" },
-      { key: "yoyAsset", name: "总资产同比%", color: "#f5222d" },
-      { key: "yoyEps", name: "EPS同比%", color: "#722ed1" },
+      { key: "revenueYoy", name: $t("page.tool.stockDetail.revenueYoyPct"), color: "#1890ff" },
+      { key: "netProfitYoy", name: $t("page.tool.stockDetail.netProfitYoyPct"), color: "#52c41a" },
+      { key: "yoyEquity", name: $t("page.tool.stockDetail.equityYoyPct"), color: "#faad14" },
+      { key: "yoyAsset", name: $t("page.tool.stockDetail.assetYoyPct"), color: "#f5222d" },
+      { key: "yoyEps", name: $t("page.tool.stockDetail.epsYoyPct"), color: "#722ed1" },
     ],
   },
   operation: {
-    name: "营运",
-    unit: "次",
+    name: $t("page.tool.stockDetail.groupOperation"),
+    unit: $t("page.tool.stockDetail.unitTimes"),
     series: [
-      { key: "nrTurnRatio", name: "应收周转", color: "#1890ff" },
-      { key: "invTurnRatio", name: "存货周转", color: "#52c41a" },
-      { key: "caTurnRatio", name: "流动资产周转", color: "#faad14" },
-      { key: "assetTurnRatio", name: "总资产周转", color: "#f5222d" },
+      { key: "nrTurnRatio", name: $t("page.tool.stockDetail.nrTurn"), color: "#1890ff" },
+      { key: "invTurnRatio", name: $t("page.tool.stockDetail.invTurn"), color: "#52c41a" },
+      { key: "caTurnRatio", name: $t("page.tool.stockDetail.caTurn"), color: "#faad14" },
+      { key: "assetTurnRatio", name: $t("page.tool.stockDetail.assetTurn"), color: "#f5222d" },
     ],
   },
   solvency: {
-    name: "偿债与现金流",
-    unit: "%/倍",
+    name: $t("page.tool.stockDetail.groupSolvency"),
+    unit: $t("page.tool.stockDetail.unitPctPerX"),
     series: [
-      { key: "debtRatio", name: "资产负债率%", color: "#f5222d" },
-      { key: "currentRatio", name: "流动比率", color: "#1890ff" },
-      { key: "quickRatio", name: "速动比率", color: "#52c41a" },
-      { key: "cashRatio", name: "现金比率", color: "#faad14" },
-      { key: "cfoToOr", name: "现金流/营收", color: "#722ed1" },
-      { key: "cfoToNp", name: "现金流/净利", color: "#13c2c2" },
+      { key: "debtRatio", name: $t("page.tool.stockDetail.debtRatioPct"), color: "#f5222d" },
+      { key: "currentRatio", name: $t("page.tool.stockDetail.currentRatio"), color: "#1890ff" },
+      { key: "quickRatio", name: $t("page.tool.stockDetail.quickRatio"), color: "#52c41a" },
+      { key: "cashRatio", name: $t("page.tool.stockDetail.cashRatio"), color: "#faad14" },
+      { key: "cfoToOr", name: $t("page.tool.stockDetail.cfoToOr"), color: "#722ed1" },
+      { key: "cfoToNp", name: $t("page.tool.stockDetail.cfoToNp"), color: "#13c2c2" },
     ],
   },
 };
@@ -805,7 +811,7 @@ function getKlineChartOption(): ECOption {
   const data = [...klineData.value];
   const dates = data.map((d) => d.date || "");
   const closeSeries: LineSeriesOption = {
-    name: "收盘价",
+    name: $t("page.tool.stockDetail.closePrice"),
     type: "line",
     data: data.map((d) => d.close),
     smooth: true,
@@ -845,7 +851,7 @@ function getKlineChartOption(): ECOption {
     : [
         closeSeries,
         {
-          name: "涨跌幅%",
+          name: $t("page.tool.stockDetail.changePctFull"),
           type: "bar",
           yAxisIndex: 1,
           data: data.map((d) => d.changePct),
@@ -860,7 +866,9 @@ function getKlineChartOption(): ECOption {
       axisPointer: { type: "cross" },
     },
     legend: {
-      data: hourly ? ["收盘价", "MA5", "MA10", "MA20"] : ["收盘价", "涨跌幅%"],
+      data: hourly
+        ? [$t("page.tool.stockDetail.closePrice"), "MA5", "MA10", "MA20"]
+        : [$t("page.tool.stockDetail.closePrice"), $t("page.tool.stockDetail.changePctFull")],
       top: 0,
       textStyle: { fontSize: 12 },
     },
@@ -873,13 +881,13 @@ function getKlineChartOption(): ECOption {
     yAxis: [
       {
         type: "value",
-        name: "价格",
+        name: $t("page.tool.stockDetail.axisPrice"),
         position: "left",
         axisLabel: { fontSize: 11 },
       },
       {
         type: "value",
-        name: "涨跌%",
+        name: $t("page.tool.stockDetail.changePct"),
         position: "right",
         show: !hourly,
         axisLabel: { fontSize: 11 },
@@ -949,7 +957,7 @@ onMounted(() => {
   fetchSyncStatus()
     .then(({ data }) => {
       if (data?.running) {
-        message.info("检测到同步任务正在运行，完成后将自动刷新");
+        message.info($t("page.tool.stockDetail.syncRunningDetected"));
         waitForSyncDone(() => loadDetail());
       }
     })
@@ -970,7 +978,7 @@ onUnmounted(() => {
     <div class="flex items-center justify-between mb-4">
       <NButton @click="goBack">
         <template #icon><span class="i-mdi:arrow-left" /></template>
-        返回筛选
+        {{ $t("page.tool.stockDetail.backToScreen") }}
       </NButton>
       <div class="flex gap-2">
         <NButton
@@ -980,9 +988,9 @@ onUnmounted(() => {
           @click="handleSync"
         >
           <template #icon><span class="i-mdi:refresh" /></template>
-          {{ syncRunning ? "同步中..." : "同步最新" }}
+          {{ syncRunning ? $t("page.tool.stockDetail.syncing") : $t("page.tool.stockDetail.syncLatest") }}
         </NButton>
-        <NButton v-if="!watchlistCodes.has(code)" type="primary" @click="handleAddWatchlist">加自选</NButton>
+        <NButton v-if="!watchlistCodes.has(code)" type="primary" @click="handleAddWatchlist">{{ $t("page.tool.stockDetail.addWatchlist") }}</NButton>
       </div>
     </div>
 
@@ -1019,11 +1027,11 @@ onUnmounted(() => {
 
         <NTabs v-model:value="activeTab" type="line" animated>
           <!-- 本地数据Tab -->
-          <NTabPane name="local" tab="本地数据">
+          <NTabPane name="local" :tab="$t('page.tool.stockDetail.localData')">
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <!-- 基本信息 -->
               <div class="p-4 bg-white rounded-lg shadow">
-                <h2 class="text-lg font-bold mb-3">基本信息</h2>
+                <h2 class="text-lg font-bold mb-3">{{ $t("page.tool.stockDetail.basicInfo") }}</h2>
                 <div class="grid grid-cols-2 gap-2">
                   <div
                     v-for="item in infoItems"
@@ -1045,7 +1053,7 @@ onUnmounted(() => {
 
               <!-- 财务指标 (指数/ETF无财务, 不显示) -->
               <div v-if="!noFinance" class="p-4 bg-white rounded-lg shadow">
-                <h2 class="text-lg font-bold mb-3">财务指标</h2>
+                <h2 class="text-lg font-bold mb-3">{{ $t("page.tool.stockDetail.financeIndicators") }}</h2>
                 <div class="grid grid-cols-2 gap-2">
                   <div
                     v-for="item in financeItems"
@@ -1070,7 +1078,7 @@ onUnmounted(() => {
                 :class="noFinance ? '' : 'lg:col-span-2'"
                 class="p-4 bg-white rounded-lg shadow"
               >
-                <h2 class="text-lg font-bold mb-3">数据同步状态</h2>
+                <h2 class="text-lg font-bold mb-3">{{ $t("page.tool.stockDetail.syncStatusTitle") }}</h2>
                 <div class="grid grid-cols-2 gap-2">
                   <div
                     v-for="item in syncItems"
@@ -1083,7 +1091,7 @@ onUnmounted(() => {
                 </div>
                 <div class="flex flex-wrap gap-x-8 gap-y-2 mt-3">
                   <div class="flex items-center gap-2">
-                    <span class="text-gray-500">K线状态</span>
+                    <span class="text-gray-500">{{ $t("page.tool.stockDetail.klineStatusLabel") }}</span>
                     <NTag :type="klineStatusMeta.type" size="small">
                       {{
                         klineStatusMeta.label
@@ -1096,7 +1104,7 @@ onUnmounted(() => {
                     >?</span>
                   </div>
                   <div v-if="!noFinance" class="flex items-center gap-2">
-                    <span class="text-gray-500">财务状态</span>
+                    <span class="text-gray-500">{{ $t("page.tool.stockDetail.financeStatusLabel") }}</span>
                     <NTag :type="financeStatusMeta.type" size="small">
                       {{
                         financeStatusMeta.label
@@ -1117,7 +1125,7 @@ onUnmounted(() => {
               v-if="detail.concepts && detail.concepts.length > 0"
               class="mt-4 p-4 bg-white rounded-lg shadow"
             >
-              <h2 class="text-lg font-bold mb-3">概念板块</h2>
+              <h2 class="text-lg font-bold mb-3">{{ $t("page.tool.stockDetail.concepts") }}</h2>
               <div class="flex flex-wrap gap-2">
                 <NTag
                   v-for="concept in detail.concepts"
@@ -1136,7 +1144,7 @@ onUnmounted(() => {
               class="mt-4 p-4 bg-white rounded-lg shadow"
             >
               <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-                <h2 class="text-lg font-bold">K线走势 (共{{ klineData.length }}条)</h2>
+                <h2 class="text-lg font-bold">{{ $t("page.tool.stockDetail.klineTrend", { count: klineData.length }) }}</h2>
                 <div class="flex items-center gap-2">
                   <NTabs
                     v-model:value="klinePeriod"
@@ -1144,10 +1152,10 @@ onUnmounted(() => {
                     size="small"
                     style="width: 260px"
                   >
-                    <NTabPane v-if="!isIndex" name="60" tab="小时K" />
-                    <NTabPane name="daily" tab="日K" />
-                    <NTabPane name="weekly" tab="周K" />
-                    <NTabPane name="monthly" tab="月K" />
+                    <NTabPane v-if="!isIndex" name="60" :tab="$t('page.tool.stockDetail.hourlyK')" />
+                    <NTabPane name="daily" :tab="$t('page.tool.stockDetail.dailyK')" />
+                    <NTabPane name="weekly" :tab="$t('page.tool.stockDetail.weeklyK')" />
+                    <NTabPane name="monthly" :tab="$t('page.tool.stockDetail.monthlyK')" />
                   </NTabs>
                   <NTabs
                     v-model:value="klineViewMode"
@@ -1155,8 +1163,8 @@ onUnmounted(() => {
                     size="small"
                     style="width: 160px"
                   >
-                    <NTabPane name="chart" tab="图表" />
-                    <NTabPane name="table" tab="表格" />
+                    <NTabPane name="chart" :tab="$t('page.tool.stockDetail.chartView')" />
+                    <NTabPane name="table" :tab="$t('page.tool.stockDetail.tableView')" />
                   </NTabs>
                 </div>
               </div>
@@ -1166,8 +1174,8 @@ onUnmounted(() => {
                   v-show="klineData.length === 0"
                   class="py-10 text-center text-gray-400"
                 >
-                  <div class="text-14px">该周期暂无数据</div>
-                  <div class="text-12px mt-1">请先同步该股票的K线数据</div>
+                  <div class="text-14px">{{ $t("page.tool.stockDetail.noPeriodData") }}</div>
+                  <div class="text-12px mt-1">{{ $t("page.tool.stockDetail.syncKlineFirst") }}</div>
                 </div>
                 <div v-show="klineData.length > 0">
                   <!-- 图表模式 -->
@@ -1191,7 +1199,7 @@ onUnmounted(() => {
                     v-if="klineData.length > 20 && klineViewMode === 'table'"
                     class="mt-2 text-12px text-gray-400 text-center"
                   >
-                    仅显示最近20条, 图表模式可查看全部 {{ klineData.length }} 条
+                    {{ $t("page.tool.stockDetail.tableLimit", { count: klineData.length }) }}
                   </div>
                 </div>
               </NSpin>
@@ -1204,7 +1212,7 @@ onUnmounted(() => {
             >
               <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
                 <h2 class="text-lg font-bold">
-                  历史财务数据 (共{{ financeHistory.length }}期)
+                  {{ $t("page.tool.stockDetail.financeHistoryTitle", { count: financeHistory.length }) }}
                 </h2>
                 <div class="flex items-center gap-2">
                   <NTabs
@@ -1213,8 +1221,8 @@ onUnmounted(() => {
                     size="small"
                     style="width: 200px"
                   >
-                    <NTabPane name="recent" tab="近16期" />
-                    <NTabPane name="all" tab="全部" />
+                    <NTabPane name="recent" :tab="$t('page.tool.stockDetail.recent16')" />
+                    <NTabPane name="all" :tab="$t('page.tool.stockDetail.all')" />
                   </NTabs>
                   <NTabs
                     v-model:value="financeViewMode"
@@ -1222,8 +1230,8 @@ onUnmounted(() => {
                     size="small"
                     style="width: 160px"
                   >
-                    <NTabPane name="chart" tab="图表" />
-                    <NTabPane name="table" tab="表格" />
+                    <NTabPane name="chart" :tab="$t('page.tool.stockDetail.chartView')" />
+                    <NTabPane name="table" :tab="$t('page.tool.stockDetail.tableView')" />
                   </NTabs>
                 </div>
               </div>
@@ -1232,10 +1240,10 @@ onUnmounted(() => {
                 <!-- 指标分组切换(图表模式) -->
                 <div v-if="financeViewMode === 'chart'" class="mb-3">
                   <NTabs v-model:value="financeChartGroup" type="segment" size="small">
-                    <NTabPane name="profit" tab="盈利" />
-                    <NTabPane name="growth" tab="成长" />
-                    <NTabPane name="operation" tab="营运" />
-                    <NTabPane name="solvency" tab="偿债与现金流" />
+                    <NTabPane name="profit" :tab="$t('page.tool.stockDetail.groupProfit')" />
+                    <NTabPane name="growth" :tab="$t('page.tool.stockDetail.groupGrowth')" />
+                    <NTabPane name="operation" :tab="$t('page.tool.stockDetail.groupOperation')" />
+                    <NTabPane name="solvency" :tab="$t('page.tool.stockDetail.groupSolvency')" />
                   </NTabs>
                 </div>
                 <!-- 图表模式 -->
@@ -1260,7 +1268,7 @@ onUnmounted(() => {
           </NTabPane>
 
           <!-- 实时行情Tab -->
-          <NTabPane name="realtime" tab="实时行情">
+          <NTabPane name="realtime" :tab="$t('page.tool.stockDetail.realtime')">
             <div
               class="bg-white rounded-lg shadow overflow-hidden"
               style="height: calc(100vh - 280px)"

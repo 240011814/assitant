@@ -1020,7 +1020,6 @@ func (s *StockSyncService) SyncSingleStockDaily(code, market string, starts map[
 	if isBJCode(code) {
 		return 0, fmt.Errorf("北交所股票 %s 暂不支持同步(baostock 无该市场数据)", code)
 	}
-	market = s.resolveMarket(code, market)
 	baostockCode := s.convertToBaostockCode(code)
 	isIndex := isIndexCode(code)
 
@@ -1200,7 +1199,6 @@ func (s *StockSyncService) SyncFinanceData(code, market string) (int, error) {
 	if isBJCode(code) {
 		return 0, fmt.Errorf("北交所股票 %s 暂不支持同步(baostock 无该市场数据)", code)
 	}
-	market = s.resolveMarket(code, market)
 	if isIndexCode(code) || isETFCode(code) {
 		log.Printf("[StockSync] %s 是指数/ETF, 无财务数据, 跳过", code)
 		s.refreshFinanceState(code, time.Time{}, "skipped", "无财务数据")

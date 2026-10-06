@@ -10,6 +10,8 @@ import {
   fetchGetLotteryRecords,
   fetchGetLotteryWinners,
 } from "@/service/api";
+import { useAudioCue } from "./composables/use-audio-cue";
+import { useGachaAnimation } from "./composables/use-gacha-animation";
 
 const route = useRoute();
 const message = useMessage();
@@ -25,80 +27,31 @@ const showResultModal = ref(false);
 const showPrizeModal = ref(false);
 const showWinnerModal = ref(false);
 const drawResult = ref<Api.Lottery.DrawResult | null>(null);
-const pointerRotation = ref(0);
 const drawLimits = ref<Api.Lottery.DrawLimits | null>(null);
 
-// 原神抽卡模式状态
-const showGachaAnimation = ref(false);
-const gachaPhase = ref<"idle" | "meteor" | "flash" | "reveal" | "result">("idle");
-const gachaParticles = ref<Array<{ id: number; x: number; y: number; delay: number }>>(
-  []
-);
-
 // 音效管理
-const audioContext = ref<AudioContext | null>(null);
+const { playClickSound, playGachaSound, playWheelSpinSound, playWinSound, playLoseSound } = useAudioCue();
 
-function initAudio() {
-  if (!audioContext.value) {
-    audioContext.value = new AudioContext();
-  }
-}
-
-function playSound(
-  frequency: number,
-  duration: number,
-  type: OscillatorType = "sine",
-  volume: number = 0.3
-) {
-  try {
-    initAudio();
-    const ctx = audioContext.value!;
-    const oscillator = ctx.createOscillator();
-    const gainNode = ctx.createGain();
-
-    oscillator.connect(gainNode);
-    gainNode.connect(ctx.destination);
-
-    oscillator.frequency.setValueAtTime(frequency, ctx.currentTime);
-    oscillator.type = type;
-
-    gainNode.gain.setValueAtTime(volume, ctx.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
-
-    oscillator.start(ctx.currentTime);
-    oscillator.stop(ctx.currentTime + duration);
-  } catch {
-    // 静默处理音频错误
-  }
-}
-
-function playGachaSound(rarity: number) {
-  // 流星下落音效
-  playSound(800, 0.3, "sine", 0.2);
-  setTimeout(() => playSound(600, 0.2, "sine", 0.15), 200);
-
-  // 揭示音效（根据稀有度不同）
-  setTimeout(() => {
-    if (rarity >= 5) {
-      // 传说 - 华丽的和弦
-      playSound(523, 0.8, "sine", 0.3);
-      setTimeout(() => playSound(659, 0.6, "sine", 0.25), 100);
-      setTimeout(() => playSound(784, 0.6, "sine", 0.25), 200);
-      setTimeout(() => playSound(1047, 0.8, "sine", 0.3), 300);
-    } else if (rarity >= 4) {
-      // 史诗 - 双音
-      playSound(440, 0.6, "sine", 0.25);
-      setTimeout(() => playSound(554, 0.5, "sine", 0.2), 150);
-    } else {
-      // 普通 - 单音
-      playSound(349, 0.4, "sine", 0.2);
-    }
-  }, 800);
-}
-
-function playClickSound() {
-  playSound(1200, 0.1, "square", 0.1);
-}
+// 转盘/原神抽卡动画状态机
+const {
+  pointerRotation,
+  showGachaAnimation,
+  gachaPhase,
+  gachaParticles,
+  gachaRarity,
+  spinToSegment,
+  handleGachaDraw,
+  closeGachaAnimation
+} = useGachaAnimation({
+  userName,
+  drawing,
+  drawResult,
+  getActivityId: () => Number(route.params.id),
+  message,
+  playClickSound,
+  playGachaSound,
+  loadData
+});
 
 const segmentColors = [
   "#FF6B6B",
@@ -164,21 +117,6 @@ const drawButtonText = computed(() => {
   if (activity.value?.status === 0) return "活动未开始";
   if (activity.value?.status === 2) return "活动已结束";
   return isGachaMode.value ? "祈愿一次" : "开始抽奖";
-});
-
-// 原神抽卡模式 - 根据奖品等级确定稀有度等级
-const gachaRarity = computed(() => {
-  if (!drawResult.value?.isWinner || !drawResult.value.prize) return 1; // 未中奖用1星（明亮风格）
-  const level = drawResult.value.prize.prizeLevel;
-  // 奖品等级: 1-特等奖, 2-一等奖, 3-二等奖, 4-三等奖, 0-未设置
-  const levelMap: Record<number, number> = {
-    1: 5, // 特等奖 → 金色传说
-    2: 4, // 一等奖 → 紫色史诗
-    3: 3, // 二等奖 → 蓝色稀有
-    4: 2, // 三等奖 → 绿色普通
-    0: 2, // 未设置 → 绿色普通
-  };
-  return levelMap[level] || 2;
 });
 
 // 奖品等级标签
@@ -310,19 +248,7 @@ async function handleDraw() {
     targetIndex = thankYouIndex >= 0 ? thankYouIndex : 0;
   }
 
-  const totalItems = wheelItems.value.length;
-  const segmentAngle = 360 / totalItems;
-  // 目标扇区中心的角度（从顶部顺时针）
-  const targetAngle = targetIndex * segmentAngle + segmentAngle / 2;
-
-  // 计算至少转5圈后到达目标位置的旋转角度
-  const currentAngle = pointerRotation.value % 360;
-  const minSpins = 5;
-  // 从当前角度出发，至少转minSpins圈，再加上到达目标的偏移
-  const extraSpins = minSpins + Math.floor(Math.random() * 3);
-  const finalRotation =
-    pointerRotation.value + extraSpins * 360 + ((targetAngle - currentAngle + 360) % 360);
-  pointerRotation.value = finalRotation;
+  spinToSegment(targetIndex, wheelItems.value.length);
 
   // 播放旋转音效
   playWheelSpinSound();
@@ -340,106 +266,6 @@ async function handleDraw() {
   drawResult.value = data;
   showResultModal.value = true;
   loadData();
-}
-
-// 转盘旋转音效
-function playWheelSpinSound() {
-  // 模拟转盘咔哒声
-  let count = 0;
-  const interval = setInterval(() => {
-    if (count >= 20) {
-      clearInterval(interval);
-      return;
-    }
-    playSound(800 + count * 50, 0.05, "square", 0.1);
-    count++;
-  }, 150);
-}
-
-// 中奖音效
-function playWinSound() {
-  playSound(523, 0.3, "sine", 0.3);
-  setTimeout(() => playSound(659, 0.3, "sine", 0.25), 100);
-  setTimeout(() => playSound(784, 0.3, "sine", 0.25), 200);
-  setTimeout(() => playSound(1047, 0.5, "sine", 0.3), 300);
-}
-
-// 未中奖音效
-function playLoseSound() {
-  playSound(440, 0.3, "sine", 0.2);
-  setTimeout(() => playSound(349, 0.4, "sine", 0.15), 200);
-}
-
-// 原神抽卡模式
-async function handleGachaDraw() {
-  if (!userName.value.trim()) {
-    message.warning("请输入您的姓名");
-    return;
-  }
-
-  playClickSound();
-  drawing.value = true;
-  showGachaAnimation.value = true;
-  gachaPhase.value = "idle";
-
-  // 生成粒子效果
-  gachaParticles.value = Array.from({ length: 30 }, (_, i) => ({
-    id: i,
-    x: Math.random() * 100,
-    y: Math.random() * 100,
-    delay: Math.random() * 2,
-  }));
-
-  const activityId = Number(route.params.id);
-  const { data, error } = await fetchDrawLottery(activityId, userName.value.trim());
-
-  if (error) {
-    drawing.value = false;
-    showGachaAnimation.value = false;
-    message.error("祈愿失败");
-    return;
-  }
-
-  drawResult.value = data;
-
-  // 计算稀有度
-  const rarity =
-    data.isWinner && data.prize
-      ? data.prize.prizeValue >= 100
-        ? 5
-        : data.prize.prizeValue >= 50
-        ? 4
-        : data.prize.prizeValue >= 20
-        ? 3
-        : 2
-      : 2;
-
-  // 阶段1：流星下落
-  gachaPhase.value = "meteor";
-  playGachaSound(rarity);
-
-  await new Promise((resolve) => setTimeout(resolve, 1200));
-
-  // 阶段2：闪光
-  gachaPhase.value = "flash";
-
-  await new Promise((resolve) => setTimeout(resolve, 400));
-
-  // 阶段3：揭示
-  gachaPhase.value = "reveal";
-
-  await new Promise((resolve) => setTimeout(resolve, 600));
-
-  // 阶段4：显示结果
-  gachaPhase.value = "result";
-  drawing.value = false;
-
-  loadData();
-}
-
-function closeGachaAnimation() {
-  showGachaAnimation.value = false;
-  gachaPhase.value = "idle";
 }
 
 function openPrizeModal() {

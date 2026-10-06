@@ -29,9 +29,7 @@ func (s *AdminService) ListUsers(keyword, role string, page, pageSize int) ([]mo
 		return nil, 0, err
 	}
 
-	if page < 1 {
-		page = 1
-	}
+	page = NormalizePage(page)
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}

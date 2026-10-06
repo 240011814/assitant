@@ -34,8 +34,8 @@ func HandleToolApproval(agentService *service.AIAgentService, historyService *se
 			return
 		}
 
-		userID, exists := c.Get("userId")
-		if !exists {
+		userID, ok := currentUserID(c)
+		if !ok {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
@@ -48,7 +48,7 @@ func HandleToolApproval(agentService *service.AIAgentService, historyService *se
 			return
 		}
 		ownerID, err := strconv.ParseUint(parts[0], 10, 32)
-		if err != nil || uint(ownerID) != userID.(uint) {
+		if err != nil || uint(ownerID) != userID {
 			c.JSON(http.StatusForbidden, gin.H{"error": "checkpoint 不属于当前用户"})
 			return
 		}
@@ -79,10 +79,7 @@ func HandleToolApproval(agentService *service.AIAgentService, historyService *se
 		}
 		defer cancel()
 
-		c.Header("Content-Type", "text/event-stream")
-		c.Header("Cache-Control", "no-cache")
-		c.Header("Connection", "keep-alive")
-		c.Header("X-Accel-Buffering", "no")
+		setupSSE(c)
 
 		var fullAssistantReply string
 		var fullThinkingContent string
@@ -90,18 +87,22 @@ func HandleToolApproval(agentService *service.AIAgentService, historyService *se
 		c.Stream(func(w io.Writer) bool {
 			event, ok := iter.Next()
 			if !ok {
-				log.Printf("[tool-approval] stream completed user=%d reply_chars=%d", userID.(uint), len(fullAssistantReply))
+				log.Printf("[tool-approval] stream completed user=%d reply_chars=%d", userID, len(fullAssistantReply))
 				c.SSEvent("message", "[DONE]")
 
-				go historyService.SaveConversation(&service.SaveConversationParams{
-					UserID:           userID.(uint),
-					HistoryID:        historyID,
-					TrainingType:     req.TrainingType,
-					CustomTrainingID: req.CustomTrainingID,
-					InputMessages:    inputMessages,
-					AssistantReply:   fullAssistantReply,
-					ThinkingContent:  fullThinkingContent,
-				})
+				go func() {
+					if _, saveErr := historyService.SaveConversation(&service.SaveConversationParams{
+						UserID:           userID,
+						HistoryID:        historyID,
+						TrainingType:     req.TrainingType,
+						CustomTrainingID: req.CustomTrainingID,
+						InputMessages:    inputMessages,
+						AssistantReply:   fullAssistantReply,
+						ThinkingContent:  fullThinkingContent,
+					}); saveErr != nil {
+						log.Printf("[tool-approval] 保存对话历史失败 userID=%d historyID=%d: %v", userID, historyID, saveErr)
+					}
+				}()
 
 				return false
 			}

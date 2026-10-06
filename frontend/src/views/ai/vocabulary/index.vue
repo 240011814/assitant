@@ -276,12 +276,12 @@ const lastReviewBox = ref<{ word: string; srsBox: number } | null>(null);
 const currentReviewWord = computed(() => reviewList.value[reviewIndex.value] || null);
 
 const loadReviewStats = async () => {
-  const { data, error } = await fetchGetVocabularyReviewStats();
+  const { data: resp, error } = await fetchGetVocabularyReviewStats();
   if (error) {
     // 静默失败: 徽标保持不展示
     return;
   }
-  reviewStats.value = data;
+  reviewStats.value = resp;
 };
 
 const startReview = async () => {
@@ -293,20 +293,20 @@ const startReview = async () => {
   reviewForgottenCount.value = 0;
   lastReviewBox.value = null;
   reviewLoading.value = true;
-  const { data, error } = await fetchGetDueVocabulary({ limit: 20 });
+  const { data: resp, error } = await fetchGetDueVocabulary({ limit: 20 });
   reviewLoading.value = false;
   if (error) {
     message.error($t("page.ai.vocabulary.reviewLoadFailed"));
     return;
   }
-  reviewList.value = data || [];
+  reviewList.value = resp || [];
 };
 
 const handleReview = async (known: boolean) => {
   const current = currentReviewWord.value;
   if (!current || reviewSubmitting.value) return;
   reviewSubmitting.value = true;
-  const { data, error } = await fetchSubmitVocabularyReview(current.id, known);
+  const { data: resp, error } = await fetchSubmitVocabularyReview(current.id, known);
   reviewSubmitting.value = false;
   if (error) {
     message.error($t("page.ai.vocabulary.reviewSubmitFailed"));
@@ -318,8 +318,8 @@ const handleReview = async (known: boolean) => {
     reviewForgottenCount.value += 1;
   }
   // 展示提交后的新盒子
-  if (data) {
-    lastReviewBox.value = { word: data.word, srsBox: data.srsBox };
+  if (resp) {
+    lastReviewBox.value = { word: resp.word, srsBox: resp.srsBox };
   }
   if (reviewIndex.value + 1 >= reviewList.value.length) {
     reviewDone.value = true;

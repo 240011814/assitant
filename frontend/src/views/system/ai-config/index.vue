@@ -173,7 +173,7 @@ async function getToolMetas() {
 }
 
 function handleAddTool() {
-  toolModalTitle.value = "添加工具";
+  toolModalTitle.value = $t("page.system.aiConfig.addTool");
   toolModalMode.value = "select";
   selectedToolMeta.value = null;
   toolForm.value = {
@@ -209,7 +209,7 @@ function handleBackToSelect() {
 }
 
 function handleEditTool(row: Api.Admin.AITool) {
-  toolModalTitle.value = "编辑工具";
+  toolModalTitle.value = $t("page.system.aiConfig.editTool");
   toolModalMode.value = "config";
   const meta = toolMetas.value.find((m) => m.name === row.name);
   selectedToolMeta.value = meta || null;
@@ -235,11 +235,11 @@ async function handleSaveTool() {
   if (toolForm.value.id) {
     const { error } = await fetchUpdateAITool(toolForm.value.id, toolForm.value);
     if (error) return;
-    message.success("更新成功");
+    message.success($t("page.system.aiConfig.updateSuccess"));
   } else {
     const { error } = await fetchCreateAITool(toolForm.value);
     if (error) return;
-    message.success("创建成功");
+    message.success($t("page.system.aiConfig.createSuccess"));
   }
   showToolModal.value = false;
   getTools();
@@ -248,7 +248,7 @@ async function handleSaveTool() {
 async function handleDeleteTool(id: number) {
   const { error } = await fetchDeleteAITool(id);
   if (error) return;
-  message.success("删除成功");
+  message.success($t("page.system.aiConfig.deleteSuccess"));
   getTools();
 }
 
@@ -261,7 +261,7 @@ async function handleToggleToolStatus(row: Api.Admin.AITool, val: boolean) {
     enabled: val,
   });
   if (error) return;
-  message.success(val ? "已启用" : "已禁用");
+  message.success(val ? $t("page.system.aiConfig.enabledStatus") : $t("page.system.aiConfig.disabledStatus"));
   getTools();
 }
 
@@ -281,11 +281,11 @@ const availableToolMetas = computed(() => {
 });
 
 const toolColumns = computed<DataTableColumns<Api.Admin.AITool>>(() => [
-  { title: "工具标识", key: "name", width: 120 },
-  { title: "显示名称", key: "display_name", width: 120 },
-  { title: "描述", key: "description", ellipsis: { tooltip: true } },
+  { title: $t("page.system.aiConfig.toolName"), key: "name", width: 120 },
+  { title: $t("page.system.aiConfig.displayName"), key: "display_name", width: 120 },
+  { title: $t("page.system.aiConfig.toolDescription"), key: "description", ellipsis: { tooltip: true } },
   {
-    title: "状态",
+    title: $t("page.system.aiConfig.status"),
     key: "enabled",
     width: 80,
     render(row) {
@@ -296,15 +296,15 @@ const toolColumns = computed<DataTableColumns<Api.Admin.AITool>>(() => [
     },
   },
   {
-    title: "需要审批",
+    title: $t("page.system.aiConfig.toolConfirmRequired"),
     key: "confirm_required",
     width: 80,
     render(row) {
-      return row.confirm_required ? "是" : "否";
+      return row.confirm_required ? $t("common.yesOrNo.yes") : $t("common.yesOrNo.no");
     },
   },
   {
-    title: "操作",
+    title: $t("page.system.aiConfig.actions"),
     key: "actions",
     width: 150,
     render(row) {
@@ -316,18 +316,18 @@ const toolColumns = computed<DataTableColumns<Api.Admin.AITool>>(() => [
             h(
               NButton,
               { size: "small", onClick: () => handleEditTool(row) },
-              { default: () => "编辑" }
+              { default: () => $t("common.edit") }
             ),
             h(
               NPopconfirm,
               { onPositiveClick: () => handleDeleteTool(row.id) },
               {
-                default: () => "确认删除?",
+                default: () => $t("page.system.aiConfig.deleteToolConfirm"),
                 trigger: () =>
                   h(
                     NButton,
                     { size: "small", type: "error", ghost: true },
-                    { default: () => "删除" }
+                    { default: () => $t("common.delete") }
                   ),
               }
             ),
@@ -517,7 +517,7 @@ async function handleDeleteModel(row: Api.Admin.AIModel) {
 async function handleTestSingleModel(row: Api.Admin.AIModel) {
   const currentProvider = providers.value.find((p) => p.id === currentProviderId.value);
   if (!currentProvider?.api_key) {
-    message.warning("请先输入 API Key 再测试");
+    message.warning($t("page.system.aiConfig.testNeedApiKey"));
     return;
   }
   testingModelId.value = row.id;
@@ -559,10 +559,10 @@ onMounted(() => {
             {{ $t("page.system.aiConfig.addProvider") }}
           </NButton>
           <NButton v-else type="primary" size="small" @click="handleAddTool">
-            添加工具
+            {{ $t("page.system.aiConfig.addTool") }}
           </NButton>
         </template>
-        <NTabPane name="providers" tab="AI 配置管理">
+        <NTabPane name="providers" :tab="$t('page.system.aiConfig.title')">
           <div class="mt-4">
             <NDataTable
               :columns="columns"
@@ -573,7 +573,7 @@ onMounted(() => {
           </div>
         </NTabPane>
 
-        <NTabPane name="tools" tab="AI 工具管理">
+        <NTabPane name="tools" :tab="$t('page.system.aiConfig.toolManagement')">
           <div class="mt-4">
             <NDataTable
               :columns="toolColumns"
@@ -604,7 +604,7 @@ onMounted(() => {
             v-model:value="providerForm.api_key"
             type="password"
             show-password-on="click"
-            :placeholder="$t('page.system.aiConfig.apiKeyPlaceholder') + '，留空则不修改'"
+            :placeholder="$t('page.system.aiConfig.apiKeyEditPlaceholder')"
           />
         </NFormItem>
         <NFormItem label="Base URL" path="base_url">
@@ -682,7 +682,7 @@ onMounted(() => {
     >
       <!-- Step 1: Select Tool -->
       <div v-if="toolModalMode === 'select'">
-        <div class="mb-4 text-gray-500 text-sm">选择要添加的工具类型：</div>
+        <div class="mb-4 text-gray-500 text-sm">{{ $t("page.system.aiConfig.selectToolType") }}</div>
         <div class="grid grid-cols-2 gap-3">
           <div
             v-for="meta in availableToolMetas"
@@ -700,7 +700,7 @@ onMounted(() => {
           </div>
         </div>
         <div v-if="availableToolMetas.length === 0" class="text-center text-gray-400 py-8">
-          {{ toolMetas.length === 0 ? '暂无可用工具' : '所有工具已添加' }}
+          {{ toolMetas.length === 0 ? $t("page.system.aiConfig.noTools") : $t("page.system.aiConfig.allToolsAdded") }}
         </div>
       </div>
 
@@ -708,23 +708,23 @@ onMounted(() => {
       <div v-else>
         <div class="mb-4 flex items-center gap-2">
           <NButton text @click="handleBackToSelect">
-            ← 返回选择
+            {{ $t("page.system.aiConfig.backToSelect") }}
           </NButton>
-          <span class="text-gray-500 text-sm">配置：{{ selectedToolMeta?.display_name }}</span>
+          <span class="text-gray-500 text-sm">{{ $t("page.system.aiConfig.configuring", { name: selectedToolMeta?.display_name }) }}</span>
         </div>
         <NForm :model="toolForm" label-placement="left" :label-width="100">
-          <NFormItem label="工具标识" path="name">
+          <NFormItem :label="$t('page.system.aiConfig.toolName')" path="name">
             <NInput v-model:value="toolForm.name" disabled />
           </NFormItem>
-          <NFormItem label="显示名称" path="display_name">
+          <NFormItem :label="$t('page.system.aiConfig.displayName')" path="display_name">
             <NInput v-model:value="toolForm.display_name" />
           </NFormItem>
-          <NFormItem label="描述" path="description">
+          <NFormItem :label="$t('page.system.aiConfig.toolDescription')" path="description">
             <NInput v-model:value="toolForm.description" type="textarea" />
           </NFormItem>
 
           <div v-if="selectedToolMeta?.params?.length" class="mb-4">
-            <div class="text-sm font-bold text-gray-700 dark:text-gray-300 mb-2 ml-24">工具参数</div>
+            <div class="text-sm font-bold text-gray-700 dark:text-gray-300 mb-2 ml-24">{{ $t("page.system.aiConfig.toolParams") }}</div>
             <NFormItem
               v-for="param in selectedToolMeta.params"
               :key="param.name"
@@ -735,20 +735,20 @@ onMounted(() => {
                 v-model:value="toolConfigValues[param.name]"
                 :type="param.name.includes('key') || param.name.includes('secret') ? 'password' : 'text'"
                 :show-password-on="param.name.includes('key') || param.name.includes('secret') ? 'click' : undefined"
-                :placeholder="param.type + (param.default ? ` (默认: ${param.default})` : '')"
+                :placeholder="param.type + (param.default ? $t('page.system.aiConfig.paramDefaultSuffix', { value: param.default }) : '')"
               />
             </NFormItem>
           </div>
 
-          <NFormItem label="启用" path="enabled">
+          <NFormItem :label="$t('page.system.aiConfig.toolEnabled')" path="enabled">
             <NSwitch v-model:value="toolForm.enabled" />
           </NFormItem>
-          <NFormItem label="需要审批" path="confirm_required">
+          <NFormItem :label="$t('page.system.aiConfig.toolConfirmRequired')" path="confirm_required">
             <NSwitch v-model:value="toolForm.confirm_required" />
           </NFormItem>
           <div class="flex justify-end gap-2">
-            <NButton @click="showToolModal = false">取消</NButton>
-            <NButton type="primary" @click="handleSaveTool">确认</NButton>
+            <NButton @click="showToolModal = false">{{ $t("common.cancel") }}</NButton>
+            <NButton type="primary" @click="handleSaveTool">{{ $t("common.confirm") }}</NButton>
           </div>
         </NForm>
       </div>

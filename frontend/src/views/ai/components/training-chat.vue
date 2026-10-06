@@ -11,7 +11,7 @@ import {
   fetchUpdateHistoryTitle,
   fetchGenerateShareToken,
 } from "@/service/api";
-import { fetchGetAIModels, fetchGetUserPrompt, fetchChatStream, fetchToolApproval } from "@/service/api/ai";
+import { fetchGetAIModels, fetchGetUserPrompt, fetchChatStream, fetchToolApproval } from "@/service/api";
 import { fetchOrchestrationChatRun, fetchResolveOrchestrationApproval } from "@/service/api";
 import { fetchCourseList, fetchCreateCourseItem, type Course } from "@/service/api/course";
 import { useAuth } from "@/hooks/business/auth";

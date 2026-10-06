@@ -20,8 +20,8 @@ func NewNoteHandler(noteService *service.NoteService) *NoteHandler {
 }
 
 func (h *NoteHandler) HandleCreateNote(c *gin.Context) {
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
@@ -32,7 +32,7 @@ func (h *NoteHandler) HandleCreateNote(c *gin.Context) {
 		return
 	}
 
-	note, err := h.noteService.CreateNote(userID.(uint), &req)
+	note, err := h.noteService.CreateNote(userID, &req)
 	if err != nil {
 		SendError(c, "500", err.Error())
 		return
@@ -42,8 +42,8 @@ func (h *NoteHandler) HandleCreateNote(c *gin.Context) {
 }
 
 func (h *NoteHandler) HandleListNotes(c *gin.Context) {
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
@@ -53,7 +53,7 @@ func (h *NoteHandler) HandleListNotes(c *gin.Context) {
 	category := c.Query("category")
 	content := c.Query("content")
 
-	notes, total, err := h.noteService.ListNotes(userID.(uint), page, pageSize, category, content)
+	notes, total, err := h.noteService.ListNotes(userID, page, pageSize, category, content)
 	if err != nil {
 		SendError(c, "500", err.Error())
 		return
@@ -66,8 +66,8 @@ func (h *NoteHandler) HandleListNotes(c *gin.Context) {
 }
 
 func (h *NoteHandler) HandleUpdateNote(c *gin.Context) {
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
@@ -84,7 +84,7 @@ func (h *NoteHandler) HandleUpdateNote(c *gin.Context) {
 		return
 	}
 
-	if err := h.noteService.UpdateNote(userID.(uint), uint(noteID), &req); err != nil {
+	if err := h.noteService.UpdateNote(userID, uint(noteID), &req); err != nil {
 		SendError(c, "500", err.Error())
 		return
 	}
@@ -93,8 +93,8 @@ func (h *NoteHandler) HandleUpdateNote(c *gin.Context) {
 }
 
 func (h *NoteHandler) HandleDeleteNote(c *gin.Context) {
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
@@ -105,7 +105,7 @@ func (h *NoteHandler) HandleDeleteNote(c *gin.Context) {
 		return
 	}
 
-	if err := h.noteService.DeleteNote(userID.(uint), uint(noteID)); err != nil {
+	if err := h.noteService.DeleteNote(userID, uint(noteID)); err != nil {
 		SendError(c, "500", err.Error())
 		return
 	}

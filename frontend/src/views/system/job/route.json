@@ -1,7 +1,0 @@
-{
-  "title": "定时任务管理",
-  "i18nKey": "route.system_job",
-  "icon": "mdi:clock-outline",
-  "permissions": ["job:manage"],
-  "order": 7
-}

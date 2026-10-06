@@ -26,13 +26,13 @@ func (h *HistoryHandler) GetHistory(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
 
-	history, err := h.historyService.GetHistoryByID(userID.(uint), uint(id))
+	history, err := h.historyService.GetHistoryByID(userID, uint(id))
 	if err != nil {
 		SendError(c, "404", "History not found")
 		return
@@ -48,13 +48,13 @@ func (h *HistoryHandler) ListHistory(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
 
-	histories, total, err := h.historyService.ListHistory(userID.(uint), req.Page, req.PageSize, req.Title, req.IsFavorite)
+	histories, total, err := h.historyService.ListHistory(userID, req.Page, req.PageSize, req.Title, req.IsFavorite)
 	if err != nil {
 		SendError(c, "500", "Failed to fetch histories")
 		return
@@ -80,13 +80,13 @@ func (h *HistoryHandler) UpdateFavorite(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
 
-	if err := h.historyService.UpdateFavorite(userID.(uint), uint(id), req.IsFavorite); err != nil {
+	if err := h.historyService.UpdateFavorite(userID, uint(id), req.IsFavorite); err != nil {
 		SendError(c, "500", "Failed to update favorite status")
 		return
 	}
@@ -108,13 +108,13 @@ func (h *HistoryHandler) UpdateTitle(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
 
-	if err := h.historyService.UpdateTitle(userID.(uint), uint(id), req.Title); err != nil {
+	if err := h.historyService.UpdateTitle(userID, uint(id), req.Title); err != nil {
 		SendError(c, "500", "Failed to update title")
 		return
 	}
@@ -130,13 +130,13 @@ func (h *HistoryHandler) DeleteHistory(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
 
-	if err := h.historyService.DeleteHistory(userID.(uint), uint(id)); err != nil {
+	if err := h.historyService.DeleteHistory(userID, uint(id)); err != nil {
 		SendError(c, "500", "Failed to delete history")
 		return
 	}
@@ -152,13 +152,13 @@ func (h *HistoryHandler) GenerateShare(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
 
-	token, err := h.historyService.GenerateShareToken(userID.(uint), uint(id))
+	token, err := h.historyService.GenerateShareToken(userID, uint(id))
 	if err != nil {
 		SendError(c, "500", "Failed to generate share token")
 		return
@@ -175,13 +175,13 @@ func (h *HistoryHandler) RevokeShare(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
 
-	if err := h.historyService.RevokeShareToken(userID.(uint), uint(id)); err != nil {
+	if err := h.historyService.RevokeShareToken(userID, uint(id)); err != nil {
 		SendError(c, "500", "Failed to revoke share token")
 		return
 	}

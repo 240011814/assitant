@@ -4,9 +4,8 @@ import { loginModuleRecord } from "@/constants/app";
 import { useAuthStore } from "@/store/modules/auth";
 import { useRouterPush } from "@/hooks/common/router";
 import { useFormRules, useNaiveForm } from "@/hooks/common/form";
-import { getServiceBaseURL } from "@/utils/service";
 import { $t } from "@/locales";
-import { fetchTwoFactorSetup, fetchTwoFactorVerify } from "@/service/api";
+import { fetchTwoFactorSetup, fetchTwoFactorVerify, fetchRegisterStatus } from "@/service/api";
 
 defineOptions({
   name: "PwdLogin",
@@ -22,11 +21,10 @@ const show2FA = ref(false);
 
 onMounted(async () => {
   try {
-    const isHttpProxy = import.meta.env.DEV && import.meta.env.VITE_HTTP_PROXY === "Y";
-    const { baseURL } = getServiceBaseURL(import.meta.env, isHttpProxy);
-    const resp = await fetch(`${baseURL}/auth/register-status`);
-    const json = await resp.json();
-    registerEnabled.value = json?.data?.enabled ?? false;
+    const { data, error } = await fetchRegisterStatus();
+    if (!error) {
+      registerEnabled.value = data?.enabled ?? false;
+    }
   } catch {
     registerEnabled.value = false;
   }

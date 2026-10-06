@@ -72,9 +72,8 @@ export function fetchDeleteAIProvider(id: number) {
   return request({ url: `/api/admin/ai-providers/${id}`, method: 'delete' });
 }
 
-export function fetchGetAIModels() {
-  return request<Api.Admin.AIModel[]>({ url: '/api/admin/ai-models' });
-}
+// fetchGetAIModels 已并入 service/api/ai.ts (GET /api/ai/models, 训练页用);
+// admin 侧模型列表走 HandleListAIModels 的 /api/admin/ai-models 时如需再包一层请换名避免重导冲突
 
 export function fetchCreateAIModel(data: Partial<Api.Admin.AIModel>) {
   return request({ url: '/api/admin/ai-models', method: 'post', data });

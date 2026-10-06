@@ -39,6 +39,11 @@ export function fetchGetUserInfo() {
   return request<Api.Auth.UserInfo>({ url: '/auth/getUserInfo' });
 }
 
+/** 注册开关状态 (登录页公开接口) */
+export function fetchRegisterStatus() {
+  return request<{ enabled: boolean }>({ url: '/auth/register-status' });
+}
+
 /**
  * Refresh token
  *

@@ -19,13 +19,13 @@ func NewAIAgentHandler(aiAgentService *service.AIAgentService) *AIAgentHandler {
 }
 
 func (h *AIAgentHandler) ListAvailableAgents(c *gin.Context) {
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
 
-	agents, err := h.aiAgentService.ListAvailableAgents(userID.(uint))
+	agents, err := h.aiAgentService.ListAvailableAgents(userID)
 	if err != nil {
 		SendError(c, "500", "Failed to fetch agents")
 		return
@@ -42,13 +42,13 @@ func (h *AIAgentHandler) GetAIAgent(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
 
-	agent, err := h.aiAgentService.GetAIAgentByID(userID.(uint), uint(id))
+	agent, err := h.aiAgentService.GetAIAgentByID(userID, uint(id))
 	if err != nil {
 		SendError(c, "404", "Agent not found")
 		return
@@ -64,8 +64,8 @@ func (h *AIAgentHandler) CreateAIAgent(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
@@ -76,7 +76,7 @@ func (h *AIAgentHandler) CreateAIAgent(c *gin.Context) {
 		return
 	}
 
-	agent, err := h.aiAgentService.CreateAIAgent(userID.(uint), req)
+	agent, err := h.aiAgentService.CreateAIAgent(userID, req)
 	if err != nil {
 		SendError(c, "500", "Failed to create agent")
 		return
@@ -99,13 +99,13 @@ func (h *AIAgentHandler) UpdateAIAgent(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
 
-	uid := userID.(uint)
+	uid := userID
 	// 子Agent 统一权限码: 编辑子Agent (含把它改成子Agent) 需要该权限
 	becomesSubAgent := req.AgentType != nil && model.IsSubAgentType(*req.AgentType)
 	isSubAgent := false
@@ -133,13 +133,13 @@ func (h *AIAgentHandler) DeleteAIAgent(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
 
-	uid := userID.(uint)
+	uid := userID
 	// 子Agent 统一权限码: 删除子Agent 需要该权限
 	if existing, err := h.aiAgentService.GetAIAgentByID(uid, uint(id)); err == nil && existing != nil && existing.AgentType == model.AIAgentTypeSubAgent {
 		if !HasPermission(c, model.AIAgentSubAgentPermission) {

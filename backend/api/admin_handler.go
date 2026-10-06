@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"strconv"
 
 	interfaces "backend/interface"
@@ -226,7 +227,9 @@ func (h *AdminHandler) HandleCreateAIProvider(c *gin.Context) {
 		SendError(c, "500", "创建 AI 提供商失败: "+err.Error())
 		return
 	}
-	h.aiAgentSvc.ReloadConfig()
+	if err := h.aiAgentSvc.ReloadConfig(); err != nil {
+		log.Printf("[admin] 重载 AI 配置失败 (provider 创建后): %v", err)
+	}
 	SendSuccess(c, nil)
 }
 
@@ -241,7 +244,9 @@ func (h *AdminHandler) HandleUpdateAIProvider(c *gin.Context) {
 		SendError(c, "500", "更新 AI 提供商失败: "+err.Error())
 		return
 	}
-	h.aiAgentSvc.ReloadConfig()
+	if err := h.aiAgentSvc.ReloadConfig(); err != nil {
+		log.Printf("[admin] 重载 AI 配置失败 (provider 更新后): %v", err)
+	}
 	SendSuccess(c, nil)
 }
 
@@ -251,7 +256,9 @@ func (h *AdminHandler) HandleDeleteAIProvider(c *gin.Context) {
 		SendError(c, "500", "删除 AI 提供商失败: "+err.Error())
 		return
 	}
-	h.aiAgentSvc.ReloadConfig()
+	if err := h.aiAgentSvc.ReloadConfig(); err != nil {
+		log.Printf("[admin] 重载 AI 配置失败 (provider 删除后): %v", err)
+	}
 	SendSuccess(c, nil)
 }
 
@@ -274,7 +281,9 @@ func (h *AdminHandler) HandleCreateAIModel(c *gin.Context) {
 		SendError(c, "500", "创建 AI 模型失败: "+err.Error())
 		return
 	}
-	h.aiAgentSvc.ReloadConfig()
+	if err := h.aiAgentSvc.ReloadConfig(); err != nil {
+		log.Printf("[admin] 重载 AI 配置失败 (model 创建后): %v", err)
+	}
 	SendSuccess(c, nil)
 }
 
@@ -289,7 +298,9 @@ func (h *AdminHandler) HandleUpdateAIModel(c *gin.Context) {
 		SendError(c, "500", "更新 AI 模型失败: "+err.Error())
 		return
 	}
-	h.aiAgentSvc.ReloadConfig()
+	if err := h.aiAgentSvc.ReloadConfig(); err != nil {
+		log.Printf("[admin] 重载 AI 配置失败 (model 更新后): %v", err)
+	}
 	SendSuccess(c, nil)
 }
 
@@ -299,7 +310,9 @@ func (h *AdminHandler) HandleDeleteAIModel(c *gin.Context) {
 		SendError(c, "500", "删除 AI 模型失败: "+err.Error())
 		return
 	}
-	h.aiAgentSvc.ReloadConfig()
+	if err := h.aiAgentSvc.ReloadConfig(); err != nil {
+		log.Printf("[admin] 重载 AI 配置失败 (model 删除后): %v", err)
+	}
 	SendSuccess(c, nil)
 }
 

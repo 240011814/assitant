@@ -27,8 +27,8 @@ func (h *Mem0Handler) HandleAddMemory(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
@@ -42,7 +42,7 @@ func (h *Mem0Handler) HandleAddMemory(c *gin.Context) {
 		return
 	}
 
-	result, err := h.mem0Service.AddMemory(userID.(uint), req.Messages, req.Metadata)
+	result, err := h.mem0Service.AddMemory(userID, req.Messages, req.Metadata)
 	if err != nil {
 		SendError(c, "500", "添加记忆失败: "+err.Error())
 		return
@@ -57,8 +57,8 @@ func (h *Mem0Handler) HandleSearchMemories(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
@@ -72,7 +72,7 @@ func (h *Mem0Handler) HandleSearchMemories(c *gin.Context) {
 		return
 	}
 
-	memories, err := h.mem0Service.SearchMemories(userID.(uint), req.Query, req.TopK)
+	memories, err := h.mem0Service.SearchMemories(userID, req.Query, req.TopK)
 	if err != nil {
 		SendError(c, "500", "搜索记忆失败: "+err.Error())
 		return
@@ -87,8 +87,8 @@ func (h *Mem0Handler) HandleListMemories(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
@@ -96,7 +96,7 @@ func (h *Mem0Handler) HandleListMemories(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "100"))
 
-	result, err := h.mem0Service.ListMemories(userID.(uint), page, pageSize)
+	result, err := h.mem0Service.ListMemories(userID, page, pageSize)
 	if err != nil {
 		SendError(c, "500", "获取记忆列表失败: "+err.Error())
 		return

@@ -17,13 +17,13 @@ func NewDashboardHandler(dashboardService *service.DashboardService) *DashboardH
 }
 
 func (h *DashboardHandler) GetStats(c *gin.Context) {
-	userID, exists := c.Get("userId")
-	if !exists {
+	userID, ok := currentUserID(c)
+	if !ok {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
 
-	stats, err := h.dashboardService.GetStats(userID.(uint))
+	stats, err := h.dashboardService.GetStats(userID)
 	if err != nil {
 		SendError(c, "500", "Failed to fetch dashboard stats")
 		return

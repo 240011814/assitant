@@ -79,7 +79,7 @@ func (f *selfCallbackModel) IsCallbacksEnabled() bool { return true }
 
 func (f *selfCallbackModel) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
 	f.received = append(f.received, in)
-	ctx = callbacks.EnsureRunInfo(ctx, "selfcb", components.ComponentOfChatModel)
+	runCtx := callbacks.EnsureRunInfo(ctx, "selfcb", components.ComponentOfChatModel)
 	sr, sw := schema.Pipe[*model.CallbackOutput](len(f.pieces) + len(f.reasoningPieces))
 	go func() {
 		defer sw.Close()
@@ -92,8 +92,8 @@ func (f *selfCallbackModel) Stream(ctx context.Context, in []*schema.Message, op
 			sw.Send(&model.CallbackOutput{Message: &schema.Message{Role: schema.Assistant, Content: p}}, nil)
 		}
 	}()
-	ctx = callbacks.OnStart(ctx, &model.CallbackInput{Messages: in})
-	ctx, nsr := callbacks.OnEndWithStreamOutput(ctx,
+	runCtx = callbacks.OnStart(runCtx, &model.CallbackInput{Messages: in})
+	_, nsr := callbacks.OnEndWithStreamOutput(runCtx,
 		schema.StreamReaderWithConvert(sr, func(src *model.CallbackOutput) (callbacks.CallbackOutput, error) { return src, nil }))
 	return schema.StreamReaderWithConvert(nsr, func(src callbacks.CallbackOutput) (*schema.Message, error) {
 		if mo, ok := src.(*model.CallbackOutput); ok && mo.Message != nil {

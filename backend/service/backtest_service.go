@@ -234,23 +234,23 @@ func (s *BacktestService) buildConds(conditions []model.FilterCondition) (string
 		}
 		switch cond.Operator {
 		case "gt":
-			sb.WriteString(fmt.Sprintf(" AND %s > ?", col))
+			fmt.Fprintf(&sb, " AND %s > ?", col)
 			args = append(args, cond.Value)
 		case "gte":
-			sb.WriteString(fmt.Sprintf(" AND %s >= ?", col))
+			fmt.Fprintf(&sb, " AND %s >= ?", col)
 			args = append(args, cond.Value)
 		case "lt":
-			sb.WriteString(fmt.Sprintf(" AND %s < ?", col))
+			fmt.Fprintf(&sb, " AND %s < ?", col)
 			args = append(args, cond.Value)
 		case "lte":
-			sb.WriteString(fmt.Sprintf(" AND %s <= ?", col))
+			fmt.Fprintf(&sb, " AND %s <= ?", col)
 			args = append(args, cond.Value)
 		case "between":
 			arr, ok := cond.Value.([]interface{})
 			if !ok || len(arr) != 2 {
 				return "", nil, errors.New("between 条件需要 [min, max]")
 			}
-			sb.WriteString(fmt.Sprintf(" AND %s >= ? AND %s <= ?", col, col))
+			fmt.Fprintf(&sb, " AND %s >= ? AND %s <= ?", col, col)
 			args = append(args, arr[0], arr[1])
 		default:
 			return "", nil, fmt.Errorf("回测暂不支持操作符: %s", cond.Operator)
@@ -267,7 +267,7 @@ func (s *BacktestService) queryRebalanceDays(ctx context.Context, start, end str
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var days []string
 	for rows.Next() {
 		var d string
@@ -287,7 +287,7 @@ func (s *BacktestService) queryTradeDayList(ctx context.Context, start, end stri
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var days []string
 	for rows.Next() {
 		var d string
@@ -317,7 +317,7 @@ func (s *BacktestService) queryStocksAt(ctx context.Context, day, conds string, 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	result := make(map[string]float64)
 	for rows.Next() {
 		var code string

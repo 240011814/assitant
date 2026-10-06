@@ -51,10 +51,10 @@ declare module "@elegant-router/types" {
     "system_dashboard": "/system/dashboard";
     "system_job": "/system/job";
     "system_lottery": "/system/lottery";
+    "system_mcp": "/system/mcp";
     "system_model-scenario": "/system/model-scenario";
     "system_permission": "/system/permission";
     "system_skill": "/system/skill";
-    "system_mcp": "/system/mcp";
     "system_user": "/system/user";
     "tool": "/tool";
     "tool_backtest": "/tool/backtest";
@@ -159,10 +159,10 @@ declare module "@elegant-router/types" {
     | "system_dashboard"
     | "system_job"
     | "system_lottery"
+    | "system_mcp"
     | "system_model-scenario"
     | "system_permission"
     | "system_skill"
-    | "system_mcp"
     | "system_user"
     | "tool_backtest"
     | "tool_calendar"

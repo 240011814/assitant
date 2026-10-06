@@ -9,7 +9,7 @@ import {
   fetchSaveUserPrompt,
   fetchSwitchUserPrompt,
   fetchDeleteUserPromptVersion
-} from '@/service/api/ai';
+} from '@/service/api';
 import { useAuth } from '@/hooks/business/auth';
 
 const props = defineProps<{

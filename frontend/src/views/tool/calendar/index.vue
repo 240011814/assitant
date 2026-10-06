@@ -9,6 +9,7 @@ import {
   fetchDeleteReminder,
 } from '@/service/api';
 import type { Reminder, CreateReminderParams, UpdateReminderParams } from '@/service/api';
+import { $t } from '@/locales';
 import AgentTaskPanel from './agent-task-panel.vue';
 
 defineOptions({ name: 'ToolCalendar' });
@@ -40,15 +41,15 @@ const form = ref({
 });
 
 const repeatOptions = [
-  { label: '不重复', value: 'none' },
-  { label: '每天', value: 'daily' },
-  { label: '每周', value: 'weekly' },
-  { label: '每月', value: 'monthly' },
-  { label: '每年', value: 'yearly' },
+  { label: $t('page.tool.calendar.repeatNone'), value: 'none' },
+  { label: $t('page.tool.calendar.repeatDaily'), value: 'daily' },
+  { label: $t('page.tool.calendar.repeatWeekly'), value: 'weekly' },
+  { label: $t('page.tool.calendar.repeatMonthly'), value: 'monthly' },
+  { label: $t('page.tool.calendar.repeatYearly'), value: 'yearly' },
 ];
 
 const rules = {
-  title: { required: true, message: '请输入标题', trigger: ['blur', 'input'] },
+  title: { required: true, message: $t('page.tool.calendar.titleRequired'), trigger: ['blur', 'input'] },
 };
 
 watch(currentDate, () => {
@@ -162,14 +163,14 @@ async function handleSubmit() {
   if (editingId.value) {
     const { error } = await fetchUpdateReminder(editingId.value, data);
     if (!error) {
-      message.success('备忘已更新');
+      message.success($t('page.tool.calendar.updated'));
       showModal.value = false;
       loadReminders();
     }
   } else {
     const { error } = await fetchCreateReminder(data);
     if (!error) {
-      message.success('备忘已创建');
+      message.success($t('page.tool.calendar.created'));
       showModal.value = false;
       loadReminders();
     }
@@ -179,7 +180,7 @@ async function handleSubmit() {
 async function doDelete(id: number, scope: 'this' | 'all') {
   const { error } = await fetchDeleteReminder(id, scope);
   if (!error) {
-    message.success('删除成功');
+    message.success($t('common.deleteSuccess'));
     loadReminders();
   }
 }
@@ -187,25 +188,25 @@ async function doDelete(id: number, scope: 'this' | 'all') {
 function handleDelete(reminder: Reminder) {
   if (reminder.repeatType === 'none') {
     dialog.warning({
-      title: '确认删除',
-      content: `确定要删除备忘「${reminder.params.title}」吗？`,
-      positiveText: '删除',
-      negativeText: '取消',
+      title: $t('page.tool.calendar.deleteConfirmTitle'),
+      content: $t('page.tool.calendar.deleteMemoConfirm', { title: reminder.params.title }),
+      positiveText: $t('common.delete'),
+      negativeText: $t('common.cancel'),
       onPositiveClick: () => doDelete(reminder.id, 'this')
     });
     return;
   }
 
   const d = dialog.warning({
-    title: '确认删除',
-    content: `「${reminder.params.title}」是重复提醒，请选择删除范围：`,
+    title: $t('page.tool.calendar.deleteConfirmTitle'),
+    content: $t('page.tool.calendar.deleteRepeatConfirm', { title: reminder.params.title }),
     action: () =>
       h(NSpace, { justify: 'end' }, {
         default: () => [
           h(
             NButton,
             { size: 'small', onClick: () => d.destroy() },
-            { default: () => '取消' }
+            { default: () => $t('common.cancel') }
           ),
           h(
             NButton,
@@ -217,7 +218,7 @@ function handleDelete(reminder: Reminder) {
                 doDelete(reminder.id, 'this');
               }
             },
-            { default: () => '仅删除此条' }
+            { default: () => $t('page.tool.calendar.deleteThisOnly') }
           ),
           h(
             NButton,
@@ -229,7 +230,7 @@ function handleDelete(reminder: Reminder) {
                 doDelete(reminder.id, 'all');
               }
             },
-            { default: () => '删除全部' }
+            { default: () => $t('page.tool.calendar.deleteAll') }
           )
         ]
       })
@@ -246,7 +247,7 @@ function formatTime(dateStr: string) {
 }
 
 function getRepeatLabel(type: string) {
-  return repeatOptions.find((o) => o.value === type)?.label || '不重复';
+  return repeatOptions.find((o) => o.value === type)?.label || $t('page.tool.calendar.repeatNone');
 }
 
 onMounted(() => {
@@ -258,7 +259,7 @@ onMounted(() => {
   <div class="h-full p-4 overflow-auto">
     <NTabs type="line" animated>
       <!-- 日历备忘 (原有功能) -->
-      <NTabPane name="reminder" tab="日历备忘">
+      <NTabPane name="reminder" :tab="$t('page.tool.calendar.title')">
         <NCard size="small">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
@@ -266,15 +267,15 @@ onMounted(() => {
                 <SvgIcon icon="mdi:calendar-month" class="text-24px text-primary" />
               </div>
               <div>
-                <div class="text-16px font-bold">日历备忘</div>
-                <div class="text-13px text-gray-400">管理您的备忘提醒，支持重复提醒</div>
+                <div class="text-16px font-bold">{{ $t('page.tool.calendar.title') }}</div>
+                <div class="text-13px text-gray-400">{{ $t('page.tool.calendar.subtitle') }}</div>
               </div>
             </div>
             <NButton type="primary" @click="openCreateModal">
               <template #icon>
                 <SvgIcon icon="mdi:plus" />
               </template>
-              新增备忘
+              {{ $t('page.tool.calendar.create') }}
             </NButton>
           </div>
         </NCard>
@@ -304,10 +305,10 @@ onMounted(() => {
             <div class="flex items-center gap-2">
               <SvgIcon icon="mdi:format-list-bulleted" class="text-18px text-primary" />
               <span class="font-bold">
-                {{ selectedDate.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' }) }} 备忘
+                {{ $t('page.tool.calendar.dayHeader', { date: selectedDate.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' }) }) }}
               </span>
               <NTag size="tiny" :bordered="false" type="info">
-                {{ selectedDayReminders.length }} 条
+                {{ $t('page.tool.calendar.count', { count: selectedDayReminders.length }) }}
               </NTag>
             </div>
           </div>
@@ -316,8 +317,8 @@ onMounted(() => {
         <NSpin :show="loading">
           <div v-if="selectedDayReminders.length === 0" class="py-12 flex flex-col items-center justify-center text-gray-400">
             <SvgIcon icon="mdi:calendar-blank-outline" class="text-48px mb-2 opacity-30" />
-            <div class="text-14px">暂无备忘</div>
-            <div class="text-12px mt-1">点击上方按钮添加新备忘</div>
+            <div class="text-14px">{{ $t('page.tool.calendar.empty') }}</div>
+            <div class="text-12px mt-1">{{ $t('page.tool.calendar.emptyTip') }}</div>
           </div>
           <div v-else class="space-y-3">
             <div
@@ -331,7 +332,7 @@ onMounted(() => {
                   <div class="flex items-center gap-2">
                     <span class="font-bold text-15px truncate">{{ item.params.title }}</span>
                     <NTag v-if="item.status === 'completed'" size="tiny" type="success" :bordered="false">
-                      已通知
+                      {{ $t('page.tool.calendar.notified') }}
                     </NTag>
                   </div>
                   <div v-if="item.params.content" class="text-gray-500 mt-1 text-13px line-clamp-2">{{ item.params.content }}</div>
@@ -367,30 +368,30 @@ onMounted(() => {
       </NTabPane>
 
       <!-- 定时 Agent 任务 -->
-      <NTabPane name="agent-task" tab="Agent 任务">
+      <NTabPane name="agent-task" :tab="$t('page.tool.calendar.agentTab')">
         <AgentTaskPanel />
       </NTabPane>
     </NTabs>
 
-    <NModal v-model:show="showModal" preset="card" :title="editingId ? '编辑备忘' : '新增备忘'" style="width: 520px">
+    <NModal v-model:show="showModal" preset="card" :title="editingId ? $t('page.tool.calendar.edit') : $t('page.tool.calendar.create')" style="width: 520px">
       <NForm ref="formRef" :model="form" :rules="rules" label-placement="left" label-width="80">
-        <NFormItem label="标题" path="title">
-          <NInput v-model:value="form.title" placeholder="请输入标题" />
+        <NFormItem :label="$t('page.tool.calendar.titleField')" path="title">
+          <NInput v-model:value="form.title" :placeholder="$t('page.tool.calendar.titlePlaceholder')" />
         </NFormItem>
-        <NFormItem label="内容" path="content">
-          <NInput v-model:value="form.content" type="textarea" placeholder="请输入内容（可选）" :rows="3" />
+        <NFormItem :label="$t('page.tool.calendar.contentField')" path="content">
+          <NInput v-model:value="form.content" type="textarea" :placeholder="$t('page.tool.calendar.contentPlaceholder')" :rows="3" />
         </NFormItem>
-        <NFormItem label="提前通知">
+        <NFormItem :label="$t('page.tool.calendar.advanceNotify')">
           <div class="w-full">
             <NInputNumber v-model:value="form.advanceMinutes" :min="0" :max="1440" style="width: 100%">
-              <template #suffix>分钟</template>
+              <template #suffix>{{ $t('page.tool.calendar.minutes') }}</template>
             </NInputNumber>
           </div>
         </NFormItem>
-        <NFormItem label="提醒时间" path="remindAt">
+        <NFormItem :label="$t('page.tool.calendar.remindAt')" path="remindAt">
           <NDatePicker v-model:value="form.remindAt" type="datetime" style="width: 100%" />
         </NFormItem>
-        <NFormItem label="重复">
+        <NFormItem :label="$t('page.tool.calendar.repeat')">
           <NSpace>
             <NSelect v-model:value="form.repeatType" :options="repeatOptions" style="width: 120px" />
             <NInputNumber
@@ -402,14 +403,14 @@ onMounted(() => {
             />
           </NSpace>
         </NFormItem>
-        <NFormItem v-if="form.repeatType !== 'none'" label="重复结束">
-          <NDatePicker v-model:value="form.repeatEndAt" type="datetime" style="width: 100%" clearable placeholder="不设置则永不过期" />
+        <NFormItem v-if="form.repeatType !== 'none'" :label="$t('page.tool.calendar.repeatEnd')">
+          <NDatePicker v-model:value="form.repeatEndAt" type="datetime" style="width: 100%" clearable :placeholder="$t('page.tool.calendar.repeatEndPlaceholder')" />
         </NFormItem>
       </NForm>
       <template #footer>
         <NSpace justify="end">
-          <NButton @click="showModal = false">取消</NButton>
-          <NButton type="primary" @click="handleSubmit">确定</NButton>
+          <NButton @click="showModal = false">{{ $t('common.cancel') }}</NButton>
+          <NButton type="primary" @click="handleSubmit">{{ $t('common.confirm') }}</NButton>
         </NSpace>
       </template>
     </NModal>

@@ -3,6 +3,7 @@ import { ref, reactive, computed, onMounted, onUnmounted, h } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, NButton, NTag } from 'naive-ui'
 import { useAuth } from '@/hooks/business/auth'
+import { $t } from '@/locales'
 import {
   stockScreen,
   stockIndustries,
@@ -54,14 +55,14 @@ const filterForm = reactive({
 
 // 筛选条件模板
 const filterTemplates = [
-  { label: 'PE(TTM)', field: 'peTtm', type: 'number' },
-  { label: 'PB', field: 'pb', type: 'number' },
-  { label: 'ROE(%)', field: 'roe', type: 'number' },
-  { label: '营收增长率(%)', field: 'revenueYoy', type: 'number' },
-  { label: '净利润增长率(%)', field: 'netProfitYoy', type: 'number' },
-  { label: '涨跌幅(%)', field: 'changePct', type: 'number' },
-  { label: '换手率(%)', field: 'turnoverRate', type: 'number' },
-  { label: '总市值(亿)', field: 'marketCap', type: 'number' }
+  { label: $t('page.tool.stockScreen.field.peTtm'), field: 'peTtm', type: 'number' },
+  { label: $t('page.tool.stockScreen.field.pb'), field: 'pb', type: 'number' },
+  { label: $t('page.tool.stockScreen.field.roe'), field: 'roe', type: 'number' },
+  { label: $t('page.tool.stockScreen.field.revenueYoy'), field: 'revenueYoy', type: 'number' },
+  { label: $t('page.tool.stockScreen.field.netProfitYoy'), field: 'netProfitYoy', type: 'number' },
+  { label: $t('page.tool.stockScreen.field.changePct'), field: 'changePct', type: 'number' },
+  { label: $t('page.tool.stockScreen.field.turnoverRate'), field: 'turnoverRate', type: 'number' },
+  { label: $t('page.tool.stockScreen.field.marketCap'), field: 'marketCap', type: 'number' }
 ]
 
 const operatorOptions = [
@@ -70,77 +71,92 @@ const operatorOptions = [
   { label: '<', value: 'lt' },
   { label: '<=', value: 'lte' },
   { label: '=', value: 'eq' },
-  { label: '区间', value: 'between' }
+  { label: $t('page.tool.stockScreen.between'), value: 'between' }
 ]
 
 const marketOptions = [
-  { label: '沪市', value: 'SH' },
-  { label: '深市', value: 'SZ' },
-  { label: '北交所', value: 'BJ' }
+  { label: $t('page.tool.stockScreen.marketSh'), value: 'SH' },
+  { label: $t('page.tool.stockScreen.marketSz'), value: 'SZ' },
+  { label: $t('page.tool.stockScreen.marketBj'), value: 'BJ' }
 ]
 
 const securityTypeOptions = [
-  { label: '股票', value: 1 },
-  { label: '指数', value: 2 },
-  { label: 'ETF', value: 5 }
+  { label: $t('page.tool.stockScreen.typeStock'), value: 1 },
+  { label: $t('page.tool.stockScreen.typeIndex'), value: 2 },
+  { label: $t('page.tool.stockScreen.typeEtf'), value: 5 }
 ]
 
 const columns = [
-  { title: '代码', key: 'code', width: 80, fixed: 'left' as const,
+  { title: $t('page.tool.stockScreen.code'), key: 'code', width: 80, fixed: 'left' as const,
     render: (row: Api.Stock.ScreenResult) => h('a', {
       class: 'text-blue-500 cursor-pointer hover:underline',
       onClick: () => goToDetail(row.code)
     }, displayCode(row.code))
   },
-  { title: '名称', key: 'name', width: 100, fixed: 'left' as const },
-  { title: '类型', key: 'type', width: 60,
+  { title: $t('page.tool.stockScreen.name'), key: 'name', width: 100, fixed: 'left' as const },
+  { title: $t('page.tool.stockScreen.type'), key: 'type', width: 60,
     render: (row: Api.Stock.ScreenResult) => {
-      if (row.type === 2) return h(NTag, { size: 'small', type: 'info', bordered: false }, { default: () => '指数' })
-      if (row.type === 5) return h(NTag, { size: 'small', type: 'warning', bordered: false }, { default: () => 'ETF' })
-      return '股票'
+      if (row.type === 2)
+        return h(
+          NTag,
+          { size: 'small', type: 'info', bordered: false },
+          { default: () => $t('page.tool.stockScreen.typeIndex') }
+        )
+      if (row.type === 5)
+        return h(
+          NTag,
+          { size: 'small', type: 'warning', bordered: false },
+          { default: () => $t('page.tool.stockScreen.typeEtf') }
+        )
+      return $t('page.tool.stockScreen.typeStock')
     }
   },
-  { title: '现价', key: 'price', width: 80, render: (row: Api.Stock.ScreenResult) => row.price?.toFixed(2) || '-' },
-  { title: '涨跌%', key: 'changePct', width: 80, sorter: true,
+  {
+    title: $t('page.tool.stockScreen.price'),
+    key: 'price',
+    width: 80,
+    render: (row: Api.Stock.ScreenResult) => row.price?.toFixed(2) || '-'
+  },
+  { title: $t('page.tool.stockScreen.changePct'), key: 'changePct', width: 80, sorter: true,
     render: (row: Api.Stock.ScreenResult) => {
       if (row.changePct === null) return '-'
       const color = row.changePct >= 0 ? 'text-red-500' : 'text-green-500'
       return h('span', { class: color }, `${row.changePct >= 0 ? '+' : ''}${row.changePct.toFixed(2)}%`)
     }
   },
-  { title: 'PE(TTM)', key: 'peTtm', width: 80, sorter: true,
+  { title: $t('page.tool.stockScreen.peTtm'), key: 'peTtm', width: 80, sorter: true,
     render: (row: Api.Stock.ScreenResult) => row.peTtm?.toFixed(2) || '-'
   },
-  { title: 'PB', key: 'pb', width: 60, sorter: true,
+  { title: $t('page.tool.stockScreen.pb'), key: 'pb', width: 60, sorter: true,
     render: (row: Api.Stock.ScreenResult) => row.pb?.toFixed(2) || '-'
   },
-  { title: 'ROE%', key: 'roe', width: 70, sorter: true,
+  { title: $t('page.tool.stockScreen.roe'), key: 'roe', width: 70, sorter: true,
     render: (row: Api.Stock.ScreenResult) => row.roe?.toFixed(2) || '-'
   },
-  { title: '换手率%', key: 'turnoverRate', width: 80, sorter: true,
+  { title: $t('page.tool.stockScreen.turnoverRate'), key: 'turnoverRate', width: 80, sorter: true,
     render: (row: Api.Stock.ScreenResult) => row.turnoverRate?.toFixed(2) || '-'
   },
-  { title: '市值(亿)', key: 'marketCap', width: 90, sorter: true,
+  { title: $t('page.tool.stockScreen.marketCap'), key: 'marketCap', width: 90, sorter: true,
     render: (row: Api.Stock.ScreenResult) => row.marketCap?.toFixed(2) || '-'
   },
-  { title: '营收增长%', key: 'revenueYoy', width: 90, sorter: true,
+  { title: $t('page.tool.stockScreen.revenueYoy'), key: 'revenueYoy', width: 90, sorter: true,
     render: (row: Api.Stock.ScreenResult) => row.revenueYoy?.toFixed(2) || '-'
   },
-  { title: '行业', key: 'industry', width: 80 },
-  { title: '操作', key: 'actions', width: 100, fixed: 'right' as const,
+  { title: $t('page.tool.stockScreen.industry'), key: 'industry', width: 80 },
+  { title: $t('common.action'), key: 'actions', width: 100, fixed: 'right' as const,
     render: (row: Api.Stock.ScreenResult) => h('div', { class: 'flex gap-1' }, [
-      h(NButton, { 
-        size: 'tiny', 
-        text: true, 
+      h(NButton, {
+        size: 'tiny',
+        text: true,
         disabled: !hasAuth('stock:menu:view'),
-        onClick: () => goToDetail(row.code) 
-      }, { default: () => '详情' }),
+        onClick: () => goToDetail(row.code)
+      }, { default: () => $t('page.tool.stockScreen.detail') }),
       !watchlistCodes.value.has(row.code) && hasAuth('stock:watchlist:edit')
-        ? h(NButton, { 
-            size: 'tiny', 
-            text: true, 
-            onClick: () => handleAddWatchlist(row) 
-          }, { default: () => '加自选' })
+        ? h(NButton, {
+            size: 'tiny',
+            text: true,
+            onClick: () => handleAddWatchlist(row)
+          }, { default: () => $t('page.tool.stockScreen.addWatchlist') })
         : null
     ])
   }
@@ -219,7 +235,7 @@ async function doScreen() {
     }
   } catch (e: any) {
     if (seq !== reqSeq) return
-    message.error(e.message || '筛选失败')
+    message.error(e.message || $t('page.tool.stockScreen.screenFailed'))
   } finally {
     if (seq === reqSeq) {
       loading.value = false
@@ -283,18 +299,18 @@ function handleWatchlistAdded() {
 async function handleSaveFilter() {
   const conditions = buildConditions()
   if (conditions.length === 0) {
-    message.warning('请先添加筛选条件')
+    message.warning($t('page.tool.stockScreen.noConditions'))
     return
   }
   try {
     await saveFilterCondition({
-      name: `筛选条件 ${new Date().toLocaleString()}`,
+      name: $t('page.tool.stockScreen.savedName', { time: new Date().toLocaleString() }),
       conditions: JSON.stringify(conditions)
     })
-    message.success('保存成功')
+    message.success($t('page.tool.stockScreen.saveSuccess'))
     loadSavedFilters()
   } catch (e: any) {
-    message.error(e.message || '保存失败')
+    message.error(e.message || $t('page.tool.stockScreen.saveFailed'))
   }
 }
 
@@ -321,17 +337,17 @@ function loadFilter(filter: Api.Stock.FilterConditionSave) {
     }))
     doScreen()
   } catch {
-    message.error('加载筛选条件失败')
+    message.error($t('page.tool.stockScreen.loadFilterFailed'))
   }
 }
 
 async function handleDeleteFilter(id: number) {
   try {
     await deleteFilterCondition(id)
-    message.success('已删除')
+    message.success($t('page.tool.stockScreen.deleted'))
     loadSavedFilters()
   } catch (e: any) {
-    message.error(e.message || '删除失败')
+    message.error(e.message || $t('page.tool.stockScreen.deleteFailed'))
   }
 }
 
@@ -381,9 +397,9 @@ async function refreshSyncStatus() {
       if (wasRunning && !data.running) {
         // 同步任务刚结束: 提示结果并刷新筛选数据
         if (data.lastError) {
-          message.error(`同步失败: ${data.lastError}`)
+          message.error($t('page.tool.stockScreen.syncFailed', { error: data.lastError }))
         } else {
-          message.success('数据同步完成，结果已刷新')
+          message.success($t('page.tool.stockScreen.syncDone'))
           doScreen()
         }
       }
@@ -425,13 +441,13 @@ onUnmounted(() => {
     <!-- 左侧筛选面板 -->
     <div class="w-72 border-r border-gray-200 p-4 overflow-y-auto flex-shrink-0">
       <div class="mb-4">
-        <h3 class="text-lg font-bold mb-2">筛选条件</h3>
+        <h3 class="text-lg font-bold mb-2">{{ $t('page.tool.stockScreen.filters') }}</h3>
         <div class="space-y-3">
           <!-- 名称/代码搜索 -->
           <div>
             <NInput
               v-model:value="filterForm.keyword"
-              placeholder="输入股票代码或名称"
+              :placeholder="$t('page.tool.stockScreen.keywordPlaceholder')"
               clearable
               @keyup.enter="handleScreen"
             />
@@ -439,24 +455,28 @@ onUnmounted(() => {
 
           <!-- 行业筛选 -->
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">行业</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              {{ $t('page.tool.stockScreen.industry') }}
+            </label>
             <NSelect
               v-model:value="filterForm.industries"
               :options="industryOptions.map(i => ({ label: i, value: i }))"
               multiple
-              placeholder="选择行业"
+              :placeholder="$t('page.tool.stockScreen.industryPlaceholder')"
               clearable
             />
           </div>
 
           <!-- 概念筛选 -->
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">概念板块</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              {{ $t('page.tool.stockScreen.concept') }}
+            </label>
             <NSelect
               v-model:value="filterForm.conceptNames"
               :options="conceptOptions"
               multiple
-              placeholder="选择概念"
+              :placeholder="$t('page.tool.stockScreen.conceptPlaceholder')"
               clearable
               filterable
             />
@@ -464,31 +484,33 @@ onUnmounted(() => {
 
           <!-- 证券类型筛选 -->
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">证券类型</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              {{ $t('page.tool.stockScreen.securityType') }}
+            </label>
             <NSelect
               v-model:value="filterForm.securityTypes"
               :options="securityTypeOptions"
               multiple
-              placeholder="不选=全部"
+              :placeholder="$t('page.tool.stockScreen.securityTypePlaceholder')"
               clearable
             />
           </div>
 
           <!-- 市场筛选 -->
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">上市板块</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">{{ $t('page.tool.stockScreen.market') }}</label>
             <NSelect
               v-model:value="filterForm.markets"
               :options="marketOptions"
               multiple
-              placeholder="选择板块"
+              :placeholder="$t('page.tool.stockScreen.marketPlaceholder')"
               clearable
             />
           </div>
 
           <!-- 排除ST -->
           <div class="flex items-center">
-            <NCheckbox v-model:checked="filterForm.excludeSt">排除ST</NCheckbox>
+            <NCheckbox v-model:checked="filterForm.excludeSt">{{ $t('page.tool.stockScreen.excludeSt') }}</NCheckbox>
           </div>
         </div>
       </div>
@@ -496,8 +518,8 @@ onUnmounted(() => {
       <!-- 动态筛选条件 -->
       <div class="mb-4">
         <div class="flex items-center justify-between mb-2">
-          <h3 class="text-sm font-bold">指标筛选</h3>
-          <NButton size="small" @click="addFilter">+ 添加</NButton>
+          <h3 class="text-sm font-bold">{{ $t('page.tool.stockScreen.metricFilters') }}</h3>
+          <NButton size="small" @click="addFilter">{{ $t('page.tool.stockScreen.add') }}</NButton>
         </div>
         <div class="space-y-2">
           <div v-for="(filter, index) in dynamicFilters" :key="index" class="flex items-center gap-1">
@@ -520,14 +542,14 @@ onUnmounted(() => {
               v-model:value="filter.value"
               size="small"
               class="w-20"
-              placeholder="值"
+              :placeholder="$t('page.tool.stockScreen.valuePlaceholder')"
             />
             <NInputNumber
               v-if="filter.operator === 'between'"
               v-model:value="filter.value2"
               size="small"
               class="w-20"
-              placeholder="至"
+              :placeholder="$t('page.tool.stockScreen.toPlaceholder')"
             />
             <NButton size="small" text @click="removeFilter(index)">
               <template #icon><span class="i-material-icons-close text-red-500" /></template>
@@ -538,13 +560,17 @@ onUnmounted(() => {
 
       <!-- 操作按钮 -->
       <div class="space-y-2">
-        <NButton type="primary" block :loading="loading" @click="handleScreen">开始筛选</NButton>
-        <NButton v-if="hasAuth('stock:screen:save')" block @click="handleSaveFilter">保存筛选条件</NButton>
+        <NButton type="primary" block :loading="loading" @click="handleScreen">
+          {{ $t('page.tool.stockScreen.start') }}
+        </NButton>
+        <NButton v-if="hasAuth('stock:screen:save')" block @click="handleSaveFilter">
+          {{ $t('page.tool.stockScreen.saveFilters') }}
+        </NButton>
       </div>
 
       <!-- 已保存的筛选条件 -->
       <div v-if="savedFilters.length > 0" class="mt-4">
-        <h3 class="text-sm font-bold mb-2">已保存的条件</h3>
+        <h3 class="text-sm font-bold mb-2">{{ $t('page.tool.stockScreen.savedConditions') }}</h3>
         <div class="space-y-1">
           <div
             v-for="filter in savedFilters"
@@ -566,7 +592,9 @@ onUnmounted(() => {
       <!-- 结果统计 -->
       <div class="p-3 border-b border-gray-200 flex items-center justify-between">
         <span class="text-sm text-gray-600">
-          共筛选出 <strong>{{ total }}</strong> 条证券
+          {{ $t('page.tool.stockScreen.totalPrefix') }}
+          <strong>{{ total }}</strong>
+          {{ $t('page.tool.stockScreen.totalSuffix') }}
         </span>
       </div>
 
@@ -594,17 +622,21 @@ onUnmounted(() => {
           <template v-if="syncStatus">
             <div v-if="syncRunning" class="flex items-center gap-1 text-blue-500">
               <span class="i-mdi-loading animate-spin flex-shrink-0" />
-              <span>{{ syncStatus.task }}同步中{{ syncProgressText }}</span>
+              <span>
+                {{ $t('page.tool.stockScreen.syncing', { task: syncStatus.task, progress: syncProgressText }) }}
+              </span>
             </div>
             <template v-else>
               <div v-if="syncStatus.lastError" class="text-red-500 truncate" :title="syncStatus.lastError">
-                上次同步失败: {{ syncStatus.lastError }}
+                {{ $t('page.tool.stockScreen.lastSyncFailed', { error: syncStatus.lastError }) }}
               </div>
-              <div v-else-if="syncFinishedText">上次同步完成: {{ syncFinishedText }}</div>
-              <div v-else>暂无同步记录</div>
+              <div v-else-if="syncFinishedText">
+                {{ $t('page.tool.stockScreen.lastSyncDone', { time: syncFinishedText }) }}
+              </div>
+              <div v-else>{{ $t('page.tool.stockScreen.noSyncRecord') }}</div>
             </template>
           </template>
-          <template v-else>状态加载中...</template>
+          <template v-else>{{ $t('page.tool.stockScreen.statusLoading') }}</template>
         </div>
         <NPagination
           class="flex-shrink-0"
