@@ -374,50 +374,6 @@ function applyScraps(rows: Api.Cut.CutScrap[]) {
   message.success($t('page.cut.scrapApplied', { count: rows.length }));
 }
 
-// 导出 PNG / PDF
-async function exportPNG() {
-  if (!cutResult.value?.length) return;
-  exporting.value = 'png';
-  try {
-    await exportBarCutPNG(cutResult.value, summaryData.value);
-  } catch (e) {
-    console.error(e);
-    message.error($t('page.cut.exportFailed'));
-  } finally {
-    exporting.value = null;
-  }
-}
-
-async function exportPDF() {
-  if (!cutResult.value?.length) return;
-  exporting.value = 'pdf';
-  try {
-    await exportBarCutPDF(cutResult.value, summaryData.value);
-  } catch (e) {
-    console.error(e);
-    message.error($t('page.cut.exportFailed'));
-  } finally {
-    exporting.value = null;
-  }
-}
-
-// 直接打印切割图 (PDF autoPrint)
-async function printChart() {
-  if (!cutResult.value?.length) return;
-  printing.value = true;
-  try {
-    const opened = await printBarCut(cutResult.value, summaryData.value);
-    if (!opened) {
-      message.warning($t('page.cut.allowPopup'));
-    }
-  } catch (e) {
-    console.error(e);
-    message.error($t('page.cut.exportFailed'));
-  } finally {
-    printing.value = false;
-  }
-}
-
 // 裁剪图示排序: 同类型材料相邻展示, 类型内再按根序(聚合模式按剩余长度)排
 function compareByMaterialType(a: Api.Cut.BarResult, b: Api.Cut.BarResult) {
   const ta = a.materialType ?? '';
@@ -456,6 +412,50 @@ const processedResult = computed(() => {
     (a, b) => compareByMaterialType(a, b) || a.remaining - b.remaining
   );
 });
+
+// 导出 PNG / PDF (与页面展示一致: 聚合模式下按聚合行导出, 行标 ×N根)
+async function exportPNG() {
+  if (!cutResult.value?.length) return;
+  exporting.value = 'png';
+  try {
+    await exportBarCutPNG(processedResult.value, summaryData.value);
+  } catch (e) {
+    console.error(e);
+    message.error($t('page.cut.exportFailed'));
+  } finally {
+    exporting.value = null;
+  }
+}
+
+async function exportPDF() {
+  if (!cutResult.value?.length) return;
+  exporting.value = 'pdf';
+  try {
+    await exportBarCutPDF(processedResult.value, summaryData.value);
+  } catch (e) {
+    console.error(e);
+    message.error($t('page.cut.exportFailed'));
+  } finally {
+    exporting.value = null;
+  }
+}
+
+// 直接打印切割图 (PDF autoPrint, 横向 A4 按页渲染)
+async function printChart() {
+  if (!cutResult.value?.length) return;
+  printing.value = true;
+  try {
+    const opened = await printBarCut(processedResult.value, summaryData.value);
+    if (!opened) {
+      message.warning($t('page.cut.allowPopup'));
+    }
+  } catch (e) {
+    console.error(e);
+    message.error($t('page.cut.exportFailed'));
+  } finally {
+    printing.value = false;
+  }
+}
 
 // 颜色池
 const randomColors = Array.from({ length: 50 }, (_, i) => `hsl(${(i * 30) % 360}, 70%, 50%)`);

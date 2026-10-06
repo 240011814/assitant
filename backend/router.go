@@ -409,6 +409,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			adminGroup.GET("/users", api.RequirePermission("system:user:list"), adminHandler.HandleListUsers)
 			adminGroup.POST("/users", api.RequirePermission("system:user:create"), adminHandler.HandleCreateUser)
 			adminGroup.PUT("/users/:id", api.RequirePermission("system:user:update"), adminHandler.HandleUpdateUser)
+			adminGroup.PUT("/users/:id/reset-password", api.RequirePermission("system:user:update"), adminHandler.HandleResetUserPassword)
 			adminGroup.DELETE("/users/:id", api.RequirePermission("system:user:delete"), adminHandler.HandleDeleteUser)
 			adminGroup.POST("/users/:id/proxy-login", api.RequireRole("R_SUPER"), adminHandler.HandleProxyLogin)
 

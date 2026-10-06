@@ -85,6 +85,27 @@ func (h *AdminHandler) HandleDeleteUser(c *gin.Context) {
 	SendSuccess(c, nil)
 }
 
+// HandleResetUserPassword 管理员重置用户密码; 请求体 password 为空时由服务端生成随机密码
+func (h *AdminHandler) HandleResetUserPassword(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		SendError(c, "400", "用户 ID 不合法")
+		return
+	}
+
+	var req model.ResetUserPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请求参数错误: "+err.Error())
+		return
+	}
+	generated, err := h.svc.ResetUserPassword(uint(id), req.Password)
+	if err != nil {
+		SendError(c, "500", "重置密码失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, gin.H{"password": generated})
+}
+
 func (h *AdminHandler) HandleProxyLogin(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {

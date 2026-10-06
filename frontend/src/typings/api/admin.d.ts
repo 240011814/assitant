@@ -39,6 +39,16 @@ declare namespace Api {
       token_quota_month?: number | null;
     }
 
+    /** 管理员重置用户密码: password 为空时由服务端生成随机密码 */
+    interface ResetUserPasswordParams {
+      password?: string;
+    }
+
+    /** 重置密码响应: 仅随机生成时回传明文一次 */
+    interface ResetUserPasswordResult {
+      password: string;
+    }
+
     interface UserProfile {
       userId: number;
       userName: string;

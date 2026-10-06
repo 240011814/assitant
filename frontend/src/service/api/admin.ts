@@ -12,6 +12,14 @@ export function fetchUpdateUser(userId: number, data: Api.Admin.UpdateUserParams
   return request({ url: `/api/admin/users/${userId}`, method: 'put', data });
 }
 
+export function fetchResetUserPassword(userId: number, data: Api.Admin.ResetUserPasswordParams = {}) {
+  return request<Api.Admin.ResetUserPasswordResult>({
+    url: `/api/admin/users/${userId}/reset-password`,
+    method: 'put',
+    data
+  });
+}
+
 export function fetchDeleteUser(userId: number) {
   return request({ url: `/api/admin/users/${userId}`, method: 'delete' });
 }

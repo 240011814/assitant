@@ -101,6 +101,11 @@ type ChangePasswordRequest struct {
 	NewPassword string `json:"newPassword" binding:"required,min=6"`
 }
 
+// ResetUserPasswordRequest 管理员重置用户密码请求; Password 为空时由服务端生成随机密码
+type ResetUserPasswordRequest struct {
+	Password string `json:"password"`
+}
+
 // TwoFactorLoginResponse 2FA required response after password login
 type TwoFactorLoginResponse struct {
 	Need2FA   bool   `json:"need2fa"`

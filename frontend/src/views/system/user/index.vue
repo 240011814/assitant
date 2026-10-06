@@ -8,6 +8,7 @@ import {
   fetchGetRoles,
   fetchGetUsers,
   fetchProxyLogin,
+  fetchResetUserPassword,
   fetchUpdateUser,
 } from "@/service/api";
 import { useAuth } from "@/hooks/business/auth";
@@ -41,6 +42,15 @@ const form = reactive({
   role: "R_USER",
   tokenQuotaMonth: null as number | null,
 });
+
+// 重置密码弹窗状态
+const resetModalShow = ref(false);
+const resetTarget = ref<Api.Admin.User | null>(null);
+const resetMode = ref<"random" | "specify">("random");
+const resetPassword = ref("");
+const resetting = ref(false);
+// 随机生成的密码明文, 非空时弹窗切换为"仅显示一次"结果视图
+const resetResult = ref<string | null>(null);
 
 const roleOptions = computed(() =>
   roles.value.map(item => ({ label: `${item.name} (${item.code})`, value: item.code }))
@@ -170,6 +180,13 @@ const columns = computed<DataTableColumns<Api.Admin.User>>(() => [
                   NButton,
                   { size: "small", onClick: () => openEdit(row) },
                   { default: () => $t("common.edit") }
+                )
+              );
+              actions.push(
+                h(
+                  NButton,
+                  { size: "small", type: "info", ghost: true, onClick: () => openReset(row) },
+                  { default: () => $t("page.system.user.resetPassword") }
                 )
               );
             }
@@ -313,6 +330,74 @@ async function handleProxyLogin(row: Api.Admin.User) {
       message.success($t("page.system.user.proxyLoginSuccess"));
       routerPushByKey("root");
     }
+  }
+}
+
+// 前端预校验, 与后端 ValidatePasswordStrength 规则一致: ≥8 位且同时包含字母和数字
+const passwordStrengthPattern = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
+
+function openReset(row: Api.Admin.User) {
+  resetTarget.value = row;
+  resetMode.value = "random";
+  resetPassword.value = "";
+  resetResult.value = null;
+  resetModalShow.value = true;
+}
+
+async function handleResetPassword() {
+  if (!resetTarget.value) return;
+  if (resetResult.value !== null) {
+    // 结果视图点击确认 = 关闭弹窗
+    resetModalShow.value = false;
+    return;
+  }
+  const payload: Api.Admin.ResetUserPasswordParams = {};
+  if (resetMode.value === "specify") {
+    if (!resetPassword.value) {
+      message.error($t("page.system.user.newPasswordRequired"));
+      return;
+    }
+    if (!passwordStrengthPattern.test(resetPassword.value)) {
+      message.error($t("page.system.user.passwordStrengthHint"));
+      return;
+    }
+    payload.password = resetPassword.value;
+  }
+  resetting.value = true;
+  try {
+    const { data, error } = await fetchResetUserPassword(resetTarget.value.userId, payload);
+    if (error) return;
+    message.success($t("page.system.user.resetSuccess"));
+    if (data?.password) {
+      resetResult.value = data.password;
+    } else {
+      resetModalShow.value = false;
+    }
+  } finally {
+    resetting.value = false;
+  }
+}
+
+async function copyGeneratedPassword() {
+  if (!resetResult.value) return;
+  const text = resetResult.value;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      // 非安全上下文降级: 临时 textarea + execCommand
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    message.success($t("page.system.user.copySuccess"));
+  } catch {
+    console.error("copy password failed");
   }
 }
 
@@ -504,6 +589,15 @@ onMounted(async () => {
                   >
                     {{ $t("common.edit") }}
                   </NButton>
+                  <NButton
+                    v-if="hasAuth('system:user:update')"
+                    size="tiny"
+                    type="info"
+                    quaternary
+                    @click="openReset(row)"
+                  >
+                    {{ $t("page.system.user.resetPassword") }}
+                  </NButton>
                   <NPopconfirm v-if="hasAuth('system:user:delete')" @positive-click="handleDelete(row.userId)">
                     <template #trigger>
                       <NButton size="tiny" type="error" quaternary>
@@ -602,6 +696,64 @@ onMounted(async () => {
         <div class="flex justify-end gap-3">
           <NButton @click="showModal = false">{{ $t("common.cancel") }}</NButton>
           <NButton type="primary" @click="handleSubmit">
+            {{ $t("common.confirm") }}
+          </NButton>
+        </div>
+      </template>
+    </NModal>
+
+    <!-- Reset Password Modal -->
+    <NModal
+      v-model:show="resetModalShow"
+      preset="card"
+      :title="$t('page.system.user.resetPasswordTitle')"
+      :style="{ width: appStore.isMobile ? '95vw' : '440px' }"
+      :segmented="{ content: true, footer: true }"
+      @after-leave="resetResult = null"
+    >
+      <template v-if="resetResult === null">
+        <div class="flex flex-col gap-4">
+          <div v-if="resetTarget" class="text-sm text-gray-500 dark:text-gray-400">
+            {{ $t("page.system.user.userName") }}: <span class="font-medium text-gray-800 dark:text-gray-200">{{ resetTarget.userName }}</span>
+          </div>
+          <NRadioGroup v-model:value="resetMode">
+            <NSpace>
+              <NRadio value="random">{{ $t("page.system.user.resetModeRandom") }}</NRadio>
+              <NRadio value="specify">{{ $t("page.system.user.resetModeSpecify") }}</NRadio>
+            </NSpace>
+          </NRadioGroup>
+          <template v-if="resetMode === 'specify'">
+            <NInput
+              v-model:value="resetPassword"
+              type="password"
+              show-password-on="click"
+              :placeholder="$t('page.system.user.newPasswordPlaceholder')"
+              @keyup.enter="handleResetPassword"
+            >
+              <template #prefix>
+                <SvgIcon icon="mdi:lock-outline" class="text-gray-400" />
+              </template>
+            </NInput>
+            <div class="text-xs text-gray-400">{{ $t("page.system.user.passwordStrengthHint") }}</div>
+          </template>
+        </div>
+      </template>
+      <template v-else>
+        <div class="flex flex-col gap-3">
+          <div class="text-sm">{{ $t("page.system.user.generatedPasswordLabel") }}</div>
+          <div class="flex items-center gap-2">
+            <NInput :value="resetResult" readonly />
+            <NButton type="primary" secondary @click="copyGeneratedPassword">
+              {{ $t("page.system.user.copyPassword") }}
+            </NButton>
+          </div>
+          <NAlert type="warning" :show-icon="true">{{ $t("page.system.user.generatedPasswordTip") }}</NAlert>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <NButton @click="resetModalShow = false">{{ $t("common.cancel") }}</NButton>
+          <NButton type="primary" :loading="resetting" @click="handleResetPassword">
             {{ $t("common.confirm") }}
           </NButton>
         </div>

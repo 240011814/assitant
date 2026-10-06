@@ -1,7 +1,9 @@
 package service
 
 import (
+	crand "crypto/rand"
 	"errors"
+	"math/big"
 
 	"backend/model"
 	"golang.org/x/crypto/bcrypt"
@@ -121,6 +123,91 @@ func (s *AdminService) UpdateUser(id uint, req model.UpdateUserRequest) error {
 	// 用户角色可能被修改, 失效该用户权限缓存
 	InvalidatePermissionCache(id)
 	return nil
+}
+
+// ResetUserPassword 管理员重置用户密码; password 为空时生成随机密码并返回明文(仅此一次), 指定密码时返回空串
+func (s *AdminService) ResetUserPassword(id uint, password string) (string, error) {
+	generated := ""
+	if password == "" {
+		var err error
+		generated, err = GenerateRandomPassword(12)
+		if err != nil {
+			return "", err
+		}
+		password = generated
+	} else if err := ValidatePasswordStrength(password); err != nil {
+		return "", err
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	result := DB.Model(&model.User{}).Where("id = ?", id).Update("password_hash", string(hash))
+	if result.Error != nil {
+		return "", result.Error
+	}
+	if result.RowsAffected == 0 {
+		return "", errors.New("用户不存在")
+	}
+	return generated, nil
+}
+
+// 随机密码字符集: 去掉易混淆的 0/O/o/1/l/I
+const randomPasswordCharset = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+// GenerateRandomPassword 用 crypto/rand 生成长度为 n 的随机密码, 保证同时包含字母和数字
+func GenerateRandomPassword(n int) (string, error) {
+	if n < 8 {
+		return "", errors.New("随机密码长度不足")
+	}
+	buf := make([]byte, n)
+	for i := range buf {
+		idx, err := randInt(len(randomPasswordCharset))
+		if err != nil {
+			return "", err
+		}
+		buf[i] = randomPasswordCharset[idx]
+	}
+	// 保证满足密码策略(字母+数字): 不满足时回填两类字符
+	if !hasLetterAndDigit(buf) {
+		buf[0] = 'a'
+		idx, err := randInt(10)
+		if err != nil {
+			return "", err
+		}
+		buf[1] = byte('2' + idx%8)
+	}
+	// Fisher-Yates 洗牌, 打散回填的固定字符
+	for i := len(buf) - 1; i > 0; i-- {
+		j, err := randInt(i + 1)
+		if err != nil {
+			return "", err
+		}
+		buf[i], buf[j] = buf[j], buf[i]
+	}
+	return string(buf), nil
+}
+
+func hasLetterAndDigit(buf []byte) bool {
+	var hasLetter, hasDigit bool
+	for _, b := range buf {
+		switch {
+		case (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z'):
+			hasLetter = true
+		case b >= '0' && b <= '9':
+			hasDigit = true
+		}
+	}
+	return hasLetter && hasDigit
+}
+
+func randInt(max int) (int, error) {
+	n, err := crand.Int(crand.Reader, big.NewInt(int64(max)))
+	if err != nil {
+		return 0, err
+	}
+	return int(n.Int64()), nil
 }
 
 func (s *AdminService) DeleteUser(id, currentUserID uint) error {

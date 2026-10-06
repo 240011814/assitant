@@ -599,6 +599,18 @@ declare namespace App {
             proxyLogin: string;
             proxyLoginConfirm: string;
             proxyLoginSuccess: string;
+            resetPassword: string;
+            resetPasswordTitle: string;
+            resetModeRandom: string;
+            resetModeSpecify: string;
+            newPasswordPlaceholder: string;
+            newPasswordRequired: string;
+            passwordStrengthHint: string;
+            resetSuccess: string;
+            generatedPasswordLabel: string;
+            generatedPasswordTip: string;
+            copyPassword: string;
+            copySuccess: string;
           };
           permission: {
             title: string;
