@@ -4,8 +4,6 @@ import { useFullscreen } from "@vueuse/core";
 import { useMessage, NDrawer, NDrawerContent, NModal, NInput } from "naive-ui";
 import { useAppStore } from "@/store/modules/app";
 import {
-  fetchAddVocabulary,
-  fetchAddNote,
   fetchHistoryDetail,
   fetchUpdateFavorite,
   fetchUpdateHistoryTitle,
@@ -13,11 +11,13 @@ import {
 } from "@/service/api";
 import { fetchGetAIModels, fetchGetUserPrompt, fetchChatStream, fetchToolApproval } from "@/service/api";
 import { fetchOrchestrationChatRun, fetchResolveOrchestrationApproval } from "@/service/api";
-import { fetchCourseList, fetchCreateCourseItem, type Course } from "@/service/api/course";
 import { useAuth } from "@/hooks/business/auth";
 import { renderMarkdown as renderMarkdownRaw } from "@/utils/markdown";
 import { useRoute } from "vue-router";
 import PromptEditor from "./prompt-editor.vue";
+import VocabModal from "./vocab-modal.vue";
+import NoteModal from "./note-modal.vue";
+import CourseItemModal from "./course-item-modal.vue";
 
 interface VocabSuggestion {
   word?: string;
@@ -218,32 +218,10 @@ async function loadModels() {
   }
 }
 
-const showVocabModal = ref(false);
-const vocabLoading = ref(false);
-const vocabForm = ref({
-  word: "",
-  phonetic: "",
-  definition: "",
-  example: "",
-  confusingWords: "",
-});
-
-const showNoteModal = ref(false);
-const noteLoading = ref(false);
-const noteForm = ref({
-  title: "",
-  category: "",
-  content: "",
-});
-
-const showCourseModal = ref(false);
-const courseLoading = ref(false);
-const courseOptions = ref<{ label: string; value: number }[]>([]);
-const selectedCourseId = ref<number | null>(null);
-const courseItemForm = ref({
-  english_sentence: "",
-  chinese_translation: "",
-});
+// 生词本/笔记/课程包弹窗抽为子组件 (与流式渲染无关的表单块), 经 ref 调用 open()
+const vocabModalRef = ref<InstanceType<typeof VocabModal>>();
+const noteModalRef = ref<InstanceType<typeof NoteModal>>();
+const courseModalRef = ref<InstanceType<typeof CourseItemModal>>();
 
 const showToolApprovalModal = ref(false);
 const toolApprovalInfo = ref<{
@@ -297,89 +275,15 @@ const openNoteModal = (content: string) => {
   let defaultTitle = content.trim().slice(0, 20);
   if (content.trim().length > 20) defaultTitle += "...";
 
-  noteForm.value = {
+  noteModalRef.value?.open({
     title: defaultTitle,
     category: defaultCategory,
     content: formatDisplayContent(content),
-  };
-  showNoteModal.value = true;
-};
-
-const loadCourseOptions = async () => {
-  try {
-    const { data } = await fetchCourseList({ page_size: 100 });
-    if (data?.list) {
-      courseOptions.value = data.list.map((course: Course) => ({
-        label: course.title,
-        value: course.id,
-      }));
-    }
-  } catch (err: any) {
-    message.error(`加载课程包失败: ${err?.message || "未知错误"}`);
-  }
-};
-
-const submitCourseItem = async () => {
-  if (!selectedCourseId.value) {
-    message.warning("请选择课程包");
-    return;
-  }
-  if (!courseItemForm.value.english_sentence.trim()) {
-    message.warning("请输入英文例句");
-    return;
-  }
-
-  courseLoading.value = true;
-  try {
-    await fetchCreateCourseItem(selectedCourseId.value, courseItemForm.value);
-    message.success("已添加到课程包");
-    showCourseModal.value = false;
-  } catch (err: any) {
-    message.error(`添加失败: ${err?.message || "未知错误"}`);
-  } finally {
-    courseLoading.value = false;
-  }
-};
-
-const submitNote = async () => {
-  if (!noteForm.value.title.trim()) {
-    message.warning("请输入标题");
-    return;
-  }
-  if (!noteForm.value.category.trim()) {
-    message.warning("请输入分类");
-    return;
-  }
-  if (!noteForm.value.content.trim()) {
-    message.warning("请输入内容");
-    return;
-  }
-
-  noteLoading.value = true;
-  try {
-    await fetchAddNote(noteForm.value);
-    message.success("笔记添加成功");
-    showNoteModal.value = false;
-  } catch (err: any) {
-    message.error(`添加失败: ${err?.message || "未知错误 "}`);
-  } finally {
-    noteLoading.value = false;
-  }
-};
-
-const resetVocabForm = () => {
-  vocabForm.value = {
-    word: "",
-    phonetic: "",
-    definition: "",
-    example: "",
-    confusingWords: "",
-  };
+  });
 };
 
 const openVocabModal = () => {
-  resetVocabForm();
-  showVocabModal.value = true;
+  vocabModalRef.value?.open();
 };
 
 const handleSelectText = () => {
@@ -387,25 +291,7 @@ const handleSelectText = () => {
 
   const selection = window.getSelection()?.toString().trim();
   if (selection && selection.length > 0 && selection.length < 50) {
-    vocabForm.value.word = selection;
-  }
-};
-
-const submitVocab = async () => {
-  if (!vocabForm.value.word.trim()) {
-    message.warning("请输入单词");
-    return;
-  }
-
-  vocabLoading.value = true;
-  try {
-    await fetchAddVocabulary(vocabForm.value);
-    message.success("已添加到生词本");
-    showVocabModal.value = false;
-  } catch (err: any) {
-    message.error(`添加失败: ${err?.message || "未知错误"}`);
-  } finally {
-    vocabLoading.value = false;
+    vocabModalRef.value?.setWord(selection);
   }
 };
 
@@ -879,23 +765,20 @@ const handleRetryMessage = (index: number) => {
 };
 
 const handleApplySuggestion = (vocab: VocabSuggestion) => {
-  vocabForm.value = {
+  vocabModalRef.value?.open({
     word: vocab.word || "",
     phonetic: vocab.phonetic || "",
     definition: vocab.definition || "",
     example: vocab.example || "",
     confusingWords: vocab.confusingWords || "",
-  };
-  showVocabModal.value = true;
+  });
 };
 
 const handleAddExpression = (expr: ExpressionSuggestion) => {
-  courseItemForm.value = {
+  courseModalRef.value?.open({
     english_sentence: expr.english,
     chinese_translation: expr.chinese || "",
-  };
-  loadCourseOptions();
-  showCourseModal.value = true;
+  });
 };
 
 const handlePlay = (text: string) => {
@@ -1779,180 +1662,10 @@ onBeforeUnmount(() => {
       </div>
     </NCard>
 
-    <NModal
-      v-if="enableVocabulary"
-      v-model:show="showVocabModal"
-      preset="card"
-      title="添加到生词本"
-      :style="{ width: appStore.isMobile ? '95vw' : '' }"
-      class="max-w-md"
-      :segmented="{ content: 'soft' }"
-    >
-      <NForm
-        :model="vocabForm"
-        label-placement="left"
-        :label-width="appStore.isMobile ? '60' : '80'"
-      >
-        <NFormItem label="单词" path="word">
-          <div class="flex gap-2 w-full">
-            <NInput
-              v-model:value="vocabForm.word"
-              placeholder="输入单词"
-              class="flex-1"
-            />
-            <ButtonIcon
-              icon="mdi:volume-high"
-              class="text-20px text-primary"
-              @click="handlePlay(vocabForm.word)"
-            />
-          </div>
-        </NFormItem>
-        <NFormItem label="音标" path="phonetic">
-          <NInput v-model:value="vocabForm.phonetic" placeholder="输入音标 (可选)" />
-        </NFormItem>
-        <NFormItem label="释义" path="definition">
-          <NInput
-            v-model:value="vocabForm.definition"
-            type="textarea"
-            :autosize="{ minRows: 2 }"
-            placeholder="输入中文释义"
-          />
-        </NFormItem>
-        <NFormItem label="例句" path="example">
-          <NInput
-            v-model:value="vocabForm.example"
-            type="textarea"
-            :autosize="{ minRows: 2 }"
-            placeholder="输入英文例句及翻译，如：I love coffee. (我爱咖啡。)"
-          />
-        </NFormItem>
-        <NFormItem label="易混淆" path="confusingWords">
-          <NInput
-            v-model:value="vocabForm.confusingWords"
-            type="textarea"
-            :autosize="{ minRows: 2 }"
-            placeholder="输入易混淆单词及翻译，如：Shook (摇动)"
-          />
-        </NFormItem>
-      </NForm>
-      <template #footer>
-        <div class="flex justify-end gap-3">
-          <NButton @click="showVocabModal = false">取消</NButton>
-          <NButton type="primary" :loading="vocabLoading" @click="submitVocab">
-            确认添加
-          </NButton>
-        </div>
-      </template>
-    </NModal>
-
-    <NModal
-      v-model:show="showNoteModal"
-      preset="card"
-      title="添加笔记"
-      :style="{ width: appStore.isMobile ? '95vw' : '800px' }"
-      :segmented="{ content: 'soft' }"
-    >
-      <NForm
-        :model="noteForm"
-        label-placement="left"
-        :label-width="appStore.isMobile ? '60' : '80'"
-      >
-        <div :class="appStore.isMobile ? 'flex flex-col gap-2' : 'flex gap-4'">
-          <NFormItem label="标题" path="title" class="flex-1">
-            <NInput v-model:value="noteForm.title" placeholder="输入笔记标题" />
-          </NFormItem>
-          <NFormItem
-            label="分类"
-            path="category"
-            :style="appStore.isMobile ? {} : { width: '240px' }"
-          >
-            <NInput v-model:value="noteForm.category" placeholder="输入笔记分类" />
-          </NFormItem>
-        </div>
-        <NFormItem label="内容" path="content">
-          <div
-            :class="
-              appStore.isMobile
-                ? 'flex flex-col gap-4 w-full'
-                : 'grid grid-cols-2 gap-4 w-full'
-            "
-          >
-            <NInput
-              v-model:value="noteForm.content"
-              type="textarea"
-              :autosize="
-                appStore.isMobile
-                  ? { minRows: 6, maxRows: 10 }
-                  : { minRows: 12, maxRows: 15 }
-              "
-              placeholder="输入笔记内容"
-            />
-            <!-- eslint-disable-next-line vue/no-v-html -->
-            <div
-              class="prose dark:prose-invert max-w-none overflow-y-auto p-4 border border-gray-200 dark:border-gray-700 rounded-md bg-gray-50/50 dark:bg-dark-100 text-sm leading-relaxed"
-              style="height: 100%; max-height: 350px"
-              v-html="renderMarkdown(noteForm.content)"
-            ></div>
-          </div>
-        </NFormItem>
-      </NForm>
-      <template #footer>
-        <div class="flex justify-end gap-3">
-          <NButton @click="showNoteModal = false">取消</NButton>
-          <NButton type="primary" :loading="noteLoading" @click="submitNote">
-            确认添加
-          </NButton>
-        </div>
-      </template>
-    </NModal>
-
-    <NModal
-      v-model:show="showCourseModal"
-      preset="card"
-      title="添加到课程包"
-      :style="{ width: appStore.isMobile ? '95vw' : '' }"
-      class="max-w-md"
-      :segmented="{ content: 'soft' }"
-    >
-      <NForm
-        :model="courseItemForm"
-        label-placement="left"
-        :label-width="appStore.isMobile ? '60' : '80'"
-      >
-        <NFormItem label="课程包" path="course_id">
-          <NSelect
-            v-model:value="selectedCourseId"
-            :options="courseOptions"
-            placeholder="请选择课程包"
-            filterable
-          />
-        </NFormItem>
-        <NFormItem label="英文例句" path="english_sentence">
-          <NInput
-            v-model:value="courseItemForm.english_sentence"
-            type="textarea"
-            :autosize="{ minRows: 3 }"
-            placeholder="英文例句"
-          />
-        </NFormItem>
-        <NFormItem label="中文翻译" path="chinese_translation">
-          <NInput
-            v-model:value="courseItemForm.chinese_translation"
-            type="textarea"
-            :autosize="{ minRows: 2 }"
-            placeholder="中文翻译（可选）"
-          />
-        </NFormItem>
-      </NForm>
-      <template #footer>
-        <div class="flex justify-end gap-3">
-          <NButton @click="showCourseModal = false">取消</NButton>
-          <NButton type="primary" :loading="courseLoading" @click="submitCourseItem">
-            确认添加
-          </NButton>
-        </div>
-      </template>
-    </NModal>
+    <!-- 生词本/笔记/课程包弹窗 (子组件, 表单逻辑内聚) -->
+    <VocabModal v-if="enableVocabulary" ref="vocabModalRef" :play="handlePlay" />
+    <NoteModal ref="noteModalRef" :render-markdown="renderMarkdown" />
+    <CourseItemModal ref="courseModalRef" />
 
     <NModal
       v-model:show="showTitleModal"
