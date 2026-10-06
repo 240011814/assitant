@@ -19,16 +19,17 @@ var userDocumentStore interfaces.UserDocumentStore
 // SetUserDocumentStore 注册用户文档存取实例 (main.go 装配; 未注入时文档工具报未启用)
 func SetUserDocumentStore(store interfaces.UserDocumentStore) { userDocumentStore = store }
 
+// userDocumentConfig 文档工具无配置项; Register 的参数是工具配置, 不是 LLM 请求参数 (后者在各 Info 声明)
+type userDocumentConfig struct{}
+
 // ============ list_user_documents ============
 
 type listUserDocumentsTool struct{}
 
-type listUserDocumentsRequest struct{}
-
 func init() {
 	Register("list_user_documents", "文档列表",
 		"列出当前用户上传的全部文档 (ID/文件名/类型/解析状态/文本长度)。当用户提到\"我的文档/我上传的文件\"或问题可能依赖用户上传的资料时, 先调用本工具确认有哪些文档可用, 再用 read_document 按 ID 读取内容。",
-		listUserDocumentsRequest{},
+		userDocumentConfig{},
 		func(config map[string]any) (tool.BaseTool, error) {
 			return &listUserDocumentsTool{}, nil
 		})
@@ -77,7 +78,7 @@ type readDocumentRequest struct {
 func init() {
 	Register("read_document", "文档读取",
 		"按 ID 读取当前用户上传文档的解析文本 (支持分页)。用户提问与已上传文档内容相关时使用: 先用 list_user_documents 找到文档 ID, 再分段读取; 返回中带 total_chars 与 next_offset, 内容不够继续时用 offset 翻页。",
-		readDocumentRequest{},
+		userDocumentConfig{},
 		func(config map[string]any) (tool.BaseTool, error) {
 			return &readDocumentTool{}, nil
 		})

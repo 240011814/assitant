@@ -22,6 +22,9 @@ var documentSearcher interfaces.DocumentSearcher
 // SetDocumentSearcher 注册文档检索实例 (main.go 装配; 未注入时检索工具报未启用)
 func SetDocumentSearcher(searcher interfaces.DocumentSearcher) { documentSearcher = searcher }
 
+// documentSearchConfig 检索工具无配置项; Register 的参数是工具配置, 不是 LLM 请求参数 (后者在 Info 声明)
+type documentSearchConfig struct{}
+
 type searchUserDocumentsTool struct{}
 
 type searchUserDocumentsRequest struct {
@@ -33,7 +36,7 @@ type searchUserDocumentsRequest struct {
 func init() {
 	Register("search_user_documents", "文档语义检索",
 		"在当前用户上传的文档中做语义检索, 返回与查询最相关的片段 (含文档名/片段序号/相似度)。用户问题可能涉及已上传文档内容、或文档较多较长时优先用本工具定位相关段落, 再配合 read_document 按 (document_id, offset) 精读上下文; 文档列表可用 list_user_documents 获取。query 用与文档内容相近的表述 (而非照抄用户口语)。",
-		searchUserDocumentsRequest{},
+		documentSearchConfig{},
 		func(config map[string]any) (tool.BaseTool, error) {
 			return &searchUserDocumentsTool{}, nil
 		})
