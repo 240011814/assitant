@@ -490,7 +490,8 @@ export const generatedRoutes: GeneratedRoute[] = [
           title: 'tool_backtest',
           i18nKey: 'route.tool_backtest',
           icon: 'mdi:chart-bar',
-          permissions: ['stock:screen:view']
+          permissions: ['stock:screen:view'],
+          order: 13
         }
       },
       {
@@ -501,7 +502,7 @@ export const generatedRoutes: GeneratedRoute[] = [
           title: 'tool_calendar',
           i18nKey: 'route.tool_calendar',
           icon: 'mdi:calendar-month-outline',
-          order: 10
+          order: 15
         }
       },
       {
@@ -513,7 +514,7 @@ export const generatedRoutes: GeneratedRoute[] = [
           i18nKey: 'route.tool_macro',
           icon: 'mdi:bank-outline',
           permissions: ['stock:macro:view'],
-          order: 13
+          order: 14
         }
       },
       {
@@ -524,7 +525,8 @@ export const generatedRoutes: GeneratedRoute[] = [
           title: 'tool_stock-alert',
           i18nKey: 'route.tool_stock-alert',
           icon: 'mdi:bell-outline',
-          permissions: ['stock:watchlist:view']
+          permissions: ['stock:watchlist:view'],
+          order: 12
         }
       },
       {
@@ -536,7 +538,8 @@ export const generatedRoutes: GeneratedRoute[] = [
           i18nKey: 'route.tool_stockdetail',
           permissions: ['stock:menu:view'],
           hideInMenu: true,
-          activeMenu: 'tool_stockscreen'
+          activeMenu: 'tool_stockscreen',
+          order: 16
         }
       },
       {
@@ -547,7 +550,8 @@ export const generatedRoutes: GeneratedRoute[] = [
           title: 'tool_stockscreen',
           i18nKey: 'route.tool_stockscreen',
           icon: 'mdi:chart-line',
-          permissions: ['stock:screen:view']
+          permissions: ['stock:screen:view'],
+          order: 11
         }
       },
       {
@@ -558,7 +562,8 @@ export const generatedRoutes: GeneratedRoute[] = [
           title: 'tool_watchlist',
           i18nKey: 'route.tool_watchlist',
           icon: 'mdi:star-outline',
-          permissions: ['stock:watchlist:view']
+          permissions: ['stock:watchlist:view'],
+          order: 10
         }
       }
     ]
