@@ -108,8 +108,10 @@ pnpm typecheck    # TypeScript 类型检查
 ### 后端 (在 `backend/` 目录下)
 
 ```bash
-go run .          # 启动服务器
-go build ./...    # 编译检查
+go run .             # 启动服务器
+go build ./...       # 编译检查
+golangci-lint run    # Lint 门禁 (必须 0 issues)
+go test ./...        # 单元测试
 ```
 
 ## 项目结构
@@ -121,7 +123,8 @@ backend/
   service/        # 业务逻辑 + 数据库初始化
     db/migrations/ # Goose SQL 迁移文件
   config/         # 配置结构体和加载器
-  main.go         # 入口、路由注册
+  main.go         # 入口: 依赖装配与进程生命周期 (不注册路由)
+  router.go       # 全部 HTTP 路由挂载 (appDeps + setupRouter)
 
 frontend/
   src/
@@ -133,8 +136,8 @@ frontend/
       system/     # 系统管理 (用户、权限、AI 配置)
     hooks/        # Vue 组合式函数
     layouts/      # 布局组件
-    locales/      # 国际化 (zh-CN, en-US)
-    router/       # 路由 (Elegant Router 自动生成)
+    locales/      # 国际化 (zh-cn, en-us)
+    router/       # 路由 (elegant-router 生成骨架, meta 手写维护)
   packages/       # 内部共享包 (@sa/axios, @sa/hooks 等)
 ```
 
@@ -150,12 +153,17 @@ frontend/
 - 响应: `SendSuccess(c, data)` / `SendError(c, code, msg)`
 - 文件命名: `snake_case.go`
 - baostock api 代码要符合flake8规范
+- Lint 门禁: `golangci-lint run ./...` 必须 0 issues (配置在 `backend/.golangci.yml`; defer 关闭资源写显式 `_ =`; 中文错误串不受 ST1005 约束)
+- Handler 取当前用户一律 `currentUserID(c)` (api/auth_ctx.go), 禁止裸 `c.Get("userId")` 断言; 分页页码用 `service.NormalizePage`; SSE 响应头/串行写出用 `setupSSE`/`newSSEEmitter` (api/sse.go)
+- 多步写必须 `DB.Transaction` 包事务 (扣减+建记录这类组合); 编译器/服务层的纯逻辑抽成同包函数便于表驱动测试 (测试用标准库、无外部依赖)
 
 ### 前端
 
 - API 层: `src/service/api/` 下按领域导出类型化函数
 - 状态管理: Pinia store 按模块组织
-- 路由: `route.json` 文件配合 Elegant Router 自动生成
+- 路由: elegant-router 生成骨架; meta (icon/permissions/order/hideInMenu/activeMenu/keepAlive) 唯一维护点 = `build/plugins/router.ts` 的 `customRouteMeta` + `src/router/elegant/routes.ts`; **不放 route.json** (已全部删除, 插件根本不读取)
+- 新增路由: src/views 建目录 → elegant 自动生成 4 处 → 补 `customRouteMeta` 与 routes.ts 的 meta → locales 加两行
+- i18n: 新增 key 必须三处同步 — `locales/langs/zh-cn.ts`、`en-us.ts`、手写类型 `src/typings/app.d.ts` (App.I18n.Schema), 漏 Schema 会 typecheck 报错
 - 文件命名: Vue 组件 `kebab-case.vue`, API 文件 `kebab-case.ts`
 - 格式化: 单引号, 无尾逗号, 打印宽度 120, 箭头函数无括号
 - 前端路由手动编写，不要用生成的
@@ -209,7 +217,7 @@ MySQL 不支持在一个查询中执行多条 SQL 语句。需要将建表语句
 - baostock "用户未登录" 死循环(9/18): session 过期后 SDK 内部 `context.is_login` 被置 False, 但 `_patched_login` 缓存 `_logged_in=True` 不调 `_real_login` 直接返回旧结果, SDK query 检查自身状态报"用户未登录"; endpoint 抛 `BaostockQueryError`, 而 `_execute_with_retry` 把 BaostockQueryError 当确定性错误直接 raise 不重连→重试时同样死循环; 修法=在 `_execute_with_retry` 里判断 BaostockQueryError 是否含"未登录", 是则走 force_disconnect+重试路径
 - baostock 代理日志每条打印两遍(9/16): 自定义 `log_config` 里 `uvicorn.access` 只配了 handler 没设 `propagate`, 默认 True 会把 access 记录再传给 root, 于是同一行被 access handler(`INFO:    ...|`) 和 root(`basicConfig` 的 `...[baostock-api]` 前缀)各打一次; 治法=给 `uvicorn.access` 加 `"propagate": False`(uvicorn 默认配置本就有)
 - 宏观经济数据同步(9/17, tool/macro 页): 存款利率/贷款利率/存款准备金率/货币供应量月度/年度五接口代理已内置, 各1次调用无参全量+upsert幂等(利率/准备金率约43~47条, 货币供应量月约400条); 坑: ①准备金率传年份区间(如 2020-01-01~2025-12-31)返回 0 条, 一律不带日期全量拉(无参返回1999起47条), 利率/货币供应量同理直接无参 ②1990年代早期行多数字段为空串( parseFloatPtr→NULL, 别存0污染数据) ③字段名: 准备金率 bigInstitutionsRatioPre/After + mediumInstitutionsRatioPre/After; 月度 statYear/statMonth + m{0,1,2}Month/m...YOY/m...ChainRelative; 年度 m{0,1,2}Year/m...YearYOY; 存款利率 demandDepositRate/fixedDepositRate{3Month,6Month,1Year,2Year,3Year,5Year}/installmentFixedDepositRate{1Year,3Year,5Year}; 贷款利率 loanRate{6Month,6MonthTo1Year,1YearTo3Year,3YearTo5Year,Above5Year}/mortgateRateBelow5Year/mortgateRateAbove5Year(baostock 把 mortgage 拼成 mortgate, 源码如此) ④余额单位亿元、利率/比率单位%按原值直存 ⑤GORM 数字驼峰(Fixed3Month→fixed_deposit_rate3_month 歧义)用显式 column tag(fixed_3m/loan_6m_1y/mortgage_below_5y)治 ⑥SDK 源码字段可确认: python.exe 走 DLP 透明解密, `.venv\Scripts\python.exe -c "print(open(<sdk .py>, encoding='utf-8').read())"` 或 inspect.getsource 可读出明文
-- elegant-router 增量生成坑(9/17): dev 服务器运行中新增路由时, 插件对 routes.ts 的增量再生成只保留 title/i18nKey(丢 icon/order/permissions); 手写路由的正确模式=不放 route.json, meta 直接维护在 src/router/elegant/routes.ts(先例: cut_bar/system_user/ai_training 均无 route.json), `pnpm build` 全量重生成时会保留 routes.ts 里已有 meta; route.json 的 permissions 字段本来就不会被合并进生成文件(tool_stockscreen 先例), 页面权限实际靠后端 API RequirePermission 兜底
+- elegant-router 增量生成坑(9/17): dev 服务器运行中新增路由时, 插件对 routes.ts 的增量再生成只保留 title/i18nKey(丢 icon/order/permissions); 手写路由的正确模式=不放 route.json, meta 直接维护在 src/router/elegant/routes.ts(先例: cut_bar/system_user/ai_training 均无 route.json), `pnpm build` 全量重生成时会保留 routes.ts 里已有 meta; route.json 的 permissions 字段本来就不会被合并进生成文件(tool_stockscreen 先例), 页面权限实际靠后端 API RequirePermission 兜底。**10/6 终局**: route.json 已全部删除(插件根本不读取), meta 唯一维护点改为 `build/plugins/router.ts` 的 `customRouteMeta`(onRouteMetaGen 合并输出)——routes.ts 再生成(增量或全量)都会带上完整 meta, 已实测验证; 新增路由只需在 customRouteMeta 加一行
 - Eino Skill Middleware + Skill 管理页(9/23): `github.com/cloudwego/eino/adk/middlewares/skill` 的 `Backend` 接口(`List` 返回 `[]FrontMatter`, `Get(name)` 返回 `Skill{FrontMatter,Content,BaseDirectory}`)做成 DB 版即实现动态加载——`ai_skills` 表存 name/description/context/agent/model/content/enabled, `dbSkillBackend` 每次 List/Get 实时查 `enabled=1`, 工具描述与内容即时生效(但 runner 有缓存, 变更后仍需 `AIAgentService.ClearRunnerCache()` 让工具描述重建, 故 skill CRUD service 持 agentService 引用在增删改后清缓存); context 模式 inline(默认)/fork/fork_with_context, fork 需配 AgentHub、model 字段需配 ModelHub, 二者分别用 `AIAgentService.getModel` 实现(子 Agent 用 `adk.NewChatModelAgent` 现建); 中间件在 `getOrCreateRunner` 里 append 到 Handlers, 构建失败只告警不阻断; **坑**: `adk/middlewares/skill` 包会编译 `filesystem_backend.go` 进而 import `adk/filesystem`, 后者需要 `github.com/bmatcuk/doublestar/v4` 的 go.sum 条目(此前未引入), 直接 build 报 "missing go.sum entry", 执行 `go get github.com/cloudwego/eino/adk/filesystem@v0.9.20` 即可(只加一行 indirect); 前端手写路由需同步改 5 处: routes.ts / imports.ts / transform.ts(routeMap) / typings/elegant-router.d.ts(RouteMap+LastLevelRouteKey) / locales(zh-cn+en-us)
 - Eino patchtoolcalls 接入(9/23): `getOrCreateRunner` 的 Handlers 现为 logging → approval → skill → patchtoolcalls; patchtoolcalls 修补"有 tool_calls 但缺 tool result"的悬空调用(默认占位文案, `New(ctx,nil)` 即可, 构建失败只告警不阻断); **summarization 一度接入又移除**: 它会在 BeforeModelRewriteState 用摘要替换 state.Messages, 而框架会把改写后的状态写回图状态并作为中断 checkpoint 保存(恢复的是"摘要后"历史), 本项目每轮 ChatStream 都把前端完整历史重新 Run、SaveConversation 也落完整原文, 导致 ①摘要不跨轮持久化、每轮重复摘要(额外模型调用+结果抖动) ②续跑时模型上下文与前端/DB 完整历史分叉 ③ResumeToolApproval 固定 getOrCreateRunner("") 使续跑模型/摘要模型与原对话 modelOverride 不一致; 若将来要接, 需先把摘要跨轮持久化(下一轮传"摘要+最近消息")并让续跑带上原 modelOverride
 - GitHub 仓库导入 Skill(9/23): 不落库, `POST /api/skills/discover/github`(权限 system:skill:view) 只负责扫描并返回解析后的 skill 列表, 前端点击「导入」把 name/description/context/agent/model/content 预填到「新增 Skill」表单, 由用户补充后再走原 create 落库(避免重名直接失败); 扫描流程=解析仓库地址(owner/repo 或完整 URL, 支持 `/tree/<branch>/<subpath>`)→ 无分支时 `GET /repos/{o}/{r}` 取 default_branch → `GET /repos/{o}/{r}/git/trees/{ref}?recursive=1` 递归列文件 → 过滤 `SKILL.md`(不区分大小写, 可按子目录前缀过滤) → 逐个 `raw.githubusercontent.com` 拉正文 → 复用 splitFrontmatter+yaml 解析; 未鉴权 GitHub API 限流 60/h, 支持环境变量 `GITHUB_TOKEN` 提额(设置了才加 Authorization 头), 命中 403/429 返回"限流"提示; 解析失败/单文件拉取失败跳过不阻断; 扫描结果按 `owner/repo@ref:subpath` 内存缓存(`skill_github.go` 包级 map+读写锁), 同仓库仅"再次扫描成功"才替换, 失败时回退返回旧缓存并带 warning(前端显示"缓存结果"标记); 返回结构 `{repo,total,cached,warning,scanned_at,skills}`; 另提供 `GET /api/skills/discover/github/cache`(只读内存缓存, 不触发扫描), 前端打开弹窗时自动加载缓存, 避免第二次打开为空; 前端默认仓库/分支为常量 DEFAULT_DISCOVER_REPO/DEFAULT_DISCOVER_REF; SKILL.md 用 12 协程并发拉取(原串行 864 个要 2 分多钟); **坑**: 曾设 `maxSkillFiles=200` 上限截断, 导致 awesome-claude-skills(master, 实测 864 个 SKILL.md) "总数不对", 已移除上限; GitHub tree `truncated` 为 true 时结果不完整, 返回 warning
