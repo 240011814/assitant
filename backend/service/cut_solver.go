@@ -43,6 +43,10 @@ type cutSolverRequest struct {
 	Scraps            []cutSolverScrap    `json:"scraps"`
 	TimeLimitMS       int                 `json:"time_limit_ms"`
 	UtilizationWeight float64             `json:"utilization_weight"` // stage2 利用率偏好权重 (与前端滑杆同源)
+	// 材料保护: 开启后余料长度不允许落在 [protect_min, protect_max] 区间内
+	ProtectEnabled bool    `json:"protect_enabled"`
+	ProtectMin     float64 `json:"protect_min"`
+	ProtectMax     float64 `json:"protect_max"`
 }
 
 type cutSolverItem struct {
@@ -83,10 +87,10 @@ type cutSolverResponse struct {
 // 返回组装好的结果与被消费旧料下标 (相对 restScraps); 任何异常返回 error 由调用方直接报给前端。
 func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem, demand []int,
 	materialLens []float64, materialLabels []string, restScraps []float64, restLabels []string,
-	kerf float64, utilWeight float64, startIdx int) ([]model.BarResult, []int, error) {
+	kerf float64, utilWeight float64, protect cutProtect, startIdx int) ([]model.BarResult, []int, error) {
 
 	// 三个集合显式初始化为空数组: nil 切片会被 Marshal 成 null, pydantic 的 list 字段
-	// 不接受 null, 会 422 (线上问题: 无旧料时 scraps=null 导致精确模式始终回退)
+	// 不接受 null, 会 422 (线上问题: 无旧料时 scraps=null 导致精确模式始终报错)
 	reqBody := cutSolverRequest{
 		Kerf:              kerf,
 		Items:             []cutSolverItem{},
@@ -94,6 +98,9 @@ func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem,
 		Scraps:            []cutSolverScrap{},
 		TimeLimitMS:       cutSolverBudget,
 		UtilizationWeight: utilWeight,
+		ProtectEnabled:    protect.enabled,
+		ProtectMin:        protect.min,
+		ProtectMax:        protect.max,
 	}
 	for t := range items {
 		reqBody.Items = append(reqBody.Items, cutSolverItem{Length: items[t].length, Demand: demand[t]})
@@ -137,6 +144,9 @@ func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem,
 		return nil, nil, fmt.Errorf("解析求解响应失败: %w", err)
 	}
 	if len(out.Unplaced) > 0 {
+		if protect.enabled {
+			return nil, nil, fmt.Errorf("材料保护规则下无可行切割方案: %d 件零件无法排入, 请调整保护区间或关闭保护", len(out.Unplaced))
+		}
 		return nil, nil, fmt.Errorf("求解结果存在 %d 个未放置零件", len(out.Unplaced))
 	}
 

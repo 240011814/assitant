@@ -74,6 +74,29 @@ def main() -> int:
         materials=[Material(label="L6000", length=6000)],
         time_limit_ms=5000), "中等规模")
 
+    # 5. 材料保护: 余料不允许落在 [40, 50] — 6×185 的 [185×3] (余料 44.6) 被禁, 应改走其他合规模式
+    req = SolveRequest(kerf=0.2, items=[Item(length=185, demand=6)],
+                       materials=[Material(label="L600", length=600)],
+                       protect_enabled=True, protect_min=40, protect_max=50)
+    resp = solve(req)
+    covered = 0
+    for bar in resp.bars:
+        used = sum(req.items[i].length * bar.pattern[i] for i in range(len(req.items)))
+        used += req.kerf * max(0, sum(bar.pattern) - 1)
+        rem = req.materials[bar.material_index].length - used
+        assert not (40 - 1e-6 <= rem <= 50 + 1e-6), f"[保护] 余料 {rem} 落在 [40,50]: pattern={bar.pattern}"
+        covered += sum(bar.pattern) * bar.count
+    assert covered >= 6, f"[保护] 零件未覆盖: {covered}/6"
+    print(f"[保护] PASS bars={sum(b.count for b in resp.bars)} 迭代={resp.iterations} 余料全部避开 [40,50]")
+
+    # 6. 材料保护不可行: 单件 300 / L=600 / 保护 [250,350] — 任何切法余料都是 300, 应返回 unplaced
+    req = SolveRequest(kerf=0, items=[Item(length=300, demand=1)],
+                       materials=[Material(label="L600", length=600)],
+                       protect_enabled=True, protect_min=250, protect_max=350)
+    resp = solve(req)
+    assert resp.unplaced, "[保护不可行] 应返回 unplaced 而非硬切"
+    print(f"[保护不可行] PASS unplaced={resp.unplaced}")
+
     print("ALL CHECKS PASSED")
     return 0
 

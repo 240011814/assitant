@@ -28,6 +28,10 @@ class SolveRequest(BaseModel):
     scraps: list[Scrap] = []
     time_limit_ms: int = Field(default=3000, ge=200, le=60000)
     utilization_weight: float = Field(default=5, ge=1, le=8)
+    # 材料保护: 开启后每根料的余料长度不允许落在 [protect_min, protect_max] 区间内 (cm, 含边界)
+    protect_enabled: bool = False
+    protect_min: float = Field(default=0, ge=0)
+    protect_max: float = Field(default=0, ge=0)
 
 
 class Bar(BaseModel):

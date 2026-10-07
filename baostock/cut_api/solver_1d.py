@@ -12,6 +12,9 @@
      stage2: 新料长度预算 ≤ stage1, 需求改精确相等, 最小化偏好成本:
              1000×(1−util^weight) [利用率偏好] − 30×非零类型数 [偏好混合切割]
              − 1000 [偏好用旧料];  列不足导致不可行时回退 stage1 解 (同 Java 版)
+  材料保护 (protect_enabled): 余料长度不允许落在 [protect_min, protect_max] 内 —
+     初始列过滤 + 定价背包互斥分支双重保证, 全部候选列合规; 无合规列可覆盖需求时
+     返回 unplaced, 由 Go 侧转成保护不可行报错。
 """
 
 from __future__ import annotations
@@ -39,9 +42,12 @@ def _scale_for(kerf: float) -> int:
 
 
 def _price_knapsack(duals: list[float], weights: list[int], caps: list[int],
-                    capacity: int, time_limit_s: float) -> tuple[Optional[list[int]], float]:
+                    capacity: int, time_limit_s: float,
+                    protect: tuple[int, int] = (0, 0)) -> tuple[Optional[list[int]], float]:
     """CP-SAT 有界背包定价: max Σ dual_i×a_i s.t. Σ w_i×a_i ≤ capacity, 0≤a_i≤caps_i。
-    CP-SAT 仅支持整数: weights/capacity 必须已离散化为整数, 对偶系数放大 1e6 取整。"""
+    CP-SAT 仅支持整数: weights/capacity 必须已离散化为整数, 对偶系数放大 1e6 取整。
+    protect=(pmin, pmax) 非 0 时为材料保护约束: 余料 capacity−Σw×a 不允许落在 [pmin, pmax]
+    (离散化含边界), 用辅助布尔拆成两个互斥分支 (余料<pmin 或 余料>pmax)。"""
     m = cp_model.CpModel()
     xs = []
     for i, w in enumerate(weights):
@@ -56,7 +62,16 @@ def _price_knapsack(duals: list[float], weights: list[int], caps: list[int],
     terms = [xs[i] * int(round(duals[i] * 1e6)) for i in range(len(xs)) if xs[i] is not None]
     if not terms:
         return None, 0.0
-    m.Add(sum(xs[i] * weights[i] for i in range(len(xs)) if xs[i] is not None) <= capacity)
+    live = [xs[i] for i in range(len(xs)) if xs[i] is not None]
+    live_w = [weights[i] for i in range(len(xs)) if xs[i] is not None]
+    m.Add(sum(x * w for x, w in zip(live, live_w)) <= capacity)
+    pmin_i, pmax_i = protect
+    if pmin_i > 0 and pmax_i >= pmin_i:
+        sum_w = sum(x * w for x, w in zip(live, live_w))
+        branch = m.NewBoolVar("protect")
+        # b=0: 余料 < pmin (Σw×a ≥ capacity−pmin+1); b=1: 余料 > pmax (Σw×a ≤ capacity−pmax−1)
+        m.Add(sum_w >= capacity - pmin_i + 1).OnlyEnforceIf(branch)
+        m.Add(sum_w <= capacity - pmax_i - 1).OnlyEnforceIf(branch.Not())
     m.Maximize(sum(terms))
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max(0.05, time_limit_s)
@@ -150,6 +165,19 @@ def solve(req: SolveRequest) -> SolveResponse:
     scale = _scale_for(req.kerf)
     weights = [int((it.length + req.kerf) * scale + 1e-9) for it in req.items]
 
+    # 材料保护: 余料长度不允许落在 [protect_min, protect_max] (初始列过滤 + 定价互斥分支双重保证)
+    protect_on = req.protect_enabled and 0 < req.protect_min <= req.protect_max
+    protect_ints = (0, 0)
+    if protect_on:
+        protect_ints = (int(round(req.protect_min * scale)), int(round(req.protect_max * scale)))
+
+    def remainder_protected(bar_len: float, used: float) -> bool:
+        """浮点口径保护判断 (初始列过滤用); 定价内走离散化分支"""
+        if not protect_on:
+            return False
+        rem = bar_len - used
+        return req.protect_min - EPS <= rem <= req.protect_max + EPS
+
     def all_unplaced(iters: int) -> SolveResponse:
         return SolveResponse(
             bars=[],
@@ -180,12 +208,14 @@ def solve(req: SolveRequest) -> SolveResponse:
             "ref_kerf": req.kerf, "cap": len(idxs),
         })
 
-    # 初始列: 每来源 × 每零件单件模式 (保证主问题可行)
+    # 初始列: 每来源 × 每零件单件模式 (保证主问题可行); 材料保护: 余料落在保护区间内的单件列不生成
     columns: list[tuple[int, list[int]]] = []
     seen: set[tuple[int, tuple[int, ...]]] = set()
     for s_i, s in enumerate(sources):
         for i in range(n):
             if demand[i] > 0 and weights[i] <= s["C"]:
+                if remainder_protected(s["C_len"], req.items[i].length):
+                    continue
                 pat = [0] * n
                 pat[i] = 1
                 key = (s_i, tuple(pat))
@@ -211,7 +241,7 @@ def solve(req: SolveRequest) -> SolveResponse:
         for s_i, s in enumerate(sources):
             if elapsed() > deadline_ms * 0.6:
                 break
-            pat, val = _price_knapsack(duals, weights, demand, s["C"], budget_slice)
+            pat, val = _price_knapsack(duals, weights, demand, s["C"], budget_slice, protect_ints)
             if pat is None:
                 continue
             # reduced cost = cost − Σ dual_demand×a − dual_source (来源共享约束的对偶 ≤ 0)

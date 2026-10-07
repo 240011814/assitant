@@ -36,6 +36,10 @@ const materialTypes = ref<string[]>([]);
 const newMaterialRows = ref<NewMaterialRow[]>([{ label: '', length: 600 }]);
 const loss = ref(0.2);
 const utilizationWeight = ref(4);
+// 材料保护: 开启后余料长度不允许落在 [protectMin, protectMax] 区间 (cm, 含边界)
+const protectEnabled = ref(false);
+const protectMin = ref<number | null>(100);
+const protectMax = ref<number | null>(200);
 const group = ref(false);
 // 求解模式: precise=OR-Tools 精确求解 (默认, 实测亚秒级); 服务端未配置 BAOSTOCK_API_URL
 // 或求解失败时自动回退内置 DP+贪心, 结果不会比快速模式差
@@ -273,6 +277,17 @@ async function fetchData() {
   };
   if (solveMode.value === 'precise') {
     request.mode = 'precise';
+  }
+  if (protectEnabled.value) {
+    const pmin = protectMin.value;
+    const pmax = protectMax.value;
+    if (!pmin || !pmax || pmin <= 0 || pmax < pmin) {
+      message.error('请输入有效的材料保护区间: 0 < 最小长度 ≤ 最大长度');
+      return;
+    }
+    request.protectEnabled = true;
+    request.protectMin = pmin;
+    request.protectMax = pmax;
   }
 
   loading.value = true;
@@ -520,6 +535,15 @@ onUnmounted(() => {
         <div class="flex items-center gap-2">
           <span class="w-24">切割损耗</span>
           <NInputNumber v-model:value="loss" class="w-40" />
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-24">材料保护</span>
+          <NSwitch v-model:value="protectEnabled" />
+          <template v-if="protectEnabled">
+            <NInputNumber v-model:value="protectMin" :min="0.1" class="w-36" placeholder="最小长度(cm)" />
+            <span class="text-gray-400">-</span>
+            <NInputNumber v-model:value="protectMax" :min="0.1" class="w-36" placeholder="最大长度(cm)" />
+          </template>
         </div>
         <div class="flex items-center gap-2">
           <span class="w-24">利用率权重</span>

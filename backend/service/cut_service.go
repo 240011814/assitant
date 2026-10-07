@@ -78,6 +78,12 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 	}
 	kerf := math.Max(0, req.Loss)
 
+	// 材料保护规则: 开启后余料不允许落在 [min, max] 区间 (余料要么小于 min 要么大于 max)
+	protect := cutProtect{enabled: req.ProtectEnabled, min: req.ProtectMin, max: req.ProtectMax}
+	if protect.enabled && (protect.min <= 0 || protect.max < protect.min) {
+		return nil, errors.New("材料保护区间不合法: 需要 0 < 最小长度 ≤ 最大长度")
+	}
+
 	// 旧料展开: 用户输入
 	type scrapUnit struct {
 		length float64
@@ -198,7 +204,7 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 			}
 			precise, _, err := s.solvePreciseGroup(client, aggItems, remainingDemand, materialLens, materialLabels,
 				restScraps, restLabelsFrom(groupScraps, groupLabels, restIdxs), kerf,
-				math.Max(1, req.UtilizationWeight), newIdx)
+				math.Max(1, req.UtilizationWeight), protect, newIdx)
 			if err != nil {
 				return nil, fmt.Errorf("精确求解失败: %w", err)
 			}
@@ -212,10 +218,20 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 		for _, l := range materialLens {
 			patterns = append(patterns, s.generateInitialPatterns(aggItems, remainingDemand, l, restScraps, kerf)...)
 		}
-		results, _ = s.solveGreedy(patterns, aggItems, remainingDemand, materialLens, materialLabels, restScraps, restLabelsFrom(groupScraps, groupLabels, restIdxs), kerf, newIdx)
+		results, _ = s.solveGreedy(patterns, aggItems, remainingDemand, materialLens, materialLabels, restScraps, restLabelsFrom(groupScraps, groupLabels, restIdxs), kerf, protect, newIdx)
 		newIdx += len(results)
 		allResults = append(allResults, fixed...)
 		allResults = append(allResults, results...)
+	}
+
+	// 材料保护后置校验: 快速模式为启发式, 尾部零散料可能无法避开保护区间, 此时直接报错 (与精确模式同一语义)
+	if protect.enabled {
+		for _, r := range allResults {
+			if protect.violates(barRemainder(r, kerf)) {
+				return nil, fmt.Errorf("材料保护: 第 %d 根料剩余 %s cm 落在保护区间 [%s, %s] 内, 请调整保护区间或改用精确模式",
+					r.Index, formatCm(barRemainder(r, kerf)), formatCm(protect.min), formatCm(protect.max))
+			}
+		}
 	}
 
 	resp := &model.BarCutResponse{
@@ -588,21 +604,50 @@ func (s *CutService) mixedPattern(items []aggItem, demand []int, L float64, kerf
 	return nil
 }
 
+// cutProtect 材料保护规则: 余料长度不允许落在 [min, max] 区间内 (含边界)
+type cutProtect struct {
+	enabled bool
+	min     float64
+	max     float64
+}
+
+func (p cutProtect) violates(remainder float64) bool {
+	return p.enabled && remainder >= p.min-1e-6 && remainder <= p.max+1e-6
+}
+
+// barRemainder 从切割明细反推余料长度 (不用 round2 后的 Used, 避免校验被舍入误差干扰)
+func barRemainder(r model.BarResult, kerf float64) float64 {
+	rem := r.TotalLength
+	for i, c := range r.Cuts {
+		rem -= c
+		if i > 0 {
+			rem -= kerf
+		}
+	}
+	return rem
+}
+
+// formatCm 长度展示 (错误信息用, 最多两位小数)
+func formatCm(v float64) string {
+	return strconv.FormatFloat(round2(v), 'f', -1, 64)
+}
+
 // solveGreedy 贪心求解 (多材料规格: 新料 pattern 按各自容量利用率参与排序, 总长取 pattern.capacity);
 // 求解后再对低利用率的新料做重排优化 (reduceNewBars), 合并尾部零散料降低总根数。
+// protect 为材料保护规则: 余料落在保护区间内的模式不参与排料。
 // startIdx 为结果编号起点 (按规格分组求解时全局连续); 返回: 结果 / 被消费旧料在 scraps 中的下标
-func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []int, materialLens []float64, materialLabels []string, scraps []float64, scrapLabels []string, kerf float64, startIdx int) ([]model.BarResult, []int) {
-	results, usedScrapIdxs, isNewBar := s.solveGreedyCore(patterns, items, demand, materialLens, materialLabels, scraps, scrapLabels, kerf, startIdx)
-	results = s.reduceNewBars(results, isNewBar, items, kerf)
+func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []int, materialLens []float64, materialLabels []string, scraps []float64, scrapLabels []string, kerf float64, protect cutProtect, startIdx int) ([]model.BarResult, []int) {
+	results, usedScrapIdxs, isNewBar := s.solveGreedyCore(patterns, items, demand, materialLens, materialLabels, scraps, scrapLabels, kerf, protect, startIdx)
+	results = s.reduceNewBars(results, isNewBar, items, kerf, protect)
 	for i := range results {
 		results[i].Index = startIdx + i
 	}
 	return results, usedScrapIdxs
 }
 
-// solveGreedyCore 贪心主体: 按利用率顺序套用模式池, 尾部按类型兜底; 返回结果 / 消费的旧料下标 /
-// 各结果是否为新料 (旧料容量不可替换, 重排时排除)
-func (s *CutService) solveGreedyCore(patterns []pattern, items []aggItem, demand []int, materialLens []float64, materialLabels []string, scraps []float64, scrapLabels []string, kerf float64, startIdx int) ([]model.BarResult, []int, []bool) {
+// solveGreedyCore 贪心主体: 按利用率顺序套用模式池 (材料保护: 余料落在保护区间内的模式跳过),
+// 尾部按类型兜底; 返回结果 / 消费的旧料下标 / 各结果是否为新料 (旧料容量不可替换, 重排时排除)
+func (s *CutService) solveGreedyCore(patterns []pattern, items []aggItem, demand []int, materialLens []float64, materialLabels []string, scraps []float64, scrapLabels []string, kerf float64, protect cutProtect, startIdx int) ([]model.BarResult, []int, []bool) {
 	types := len(items)
 	remaining := make([]int, len(demand))
 	copy(remaining, demand)
@@ -635,6 +680,10 @@ func (s *CutService) solveGreedyCore(patterns []pattern, items []aggItem, demand
 	scrapUsed := make([]bool, len(scraps))
 
 	for _, p := range patterns {
+		// 材料保护: 余料落在保护区间内的模式不参与排料 (整根的余料长度对同一模式固定, 判一次即可)
+		if protect.violates(p.capacity - p.used) {
+			continue
+		}
 		// 同一模式按剩余需求连续开多根 (旧料一根一发: 消费后 scrapUsed 置位, canUse 自然转 false)
 		for {
 			// 检查是否可以使用此模式
@@ -805,7 +854,7 @@ const (
 )
 
 // reduceNewBars 低利用率新料重排: 见上方说明。返回重排后的结果 (顺序: 未动的料保持原位)
-func (s *CutService) reduceNewBars(results []model.BarResult, isNewBar []bool, items []aggItem, kerf float64) []model.BarResult {
+func (s *CutService) reduceNewBars(results []model.BarResult, isNewBar []bool, items []aggItem, kerf float64, protect cutProtect) []model.BarResult {
 	if len(items) == 0 || len(items) > repackMaxTypes {
 		return results
 	}
@@ -846,8 +895,19 @@ func (s *CutService) reduceNewBars(results []model.BarResult, isNewBar []bool, i
 			if !ok {
 				continue
 			}
-			repacked := s.repackOnCapacity(items, demand, capLen, results[sel[0]].MaterialType, kerf)
+			repacked := s.repackOnCapacity(items, demand, capLen, results[sel[0]].MaterialType, kerf, protect)
 			if len(repacked) >= k {
+				continue
+			}
+			// 材料保护合规: 重排若产生落在保护区间内的余料, 放弃本次重排
+			compliant := true
+			for _, rb := range repacked {
+				if protect.violates(barRemainder(rb, kerf)) {
+					compliant = false
+					break
+				}
+			}
+			if !compliant {
 				continue
 			}
 			results, isNewBar = replaceBars(results, isNewBar, sel, repacked)
@@ -881,9 +941,9 @@ func demandOfPicked(results []model.BarResult, sel []int, items []aggItem) ([]in
 }
 
 // repackOnCapacity 把剩余需求在单一容量上重新排料 (同一套模式池+贪心+尾部, 不再递归优化)
-func (s *CutService) repackOnCapacity(items []aggItem, demand []int, L float64, materialType string, kerf float64) []model.BarResult {
+func (s *CutService) repackOnCapacity(items []aggItem, demand []int, L float64, materialType string, kerf float64, protect cutProtect) []model.BarResult {
 	patterns := s.generateInitialPatterns(items, demand, L, nil, kerf)
-	bars, _, _ := s.solveGreedyCore(patterns, items, demand, []float64{L}, []string{materialType}, nil, nil, kerf, 0)
+	bars, _, _ := s.solveGreedyCore(patterns, items, demand, []float64{L}, []string{materialType}, nil, nil, kerf, protect, 0)
 	return bars
 }
 

@@ -39,7 +39,7 @@ func TestSolvePreciseGroupAssembly(t *testing.T) {
 	items := []aggItem{{length: 10, demand: 3}, {length: 7, demand: 2}}
 	demand := []int{3, 2}
 	results, usedRest, err := s.solvePreciseGroup(client, items, demand,
-		[]float64{60}, []string{"6m"}, []float64{25, 25}, []string{"余料A", "余料B"}, 1, 5, 1)
+		[]float64{60}, []string{"6m"}, []float64{25, 25}, []string{"余料A", "余料B"}, 1, 5, cutProtect{}, 1)
 	if err != nil {
 		t.Fatalf("精确求解失败: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestSolvePreciseGroupScrapShortage(t *testing.T) {
 	s := NewCutService("")
 	client := &cutSolverClient{baseURL: srv.URL, httpClient: &http.Client{}}
 	items := []aggItem{{length: 10, demand: 3}}
-	_, _, err := s.solvePreciseGroup(client, items, []int{3}, []float64{60}, []string{""}, []float64{25, 25}, []string{"", ""}, 0, 5, 1)
+	_, _, err := s.solvePreciseGroup(client, items, []int{3}, []float64{60}, []string{""}, []float64{25, 25}, []string{"", ""}, 0, 5, cutProtect{}, 1)
 	if err == nil {
 		t.Fatal("旧料超卖应报错")
 	}
@@ -256,7 +256,7 @@ func TestSolvePreciseGroupPayloadArraysNotNull(t *testing.T) {
 	s := NewCutService("")
 	client := &cutSolverClient{baseURL: srv.URL, httpClient: srv.Client()}
 	items := []aggItem{{length: 185, demand: 1}}
-	_, _, err := s.solvePreciseGroup(client, items, []int{1}, []float64{600}, []string{"1"}, nil, nil, 0.2, 4, 1)
+	_, _, err := s.solvePreciseGroup(client, items, []int{1}, []float64{600}, []string{"1"}, nil, nil, 0.2, 4, cutProtect{}, 1)
 	if err != nil {
 		t.Fatalf("求解失败: %v", err)
 	}
@@ -264,5 +264,99 @@ func TestSolvePreciseGroupPayloadArraysNotNull(t *testing.T) {
 		if v, ok := raw[key]; !ok || string(v) == "null" {
 			t.Fatalf("请求体 %s 应为数组, 实得: %s", key, v)
 		}
+	}
+}
+
+// 材料保护 (快速模式): [185×3] 余料 44.6 落在保护区间 [40,50] 被禁用,
+// 6×185 应改为 3 根 [185×2] (余料 229.8); 全部零件照常切出且无余料落在区间内
+func TestBarCutProtectFastMode(t *testing.T) {
+	s := NewCutService("")
+	items := model.BarItemList{}
+	for i := 0; i < 6; i++ {
+		items = append(items, model.BarItem{Length: 185, Spec: "1"})
+	}
+	resp, err := s.BarCut(1, model.BarRequest{
+		Items:          items,
+		NewMaterials:   []model.BarMaterial{{Label: "1", Length: 600}},
+		Loss:           0.2,
+		ProtectEnabled: true,
+		ProtectMin:     40,
+		ProtectMax:     50,
+	})
+	if err != nil {
+		t.Fatalf("求解失败: %v", err)
+	}
+	covered := 0
+	for _, r := range resp.Results {
+		rem := r.TotalLength
+		for i, c := range r.Cuts {
+			rem -= c
+			if i > 0 {
+				rem -= 0.2
+			}
+		}
+		if rem >= 40-1e-6 && rem <= 50+1e-6 {
+			t.Fatalf("料 #%d 余料 %v 落在保护区间 [40,50] 内: cuts=%v", r.Index, rem, r.Cuts)
+		}
+		covered += len(r.Cuts)
+	}
+	if covered != 6 {
+		t.Fatalf("应切出 6 件, 实得 %d", covered)
+	}
+}
+
+// 材料保护不可行: 单件 300 / 料长 600 / 保护 [250,350] — 任何切法余料都是 300, 直接报错
+func TestBarCutProtectInfeasible(t *testing.T) {
+	s := NewCutService("")
+	_, err := s.BarCut(1, model.BarRequest{
+		Items:          model.BarItemList{{Length: 300, Spec: "1"}},
+		NewMaterials:   []model.BarMaterial{{Label: "1", Length: 600}},
+		ProtectEnabled: true,
+		ProtectMin:     250,
+		ProtectMax:     350,
+	})
+	if err == nil {
+		t.Fatal("保护规则下无解应报错")
+	}
+	if !strings.Contains(err.Error(), "材料保护") {
+		t.Fatalf("报错应指向材料保护: %v", err)
+	}
+}
+
+// 保护区间不合法 (min ≤ 0 或 min > max) 直接报错
+func TestBarCutProtectInvalidRange(t *testing.T) {
+	s := NewCutService("")
+	_, err := s.BarCut(1, model.BarRequest{
+		Items:             model.BarItemList{{Length: 100}},
+		NewMaterialLength: 600,
+		ProtectEnabled:    true,
+		ProtectMin:        0,
+		ProtectMax:        50,
+	})
+	if err == nil || !strings.Contains(err.Error(), "不合法") {
+		t.Fatalf("区间不合法应报错: %v", err)
+	}
+}
+
+// 材料保护参数应随请求体传给 sidecar (protect_enabled/protect_min/protect_max)
+func TestSolvePreciseGroupProtectPayload(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"bars": []any{}, "unplaced": []any{}, "iterations": 0, "elapsed_ms": 0})
+	}))
+	defer srv.Close()
+
+	s := NewCutService("")
+	client := &cutSolverClient{baseURL: srv.URL, httpClient: srv.Client()}
+	items := []aggItem{{length: 185, demand: 1}}
+	_, _, err := s.solvePreciseGroup(client, items, []int{1}, []float64{600}, []string{"1"}, nil, nil, 0.2, 4,
+		cutProtect{enabled: true, min: 40, max: 50}, 1)
+	if err != nil {
+		t.Fatalf("求解失败: %v", err)
+	}
+	if body["protect_enabled"] != true || body["protect_min"] != 40.0 || body["protect_max"] != 50.0 {
+		t.Fatalf("保护参数未随请求传递: %v", body)
 	}
 }

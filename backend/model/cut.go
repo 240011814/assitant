@@ -97,8 +97,12 @@ type BarRequest struct {
 	NewMaterialLength float64       `json:"newMaterialLength"`
 	Loss              float64       `json:"loss"`
 	UtilizationWeight float64       `json:"utilizationWeight"`
-	// Mode 求解模式: fast (默认) / precise (OR-Tools 列生成; 未配置求解地址或求解失败时自动回退 fast)
+	// Mode 求解模式: fast (内置 DP+贪心) / precise (OR-Tools 列生成; 未配置求解地址或求解失败时直接报错)
 	Mode string `json:"mode"`
+	// 材料保护: 开启后余料长度不允许落在 [ProtectMin, ProtectMax] 区间内 (cm, 含边界)
+	ProtectEnabled bool    `json:"protectEnabled"`
+	ProtectMin     float64 `json:"protectMin"`
+	ProtectMax     float64 `json:"protectMax"`
 }
 
 // BarResult 一维切割结果

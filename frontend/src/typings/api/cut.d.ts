@@ -206,6 +206,10 @@ declare namespace Api {
       utilizationWeight: number;
       /** 求解模式: fast (默认, DP+贪心) / precise (OR-Tools 列生成, 走服务端 BAOSTOCK_API_URL 求解服务) */
       mode?: 'fast' | 'precise';
+      /** 材料保护: 开启后余料长度不允许落在 [protectMin, protectMax] 区间内 (cm, 含边界) */
+      protectEnabled?: boolean;
+      protectMin?: number;
+      protectMax?: number;
     }
   }
 }
