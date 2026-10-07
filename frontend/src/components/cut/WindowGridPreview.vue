@@ -26,7 +26,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'toggleCell', row: number, col: number): void;
   (e: 'splitCell', row: number, col: number): void;
-  (e: 'mergeCell', row: number, col: number): void;
+  (e: 'mergeCell', row: number, col: number, dir: 'left' | 'right'): void;
 }>();
 
 const rootEl = ref<HTMLDivElement | null>(null);
@@ -148,7 +148,11 @@ function onCellClick(box: PaneBox) {
 
 const menu = ref<{ x: number; y: number; box: PaneBox } | null>(null);
 
-const canMerge = computed(() => {
+const canMergeLeft = computed(() => {
+  const m = menu.value;
+  return !!m && m.box.col > 0 && m.box.endCol === m.box.col;
+});
+const canMergeRight = computed(() => {
   const m = menu.value;
   return !!m && m.box.endCol === m.box.col && m.box.col + 1 < props.item.grid.cols.length;
 });
@@ -161,7 +165,7 @@ function onPaneContextmenu(e: MouseEvent, box: PaneBox) {
   if (!rect) return;
   // 菜单宽度约 176px, 贴边时向内收
   const x = Math.min(e.clientX - rect.left, Math.max(rect.width - 185, 0));
-  const y = Math.min(e.clientY - rect.top, Math.max(rect.height - 130, 0));
+  const y = Math.min(e.clientY - rect.top, Math.max(rect.height - 160, 0));
   menu.value = { x, y, box };
 }
 
@@ -175,9 +179,10 @@ function menuToggle() {
   closeMenu();
 }
 
-function menuMerge() {
-  if (!canMerge.value || !menu.value) return;
-  emit('mergeCell', menu.value.box.row, menu.value.box.col);
+function menuMerge(dir: 'left' | 'right') {
+  if (!menu.value) return;
+  if ((dir === 'left' && !canMergeLeft.value) || (dir === 'right' && !canMergeRight.value)) return;
+  emit('mergeCell', menu.value.box.row, menu.value.box.col, dir);
   closeMenu();
 }
 
@@ -430,8 +435,15 @@ const dimTicks = computed<Line[]>(() => {
         </button>
         <button
           class="block w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
-          :disabled="!canMerge"
-          @click="menuMerge"
+          :disabled="!canMergeLeft"
+          @click="menuMerge('left')"
+        >
+          {{ $t('page.cut.pdMenuMergeLeft') }}
+        </button>
+        <button
+          class="block w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
+          :disabled="!canMergeRight"
+          @click="menuMerge('right')"
         >
           {{ $t('page.cut.pdMenuMerge') }}
         </button>

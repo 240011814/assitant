@@ -21,7 +21,7 @@ export const CELL_SPAN = 3;
 export type WindowCell = 1 | 2 | 3;
 
 /** 切割件部件族 (对应库存型材分类) */
-export type PieceFamily = '外框' | '中梃' | '扇';
+export type PieceFamily = '外框' | '中梃' | '扇' | '压条';
 
 /** 窗户分格规格 (与后端 CutWindowGrid 同构) */
 export interface WindowGridSpec {
@@ -49,6 +49,8 @@ export interface ProductItem {
   series: string;
   /** 拼装搭接参数 mm (省略走默认) */
   fit?: ProductFit;
+  /** 是否计算玻璃压条 (固定格与开启扇均出压条件) */
+  bead?: boolean;
   /** 数量 */
   count: number;
   grid: WindowGridSpec;
@@ -62,10 +64,12 @@ export interface ProductFit {
   reach?: number;
   /** 推拉相邻扇光企/勾企互搭量 (默认 10) */
   overlap?: number;
+  /** 玻璃压条每根扣尺 (mm, 默认 10; 45° 拼 45° 取 0, 直拼按压条宽扣) */
+  beadDeduct?: number;
 }
 
 /** 拼装参数默认值 (mm); 实际以型材/五金厂家下料表为准 */
-export const FIT_DEFAULTS: Required<ProductFit> = { gap: 5, reach: 10, overlap: 10 };
+export const FIT_DEFAULTS: Required<ProductFit> = { gap: 5, reach: 10, overlap: 10, beadDeduct: 10 };
 
 /** 切割件草稿 (单件) */
 export interface PieceDraft {
@@ -185,13 +189,15 @@ export function productItemFromTemplate(def: WindowTemplateDef, series = ''): Pr
  * - 推拉: 扇高 = 行净高 + 2×轨道搭入 (每边 ~10mm, 扇钩伸入上下滑);
  *   扇宽 = 槽宽 + 相邻扇间搭接分摊 − 边封侧缝 (两扇互搭 ~10mm) */
 export function buildPieces(
-  item: Pick<ProductItem, 'width' | 'height' | 'frameWidth' | 'grid' | 'fit'>
+  item: Pick<ProductItem, 'width' | 'height' | 'frameWidth' | 'grid' | 'fit' | 'bead'>
 ): PieceDraft[] {
   const { width: w, height: h, frameWidth: c, grid } = item;
   const fit = { ...FIT_DEFAULTS, ...(item.fit ?? {}) };
   const gap = fit.gap / 10;
   const reach = fit.reach / 10;
   const overlap = fit.overlap / 10;
+  const beadDeduct = fit.beadDeduct / 10;
+  const calcBead = item.bead ?? false;
   const pieces: PieceDraft[] = [];
   const push = (family: PieceFamily, name: string, length: number, quantity: number) => {
     if (length > 0 && quantity > 0) pieces.push({ family, name, length: round2(length), quantity });
@@ -224,9 +230,8 @@ export function buildPieces(
   }
   grid.cells.forEach((rowCells, r) => {
     rowCells.forEach((cell, ci) => {
-      if (cell !== CELL_SASH) return;
-      // 延伸扇并入左侧起点扇, 只在起点处出料
-      if (ci > 0 && rowCells[ci - 1] === CELL_SPAN) return;
+      // 延伸格并入左侧起点面板, 只在起点处出料
+      if (cell !== CELL_FIXED && cell !== CELL_SASH) return;
       // 面板槽宽 = 本列净宽 + 右侧连续延伸列 (平开各吸收一根中梃位; 推拉无竖梃)
       let slotW = grid.cols[ci] ?? 0;
       let end = ci;
@@ -235,24 +240,31 @@ export function buildPieces(
         end = k;
       }
       const slotH = grid.rows[r] ?? 0;
-      let barW: number;
-      let barH: number;
-      if (grid.sliding) {
-        // 扇间互搭分摊 (+overlap/2 每邻), 边封/固定侧留活动缝 (−gap)
-        const leftSash = ci > 0 && rowCells[ci - 1] === CELL_SASH;
-        const rightSash = rowCells[end + 1] === CELL_SASH;
-        barW = slotW + (leftSash ? overlap / 2 : -gap) + (rightSash ? overlap / 2 : -gap);
-        barH = slotH + 2 * reach;
-      } else {
-        barW = slotW - 2 * gap;
-        barH = slotH - 2 * gap;
+      let barW = slotW;
+      let barH = slotH;
+      if (cell === CELL_SASH) {
+        if (grid.sliding) {
+          // 扇间互搭分摊 (+overlap/2 每邻), 边封/固定侧留活动缝 (−gap)
+          const leftSash = ci > 0 && rowCells[ci - 1] === CELL_SASH;
+          const rightSash = rowCells[end + 1] === CELL_SASH;
+          barW = slotW + (leftSash ? overlap / 2 : -gap) + (rightSash ? overlap / 2 : -gap);
+          barH = slotH + 2 * reach;
+        } else {
+          barW = slotW - 2 * gap;
+          barH = slotH - 2 * gap;
+        }
+        if (grid.sliding) {
+          push('扇', '扇上下横', barW, 2);
+          push('扇', '扇竖梃 (光企/勾企)', barH, 2);
+        } else {
+          push('扇', '扇横梃', barW, 2);
+          push('扇', '扇竖梃', barH, 2);
+        }
       }
-      if (grid.sliding) {
-        push('扇', '扇上下横', barW, 2);
-        push('扇', '扇竖梃 (光企/勾企)', barH, 2);
-      } else {
-        push('扇', '扇横梃', barW, 2);
-        push('扇', '扇竖梃', barH, 2);
+      // 玻璃压条: 固定格与开启扇均有, 基准 = 固定格开口 / 扇外框尺寸, 每根扣 beadDeduct
+      if (calcBead) {
+        push('压条', '压条 (横)', (cell === CELL_SASH ? barW : slotW) - beadDeduct, 2);
+        push('压条', '压条 (竖)', (cell === CELL_SASH ? barH : slotH) - beadDeduct, 2);
       }
     });
   });

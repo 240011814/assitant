@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, h, ref, watch } from 'vue';
-import { NButton, NInput, NInputNumber, NModal, NSelect, NTag, useMessage } from 'naive-ui';
+import { NButton, NCheckbox, NInput, NInputNumber, NModal, NSelect, NTag, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { $t } from '@/locales';
 import { saveCutProduct } from '@/service/api';
@@ -60,6 +60,8 @@ const series = ref<string | null>(null);
 const gapMm = ref<number | null>(FIT_DEFAULTS.gap);
 const reachMm = ref<number | null>(FIT_DEFAULTS.reach);
 const overlapMm = ref<number | null>(FIT_DEFAULTS.overlap);
+const beadDeductMm = ref<number | null>(FIT_DEFAULTS.beadDeduct);
+const bead = ref(false);
 const count = ref<number | null>(1);
 /** 正在回改清单中的下标, -1 = 新产品 */
 const editingIndex = ref(-1);
@@ -210,8 +212,10 @@ const currentItem = computed<ProductItem>(() => {
     fit: {
       gap: gapMm.value ?? FIT_DEFAULTS.gap,
       reach: reachMm.value ?? FIT_DEFAULTS.reach,
-      overlap: overlapMm.value ?? FIT_DEFAULTS.overlap
+      overlap: overlapMm.value ?? FIT_DEFAULTS.overlap,
+      beadDeduct: beadDeductMm.value ?? FIT_DEFAULTS.beadDeduct
     },
+    bead: bead.value,
     count: Math.max(count.value ?? 1, 1),
     grid: {
       cols: cols.value,
@@ -242,11 +246,12 @@ function splitCell(row: number, col: number) {
   if (end > col) line[end] = CELL_FIXED;
 }
 
-/** 双击独立面板: 与右侧格合并为连通格 (拼"上通亮"等上下不对称布局) */
-function mergeCell(row: number, col: number) {
+/** 双击/右键合并: dir=right 把右侧格并入, dir=left 把本格并入左侧 (类型随左格) */
+function mergeCell(row: number, col: number, dir: 'left' | 'right' = 'right') {
   const line = cells.value[row];
   if (!line) return;
-  if (col + 1 < line.length) line[col + 1] = CELL_SPAN;
+  if (dir === 'right' && col + 1 < line.length) line[col + 1] = CELL_SPAN;
+  if (dir === 'left' && col > 0) line[col] = CELL_SPAN;
 }
 
 /** 系列选择器 (下拉 + 手输) */
@@ -279,6 +284,8 @@ function editItem(index: number) {
   gapMm.value = item.fit?.gap ?? FIT_DEFAULTS.gap;
   reachMm.value = item.fit?.reach ?? FIT_DEFAULTS.reach;
   overlapMm.value = item.fit?.overlap ?? FIT_DEFAULTS.overlap;
+  beadDeductMm.value = item.fit?.beadDeduct ?? FIT_DEFAULTS.beadDeduct;
+  bead.value = item.bead ?? false;
   count.value = item.count;
 }
 
@@ -427,6 +434,8 @@ watch(show, opened => {
   gapMm.value = items.value[0]?.fit?.gap ?? FIT_DEFAULTS.gap;
   reachMm.value = items.value[0]?.fit?.reach ?? FIT_DEFAULTS.reach;
   overlapMm.value = items.value[0]?.fit?.overlap ?? FIT_DEFAULTS.overlap;
+  beadDeductMm.value = items.value[0]?.fit?.beadDeduct ?? FIT_DEFAULTS.beadDeduct;
+  bead.value = items.value[0]?.bead ?? false;
   count.value = items.value[0]?.count ?? 1;
   applyTemplate(WINDOW_TEMPLATES[0]!.key);
 });
@@ -533,10 +542,19 @@ watch(show, opened => {
             <span class="w-20 shrink-0">{{ $t('page.cut.pdFit') }}</span>
             <span class="text-gray-500 text-xs whitespace-nowrap">{{ $t('page.cut.pdFitGap') }}</span>
             <NInputNumber v-model:value="gapMm" :min="0" :max="50" :step="0.5" size="small" class="w-20" show-button />
-            <span class="text-gray-500 text-xs whitespace-nowrap">{{ $t('page.cut.pdFitReach') }}</span>
-            <NInputNumber v-model:value="reachMm" :min="0" :max="50" :step="1" size="small" class="w-20" show-button />
-            <span class="text-gray-500 text-xs whitespace-nowrap">{{ $t('page.cut.pdFitOverlap') }}</span>
-            <NInputNumber v-model:value="overlapMm" :min="0" :max="50" :step="1" size="small" class="w-20" show-button />
+            <template v-if="sliding">
+              <span class="text-gray-500 text-xs whitespace-nowrap">{{ $t('page.cut.pdFitReach') }}</span>
+              <NInputNumber v-model:value="reachMm" :min="0" :max="50" :step="1" size="small" class="w-20" show-button />
+              <span class="text-gray-500 text-xs whitespace-nowrap">{{ $t('page.cut.pdFitOverlap') }}</span>
+              <NInputNumber v-model:value="overlapMm" :min="0" :max="50" :step="1" size="small" class="w-20" show-button />
+            </template>
+          </div>
+          <div class="flex items-center gap-2">
+            <NCheckbox v-model:checked="bead">{{ $t('page.cut.pdBead') }}</NCheckbox>
+            <template v-if="bead">
+              <span class="text-gray-500 text-xs whitespace-nowrap">{{ $t('page.cut.pdFitBeadDeduct') }}</span>
+              <NInputNumber v-model:value="beadDeductMm" :min="0" :max="50" :step="1" size="small" class="w-20" show-button />
+            </template>
           </div>
 
           <div v-if="geometryError" class="text-red-500 text-xs">{{ geometryError }}</div>

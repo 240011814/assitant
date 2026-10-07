@@ -2011,7 +2011,7 @@ func validateProductSpec(spec model.CutProductSpec) error {
 		}
 		// 拼装搭接参数范围 (mm): 实际取值以型材/五金厂家下料表为准
 		if w.Fit != nil {
-			for name, v := range map[string]*float64{"活动缝隙": w.Fit.Gap, "轨道搭入": w.Fit.Reach, "扇间搭接": w.Fit.Overlap} {
+			for name, v := range map[string]*float64{"活动缝隙": w.Fit.Gap, "轨道搭入": w.Fit.Reach, "扇间搭接": w.Fit.Overlap, "压条扣尺": w.Fit.BeadDeduct} {
 				if v != nil && (*v < 0 || *v > 50) {
 					return fmt.Errorf("%s拼装参数 %s 不合法 (0~50mm)", at, name)
 				}

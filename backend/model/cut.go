@@ -232,9 +232,10 @@ type CutWindowGrid struct {
 
 // CutProductFit 拼装搭接参数 (mm; 扇料下料 = 开口 ∓ 缝隙/搭接, 省略的字段走默认)
 type CutProductFit struct {
-	Gap     *float64 `json:"gap,omitempty"`     // 活动缝隙: 平开每边缩尺 / 推拉边封侧缝 (默认 5)
-	Reach   *float64 `json:"reach,omitempty"`   // 推拉扇上下轨道搭入, 每边 (默认 10)
-	Overlap *float64 `json:"overlap,omitempty"` // 推拉相邻扇光企/勾企互搭量 (默认 10)
+	Gap        *float64 `json:"gap,omitempty"`        // 活动缝隙: 平开每边缩尺 / 推拉边封侧缝 (默认 5)
+	Reach      *float64 `json:"reach,omitempty"`      // 推拉扇上下轨道搭入, 每边 (默认 10)
+	Overlap    *float64 `json:"overlap,omitempty"`    // 推拉相邻扇光企/勾企互搭量 (默认 10)
+	BeadDeduct *float64 `json:"beadDeduct,omitempty"` // 玻璃压条每根扣尺 (默认 10)
 }
 
 // CutProductItem 产品单内的一件产品 (type 为前端产品模板 key; 尺寸单位 cm)
@@ -245,6 +246,7 @@ type CutProductItem struct {
 	FrameWidth float64        `json:"frameWidth"` // 框料宽 cm (由系列换算)
 	Series     string         `json:"series"`     // 框料截面宽度 mm (即型材系列: 55/60/65/70/75/80)
 	Fit        *CutProductFit `json:"fit,omitempty"`
+	Bead       bool           `json:"bead,omitempty"` // 是否计算玻璃压条
 	Count      int            `json:"count"`
 	Grid       CutWindowGrid  `json:"grid"`
 }

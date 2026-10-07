@@ -65,6 +65,8 @@ declare namespace Api {
       series: string;
       /** 拼装搭接参数 mm (省略的字段走默认) */
       fit?: ProductFit;
+      /** 是否计算玻璃压条 (固定格与开启扇均出压条件) */
+      bead?: boolean;
       count: number;
       grid: WindowGridSpec;
     }
@@ -77,6 +79,8 @@ declare namespace Api {
       reach?: number;
       /** 推拉相邻扇光企/勾企互搭量 (默认 10) */
       overlap?: number;
+      /** 玻璃压条每根扣尺 (mm, 默认 10) */
+      beadDeduct?: number;
     }
 
     /** 产品单内容 (一单可含多种类型的多件产品) */
