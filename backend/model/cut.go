@@ -326,8 +326,8 @@ type CutRecordSearchParams struct {
 
 // CutScrapSearchParams 余料库存列表查询参数 (分页 + 筛选; 分页可省略, 省略时返回全部, 上限 500)
 type CutScrapSearchParams struct {
-	Page      int    `form:"current" binding:"min=1"`
-	PageSize  int    `form:"size" binding:"min=1,max=200"`
+	Page      int    `form:"current" binding:"omitempty,min=1"`
+	PageSize  int    `form:"size" binding:"omitempty,min=1,max=200"`
 	ScrapType int    `form:"scrapType"` // 0=全部 1=一维 2=二维
 	Name      string `form:"name"`      // 名称模糊
 	// LengthMin/LengthMax 长度范围 (cm, 含边界); 仅匹配一维余料 (二维无长度属性)
