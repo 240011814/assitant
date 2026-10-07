@@ -1536,7 +1536,6 @@ declare namespace App {
           scrapStockedIn: string;
           scrapStockInSuccess: string;
           scrapFromCutting: string;
-          scrapLabelSuffix: string;
           scrapApplied: string;
           scrapLabelName: string;
           scrapSize: string;

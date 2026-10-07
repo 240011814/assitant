@@ -68,7 +68,9 @@ declare namespace Api {
       id: number;
       userId: number;
       scrapType: 1 | 2;
-      /** 余料名称/来源材料规格 */
+      /** 材料类型/来源材料规格 (与名称分开维护) */
+      materialType?: string;
+      /** 余料名称 (用户自定) */
       label?: string;
       /** 一维: 长度 */
       lengthValue: number;
@@ -85,13 +87,17 @@ declare namespace Api {
     /** 余料入库请求 (批量) */
     interface AddCutScrapRequest {
       scrapType: 1 | 2;
-      /** 余料名称/来源材料规格 */
+      /** 材料类型/来源材料规格 (与名称分开) */
+      materialType?: string;
+      /** 余料名称 (用户自定) */
       label?: string;
       lengthValue?: number;
       widthValue?: number;
       heightValue?: number;
       quantity: number;
       note?: string;
+      /** 历史记录余料入库时传记录 ID: 入库成功同时把该记录标记为已入库 */
+      recordId?: string;
     }
 
     interface BinResult {
@@ -117,6 +123,9 @@ declare namespace Api {
       code: string;
 
       name: string;
+
+      /** 该记录的余料是否已从历史记录入库 (入库后不再展示入库入口) */
+      scrapImported: boolean;
     }
 
     interface CutRecordSearchParams extends Api.Common.CommonSearchParams {
@@ -155,6 +164,8 @@ declare namespace Api {
     /** 修改库存余料 */
     interface UpdateCutScrapRequest {
       label: string;
+      /** 材料类型/来源材料规格 (与名称分开维护) */
+      materialType: string;
       quantity: number;
       note: string;
     }

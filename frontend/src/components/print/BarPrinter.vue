@@ -81,6 +81,7 @@ function printResult() {
         <thead>
           <tr>
             <th>材料编号</th>
+            <th>材料类型</th>
             <th>总长度(cm)</th>
             <th>已用(cm)</th>
             <th>剩余(cm)</th>
@@ -90,6 +91,7 @@ function printResult() {
         <tbody>
           <tr v-for="item in data" :key="item.index">
             <td>{{ item.index }}</td>
+            <td>{{ item.materialType?.trim() || '新材料' }}</td>
             <td>{{ item.totalLength }}</td>
             <td>{{ item.used }}</td>
             <td>{{ item.remaining }}</td>

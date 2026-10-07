@@ -69,8 +69,8 @@ const columns = computed<DataTableColumns<any>>(() => [
           { default: () => '查看' }
         )
       ];
-      // 一维记录且有可入库余料 (remaining > 0) 时提供入库入口
-      if (scrapRowsOf(row).length > 0) {
+      // 一维记录且有可入库余料 (remaining > 0) 且尚未入库时提供入库入口; 入库过一次就不再展示, 避免重复入库
+      if (row.type === '1' && !row.scrapImported && scrapRowsOf(row).length > 0) {
         buttons.push(
           h(
             NPopconfirm,
@@ -173,23 +173,10 @@ function scrapRowsOf(row: Api.Cut.CutRecord): Api.Cut.BarResult[] {
   }
 }
 
-// 余料名称: 多规格新材料时按 totalLength 匹配规格名 (与计算页 stockInScraps 同规则)
-function scrapLabelFor(row: Api.Cut.CutRecord, item: Api.Cut.BarResult): string | undefined {
-  try {
-    const saved = JSON.parse(row.request || '{}') as { newMaterials?: Api.Cut.NewMaterialSpec[] };
-    const specs = saved.newMaterials ?? [];
-    if (specs.length < 2) return undefined;
-    const spec = specs.find(s => s.length === item.totalLength);
-    const name = spec?.label?.trim();
-    return name ? `${name}${$t('page.cut.scrapLabelSuffix')}` : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 const stockingId = ref<string | null>(null);
 
-// 历史记录余料入库: 把该记录切割剩余的每根料登记为一维余料库存
+// 历史记录余料入库: 把该记录切割剩余的每根料登记为一维余料库存;
+// 材料类型取切割结果里的来源类型 (新料规格名/旧料类型名), 与名称分开; 入库成功后端会把记录标记为已入库
 async function stockInFromRecord(row: Api.Cut.CutRecord) {
   const scrapRows = scrapRowsOf(row);
   if (scrapRows.length === 0) return;
@@ -198,13 +185,15 @@ async function stockInFromRecord(row: Api.Cut.CutRecord) {
     const { error } = await addCutScraps(
       scrapRows.map(item => ({
         scrapType: 1 as const,
-        label: scrapLabelFor(row, item),
+        materialType: item.materialType?.trim() || undefined,
         lengthValue: item.remaining,
         quantity: 1,
-        note: $t('page.cut.scrapFromCutting')
+        note: $t('page.cut.scrapFromCutting'),
+        recordId: row.id
       }))
     );
     if (error) return;
+    row.scrapImported = true;
     message.success($t('page.cut.scrapStockInSuccess', { count: scrapRows.length }));
   } finally {
     stockingId.value = null;

@@ -15,6 +15,8 @@ type CutRecord struct {
 	UserID     uint      `gorm:"not null;index" json:"userId"`
 	Code       string    `gorm:"size:100" json:"code"`
 	Name       string    `gorm:"size:100;not null" json:"name"`
+	// ScrapImported 该记录的余料是否已从历史记录入库 (入库后前端不再展示入库入口)
+	ScrapImported bool `gorm:"column:scrap_imported;not null;default:false" json:"scrapImported"`
 }
 
 func (CutRecord) TableName() string {
@@ -131,11 +133,12 @@ type DeductScrapItem struct {
 	Count int  `json:"count"`
 }
 
-// UpdateScrapRequest 修改库存余料 (数量/名称/备注)
+// UpdateScrapRequest 修改库存余料 (数量/名称/材料类型/备注)
 type UpdateScrapRequest struct {
-	Label    string `json:"label"`
-	Quantity int    `json:"quantity" binding:"min=1"`
-	Note     string `json:"note"`
+	Label        string `json:"label"`
+	MaterialType string `json:"materialType"`
+	Quantity     int    `json:"quantity" binding:"min=1"`
+	Note         string `json:"note"`
 }
 
 // PlaneSummary 平面切割汇总
@@ -165,17 +168,18 @@ type PlaneCutResponse struct {
 
 // CutScrap 余料库存实体 (切割后剩余材料登记, 下次计算可复用)
 type CutScrap struct {
-	ID          uint      `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID      uint      `gorm:"not null;index" json:"userId"`
-	ScrapType   int       `json:"scrapType"`   // 1=一维余料(长度) 2=二维余料(板材)
-	Label       string    `json:"label"`       // 余料名称/来源材料规格 (多材料切割时标注, 如: 长料余料)
-	LengthValue float64   `json:"lengthValue"` // 一维: 长度
-	WidthValue  float64   `json:"widthValue"`  // 二维: 宽
-	HeightValue float64   `json:"heightValue"` // 二维: 高
-	Quantity    int       `json:"quantity"`    // 数量
-	Note        string    `json:"note"`        // 备注
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID           uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID       uint      `gorm:"not null;index" json:"userId"`
+	ScrapType    int       `json:"scrapType"`   // 1=一维余料(长度) 2=二维余料(板材)
+	MaterialType string    `json:"materialType"` // 材料类型/来源材料规格 (如: 45#方管), 与名称分开维护
+	Label        string    `json:"label"`       // 余料名称 (用户自定, 如: 长料余料)
+	LengthValue  float64   `json:"lengthValue"` // 一维: 长度
+	WidthValue   float64   `json:"widthValue"`  // 二维: 宽
+	HeightValue  float64   `json:"heightValue"` // 二维: 高
+	Quantity     int       `json:"quantity"`    // 数量
+	Note         string    `json:"note"`        // 备注
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 func (CutScrap) TableName() string {
@@ -184,13 +188,16 @@ func (CutScrap) TableName() string {
 
 // AddCutScrapRequest 登记余料
 type AddCutScrapRequest struct {
-	ScrapType   int     `json:"scrapType" binding:"required,oneof=1 2"`
-	Label       string  `json:"label"` // 来源材料规格名 (多材料切割时标注)
-	LengthValue float64 `json:"lengthValue"`
-	WidthValue  float64 `json:"widthValue"`
-	HeightValue float64 `json:"heightValue"`
-	Quantity    int     `json:"quantity" binding:"required,min=1"`
-	Note        string  `json:"note"`
+	ScrapType    int     `json:"scrapType" binding:"required,oneof=1 2"`
+	MaterialType string  `json:"materialType"` // 材料类型/来源材料规格 (与名称分开)
+	Label        string  `json:"label"`        // 余料名称 (用户自定)
+	LengthValue  float64 `json:"lengthValue"`
+	WidthValue   float64 `json:"widthValue"`
+	HeightValue  float64 `json:"heightValue"`
+	Quantity     int     `json:"quantity" binding:"required,min=1"`
+	Note         string  `json:"note"`
+	// RecordID 历史记录余料入库时传记录 ID: 入库成功同时把该记录标记为已入库 (scrap_imported)
+	RecordID string `json:"recordId,omitempty"`
 }
 
 // Item 切割项目

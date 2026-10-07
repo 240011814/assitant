@@ -26,6 +26,7 @@ const checkedKeys = ref<number[]>([]);
 const rowKey = (row: Api.Cut.CutScrap) => row.id;
 
 // 手动添加行
+const materialType = ref('');
 const label = ref('');
 const lengthValue = ref<number | null>(null);
 const widthValue = ref<number | null>(null);
@@ -35,6 +36,13 @@ const note = ref('');
 
 const columns = computed<DataTableColumns<Api.Cut.CutScrap>>(() => [
   { type: 'selection' },
+  {
+    title: $t('page.cut.materialType'),
+    key: 'materialType',
+    width: 110,
+    ellipsis: { tooltip: true },
+    render: row => (row.materialType ? row.materialType : '-')
+  },
   {
     title: $t('page.cut.scrapLabelName'),
     key: 'label',
@@ -113,6 +121,9 @@ async function handleAdd() {
     props.scrapType === 1
       ? { scrapType: 1, lengthValue: lengthValue.value!, quantity: qty! }
       : { scrapType: 2, widthValue: widthValue.value!, heightValue: heightValue.value!, quantity: qty! };
+  if (materialType.value.trim()) {
+    payload.materialType = materialType.value.trim();
+  }
   if (label.value.trim()) {
     payload.label = label.value.trim();
   }
@@ -126,6 +137,7 @@ async function handleAdd() {
   if (error) return;
 
   message.success($t('page.cut.scrapAddSuccess'));
+  materialType.value = '';
   label.value = '';
   lengthValue.value = null;
   widthValue.value = null;
@@ -157,6 +169,7 @@ function handleApply() {
   <NModal v-model:show="show" preset="card" :title="$t('page.cut.scrapLibrary')" class="w-720px">
     <!-- 手动添加 -->
     <div class="mb-3 flex flex-wrap items-center gap-2">
+      <NInput v-model:value="materialType" :placeholder="$t('page.cut.materialType')" class="w-32" />
       <NInput v-model:value="label" :placeholder="$t('page.cut.scrapLabelName')" class="w-32" />
       <template v-if="scrapType === 1">
         <NInputNumber v-model:value="lengthValue" :placeholder="$t('page.cut.scrapLength')" class="w-40" :min="0" />

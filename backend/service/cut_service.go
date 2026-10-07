@@ -8,6 +8,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -1559,7 +1560,7 @@ func (s *CutService) ListScraps(userID uint, scrapType int) ([]model.CutScrap, e
 	return list, err
 }
 
-// AddScraps 登记余料 (支持批量, 结果页一键入库)
+// AddScraps 登记余料 (支持批量, 结果页一键入库); 带记录 ID 的条目入库成功后把对应切割记录标记为已入库
 func (s *CutService) AddScraps(userID uint, reqs []model.AddCutScrapRequest) ([]model.CutScrap, error) {
 	if len(reqs) == 0 {
 		return nil, errors.New("无可入库的余料")
@@ -1568,22 +1569,45 @@ func (s *CutService) AddScraps(userID uint, reqs []model.AddCutScrapRequest) ([]
 		return nil, errors.New("单次最多入库 100 条")
 	}
 	rows := make([]model.CutScrap, 0, len(reqs))
+	recordIDs := make(map[string]struct{})
 	for _, req := range reqs {
 		if req.Quantity < 1 {
 			req.Quantity = 1
 		}
+		if req.RecordID != "" {
+			recordIDs[req.RecordID] = struct{}{}
+		}
 		rows = append(rows, model.CutScrap{
-			UserID:      userID,
-			ScrapType:   req.ScrapType,
-			Label:       req.Label,
-			LengthValue: req.LengthValue,
-			WidthValue:  req.WidthValue,
-			HeightValue: req.HeightValue,
-			Quantity:    req.Quantity,
-			Note:        req.Note,
+			UserID:       userID,
+			ScrapType:    req.ScrapType,
+			MaterialType: strings.TrimSpace(req.MaterialType),
+			Label:        req.Label,
+			LengthValue:  req.LengthValue,
+			WidthValue:   req.WidthValue,
+			HeightValue:  req.HeightValue,
+			Quantity:     req.Quantity,
+			Note:         req.Note,
 		})
 	}
-	if err := DB.Create(&rows).Error; err != nil {
+	// 建库存与标记记录同事务: 只入库不标记 = 记录还能再次入库, 产生重复余料
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&rows).Error; err != nil {
+			return err
+		}
+		for id := range recordIDs {
+			result := tx.Model(&model.CutRecord{}).
+				Where("id = ? AND user_id = ?", id, userID).
+				Update("scrap_imported", true)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return errors.New("切割记录不存在, 无法标记入库")
+			}
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -1631,7 +1655,12 @@ func deductScrapsTx(tx *gorm.DB, userID uint, items []model.DeductScrapItem) err
 func (s *CutService) UpdateScrap(userID, id uint, req model.UpdateScrapRequest) error {
 	result := DB.Model(&model.CutScrap{}).
 		Where("id = ? AND user_id = ?", id, userID).
-		Updates(map[string]any{"label": req.Label, "quantity": req.Quantity, "note": req.Note})
+		Updates(map[string]any{
+			"label":         req.Label,
+			"material_type": strings.TrimSpace(req.MaterialType),
+			"quantity":      req.Quantity,
+			"note":          req.Note,
+		})
 	if result.Error != nil {
 		return result.Error
 	}

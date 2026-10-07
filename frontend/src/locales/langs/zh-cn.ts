@@ -1494,7 +1494,6 @@ const local: App.I18n.Schema = {
       scrapStockedIn: "已入库",
       scrapStockInSuccess: "成功入库 {count} 根余料",
       scrapFromCutting: "切割余料",
-      scrapLabelSuffix: "余料",
       scrapApplied: "已带入 {count} 条库存",
       scrapLabelName: "名称",
       scrapSize: "尺寸",

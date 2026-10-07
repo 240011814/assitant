@@ -38,6 +38,13 @@ const columns = computed<DataTableColumns<Api.Cut.CutScrap>>(() => [
     }
   },
   {
+    key: 'materialType',
+    title: '材料类型',
+    align: 'center',
+    minWidth: 120,
+    render: row => row.materialType || '-'
+  },
+  {
     key: 'label',
     title: '名称',
     align: 'center',
@@ -117,6 +124,7 @@ const editing = ref<Api.Cut.CutScrap | null>(null);
 const formRef = ref<FormInst | null>(null);
 const form = ref({
   scrapType: 1 as 1 | 2,
+  materialType: '',
   label: '',
   lengthValue: null as number | null,
   widthValue: null as number | null,
@@ -136,6 +144,7 @@ function openAdd() {
   editing.value = null;
   form.value = {
     scrapType: searchType.value === 2 ? 2 : 1,
+    materialType: '',
     label: '',
     lengthValue: null,
     widthValue: null,
@@ -150,6 +159,7 @@ function openEdit(row: Api.Cut.CutScrap) {
   editing.value = row;
   form.value = {
     scrapType: row.scrapType as 1 | 2,
+    materialType: row.materialType ?? '',
     label: row.label ?? '',
     lengthValue: row.lengthValue,
     widthValue: row.widthValue,
@@ -165,6 +175,7 @@ async function submitForm() {
   if (editing.value) {
     const { error } = await updateCutScrap(editing.value.id, {
       label: form.value.label.trim(),
+      materialType: form.value.materialType.trim(),
       quantity: form.value.quantity,
       note: form.value.note
     });
@@ -174,6 +185,7 @@ async function submitForm() {
     const payload: Api.Cut.AddCutScrapRequest[] = [
       {
         scrapType: form.value.scrapType,
+        materialType: form.value.materialType.trim() || undefined,
         label: form.value.label.trim() || undefined,
         lengthValue: form.value.scrapType === 1 ? (form.value.lengthValue ?? undefined) : undefined,
         widthValue: form.value.scrapType === 2 ? (form.value.widthValue ?? undefined) : undefined,
@@ -238,6 +250,9 @@ onMounted(() => {
             :options="[{ label: '一维余料', value: 1 }, { label: '二维余料', value: 2 }]"
             :disabled="!!editing"
           />
+        </NFormItem>
+        <NFormItem label="材料类型">
+          <NInput v-model:value="form.materialType" placeholder="选填, 来源材料规格, 如: 45#方管" />
         </NFormItem>
         <NFormItem label="名称">
           <NInput v-model:value="form.label" placeholder="选填, 如: 长料余料" />

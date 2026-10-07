@@ -82,13 +82,13 @@ const materialTypeOptions = computed(() => {
   return [...set].map(type => ({ label: type, value: type }));
 });
 
-// 从一维余料库存(旧料库)拉取已有类型名作为候选
+// 从一维余料库存(旧料库)拉取已有类型名作为候选 (优先材料类型, 兼容旧数据只填了名称的条目)
 async function loadMaterialTypes() {
   const { data, error } = await fetchCutScraps({ scrapType: 1 });
   if (error || !data) return;
   const set = new Set<string>();
   data.forEach(item => {
-    const type = item.label?.trim();
+    const type = item.materialType?.trim() || item.label?.trim();
     if (type) set.add(type);
   });
   materialTypes.value = [...set];
@@ -328,15 +328,7 @@ function collectDeductScraps(): Array<{ id: number; count: number }> {
   return Array.from(out.entries()).map(([id, count]) => ({ id, count }));
 }
 
-// 余料名称: 多规格新材料时, 按该根料的 totalLength 匹配规格名 -> "<规格名>余料"; 无规格名/单规格留空
-function scrapLabelFor(item: Api.Cut.BarResult): string | undefined {
-  if (newMaterialRows.value.length < 2) return undefined;
-  const spec = newMaterialRows.value.find(row => row.length && row.length === item.totalLength);
-  const name = spec?.label.trim();
-  return name ? `${name}${$t('page.cut.scrapLabelSuffix')}` : undefined;
-}
-
-// 余料一键入库: remaining>0 的每根料登记为一维余料
+// 余料一键入库: remaining>0 的每根料登记为一维余料; 材料类型取该根料的来源类型 (新料规格名/旧料类型名)
 async function stockInScraps() {
   const scrapRows = (cutResult.value ?? []).filter(item => item.remaining > 0);
   if (scrapRows.length === 0) return;
@@ -345,7 +337,7 @@ async function stockInScraps() {
     const { error } = await addCutScraps(
       scrapRows.map(item => ({
         scrapType: 1 as const,
-        label: scrapLabelFor(item),
+        materialType: item.materialType?.trim() || undefined,
         lengthValue: item.remaining,
         quantity: 1,
         note: $t('page.cut.scrapFromCutting')
@@ -362,8 +354,9 @@ async function stockInScraps() {
 // 旧料库带入表单: 库存条目转材料行(保留类型名)
 function applyScraps(rows: Api.Cut.CutScrap[]) {
   rows.forEach(row => {
+    const type = row.materialType?.trim() || row.label?.trim();
     materialsData.value.push({
-      label: row.label?.trim() ? row.label.trim() : $t('page.cut.scrapMaterialLabel'),
+      label: type ? type : $t('page.cut.scrapMaterialLabel'),
       length: row.lengthValue,
       quantity: row.quantity,
       invId: row.id

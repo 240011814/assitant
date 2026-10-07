@@ -1502,7 +1502,6 @@ const local: App.I18n.Schema = {
       scrapStockedIn: "Stocked",
       scrapStockInSuccess: "{count} scrap bar(s) stocked in",
       scrapFromCutting: "Cutting scrap",
-      scrapLabelSuffix: " scrap",
       scrapApplied: "{count} inventory item(s) applied",
       scrapLabelName: "Name",
       scrapSize: "Size",
