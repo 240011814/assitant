@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { CELL_FIXED, CELL_SASH, type WindowItem } from './window-template';
+import { CELL_FIXED, CELL_SASH, type ProductItem } from './window-template';
 
 /**
  * 窗户分格 SVG 预览: 按真实比例绘制外框/中梃/分格, 格内标注类型与净尺寸。
@@ -8,7 +8,7 @@ import { CELL_FIXED, CELL_SASH, type WindowItem } from './window-template';
  */
 const props = withDefaults(
   defineProps<{
-    item: Pick<WindowItem, 'width' | 'height' | 'frameWidth' | 'grid'>;
+    item: Pick<ProductItem, 'width' | 'height' | 'frameWidth' | 'grid'>;
     /** 只读 (列表缩略图), 不可点击 */
     readonly?: boolean;
     /** 预览区最大高度 px */

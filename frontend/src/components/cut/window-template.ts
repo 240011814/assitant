@@ -1,12 +1,15 @@
 /**
- * 窗户分格模型与切割件生成 (纯函数, 供窗户单编辑器/预览/导入共用)。
+ * 窗户分格模型与切割件生成 (纯函数, 供产品单编辑器/预览/导入共用)。
  *
- * 模型: 窗户 = 外框(宽 W×高 H, 框料宽 c) + C 列 × R 行分格, 每格固定格或开启扇。
+ * 模型: 窗类产品 = 外框(宽 W×高 H, 框料宽 c) + C 列 × R 行分格, 每格固定格或开启扇。
  * 切割件口径 (与旧国标窗户公式逐项等价):
  * - 外框横梃 W×2 / 外框竖梃 H×2 (45° 拼角不扣尺); 推拉窗称 外框上下横/外框边封
  * - 竖向中梃 (H−2c)×(C−1) (推拉无竖向中梃, 两扇导轨重叠); 横向中梃 (W−2c)×(R−1)
  * - 每个开启扇: 扇横梃 = 格净宽×2, 扇竖梃 = 格净高×2; 推拉扇称 扇上下横/扇竖梃(光企/勾企)
  * 几何自洽: 列净宽和 + (推拉?0:(C−1)c) + 2c = W; 行净高和 + (R−1)c + 2c = H
+ *
+ * 部件族: 每个切割件归属一种型材 (外框/中梃/扇), 同族件从同一种库存型材下料;
+ * 产品级只设材料厚度 (壁厚), 导入切割清单时行标签 = 部件族 + 厚度。
  */
 
 /** 格子类型: 固定格 / 开启扇 */
@@ -14,6 +17,9 @@ export const CELL_FIXED = 1;
 export const CELL_SASH = 2;
 
 export type WindowCell = 1 | 2;
+
+/** 切割件部件族 (对应库存型材分类) */
+export type PieceFamily = '外框' | '中梃' | '扇';
 
 /** 窗户分格规格 (与后端 CutWindowGrid 同构) */
 export interface WindowGridSpec {
@@ -27,9 +33,9 @@ export interface WindowGridSpec {
   sliding: boolean;
 }
 
-/** 一樘窗 (与后端 CutWindowItem 同构) */
-export interface WindowItem {
-  /** 窗型模板 key (WINDOW_TEMPLATES 项的 key) */
+/** 一件产品 (与后端 CutProductItem 同构) */
+export interface ProductItem {
+  /** 产品模板 key (WINDOW_TEMPLATES 项的 key) */
   type: string;
   /** 总宽 cm */
   width: number;
@@ -37,15 +43,18 @@ export interface WindowItem {
   height: number;
   /** 框料宽 cm */
   frameWidth: number;
-  materialType: string;
-  /** 樘数 */
+  /** 材料厚度 (型材壁厚 mm, 如 "1.4") */
+  thickness: string;
+  /** 数量 */
   count: number;
   grid: WindowGridSpec;
 }
 
-/** 切割件草稿 (单樘) */
+/** 切割件草稿 (单件) */
 export interface PieceDraft {
   name: string;
+  /** 部件族 (外框/中梃/扇), 决定用哪种型材下料 */
+  family: PieceFamily;
   length: number;
   quantity: number;
 }
@@ -83,15 +92,16 @@ export function findWindowTemplate(key: string): WindowTemplateDef | undefined {
   return WINDOW_TEMPLATES.find(t => t.key === key);
 }
 
-/** 解析窗户单 spec JSON (坏数据按空单处理, 不抛错) */
-export function parseWindowOrder(record: Pick<Api.Cut.CutWindow, 'spec'>): Api.Cut.WindowSpec {
+/** 解析产品单 spec JSON (坏数据按空单处理, 不抛错; 兼容旧版窗户单的 windows key) */
+export function parseProductSpec(record: Pick<Api.Cut.CutProduct, 'spec'>): Api.Cut.ProductSpec {
   try {
-    const spec = JSON.parse(record.spec) as Api.Cut.WindowSpec;
-    if (spec && Array.isArray(spec.windows)) return spec;
+    const spec = JSON.parse(record.spec) as Partial<Api.Cut.ProductSpec> & { windows?: Api.Cut.ProductItem[] };
+    if (spec && Array.isArray(spec.items)) return { items: spec.items };
+    if (spec && Array.isArray(spec.windows)) return { items: spec.windows };
   } catch {
     // 坏数据按空单处理
   }
-  return { windows: [] };
+  return { items: [] };
 }
 
 export function round2(n: number): number {
@@ -109,7 +119,7 @@ export function availableRowHeight(height: number, frameWidth: number, rows: num
 }
 
 /** 几何自洽校验 (误差 ±0.01cm 内视为相符); 返回错误信息, null = 通过 */
-export function checkGridGeometry(item: Pick<WindowItem, 'width' | 'height' | 'frameWidth' | 'grid'>): string | null {
+export function checkGridGeometry(item: Pick<ProductItem, 'width' | 'height' | 'frameWidth' | 'grid'>): string | null {
   const { width, height, frameWidth: c, grid } = item;
   const colSum = grid.cols.reduce((s, v) => s + v, 0);
   const rowSum = grid.rows.reduce((s, v) => s + v, 0);
@@ -123,8 +133,8 @@ export function checkGridGeometry(item: Pick<WindowItem, 'width' | 'height' | 'f
   return null;
 }
 
-/** 由模板定义构造初始窗 (净宽高均分) */
-export function windowItemFromTemplate(def: WindowTemplateDef, materialType = ''): WindowItem {
+/** 由模板定义构造初始产品 (净宽高均分) */
+export function productItemFromTemplate(def: WindowTemplateDef, thickness = ''): ProductItem {
   const { width, height, frameWidth } = def.defaults;
   const col = round2(availableColWidth(width, frameWidth, def.cols, def.sliding) / def.cols);
   const row = round2(availableRowHeight(height, frameWidth, def.rows) / def.rows);
@@ -133,7 +143,7 @@ export function windowItemFromTemplate(def: WindowTemplateDef, materialType = ''
     width,
     height,
     frameWidth,
-    materialType,
+    thickness,
     count: 1,
     grid: {
       cols: Array.from({ length: def.cols }, () => col),
@@ -144,26 +154,26 @@ export function windowItemFromTemplate(def: WindowTemplateDef, materialType = ''
   };
 }
 
-/** 生成单樘切割件 (同名同长合并) */
-export function buildPieces(item: Pick<WindowItem, 'width' | 'height' | 'frameWidth' | 'grid'>): PieceDraft[] {
+/** 生成单件切割件 (同名同长合并) */
+export function buildPieces(item: Pick<ProductItem, 'width' | 'height' | 'frameWidth' | 'grid'>): PieceDraft[] {
   const { width: w, height: h, frameWidth: c, grid } = item;
   const pieces: PieceDraft[] = [];
-  const push = (name: string, length: number, quantity: number) => {
-    if (length > 0 && quantity > 0) pieces.push({ name, length: round2(length), quantity });
+  const push = (family: PieceFamily, name: string, length: number, quantity: number) => {
+    if (length > 0 && quantity > 0) pieces.push({ family, name, length: round2(length), quantity });
   };
 
   if (grid.sliding) {
-    push('外框上下横', w, 2);
-    push('外框边封', h, 2);
+    push('外框', '外框上下横', w, 2);
+    push('外框', '外框边封', h, 2);
   } else {
-    push('外框横梃', w, 2);
-    push('外框竖梃', h, 2);
+    push('外框', '外框横梃', w, 2);
+    push('外框', '外框竖梃', h, 2);
   }
   if (!grid.sliding && grid.cols.length > 1) {
-    push('竖向中梃', h - 2 * c, grid.cols.length - 1);
+    push('中梃', '竖向中梃', h - 2 * c, grid.cols.length - 1);
   }
   if (grid.rows.length > 1) {
-    push('横向中梃', w - 2 * c, grid.rows.length - 1);
+    push('中梃', '横向中梃', w - 2 * c, grid.rows.length - 1);
   }
   grid.cells.forEach((rowCells, r) => {
     rowCells.forEach((cell, ci) => {
@@ -171,11 +181,11 @@ export function buildPieces(item: Pick<WindowItem, 'width' | 'height' | 'frameWi
       const colW = grid.cols[ci] ?? 0;
       const rowH = grid.rows[r] ?? 0;
       if (grid.sliding) {
-        push('扇上下横', colW, 2);
-        push('扇竖梃 (光企/勾企)', rowH, 2);
+        push('扇', '扇上下横', colW, 2);
+        push('扇', '扇竖梃 (光企/勾企)', rowH, 2);
       } else {
-        push('扇横梃', colW, 2);
-        push('扇竖梃', rowH, 2);
+        push('扇', '扇横梃', colW, 2);
+        push('扇', '扇竖梃', rowH, 2);
       }
     });
   });
@@ -197,13 +207,15 @@ export function mergePieces(pieces: PieceDraft[]): PieceDraft[] {
   return [...map.values()];
 }
 
-/** 导入切割行: 一批窗的切割件 × 樘数, 按 (材料类型, 长度) 合并 */
-export function piecesToCutRows(items: WindowItem[]): Array<{ label: string; length: number; quantity: number }> {
+/** 导入切割行: 一批产品的切割件 × 数量, 按 (部件族+厚度, 长度) 合并;
+ * 行标签即一维切割的材料类型 (如 "外框 1.4"), 与库存型材的分类口径一致 */
+export function productCutRows(items: ProductItem[]): Array<{ label: string; length: number; quantity: number }> {
   const map = new Map<string, { label: string; length: number; quantity: number }>();
   for (const item of items) {
-    const label = item.materialType.trim();
-    if (!label || item.width <= 0 || item.height <= 0 || item.count < 1) continue;
+    if (item.width <= 0 || item.height <= 0 || item.count < 1) continue;
+    const suffix = item.thickness.trim() ? ` ${item.thickness.trim()}` : '';
     for (const p of buildPieces(item)) {
+      const label = `${p.family}${suffix}`;
       const quantity = p.quantity * item.count;
       const key = `${label}|${p.length}`;
       const exist = map.get(key);

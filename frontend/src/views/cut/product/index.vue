@@ -4,18 +4,18 @@ import { useRouter } from 'vue-router';
 import { NButton, NCard, NDataTable, NPopconfirm, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { $t } from '@/locales';
-import { deleteCutWindow, fetchCutScraps, fetchCutWindows } from '@/service/api';
-import WindowEditModal from '@/components/cut/WindowEditModal.vue';
+import { deleteCutProduct, fetchCutProducts } from '@/service/api';
+import ProductEditModal from '@/components/cut/ProductEditModal.vue';
 import WindowGridPreview from '@/components/cut/WindowGridPreview.vue';
-import { findWindowTemplate, parseWindowOrder } from '@/components/cut/window-template';
+import { findWindowTemplate, parseProductSpec } from '@/components/cut/window-template';
 
 /**
- * 窗户管理: 维护待切割窗户单 (一单可含多种类型的多樘窗),
+ * 产品管理: 维护待切割产品单 (一单可含多种类型的多件产品),
  * 记录上"去裁剪"跳转一维切割页并直接预填所需切割材料。
  */
 
-interface OrderRow extends Api.Cut.CutWindow {
-  parsed: Api.Cut.WindowSpec;
+interface OrderRow extends Api.Cut.CutProduct {
+  parsed: Api.Cut.ProductSpec;
 }
 
 const message = useMessage();
@@ -25,36 +25,22 @@ const loading = ref(false);
 const rows = ref<OrderRow[]>([]);
 const checkedKeys = ref<number[]>([]);
 
-// 材料类型候选: 来自一维余料库存(旧料库)的类型名
-const typeOptions = ref<Array<{ label: string; value: string }>>([]);
-
-async function loadTypeOptions() {
-  const { data, error } = await fetchCutScraps({ scrapType: 1 });
-  if (error || !data) return;
-  const set = new Set<string>();
-  data.records.forEach(item => {
-    const type = item.materialType?.trim() || item.label?.trim();
-    if (type) set.add(type);
-  });
-  typeOptions.value = [...set].map(type => ({ label: type, value: type }));
-}
-
 async function getData() {
   loading.value = true;
   try {
-    const { data, error } = await fetchCutWindows();
+    const { data, error } = await fetchCutProducts();
     if (!error && data) {
-      rows.value = data.map(row => ({ ...row, parsed: parseWindowOrder(row) }));
+      rows.value = data.map(row => ({ ...row, parsed: parseProductSpec(row) }));
     }
   } finally {
     loading.value = false;
   }
 }
 
-/** 去裁剪: 跳一维切割页, 由其消费 query.windows 预填切割材料 */
+/** 去裁剪: 跳一维切割页, 由其消费 query.products 预填所需切割材料 */
 function goCut(ids: number[]) {
   if (ids.length === 0) return;
-  router.push({ path: '/cut/bar', query: { windows: ids.join(',') } });
+  router.push({ path: '/cut/bar', query: { products: ids.join(',') } });
 }
 
 const columns = computed<DataTableColumns<OrderRow>>(() => [
@@ -62,25 +48,25 @@ const columns = computed<DataTableColumns<OrderRow>>(() => [
     type: 'expand',
     key: 'expand',
     renderExpand(row) {
-      const detailColumns: DataTableColumns<Api.Cut.WindowItem> = [
+      const detailColumns: DataTableColumns<Api.Cut.ProductItem> = [
         {
-          title: $t('page.cut.wtTemplate'),
+          title: $t('page.cut.pdTemplate'),
           key: 'type',
           width: 180,
           render: item => findWindowTemplate(item.type)?.label ?? item.type
         },
         { title: '尺寸(cm)', key: 'size', width: 100, align: 'center', render: item => `${item.width}×${item.height}` },
         {
-          title: $t('page.cut.wtGrid'),
+          title: $t('page.cut.pdGrid'),
           key: 'grid',
           width: 110,
           align: 'center',
           render: item => `${item.grid.cols.length}列×${item.grid.rows.length}行`
         },
-        { title: $t('page.cut.materialType'), key: 'materialType', width: 130, render: item => item.materialType || '-' },
-        { title: $t('page.cut.wtCount'), key: 'count', width: 70, align: 'center' },
+        { title: $t('page.cut.pdThickness'), key: 'thickness', width: 110, align: 'center', render: item => (item.thickness ? `${item.thickness}mm` : '-') },
+        { title: $t('page.cut.pdCount'), key: 'count', width: 70, align: 'center' },
         {
-          title: $t('page.cut.wtPreview'),
+          title: $t('page.cut.pdPreview'),
           key: 'preview',
           render: item =>
             h(
@@ -93,37 +79,37 @@ const columns = computed<DataTableColumns<OrderRow>>(() => [
       return h('div', { class: 'p-2' }, [
         h(NDataTable, {
           columns: detailColumns,
-          data: row.parsed.windows,
+          data: row.parsed.items,
           size: 'small',
-          rowKey: (item: Api.Cut.WindowItem) => `${item.type}|${item.width}|${item.height}|${item.materialType}`
+          rowKey: (item: Api.Cut.ProductItem) => `${item.type}|${item.width}|${item.height}|${item.thickness}`
         })
       ]);
     }
   },
   { type: 'selection' },
-  { title: $t('page.cut.wtName'), key: 'name', minWidth: 160, render: row => row.name || '-' },
+  { title: $t('page.cut.pdName'), key: 'name', minWidth: 160, render: row => row.name || '-' },
   {
-    title: $t('page.cut.wtWindowCount'),
-    key: 'windowCount',
+    title: $t('page.cut.pdProductCount'),
+    key: 'productCount',
     width: 90,
     align: 'center',
-    render: row => row.parsed.windows.length
+    render: row => row.parsed.items.length
   },
   {
-    title: $t('page.cut.wtTotalBars'),
-    key: 'totalBars',
+    title: $t('page.cut.pdTotalCount'),
+    key: 'totalCount',
     width: 90,
     align: 'center',
-    render: row => row.parsed.windows.reduce((sum, item) => sum + (item.count || 0), 0)
+    render: row => row.parsed.items.reduce((sum, item) => sum + (item.count || 0), 0)
   },
   {
-    title: $t('page.cut.materialType'),
-    key: 'materialTypes',
-    minWidth: 150,
-    render: row => [...new Set(row.parsed.windows.map(item => item.materialType).filter(Boolean))].join(' / ') || '-'
+    title: $t('page.cut.pdThickness'),
+    key: 'thicknesses',
+    minWidth: 130,
+    render: row => [...new Set(row.parsed.items.map(item => item.thickness).filter(Boolean))].map(v => `${v}mm`).join(' / ') || '-'
   },
   {
-    title: $t('page.cut.wtCreatedAt'),
+    title: $t('page.cut.pdCreatedAt'),
     key: 'createdAt',
     width: 170,
     align: 'center',
@@ -139,7 +125,7 @@ const columns = computed<DataTableColumns<OrderRow>>(() => [
         h(
           NButton,
           { size: 'small', type: 'primary', quaternary: true, onClick: () => goCut([row.id]) },
-          { default: () => $t('page.cut.wtGoCut') }
+          { default: () => $t('page.cut.pdGoCut') }
         ),
         h(
           NButton,
@@ -148,7 +134,7 @@ const columns = computed<DataTableColumns<OrderRow>>(() => [
         ),
         h(NPopconfirm, { onPositiveClick: () => removeOrder(row) }, {
           trigger: () => h(NButton, { size: 'small', type: 'error', quaternary: true }, { default: () => $t('common.delete') }),
-          default: () => $t('page.cut.wtDeleteConfirm')
+          default: () => $t('page.cut.pdDeleteConfirm')
         })
       ]);
     }
@@ -157,28 +143,27 @@ const columns = computed<DataTableColumns<OrderRow>>(() => [
 
 // ===== 新建 / 编辑 =====
 const modalShow = ref(false);
-const editing = ref<Api.Cut.CutWindow | null>(null);
+const editing = ref<Api.Cut.CutProduct | null>(null);
 
 function openAdd() {
   editing.value = null;
   modalShow.value = true;
 }
 
-function openEdit(row: Api.Cut.CutWindow) {
+function openEdit(row: Api.Cut.CutProduct) {
   editing.value = row;
   modalShow.value = true;
 }
 
-async function removeOrder(row: Api.Cut.CutWindow) {
-  const { error } = await deleteCutWindow(row.id);
+async function removeOrder(row: Api.Cut.CutProduct) {
+  const { error } = await deleteCutProduct(row.id);
   if (error) return;
-  message.success($t('page.cut.wtDeleted'));
+  message.success($t('page.cut.pdDeleted'));
   getData();
 }
 
 onMounted(() => {
   getData();
-  loadTypeOptions();
 });
 </script>
 
@@ -187,15 +172,15 @@ onMounted(() => {
     <NCard :bordered="false" shadow="sm" class="flex-1">
       <template #header>
         <div class="flex items-center gap-4">
-          <span class="text-18px font-bold">{{ $t('route.cut_window-template') }}</span>
+          <span class="text-18px font-bold">{{ $t('route.cut_product') }}</span>
         </div>
       </template>
       <div class="flex flex-col h-full gap-4">
         <div class="flex justify-end gap-2">
           <NButton type="info" ghost :disabled="checkedKeys.length === 0" @click="goCut(checkedKeys)">
-            {{ $t('page.cut.wtBatchGoCut') }}{{ checkedKeys.length > 0 ? `(${checkedKeys.length})` : '' }}
+            {{ $t('page.cut.pdBatchGoCut') }}{{ checkedKeys.length > 0 ? `(${checkedKeys.length})` : '' }}
           </NButton>
-          <NButton type="primary" @click="openAdd">{{ $t('page.cut.wtAdd') }}</NButton>
+          <NButton type="primary" @click="openAdd">{{ $t('page.cut.pdAdd') }}</NButton>
         </div>
 
         <NDataTable
@@ -210,6 +195,6 @@ onMounted(() => {
       </div>
     </NCard>
 
-    <WindowEditModal v-model:show="modalShow" :order="editing" :type-options="typeOptions" @saved="getData" />
+    <ProductEditModal v-model:show="modalShow" :order="editing" @saved="getData" />
   </div>
 </template>

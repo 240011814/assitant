@@ -3,10 +3,10 @@ import { computed, h, onActivated, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NButton, NGi, NGrid, NInput, NInputNumber, NModal, NSelect, NSpin, NStatistic, NTooltip, useMessage } from 'naive-ui';
 import { $t } from '@/locales';
-import { cutBar, fetchCutScraps, fetchCutWindows } from '@/service/api';
+import { cutBar, fetchCutProducts, fetchCutScraps } from '@/service/api';
 import ScrapLibraryModal from '@/components/cut/ScrapLibraryModal.vue';
-import WindowPickModal from '@/components/cut/WindowPickModal.vue';
-import { parseWindowOrder, piecesToCutRows } from '@/components/cut/window-template';
+import ProductPickModal from '@/components/cut/ProductPickModal.vue';
+import { parseProductSpec, productCutRows } from '@/components/cut/window-template';
 import { exportBarCutPDF, exportBarCutPNG } from './cut-export';
 
 interface NewMaterialRow {
@@ -60,60 +60,60 @@ const saveData = ref<Api.Cut.RecordRequest | null>(null);
 const canvasWrapper = ref<HTMLDivElement | null>(null);
 const containerWidth = ref(800); // 动态容器宽度
 
-// 旧料库 / 窗户导入 / 导出状态
+// 旧料库 / 产品导入 / 导出状态
 const scrapModalShow = ref(false);
-const windowPickShow = ref(false);
+const productPickShow = ref(false);
 const exporting = ref<'png' | 'pdf' | null>(null);
 
 const route = useRoute();
 const router = useRouter();
 
-/** 把窗户单记录解析为切割行 (材料类型+长度合并, 已含樘数) */
-function cutRowsFromWindowOrders(records: Api.Cut.CutWindow[]) {
-  const items: Api.Cut.WindowItem[] = [];
+/** 把产品单记录解析为切割行 (部件族+厚度, 长度合并, 已含数量) */
+function cutRowsFromProductOrders(records: Api.Cut.CutProduct[]) {
+  const items: Api.Cut.ProductItem[] = [];
   records.forEach(record => {
-    items.push(...parseWindowOrder(record).windows);
+    items.push(...parseProductSpec(record).items);
   });
-  return piecesToCutRows(items);
+  return productCutRows(items);
 }
 
-/** 用窗户单预填裁剪尺寸 (替换现有清单); 返回导入的窗户樘数 */
-function fillItemsFromWindowOrders(records: Api.Cut.CutWindow[]): number {
-  const rows = cutRowsFromWindowOrders(records);
+/** 用产品单预填裁剪尺寸 (替换现有清单); 返回导入的产品件数 */
+function fillItemsFromProductOrders(records: Api.Cut.CutProduct[]): number {
+  const rows = cutRowsFromProductOrders(records);
   itemsData.value = rows.map(row => ({ label: row.label, length: row.length, quantity: row.quantity }));
   // 新类型刷新下拉候选
   loadMaterialTypes();
   return records.reduce((sum, record) => {
-    return sum + parseWindowOrder(record).windows.reduce((s, item) => s + (item.count || 0), 0);
+    return sum + parseProductSpec(record).items.reduce((s, item) => s + (item.count || 0), 0);
   }, 0);
 }
 
-// keepAlive 页面: 窗户管理页"去裁剪"跳入时消费 query.windows 预填 (首次挂载后 onActivated 也会触发)
+// keepAlive 页面: 产品管理页"去裁剪"跳入时消费 query.products 预填 (首次挂载后 onActivated 也会触发)
 onActivated(async () => {
-  const raw = route.query.windows;
+  const raw = route.query.products;
   if (typeof raw !== 'string' || !raw) return;
   // 先清掉 query, 避免切回该页时重复导入
-  router.replace({ query: { ...route.query, windows: undefined } });
+  router.replace({ query: { ...route.query, products: undefined } });
   const ids = raw.split(',').map(Number).filter(n => Number.isInteger(n) && n > 0);
   if (ids.length === 0) return;
-  const { data, error } = await fetchCutWindows();
+  const { data, error } = await fetchCutProducts();
   if (error || !data) return;
   const selected = data.filter(record => ids.includes(record.id));
-  const bars = fillItemsFromWindowOrders(selected);
+  const bars = fillItemsFromProductOrders(selected);
   if (bars > 0) {
-    message.success($t('page.cut.wtImported', { count: selected.length, bars }));
+    message.success($t('page.cut.pdImported', { count: selected.length, bars }));
   } else {
-    message.warning($t('page.cut.wtImportEmpty'));
+    message.warning($t('page.cut.pdImportEmpty'));
   }
 });
 
-// 导入窗户弹窗确认: 预填所选窗户单
-function handleWindowPick(records: Api.Cut.CutWindow[]) {
-  const bars = fillItemsFromWindowOrders(records);
+// 导入产品弹窗确认: 预填所选产品单
+function handleProductPick(records: Api.Cut.CutProduct[]) {
+  const bars = fillItemsFromProductOrders(records);
   if (bars > 0) {
-    message.success($t('page.cut.wtImported', { count: records.length, bars }));
+    message.success($t('page.cut.pdImported', { count: records.length, bars }));
   } else {
-    message.warning($t('page.cut.wtImportEmpty'));
+    message.warning($t('page.cut.pdImportEmpty'));
   }
 }
 
@@ -588,7 +588,7 @@ onUnmounted(() => {
         <NInputNumber v-model:value="itemLength" placeholder="长度" class="w-40" />
         <NInputNumber v-model:value="itemQty" placeholder="数量" class="w-32" />
         <NButton type="primary" @click="addItem">{{ $t('page.cut.addItem') }}</NButton>
-        <NButton type="info" secondary @click="windowPickShow = true">{{ $t('page.cut.wtImport') }}</NButton>
+        <NButton type="info" secondary @click="productPickShow = true">{{ $t('page.cut.pdImport') }}</NButton>
       </div>
       <NDataTable :columns="itemColumns" :data="itemsData" />
 
@@ -753,8 +753,8 @@ onUnmounted(() => {
     <!-- 旧料库弹窗 -->
     <ScrapLibraryModal v-model:show="scrapModalShow" :scrap-type="1" @apply="applyScraps" />
 
-    <!-- 导入窗户弹窗: 选择已保存的窗户单预填切割尺寸 -->
-    <WindowPickModal v-model:show="windowPickShow" @confirm="handleWindowPick" />
+    <!-- 导入产品弹窗: 选择已保存的产品单预填切割尺寸 -->
+    <ProductPickModal v-model:show="productPickShow" @confirm="handleProductPick" />
 
     <!-- 加载中弹窗 -->
     <NModal v-model:show="loading" preset="dialog" title="计算中...">

@@ -256,13 +256,13 @@ export const generatedRoutes: GeneratedRoute[] = [
         }
       },
       {
-        name: 'cut_window-template',
-        path: '/cut/window-template',
-        component: 'view.cut_window-template',
+        name: 'cut_product',
+        path: '/cut/product',
+        component: 'view.cut_product',
         meta: {
-          title: 'cut_window-template',
-          i18nKey: 'route.cut_window-template',
-          icon: 'mdi:window-maximize',
+          title: 'cut_product',
+          i18nKey: 'route.cut_product',
+          icon: 'mdi:cube-outline',
           order: 5,
           permissions: ['cut:record:view']
         }

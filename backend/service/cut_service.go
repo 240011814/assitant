@@ -1932,16 +1932,16 @@ func (s *CutService) UpdateScrap(userID, id uint, req model.UpdateScrapRequest) 
 
 // ===== 窗户单 (待切割窗户) =====
 
-// ListWindows 窗户单列表 (本人全部, 新单在前, 上限 200)
-func (s *CutService) ListWindows(userID uint) ([]model.CutWindow, error) {
-	var list []model.CutWindow
+// ListProducts 产品单列表 (本人全部, 新单在前, 上限 200)
+func (s *CutService) ListProducts(userID uint) ([]model.CutProduct, error) {
+	var list []model.CutProduct
 	err := DB.Where("user_id = ?", userID).Order("id DESC").Limit(200).Find(&list).Error
 	return list, err
 }
 
-// SaveWindow 新增/更新窗户单 (仅本人); spec 逐窗校验后存 JSON
-func (s *CutService) SaveWindow(userID uint, req model.SaveCutWindowRequest) (*model.CutWindow, error) {
-	if err := validateWindowSpec(req.Spec); err != nil {
+// SaveProduct 新增/更新产品单 (仅本人); spec 逐件校验后存 JSON
+func (s *CutService) SaveProduct(userID uint, req model.SaveCutProductRequest) (*model.CutProduct, error) {
+	if err := validateProductSpec(req.Spec); err != nil {
 		return nil, err
 	}
 	name := strings.TrimSpace(req.Name)
@@ -1952,7 +1952,7 @@ func (s *CutService) SaveWindow(userID uint, req model.SaveCutWindowRequest) (*m
 	if err != nil {
 		return nil, err
 	}
-	row := model.CutWindow{Name: name, Spec: string(specJSON)}
+	row := model.CutProduct{Name: name, Spec: string(specJSON)}
 	if req.ID == 0 {
 		row.UserID = userID
 		if err := DB.Create(&row).Error; err != nil {
@@ -1961,42 +1961,42 @@ func (s *CutService) SaveWindow(userID uint, req model.SaveCutWindowRequest) (*m
 		return &row, nil
 	}
 	row.ID = req.ID
-	result := DB.Model(&model.CutWindow{}).
+	result := DB.Model(&model.CutProduct{}).
 		Where("id = ? AND user_id = ?", req.ID, userID).
 		Updates(map[string]any{"name": name, "spec": string(specJSON)})
 	if result.Error != nil {
 		return nil, result.Error
 	}
 	if result.RowsAffected == 0 {
-		return nil, errors.New("窗户单不存在")
+		return nil, errors.New("产品单不存在")
 	}
 	row.UserID = userID
 	return &row, nil
 }
 
-// DeleteWindow 删除窗户单 (仅本人)
-func (s *CutService) DeleteWindow(userID, id uint) error {
-	result := DB.Where("id = ? AND user_id = ?", id, userID).Delete(&model.CutWindow{})
+// DeleteProduct 删除产品单 (仅本人)
+func (s *CutService) DeleteProduct(userID, id uint) error {
+	result := DB.Where("id = ? AND user_id = ?", id, userID).Delete(&model.CutProduct{})
 	if result.Error != nil {
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
-		return errors.New("窗户单不存在")
+		return errors.New("产品单不存在")
 	}
 	return nil
 }
 
-// validateWindowSpec 校验窗户单: 每樘窗尺寸/材料/数量/分格矩阵与几何自洽
+// validateProductSpec 校验产品单: 每件产品尺寸/厚度/数量/分格矩阵与几何自洽
 // (列净宽和 + 竖向中梃 + 2×框料宽 = 总宽; 推拉无竖向中梃; 行同理由横向中梃参与)
-func validateWindowSpec(spec model.CutWindowSpec) error {
-	if len(spec.Windows) == 0 {
-		return errors.New("窗户单不能为空")
+func validateProductSpec(spec model.CutProductSpec) error {
+	if len(spec.Items) == 0 {
+		return errors.New("产品单不能为空")
 	}
-	if len(spec.Windows) > 100 {
-		return errors.New("单张窗户单最多 100 樘窗")
+	if len(spec.Items) > 100 {
+		return errors.New("单张产品单最多 100 件产品")
 	}
-	for i, w := range spec.Windows {
-		at := fmt.Sprintf("第 %d 樘窗", i+1)
+	for i, w := range spec.Items {
+		at := fmt.Sprintf("第 %d 件产品", i+1)
 		if w.Width <= 0 || w.Height <= 0 || w.Width > 1e6 || w.Height > 1e6 {
 			return fmt.Errorf("%s宽高必须大于 0", at)
 		}
@@ -2006,8 +2006,8 @@ func validateWindowSpec(spec model.CutWindowSpec) error {
 		if w.Count < 1 {
 			return fmt.Errorf("%s数量至少为 1", at)
 		}
-		if strings.TrimSpace(w.MaterialType) == "" {
-			return fmt.Errorf("%s未指定材料类型", at)
+		if strings.TrimSpace(w.Thickness) == "" {
+			return fmt.Errorf("%s未指定材料厚度", at)
 		}
 		g := w.Grid
 		if len(g.Cols) == 0 || len(g.Rows) == 0 || len(g.Cols) > 20 || len(g.Rows) > 20 {

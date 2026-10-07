@@ -1,2 +1,17 @@
 packages:
   - 'packages/*'
+
+# pnpm v10 需显式批准依赖的安装脚本 (postinstall 等)
+onlyBuiltDependencies:
+  - esbuild
+  - '@parcel/watcher'
+  - core-js
+  - vue-demi
+ignoredBuiltDependencies:
+  - simple-git-hooks
+allowBuilds:
+  '@parcel/watcher': true
+  core-js: true
+  esbuild: true
+  simple-git-hooks: true
+  vue-demi: true

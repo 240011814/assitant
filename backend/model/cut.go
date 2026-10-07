@@ -230,24 +230,24 @@ type CutWindowGrid struct {
 	Sliding bool      `json:"sliding"`
 }
 
-// CutWindowItem 窗户单内的一樘窗 (type 为前端窗型模板 key; 尺寸单位 cm)
-type CutWindowItem struct {
-	Type         string        `json:"type"`
-	Width        float64       `json:"width"`
-	Height       float64       `json:"height"`
-	FrameWidth   float64       `json:"frameWidth"`
-	MaterialType string        `json:"materialType"`
-	Count        int           `json:"count"`
-	Grid         CutWindowGrid `json:"grid"`
+// CutProductItem 产品单内的一件产品 (type 为前端产品模板 key; 尺寸单位 cm)
+type CutProductItem struct {
+	Type       string        `json:"type"`
+	Width      float64       `json:"width"`
+	Height     float64       `json:"height"`
+	FrameWidth float64       `json:"frameWidth"`
+	Thickness  string        `json:"thickness"` // 材料厚度 (型材壁厚 mm, 如 1.4); 部件 (外框/中梃/扇) 由切割件自身标识
+	Count      int           `json:"count"`
+	Grid       CutWindowGrid `json:"grid"`
 }
 
-// CutWindowSpec 窗户单内容 (一单可含多种类型的多樘窗)
-type CutWindowSpec struct {
-	Windows []CutWindowItem `json:"windows"`
+// CutProductSpec 产品单内容 (一单可含多种类型的多件产品)
+type CutProductSpec struct {
+	Items []CutProductItem `json:"items"`
 }
 
-// CutWindow 待切割窗户单 (spec 存 JSON, 供窗户管理页维护与一键去裁剪)
-type CutWindow struct {
+// CutProduct 待切割产品单 (spec 存 JSON, 供产品管理页维护与一键去裁剪)
+type CutProduct struct {
 	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	UserID    uint      `gorm:"not null;index" json:"userId"`
 	Name      string    `gorm:"size:100" json:"name"`
@@ -256,15 +256,15 @@ type CutWindow struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-func (CutWindow) TableName() string {
-	return "cut_window"
+func (CutProduct) TableName() string {
+	return "cut_product"
 }
 
-// SaveCutWindowRequest 新增/更新窗户单 (ID=0 新增)
-type SaveCutWindowRequest struct {
-	ID   uint          `json:"id"`
-	Name string        `json:"name"`
-	Spec CutWindowSpec `json:"spec"`
+// SaveCutProductRequest 新增/更新产品单 (ID=0 新增)
+type SaveCutProductRequest struct {
+	ID   uint           `json:"id"`
+	Name string         `json:"name"`
+	Spec CutProductSpec `json:"spec"`
 }
 
 // Item 切割项目

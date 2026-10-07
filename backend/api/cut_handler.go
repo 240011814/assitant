@@ -135,43 +135,43 @@ func (h *CutHandler) HandleBatchDeleteScraps(c *gin.Context) {
 	SendSuccess(c, gin.H{"deleted": deleted})
 }
 
-// HandleListWindows 窗户单列表 (本人全部)
-func (h *CutHandler) HandleListWindows(c *gin.Context) {
+// HandleListProducts 产品单列表 (本人全部)
+func (h *CutHandler) HandleListProducts(c *gin.Context) {
 	userID := GetUserID(c)
-	list, err := h.svc.ListWindows(userID)
+	list, err := h.svc.ListProducts(userID)
 	if err != nil {
-		SendError(c, "500", "获取窗户单失败: "+err.Error())
+		SendError(c, "500", "获取产品单失败: "+err.Error())
 		return
 	}
 	SendSuccess(c, list)
 }
 
-// HandleSaveWindow 新增/更新窗户单 (ID=0 新增)
-func (h *CutHandler) HandleSaveWindow(c *gin.Context) {
+// HandleSaveProduct 新增/更新产品单 (ID=0 新增)
+func (h *CutHandler) HandleSaveProduct(c *gin.Context) {
 	userID := GetUserID(c)
-	var req model.SaveCutWindowRequest
+	var req model.SaveCutProductRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		SendError(c, "400", "请求参数错误: "+err.Error())
 		return
 	}
-	row, err := h.svc.SaveWindow(userID, req)
+	row, err := h.svc.SaveProduct(userID, req)
 	if err != nil {
-		SendError(c, "500", "保存窗户单失败: "+err.Error())
+		SendError(c, "500", "保存产品单失败: "+err.Error())
 		return
 	}
 	SendSuccess(c, row)
 }
 
-// HandleDeleteWindow 删除窗户单
-func (h *CutHandler) HandleDeleteWindow(c *gin.Context) {
+// HandleDeleteProduct 删除产品单
+func (h *CutHandler) HandleDeleteProduct(c *gin.Context) {
 	userID := GetUserID(c)
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		SendError(c, "400", "窗户单 ID 不合法")
+		SendError(c, "400", "产品单 ID 不合法")
 		return
 	}
-	if err := h.svc.DeleteWindow(userID, uint(id)); err != nil {
-		SendError(c, "500", "删除窗户单失败: "+err.Error())
+	if err := h.svc.DeleteProduct(userID, uint(id)); err != nil {
+		SendError(c, "500", "删除产品单失败: "+err.Error())
 		return
 	}
 	SendSuccess(c, nil)

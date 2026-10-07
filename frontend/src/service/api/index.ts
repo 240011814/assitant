@@ -9,7 +9,7 @@ export * from './dashboard';
 export * from './user-profile';
 export * from './cut';
 export * from './cut-scrap';
-export * from './cut-window';
+export * from './cut-product';
 export * from './user-preference';
 export * from './lottery';
 export * from './model-scenario';

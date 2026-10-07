@@ -27,7 +27,7 @@ const customRouteMeta: Partial<Record<RouteKey, Partial<RouteMeta>>> = {
   cut_inventory: { icon: 'mdi:package-variant-closed', order: 3, permissions: ['cut:record:view'] },
   cut_plane: { icon: 'mdi:grid-large', order: 2, permissions: ['cut:plane:compute'], keepAlive: true },
   'cut_plane-detail': { hideInMenu: true, permissions: ['cut:plane:compute'] },
-  'cut_window-template': { icon: 'mdi:window-maximize', order: 5, permissions: ['cut:record:view'] },
+  cut_product: { icon: 'mdi:cube-outline', order: 5, permissions: ['cut:record:view'] },
   home: { icon: 'mdi:monitor-dashboard', order: 1 },
   'iframe-page': { hideInMenu: true },
   login: { hideInMenu: true },

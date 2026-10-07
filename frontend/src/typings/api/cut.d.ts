@@ -54,24 +54,25 @@ declare namespace Api {
       sliding: boolean;
     }
 
-    /** 窗户单内的一樘窗 (type 为前端窗型模板 key) */
-    interface WindowItem {
+    /** 产品单内的一件产品 (type 为前端产品模板 key; 窗类产品带分格 grid) */
+    interface ProductItem {
       type: string;
       width: number;
       height: number;
       frameWidth: number;
-      materialType: string;
+      /** 材料厚度 (型材壁厚 mm, 如 "1.4"); 部件 (外框/中梃/扇) 由切割件自身标识 */
+      thickness: string;
       count: number;
       grid: WindowGridSpec;
     }
 
-    /** 窗户单内容 (一单可含多种类型的多樘窗) */
-    interface WindowSpec {
-      windows: WindowItem[];
+    /** 产品单内容 (一单可含多种类型的多件产品) */
+    interface ProductSpec {
+      items: ProductItem[];
     }
 
-    /** 待切割窗户单 (spec 为 JSON 字符串) */
-    interface CutWindow {
+    /** 待切割产品单 (spec 为 JSON 字符串) */
+    interface CutProduct {
       id: number;
       userId: number;
       name: string;
@@ -80,11 +81,11 @@ declare namespace Api {
       updatedAt: string;
     }
 
-    /** 新增/更新窗户单 (id 缺省为新增) */
-    interface SaveCutWindowRequest {
+    /** 新增/更新产品单 (id 缺省为新增) */
+    interface SaveCutProductRequest {
       id?: number;
       name?: string;
-      spec: WindowSpec;
+      spec: ProductSpec;
     }
 
     /** 一维切割响应 */

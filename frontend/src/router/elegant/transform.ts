@@ -184,7 +184,7 @@ const routeMap: RouteMap = {
   "cut_inventory": "/cut/inventory",
   "cut_plane": "/cut/plane",
   "cut_plane-detail": "/cut/plane-detail/:id",
-  "cut_window-template": "/cut/window-template",
+  "cut_product": "/cut/product",
   "home": "/home",
   "iframe-page": "/iframe-page/:url",
   "login": "/login/:module(pwd-login|code-login|register|reset-pwd|bind-wechat)?",
