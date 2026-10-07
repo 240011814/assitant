@@ -222,6 +222,51 @@ type AddCutScrapRequest struct {
 	RecordID string `json:"recordId,omitempty"`
 }
 
+// CutWindowGrid 窗户分格规格 (cols/rows 为格净尺寸 cm; cells[r][c]: 1=固定格 2=开启扇; sliding=推拉无竖向中梃)
+type CutWindowGrid struct {
+	Cols    []float64 `json:"cols"`
+	Rows    []float64 `json:"rows"`
+	Cells   [][]int   `json:"cells"`
+	Sliding bool      `json:"sliding"`
+}
+
+// CutWindowItem 窗户单内的一樘窗 (type 为前端窗型模板 key; 尺寸单位 cm)
+type CutWindowItem struct {
+	Type         string        `json:"type"`
+	Width        float64       `json:"width"`
+	Height       float64       `json:"height"`
+	FrameWidth   float64       `json:"frameWidth"`
+	MaterialType string        `json:"materialType"`
+	Count        int           `json:"count"`
+	Grid         CutWindowGrid `json:"grid"`
+}
+
+// CutWindowSpec 窗户单内容 (一单可含多种类型的多樘窗)
+type CutWindowSpec struct {
+	Windows []CutWindowItem `json:"windows"`
+}
+
+// CutWindow 待切割窗户单 (spec 存 JSON, 供窗户管理页维护与一键去裁剪)
+type CutWindow struct {
+	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID    uint      `gorm:"not null;index" json:"userId"`
+	Name      string    `gorm:"size:100" json:"name"`
+	Spec      string    `gorm:"type:text" json:"spec"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+func (CutWindow) TableName() string {
+	return "cut_window"
+}
+
+// SaveCutWindowRequest 新增/更新窗户单 (ID=0 新增)
+type SaveCutWindowRequest struct {
+	ID   uint          `json:"id"`
+	Name string        `json:"name"`
+	Spec CutWindowSpec `json:"spec"`
+}
+
 // Item 切割项目
 type Item struct {
 	Label    string  `json:"label"`

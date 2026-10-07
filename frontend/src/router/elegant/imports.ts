@@ -36,6 +36,7 @@ export const views: Record<LastLevelRouteKey, RouteComponent | (() => Promise<Ro
   cut_inventory: () => import("@/views/cut/inventory/index.vue"),
   "cut_plane-detail": () => import("@/views/cut/plane-detail/[id].vue"),
   cut_plane: () => import("@/views/cut/plane/index.vue"),
+  "cut_window-template": () => import("@/views/cut/window-template/index.vue"),
   home: () => import("@/views/home/index.vue"),
   lottery: () => import("@/views/lottery/[id].vue"),
   share: () => import("@/views/share/[token].vue"),

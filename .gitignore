@@ -1,7 +1,7 @@
 # IDE
 .idea/
 .vscode/
-
+.zcode/
 # Dependencies
 node_modules/
 backend/vendor/

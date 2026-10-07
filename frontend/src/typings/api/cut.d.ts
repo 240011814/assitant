@@ -46,6 +46,47 @@ declare namespace Api {
       byMaterialType?: BarMaterialTypeSummary[];
     }
 
+    /** 窗户分格规格 (cols/rows 为格净尺寸 cm; cells[r][c]: 1=固定格 2=开启扇; sliding=推拉无竖向中梃) */
+    interface WindowGridSpec {
+      cols: number[];
+      rows: number[];
+      cells: number[][];
+      sliding: boolean;
+    }
+
+    /** 窗户单内的一樘窗 (type 为前端窗型模板 key) */
+    interface WindowItem {
+      type: string;
+      width: number;
+      height: number;
+      frameWidth: number;
+      materialType: string;
+      count: number;
+      grid: WindowGridSpec;
+    }
+
+    /** 窗户单内容 (一单可含多种类型的多樘窗) */
+    interface WindowSpec {
+      windows: WindowItem[];
+    }
+
+    /** 待切割窗户单 (spec 为 JSON 字符串) */
+    interface CutWindow {
+      id: number;
+      userId: number;
+      name: string;
+      spec: string;
+      createdAt: string;
+      updatedAt: string;
+    }
+
+    /** 新增/更新窗户单 (id 缺省为新增) */
+    interface SaveCutWindowRequest {
+      id?: number;
+      name?: string;
+      spec: WindowSpec;
+    }
+
     /** 一维切割响应 */
     interface BarCutResponse {
       results: BarResult[];

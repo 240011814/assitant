@@ -2,6 +2,7 @@ package service
 
 import (
 	"backend/model"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -1925,6 +1926,135 @@ func (s *CutService) UpdateScrap(userID, id uint, req model.UpdateScrapRequest) 
 	}
 	if result.RowsAffected == 0 {
 		return errors.New("余料不存在")
+	}
+	return nil
+}
+
+// ===== 窗户单 (待切割窗户) =====
+
+// ListWindows 窗户单列表 (本人全部, 新单在前, 上限 200)
+func (s *CutService) ListWindows(userID uint) ([]model.CutWindow, error) {
+	var list []model.CutWindow
+	err := DB.Where("user_id = ?", userID).Order("id DESC").Limit(200).Find(&list).Error
+	return list, err
+}
+
+// SaveWindow 新增/更新窗户单 (仅本人); spec 逐窗校验后存 JSON
+func (s *CutService) SaveWindow(userID uint, req model.SaveCutWindowRequest) (*model.CutWindow, error) {
+	if err := validateWindowSpec(req.Spec); err != nil {
+		return nil, err
+	}
+	name := strings.TrimSpace(req.Name)
+	if len([]rune(name)) > 100 {
+		name = string([]rune(name)[:100])
+	}
+	specJSON, err := json.Marshal(req.Spec)
+	if err != nil {
+		return nil, err
+	}
+	row := model.CutWindow{Name: name, Spec: string(specJSON)}
+	if req.ID == 0 {
+		row.UserID = userID
+		if err := DB.Create(&row).Error; err != nil {
+			return nil, err
+		}
+		return &row, nil
+	}
+	row.ID = req.ID
+	result := DB.Model(&model.CutWindow{}).
+		Where("id = ? AND user_id = ?", req.ID, userID).
+		Updates(map[string]any{"name": name, "spec": string(specJSON)})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, errors.New("窗户单不存在")
+	}
+	row.UserID = userID
+	return &row, nil
+}
+
+// DeleteWindow 删除窗户单 (仅本人)
+func (s *CutService) DeleteWindow(userID, id uint) error {
+	result := DB.Where("id = ? AND user_id = ?", id, userID).Delete(&model.CutWindow{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("窗户单不存在")
+	}
+	return nil
+}
+
+// validateWindowSpec 校验窗户单: 每樘窗尺寸/材料/数量/分格矩阵与几何自洽
+// (列净宽和 + 竖向中梃 + 2×框料宽 = 总宽; 推拉无竖向中梃; 行同理由横向中梃参与)
+func validateWindowSpec(spec model.CutWindowSpec) error {
+	if len(spec.Windows) == 0 {
+		return errors.New("窗户单不能为空")
+	}
+	if len(spec.Windows) > 100 {
+		return errors.New("单张窗户单最多 100 樘窗")
+	}
+	for i, w := range spec.Windows {
+		at := fmt.Sprintf("第 %d 樘窗", i+1)
+		if w.Width <= 0 || w.Height <= 0 || w.Width > 1e6 || w.Height > 1e6 {
+			return fmt.Errorf("%s宽高必须大于 0", at)
+		}
+		if w.FrameWidth < 0 || w.FrameWidth*2 >= math.Min(w.Width, w.Height) {
+			return fmt.Errorf("%s框料宽不合法", at)
+		}
+		if w.Count < 1 {
+			return fmt.Errorf("%s数量至少为 1", at)
+		}
+		if strings.TrimSpace(w.MaterialType) == "" {
+			return fmt.Errorf("%s未指定材料类型", at)
+		}
+		g := w.Grid
+		if len(g.Cols) == 0 || len(g.Rows) == 0 || len(g.Cols) > 20 || len(g.Rows) > 20 {
+			return fmt.Errorf("%s分格行列数不合法 (1~20)", at)
+		}
+		if len(g.Cells) != len(g.Rows) {
+			return fmt.Errorf("%s分格矩阵与行数不符", at)
+		}
+		for _, rowCells := range g.Cells {
+			if len(rowCells) != len(g.Cols) {
+				return fmt.Errorf("%s分格矩阵与列数不符", at)
+			}
+			for _, v := range rowCells {
+				if v != 1 && v != 2 {
+					return fmt.Errorf("%s分格类型不合法 (1=固定格 2=开启扇)", at)
+				}
+			}
+		}
+		colSum, rowSum := 0.0, 0.0
+		for _, v := range g.Cols {
+			if v <= 0 {
+				return fmt.Errorf("%s列净宽必须大于 0", at)
+			}
+			colSum += v
+		}
+		for _, v := range g.Rows {
+			if v <= 0 {
+				return fmt.Errorf("%s行净高必须大于 0", at)
+			}
+			rowSum += v
+		}
+		vertMull := 0.0
+		if !g.Sliding && len(g.Cols) > 1 {
+			vertMull = float64(len(g.Cols)-1) * w.FrameWidth
+		}
+		horzMull := 0.0
+		if len(g.Rows) > 1 {
+			horzMull = float64(len(g.Rows)-1) * w.FrameWidth
+		}
+		// 净尺寸由前端按 2 位小数维护, 容差 0.01cm
+		const eps = 0.011
+		if math.Abs(colSum+vertMull+2*w.FrameWidth-w.Width) > eps {
+			return fmt.Errorf("%s列净宽与总宽不符", at)
+		}
+		if math.Abs(rowSum+horzMull+2*w.FrameWidth-w.Height) > eps {
+			return fmt.Errorf("%s行净高与总高不符", at)
+		}
 	}
 	return nil
 }

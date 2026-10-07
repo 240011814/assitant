@@ -255,6 +255,11 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			cutGroup.PUT("/scraps/:id", api.RequirePermission("cut:record:create"), cutHandler.HandleUpdateScrap)
 			cutGroup.DELETE("/scraps/:id", api.RequirePermission("cut:record:delete"), cutHandler.HandleDeleteScrap)
 			cutGroup.POST("/scraps/batch-delete", api.RequirePermission("cut:record:delete"), cutHandler.HandleBatchDeleteScraps)
+			// 窗户单 (待切割窗户, 一单多窗)
+			cutGroup.GET("/windows", api.RequirePermission("cut:record:view"), cutHandler.HandleListWindows)
+			cutGroup.POST("/windows", api.RequirePermission("cut:record:create"), cutHandler.HandleSaveWindow)
+			cutGroup.PUT("/windows/:id", api.RequirePermission("cut:record:create"), cutHandler.HandleSaveWindow)
+			cutGroup.DELETE("/windows/:id", api.RequirePermission("cut:record:delete"), cutHandler.HandleDeleteWindow)
 		}
 
 		cutRecordGroup := apiGroup.Group("/cutRecord")

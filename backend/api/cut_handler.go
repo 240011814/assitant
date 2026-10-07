@@ -135,6 +135,48 @@ func (h *CutHandler) HandleBatchDeleteScraps(c *gin.Context) {
 	SendSuccess(c, gin.H{"deleted": deleted})
 }
 
+// HandleListWindows 窗户单列表 (本人全部)
+func (h *CutHandler) HandleListWindows(c *gin.Context) {
+	userID := GetUserID(c)
+	list, err := h.svc.ListWindows(userID)
+	if err != nil {
+		SendError(c, "500", "获取窗户单失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, list)
+}
+
+// HandleSaveWindow 新增/更新窗户单 (ID=0 新增)
+func (h *CutHandler) HandleSaveWindow(c *gin.Context) {
+	userID := GetUserID(c)
+	var req model.SaveCutWindowRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请求参数错误: "+err.Error())
+		return
+	}
+	row, err := h.svc.SaveWindow(userID, req)
+	if err != nil {
+		SendError(c, "500", "保存窗户单失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, row)
+}
+
+// HandleDeleteWindow 删除窗户单
+func (h *CutHandler) HandleDeleteWindow(c *gin.Context) {
+	userID := GetUserID(c)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		SendError(c, "400", "窗户单 ID 不合法")
+		return
+	}
+	if err := h.svc.DeleteWindow(userID, uint(id)); err != nil {
+		SendError(c, "500", "删除窗户单失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, nil)
+}
+
 // HandleAddRecord 添加切割记录
 func (h *CutHandler) HandleAddRecord(c *gin.Context) {
 	userID := GetUserID(c)

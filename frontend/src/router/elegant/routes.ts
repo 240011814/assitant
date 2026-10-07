@@ -254,6 +254,18 @@ export const generatedRoutes: GeneratedRoute[] = [
           hideInMenu: true,
           permissions: ['cut:plane:compute']
         }
+      },
+      {
+        name: 'cut_window-template',
+        path: '/cut/window-template',
+        component: 'view.cut_window-template',
+        meta: {
+          title: 'cut_window-template',
+          i18nKey: 'route.cut_window-template',
+          icon: 'mdi:window-maximize',
+          order: 5,
+          permissions: ['cut:record:view']
+        }
       }
     ]
   },

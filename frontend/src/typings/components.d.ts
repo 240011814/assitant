@@ -87,6 +87,8 @@ declare module 'vue' {
     NPagination: typeof import('naive-ui')['NPagination']
     NPopconfirm: typeof import('naive-ui')['NPopconfirm']
     NProgress: typeof import('naive-ui')['NProgress']
+    NRadio: typeof import('naive-ui')['NRadio']
+    NRadioGroup: typeof import('naive-ui')['NRadioGroup']
     NResult: typeof import('naive-ui')['NResult']
     NScrollbar: typeof import('naive-ui')['NScrollbar']
     NSelect: typeof import('naive-ui')['NSelect']
@@ -119,6 +121,9 @@ declare module 'vue' {
     ThemeSchemaSwitch: typeof import('./../components/common/theme-schema-switch.vue')['default']
     WatchlistAddDialog: typeof import('./../components/custom/watchlist-add-dialog.vue')['default']
     WaveBg: typeof import('./../components/custom/wave-bg.vue')['default']
+    WindowEditModal: typeof import('./../components/cut/WindowEditModal.vue')['default']
+    WindowGridPreview: typeof import('./../components/cut/WindowGridPreview.vue')['default']
+    WindowPickModal: typeof import('./../components/cut/WindowPickModal.vue')['default']
   }
 }
 
@@ -199,6 +204,8 @@ declare global {
   const NPagination: typeof import('naive-ui')['NPagination']
   const NPopconfirm: typeof import('naive-ui')['NPopconfirm']
   const NProgress: typeof import('naive-ui')['NProgress']
+  const NRadio: typeof import('naive-ui')['NRadio']
+  const NRadioGroup: typeof import('naive-ui')['NRadioGroup']
   const NResult: typeof import('naive-ui')['NResult']
   const NScrollbar: typeof import('naive-ui')['NScrollbar']
   const NSelect: typeof import('naive-ui')['NSelect']
@@ -231,4 +238,7 @@ declare global {
   const ThemeSchemaSwitch: typeof import('./../components/common/theme-schema-switch.vue')['default']
   const WatchlistAddDialog: typeof import('./../components/custom/watchlist-add-dialog.vue')['default']
   const WaveBg: typeof import('./../components/custom/wave-bg.vue')['default']
+  const WindowEditModal: typeof import('./../components/cut/WindowEditModal.vue')['default']
+  const WindowGridPreview: typeof import('./../components/cut/WindowGridPreview.vue')['default']
+  const WindowPickModal: typeof import('./../components/cut/WindowPickModal.vue')['default']
 }

@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, h, onMounted, onUnmounted, ref } from 'vue';
+import { computed, h, onActivated, onMounted, onUnmounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { NButton, NGi, NGrid, NInput, NInputNumber, NModal, NSelect, NSpin, NStatistic, NTooltip, useMessage } from 'naive-ui';
 import { $t } from '@/locales';
-import { cutBar, fetchCutScraps } from '@/service/api';
+import { cutBar, fetchCutScraps, fetchCutWindows } from '@/service/api';
 import ScrapLibraryModal from '@/components/cut/ScrapLibraryModal.vue';
-import WindowSpecModal from '@/components/cut/WindowSpecModal.vue';
+import WindowPickModal from '@/components/cut/WindowPickModal.vue';
+import { parseWindowOrder, piecesToCutRows } from '@/components/cut/window-template';
 import { exportBarCutPDF, exportBarCutPNG } from './cut-export';
 
 interface NewMaterialRow {
@@ -58,26 +60,61 @@ const saveData = ref<Api.Cut.RecordRequest | null>(null);
 const canvasWrapper = ref<HTMLDivElement | null>(null);
 const containerWidth = ref(800); // 动态容器宽度
 
-// 旧料库 / 窗户生成 / 导出状态
+// 旧料库 / 窗户导入 / 导出状态
 const scrapModalShow = ref(false);
-const windowModalShow = ref(false);
+const windowPickShow = ref(false);
 const exporting = ref<'png' | 'pdf' | null>(null);
 
-// 国标窗户生成: 模板切割件并入零件清单 (同材料类型+长度合并数量)
-function applyWindow(rows: Array<{ label: string; length: number; quantity: number }>) {
-  let added = 0;
-  rows.forEach(row => {
-    const existing = itemsData.value.find(item => (item.label ?? '') === row.label && item.length === row.length);
-    if (existing) {
-      existing.quantity += row.quantity;
-    } else {
-      itemsData.value.push({ label: row.label, length: row.length, quantity: row.quantity });
-    }
-    added += row.quantity;
+const route = useRoute();
+const router = useRouter();
+
+/** 把窗户单记录解析为切割行 (材料类型+长度合并, 已含樘数) */
+function cutRowsFromWindowOrders(records: Api.Cut.CutWindow[]) {
+  const items: Api.Cut.WindowItem[] = [];
+  records.forEach(record => {
+    items.push(...parseWindowOrder(record).windows);
   });
-  // 生成的类型可能新增, 刷新下拉候选
+  return piecesToCutRows(items);
+}
+
+/** 用窗户单预填裁剪尺寸 (替换现有清单); 返回导入的窗户樘数 */
+function fillItemsFromWindowOrders(records: Api.Cut.CutWindow[]): number {
+  const rows = cutRowsFromWindowOrders(records);
+  itemsData.value = rows.map(row => ({ label: row.label, length: row.length, quantity: row.quantity }));
+  // 新类型刷新下拉候选
   loadMaterialTypes();
-  message.success(`已按窗户生成 ${added} 件切割尺寸`);
+  return records.reduce((sum, record) => {
+    return sum + parseWindowOrder(record).windows.reduce((s, item) => s + (item.count || 0), 0);
+  }, 0);
+}
+
+// keepAlive 页面: 窗户管理页"去裁剪"跳入时消费 query.windows 预填 (首次挂载后 onActivated 也会触发)
+onActivated(async () => {
+  const raw = route.query.windows;
+  if (typeof raw !== 'string' || !raw) return;
+  // 先清掉 query, 避免切回该页时重复导入
+  router.replace({ query: { ...route.query, windows: undefined } });
+  const ids = raw.split(',').map(Number).filter(n => Number.isInteger(n) && n > 0);
+  if (ids.length === 0) return;
+  const { data, error } = await fetchCutWindows();
+  if (error || !data) return;
+  const selected = data.filter(record => ids.includes(record.id));
+  const bars = fillItemsFromWindowOrders(selected);
+  if (bars > 0) {
+    message.success($t('page.cut.wtImported', { count: selected.length, bars }));
+  } else {
+    message.warning($t('page.cut.wtImportEmpty'));
+  }
+});
+
+// 导入窗户弹窗确认: 预填所选窗户单
+function handleWindowPick(records: Api.Cut.CutWindow[]) {
+  const bars = fillItemsFromWindowOrders(records);
+  if (bars > 0) {
+    message.success($t('page.cut.wtImported', { count: records.length, bars }));
+  } else {
+    message.warning($t('page.cut.wtImportEmpty'));
+  }
 }
 
 function fmtLen(n: number): string {
@@ -551,7 +588,7 @@ onUnmounted(() => {
         <NInputNumber v-model:value="itemLength" placeholder="长度" class="w-40" />
         <NInputNumber v-model:value="itemQty" placeholder="数量" class="w-32" />
         <NButton type="primary" @click="addItem">{{ $t('page.cut.addItem') }}</NButton>
-        <NButton type="info" secondary @click="windowModalShow = true">窗户生成</NButton>
+        <NButton type="info" secondary @click="windowPickShow = true">{{ $t('page.cut.wtImport') }}</NButton>
       </div>
       <NDataTable :columns="itemColumns" :data="itemsData" />
 
@@ -716,8 +753,8 @@ onUnmounted(() => {
     <!-- 旧料库弹窗 -->
     <ScrapLibraryModal v-model:show="scrapModalShow" :scrap-type="1" @apply="applyScraps" />
 
-    <!-- 国标窗户生成弹窗 -->
-    <WindowSpecModal v-model:show="windowModalShow" :type-options="materialTypeOptions" @apply="applyWindow" />
+    <!-- 导入窗户弹窗: 选择已保存的窗户单预填切割尺寸 -->
+    <WindowPickModal v-model:show="windowPickShow" @confirm="handleWindowPick" />
 
     <!-- 加载中弹窗 -->
     <NModal v-model:show="loading" preset="dialog" title="计算中...">
