@@ -51,6 +51,7 @@ type UserInfoResponseData struct {
 	Permissions []string `json:"permissions"`
 }
 
+// UserListItem 用户列表项
 type UserListItem struct {
 	UserId    uint      `json:"userId"`
 	UserName  string    `json:"userName"`
@@ -58,8 +59,9 @@ type UserListItem struct {
 	Role      string    `json:"role"`
 	// TokenQuotaMonth 月度 Token 限额 (NULL/0=不限)
 	TokenQuotaMonth *int   `json:"token_quota_month"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	TwoFAEnabled    bool   `json:"twoFAEnabled"`
+	CreatedAt time.Time  `json:"createdAt"`
+	UpdatedAt time.Time  `json:"updatedAt"`
 }
 
 type CreateUserRequest struct {
@@ -79,14 +81,15 @@ type UpdateUserRequest struct {
 
 // UserProfileResponse 用户详细信息响应
 type UserProfileResponse struct {
-	UserId      uint       `json:"userId"`
-	UserName    string     `json:"userName"`
-	Nickname    string     `json:"nickname"`
-	Email       string     `json:"email"`
-	Role        string     `json:"role"`
-	LastLoginAt *time.Time `json:"lastLoginAt"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
+	UserId       uint       `json:"userId"`
+	UserName     string     `json:"userName"`
+	Nickname     string     `json:"nickname"`
+	Email        string     `json:"email"`
+	Role         string     `json:"role"`
+	TwoFAEnabled bool       `json:"twoFAEnabled"`
+	LastLoginAt  *time.Time `json:"lastLoginAt"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	UpdatedAt    time.Time  `json:"updatedAt"`
 }
 
 // UpdateProfileRequest 更新当前用户信息请求
@@ -104,16 +107,17 @@ type ChangePasswordRequest struct {
 // ResetUserPasswordRequest 管理员重置用户密码请求; Password 为空时由服务端生成随机密码
 type ResetUserPasswordRequest struct {
 	Password string `json:"password"`
+	// Clear2FA 同时清除该用户的两步验证 (TOTP), 用于用户丢失验证器的场景
+	Clear2FA bool `json:"clear_2fa"`
 }
 
 // TwoFactorLoginResponse 2FA required response after password login
 type TwoFactorLoginResponse struct {
 	Need2FA   bool   `json:"need2fa"`
 	TempToken string `json:"tempToken,omitempty"`
-	NeedSetup bool   `json:"needSetup,omitempty"`
 }
 
-// TwoFactorSetupResponse contains QR code URL for first-time TOTP setup
+// TwoFactorSetupResponse contains QR code URL for TOTP binding
 type TwoFactorSetupResponse struct {
 	QRCodeURL string `json:"qrCodeUrl"`
 	Secret    string `json:"secret"`
@@ -122,6 +126,12 @@ type TwoFactorSetupResponse struct {
 // TwoFactorVerifyRequest request body for 2FA verification
 type TwoFactorVerifyRequest struct {
 	Code string `json:"code" binding:"required"`
+}
+
+// TwoFactorEnableRequest 自助开启两步验证: secret 来自 setup 返回, code 为验证器当前验证码
+type TwoFactorEnableRequest struct {
+	Secret string `json:"secret" binding:"required"`
+	Code   string `json:"code" binding:"required"`
 }
 
 // TelegramBindCodeResponse 绑定码响应

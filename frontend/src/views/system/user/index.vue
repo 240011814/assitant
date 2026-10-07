@@ -49,6 +49,8 @@ const resetTarget = ref<Api.Admin.User | null>(null);
 const resetMode = ref<"random" | "specify">("random");
 const resetPassword = ref("");
 const resetting = ref(false);
+// 勾选后重置密码的同时清除该用户的两步验证 (TOTP), 用于用户丢失验证器
+const resetClear2FA = ref(false);
 // 随机生成的密码明文, 非空时弹窗切换为"仅显示一次"结果视图
 const resetResult = ref<string | null>(null);
 
@@ -340,6 +342,7 @@ function openReset(row: Api.Admin.User) {
   resetTarget.value = row;
   resetMode.value = "random";
   resetPassword.value = "";
+  resetClear2FA.value = false;
   resetResult.value = null;
   resetModalShow.value = true;
 }
@@ -362,6 +365,9 @@ async function handleResetPassword() {
       return;
     }
     payload.password = resetPassword.value;
+  }
+  if (resetClear2FA.value) {
+    payload.clear_2fa = true;
   }
   resetting.value = true;
   try {
@@ -736,6 +742,9 @@ onMounted(async () => {
             </NInput>
             <div class="text-xs text-gray-400">{{ $t("page.system.user.passwordStrengthHint") }}</div>
           </template>
+          <NCheckbox v-if="resetTarget?.twoFAEnabled" v-model:checked="resetClear2FA">
+            {{ $t("page.system.user.resetClear2FA") }}
+          </NCheckbox>
         </div>
       </template>
       <template v-else>

@@ -6,6 +6,8 @@ declare namespace Api {
       nickname: string;
       role: string;
       token_quota_month: number | null;
+      /** 两步验证 (TOTP) 是否已开启 */
+      twoFAEnabled: boolean;
       createdAt: string;
       updatedAt: string;
     }
@@ -39,9 +41,10 @@ declare namespace Api {
       token_quota_month?: number | null;
     }
 
-    /** 管理员重置用户密码: password 为空时由服务端生成随机密码 */
+    /** 管理员重置用户密码: password 为空时由服务端生成随机密码; clear_2fa 同时清除该用户两步验证 */
     interface ResetUserPasswordParams {
       password?: string;
+      clear_2fa?: boolean;
     }
 
     /** 重置密码响应: 仅随机生成时回传明文一次 */
@@ -55,6 +58,8 @@ declare namespace Api {
       nickname: string;
       email: string;
       role: string;
+      /** 两步验证 (TOTP) 是否已开启 */
+      twoFAEnabled: boolean;
       lastLoginAt: string | null;
       createdAt: string;
       updatedAt: string;

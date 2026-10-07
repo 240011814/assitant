@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"backend/config"
@@ -90,21 +91,16 @@ func (s *AuthService) Login(username, password, ip string) (*model.User, interfa
 	s.throttle.RecordSuccess(userKey)
 	s.throttle.RecordSuccess(ipKey)
 
-	// Check if 2FA is required for R_SUPER users
-	if user.Role == "R_SUPER" {
-		twoFAEnabled, _ := NewSystemConfigService().GetValue("admin_2fa_enabled")
-		if twoFAEnabled == "true" {
-			tempToken, err := s.generate2FATempToken(user)
-			if err != nil {
-				return nil, nil, errors.New("生成临时令牌失败")
-			}
-			needSetup := user.TotpSecret == nil
-			return &user, &model.TwoFactorLoginResponse{
-				Need2FA:   true,
-				TempToken: tempToken,
-				NeedSetup: needSetup,
-			}, nil
+	// 用户自助开启过两步验证 (TotpSecret 存在) 则登录需要验证码
+	if user.TotpSecret != nil && *user.TotpSecret != "" {
+		tempToken, err := s.generate2FATempToken(user)
+		if err != nil {
+			return nil, nil, errors.New("生成临时令牌失败")
 		}
+		return &user, &model.TwoFactorLoginResponse{
+			Need2FA:   true,
+			TempToken: tempToken,
+		}, nil
 	}
 
 	// Normal login (no 2FA)
@@ -243,14 +239,15 @@ func (s *AuthService) GetUserProfile(userId uint) (*model.UserProfileResponse, e
 	}
 
 	return &model.UserProfileResponse{
-		UserId:      user.ID,
-		UserName:    user.Username,
-		Nickname:    user.Nickname,
-		Email:       user.Email,
-		Role:        user.Role,
-		LastLoginAt: user.LastLoginAt,
-		CreatedAt:   user.CreatedAt,
-		UpdatedAt:   user.UpdatedAt,
+		UserId:       user.ID,
+		UserName:     user.Username,
+		Nickname:     user.Nickname,
+		Email:        user.Email,
+		Role:         user.Role,
+		TwoFAEnabled: user.TotpSecret != nil && *user.TotpSecret != "",
+		LastLoginAt:  user.LastLoginAt,
+		CreatedAt:    user.CreatedAt,
+		UpdatedAt:    user.UpdatedAt,
 	}, nil
 }
 
@@ -332,11 +329,14 @@ func (s *AuthService) Validate2FATempToken(tempTokenStr string) (uint, error) {
 	return uint(userId), nil
 }
 
-// SetupTOTP generates a TOTP secret and returns QR code URL
-func (s *AuthService) SetupTOTP(userId uint) (*model.TwoFactorSetupResponse, error) {
+// GenerateTOTPSetup 生成 TOTP 密钥用于自助绑定 (不落库, 由 EnableTOTP 验证码确认后保存)
+func (s *AuthService) GenerateTOTPSetup(userId uint) (*model.TwoFactorSetupResponse, error) {
 	var user model.User
 	if err := DB.First(&user, userId).Error; err != nil {
 		return nil, errors.New("用户不存在")
+	}
+	if user.TotpSecret != nil && *user.TotpSecret != "" {
+		return nil, errors.New("两步验证已开启, 如需重新绑定请先关闭")
 	}
 
 	key, err := totp.Generate(totp.GenerateOpts{
@@ -348,16 +348,55 @@ func (s *AuthService) SetupTOTP(userId uint) (*model.TwoFactorSetupResponse, err
 		return nil, errors.New("生成TOTP密钥失败")
 	}
 
-	secret := key.Secret()
-	result := DB.Model(&user).Update("totp_secret", secret)
-	if result.Error != nil {
-		return nil, errors.New("保存TOTP密钥失败")
-	}
-
 	return &model.TwoFactorSetupResponse{
 		QRCodeURL: key.URL(),
-		Secret:    secret,
+		Secret:    key.Secret(),
 	}, nil
+}
+
+// EnableTOTP 校验验证码后开启两步验证 (secret 来自 setup 返回, 服务端不暂存)
+func (s *AuthService) EnableTOTP(userId uint, secret, code string) error {
+	secret = strings.ToUpper(strings.TrimSpace(secret))
+	if secret == "" {
+		return errors.New("TOTP密钥不能为空")
+	}
+
+	var user model.User
+	if err := DB.First(&user, userId).Error; err != nil {
+		return errors.New("用户不存在")
+	}
+	if user.TotpSecret != nil && *user.TotpSecret != "" {
+		return errors.New("两步验证已开启, 如需重新绑定请先关闭")
+	}
+	if !totp.Validate(code, secret) {
+		return errors.New("验证码错误")
+	}
+
+	return DB.Model(&user).Update("totp_secret", secret).Error
+}
+
+// DisableTOTP 校验验证码后关闭两步验证
+func (s *AuthService) DisableTOTP(userId uint, code string) error {
+	// 6 位验证码可穷举, 按用户维度限流 (与登录验证共用计数)
+	uidKey := LoginThrottleKey("uid", fmt.Sprintf("%d", userId))
+	if !s.throttle.Allowed(uidKey) {
+		return errors.New("尝试次数过多, 已临时锁定, 请稍后再试")
+	}
+
+	var user model.User
+	if err := DB.First(&user, userId).Error; err != nil {
+		return errors.New("用户不存在")
+	}
+	if user.TotpSecret == nil || *user.TotpSecret == "" {
+		return errors.New("两步验证未开启")
+	}
+	if !totp.Validate(code, *user.TotpSecret) {
+		s.throttle.RecordFailure(uidKey)
+		return errors.New("验证码错误")
+	}
+	s.throttle.RecordSuccess(uidKey)
+
+	return DB.Model(&user).Update("totp_secret", nil).Error
 }
 
 // VerifyTOTP validates a TOTP code and returns real login tokens

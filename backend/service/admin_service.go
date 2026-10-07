@@ -49,6 +49,7 @@ func (s *AdminService) ListUsers(keyword, role string, page, pageSize int) ([]mo
 			Nickname:        user.Nickname,
 			Role:            user.Role,
 			TokenQuotaMonth: user.TokenQuotaMonth,
+			TwoFAEnabled:    user.TotpSecret != nil && *user.TotpSecret != "",
 			CreatedAt:       user.CreatedAt,
 			UpdatedAt:       user.UpdatedAt,
 		})
@@ -125,8 +126,9 @@ func (s *AdminService) UpdateUser(id uint, req model.UpdateUserRequest) error {
 	return nil
 }
 
-// ResetUserPassword 管理员重置用户密码; password 为空时生成随机密码并返回明文(仅此一次), 指定密码时返回空串
-func (s *AdminService) ResetUserPassword(id uint, password string) (string, error) {
+// ResetUserPassword 管理员重置用户密码; password 为空时生成随机密码并返回明文(仅此一次), 指定密码时返回空串;
+// clear2FA 为 true 时同时清空该用户的两步验证密钥 (TOTP)
+func (s *AdminService) ResetUserPassword(id uint, password string, clear2FA bool) (string, error) {
 	generated := ""
 	if password == "" {
 		var err error
@@ -143,7 +145,11 @@ func (s *AdminService) ResetUserPassword(id uint, password string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	result := DB.Model(&model.User{}).Where("id = ?", id).Update("password_hash", string(hash))
+	updates := map[string]interface{}{"password_hash": string(hash)}
+	if clear2FA {
+		updates["totp_secret"] = nil
+	}
+	result := DB.Model(&model.User{}).Where("id = ?", id).Updates(updates)
 	if result.Error != nil {
 		return "", result.Error
 	}

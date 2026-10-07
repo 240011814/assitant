@@ -27,7 +27,6 @@ export const useAuthStore = defineStore(SetupStoreId.Auth, () => {
 
   const twoFAState = reactive({
     need2FA: false,
-    needSetup: false,
     tempToken: ''
   });
 
@@ -80,7 +79,6 @@ export const useAuthStore = defineStore(SetupStoreId.Auth, () => {
 
     // Reset 2FA state
     twoFAState.need2FA = false;
-    twoFAState.needSetup = false;
     twoFAState.tempToken = '';
 
     proxyMode.value = false;
@@ -146,7 +144,6 @@ export const useAuthStore = defineStore(SetupStoreId.Auth, () => {
       // Check if 2FA is required
       if (loginResult && 'need2fa' in loginResult && (loginResult as any).need2fa) {
         twoFAState.need2FA = true;
-        twoFAState.needSetup = (loginResult as any).needSetup || false;
         twoFAState.tempToken = (loginResult as any).tempToken || '';
         localStg.set('temp2faToken', (loginResult as any).tempToken || '');
         endLoading();
@@ -236,7 +233,6 @@ export const useAuthStore = defineStore(SetupStoreId.Auth, () => {
 
   async function completeTwoFactorLogin(loginToken: Api.Auth.LoginToken) {
     twoFAState.need2FA = false;
-    twoFAState.needSetup = false;
     twoFAState.tempToken = '';
     localStg.remove('temp2faToken');
 

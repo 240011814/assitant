@@ -611,6 +611,7 @@ declare namespace App {
             generatedPasswordTip: string;
             copyPassword: string;
             copySuccess: string;
+            resetClear2FA: string;
           };
           permission: {
             title: string;
@@ -703,10 +704,6 @@ declare namespace App {
             registerDesc: string;
             registerEnabledMsg: string;
             registerDisabledMsg: string;
-            admin2fa: string;
-            admin2faDesc: string;
-            admin2faEnabledMsg: string;
-            admin2faDisabledMsg: string;
             telegram: string;
             telegramDesc: string;
             botToken: string;
@@ -799,7 +796,6 @@ declare namespace App {
             embeddingTestFailedWithReason: string;
             connectionSuccess: string;
             remarkRegister: string;
-            remarkAdmin2fa: string;
             remarkTelegramEnabled: string;
             remarkTelegramWebhook: string;
             remarkAiTimeout: string;
@@ -1485,6 +1481,10 @@ declare namespace App {
           telegramUnbindSuccess: string;
           telegramGenerateSuccess: string;
           telegramBotNotConfigured: string;
+          twoFAQrFailed: string;
+          twoFACodeRequired: string;
+          twoFAEnableSuccess: string;
+          twoFADisableSuccess: string;
         };
         cut: {
           name: string;

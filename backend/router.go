@@ -94,8 +94,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 		authGroup.POST("/refreshToken", api.HandleRefreshToken(authService))
 		authGroup.GET("/register-status", systemConfigHandler.GetRegisterStatus)
 
-		// 2FA endpoints (temp token in Authorization header, no full auth required)
-		authGroup.POST("/2fa/setup", api.Handle2FASetup(authService))
+		// 2FA verify (temp token in Authorization header, no full auth required)
 		authGroup.POST("/2fa/verify", api.Handle2FAVerify(authService))
 	}
 
@@ -107,6 +106,11 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 		apiGroup.GET("/user/profile", api.HandleGetUserProfile(authService))
 		apiGroup.PUT("/user/profile", api.HandleUpdateProfile(authService))
 		apiGroup.PUT("/user/password", api.HandleChangePassword(authService))
+
+		// User 2FA self-service (个人中心两步验证开关)
+		apiGroup.POST("/user/2fa/setup", api.HandleUser2FASetup(authService))
+		apiGroup.POST("/user/2fa/enable", api.HandleUser2FAEnable(authService))
+		apiGroup.POST("/user/2fa/disable", api.HandleUser2FADisable(authService))
 
 		// User Preferences
 		apiGroup.GET("/user/preferences/theme", userPrefHandler.GetThemePreference)

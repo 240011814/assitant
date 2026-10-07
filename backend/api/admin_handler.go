@@ -98,7 +98,7 @@ func (h *AdminHandler) HandleResetUserPassword(c *gin.Context) {
 		SendError(c, "400", "请求参数错误: "+err.Error())
 		return
 	}
-	generated, err := h.svc.ResetUserPassword(uint(id), req.Password)
+	generated, err := h.svc.ResetUserPassword(uint(id), req.Password, req.Clear2FA)
 	if err != nil {
 		SendError(c, "500", "重置密码失败: "+err.Error())
 		return

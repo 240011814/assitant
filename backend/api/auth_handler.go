@@ -241,28 +241,70 @@ func extractTempToken(c *gin.Context) string {
 	return ""
 }
 
-// Handle2FASetup generates TOTP secret and returns QR code URL
-func Handle2FASetup(authService *service.AuthService) gin.HandlerFunc {
+// HandleUser2FASetup 生成 TOTP 密钥用于自助绑定 (返回二维码 URL 与密钥, 不落库)
+func HandleUser2FASetup(authService *service.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		tempToken := extractTempToken(c)
-		if tempToken == "" {
-			SendError(c, "401", "缺少临时令牌")
+		userID := GetUserID(c)
+		if userID == 0 {
+			SendError(c, "401", "未登录")
 			return
 		}
 
-		userId, err := authService.Validate2FATempToken(tempToken)
-		if err != nil {
-			SendError(c, "401", err.Error())
-			return
-		}
-
-		res, err := authService.SetupTOTP(userId)
+		res, err := authService.GenerateTOTPSetup(userID)
 		if err != nil {
 			SendError(c, "500", err.Error())
 			return
 		}
 
 		SendSuccess(c, res)
+	}
+}
+
+// HandleUser2FAEnable 校验验证码后开启两步验证
+func HandleUser2FAEnable(authService *service.AuthService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := GetUserID(c)
+		if userID == 0 {
+			SendError(c, "401", "未登录")
+			return
+		}
+
+		var req model.TwoFactorEnableRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			SendError(c, "400", "请求参数错误: "+err.Error())
+			return
+		}
+
+		if err := authService.EnableTOTP(userID, req.Secret, req.Code); err != nil {
+			SendError(c, "500", err.Error())
+			return
+		}
+
+		SendSuccess(c, nil)
+	}
+}
+
+// HandleUser2FADisable 校验验证码后关闭两步验证
+func HandleUser2FADisable(authService *service.AuthService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := GetUserID(c)
+		if userID == 0 {
+			SendError(c, "401", "未登录")
+			return
+		}
+
+		var req model.TwoFactorVerifyRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			SendError(c, "400", "请求参数错误: "+err.Error())
+			return
+		}
+
+		if err := authService.DisableTOTP(userID, req.Code); err != nil {
+			SendError(c, "500", err.Error())
+			return
+		}
+
+		SendSuccess(c, nil)
 	}
 }
 

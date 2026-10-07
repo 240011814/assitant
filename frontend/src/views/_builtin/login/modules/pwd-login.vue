@@ -5,7 +5,7 @@ import { useAuthStore } from "@/store/modules/auth";
 import { useRouterPush } from "@/hooks/common/router";
 import { useFormRules, useNaiveForm } from "@/hooks/common/form";
 import { $t } from "@/locales";
-import { fetchTwoFactorSetup, fetchTwoFactorVerify, fetchRegisterStatus } from "@/service/api";
+import { fetchTwoFactorVerify, fetchRegisterStatus } from "@/service/api";
 
 defineOptions({
   name: "PwdLogin",
@@ -64,28 +64,12 @@ async function handleSubmit() {
   await authStore.login(model.userName, model.password);
 }
 
-// 2FA state
+// 2FA state (两步验证在个人中心自助绑定, 登录时仅需输入验证码)
 const twoFAForm = reactive({
   code: ""
 });
-const qrCodeUrl = ref("");
-const totpSecret = ref("");
 const twoFALoading = ref(false);
 const twoFAError = ref("");
-
-async function loadQRCode() {
-  const tempToken = authStore.twoFAState.tempToken;
-  if (!tempToken) return;
-  try {
-    const { data, error } = await fetchTwoFactorSetup(tempToken);
-    if (!error && data) {
-      qrCodeUrl.value = data.qrCodeUrl;
-      totpSecret.value = data.secret;
-    }
-  } catch {
-    twoFAError.value = "加载二维码失败";
-  }
-}
 
 async function handleTwoFASubmit() {
   if (!twoFAForm.code || twoFAForm.code.length !== 6) {
@@ -109,19 +93,9 @@ async function handleTwoFASubmit() {
   }
 }
 
-watch(
-  () => authStore.twoFAState.needSetup,
-  needSetup => {
-    if (needSetup) loadQRCode();
-  },
-  { immediate: true }
-);
-
 function handleBackToLogin() {
   // Reset local state
   show2FA.value = false;
-  qrCodeUrl.value = "";
-  totpSecret.value = "";
   twoFAForm.code = "";
   twoFAError.value = "";
   twoFALoading.value = false;
@@ -132,36 +106,10 @@ function handleBackToLogin() {
 
 <template>
   <div>
-    <!-- 2FA Setup or Verify UI -->
+    <!-- 2FA Verify UI -->
     <div v-if="show2FA" class="space-y-4">
-      <!-- QR Code Setup (first time) -->
-      <div v-if="authStore.twoFAState.needSetup" class="space-y-4">
-        <div class="text-center">
-          <div class="text-lg font-bold mb-2">设置身份验证器</div>
-          <div class="text-sm text-gray-500 mb-4">
-            请使用 Google Authenticator 或其他 TOTP 应用扫描下方二维码
-          </div>
-        </div>
-        <!-- QR Code Display -->
-        <div class="flex justify-center">
-          <div v-if="qrCodeUrl" class="p-4 bg-white rounded-lg">
-            <img
-              :src="`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrCodeUrl)}`"
-              alt="2FA QR Code"
-              class="w-[200px] h-[200px]"
-            />
-          </div>
-          <NSpin v-else />
-        </div>
-        <!-- Manual secret display -->
-        <div v-if="totpSecret" class="text-center text-xs text-gray-400">
-          无法扫描？手动输入密钥：<code class="font-mono">{{ totpSecret }}</code>
-        </div>
-      </div>
-
-      <!-- Verify code (both setup and normal) -->
       <div class="space-y-4">
-        <div v-if="!authStore.twoFAState.needSetup" class="text-center">
+        <div class="text-center">
           <div class="text-lg font-bold mb-2">身份验证</div>
           <div class="text-sm text-gray-500">请输入身份验证器应用中的6位验证码</div>
         </div>

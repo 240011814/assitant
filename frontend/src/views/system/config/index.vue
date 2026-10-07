@@ -9,7 +9,6 @@ defineOptions({ name: "SystemConfig" });
 const message = useMessage();
 const loading = ref(false);
 const savingRegister = ref(false);
-const saving2fa = ref(false);
 const savingTelegram = ref(false);
 const savingTimeout = ref(false);
 const savingSmtp = ref(false);
@@ -17,7 +16,6 @@ const sendingTestEmail = ref(false);
 const showTestEmailModal = ref(false);
 const testEmailForm = ref({ email: "", subject: "", content: "" });
 const registerEnabled = ref(false);
-const admin2faEnabled = ref(false);
 const telegramEnabled = ref(true);
 const telegramBotToken = ref("");
 const showTelegramToken = ref(false);
@@ -71,9 +69,6 @@ async function loadConfig() {
     if (data) {
       const registerConfig = data.find((c: any) => c.key === "register_enabled");
       registerEnabled.value = registerConfig?.value === "true";
-
-      const admin2faConfig = data.find((c: any) => c.key === "admin_2fa_enabled");
-      admin2faEnabled.value = admin2faConfig?.value === "true";
 
       const telegramEnabledConfig = data.find((c: any) => c.key === "telegram_enabled");
       telegramEnabled.value = telegramEnabledConfig?.value !== "false";
@@ -217,23 +212,6 @@ async function handleToggleRegister(val: boolean) {
     message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     savingRegister.value = false;
-  }
-}
-
-async function handleToggleAdmin2FA(val: boolean) {
-  saving2fa.value = true;
-  try {
-    await saveConfig(
-      "admin_2fa_enabled",
-      val ? "true" : "false",
-      $t("page.system.config.remarkAdmin2fa")
-    );
-    message.success(val ? $t("page.system.config.admin2faEnabledMsg") : $t("page.system.config.admin2faDisabledMsg"));
-  } catch (err: any) {
-    admin2faEnabled.value = !val;
-    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
-  } finally {
-    saving2fa.value = false;
   }
 }
 
@@ -534,28 +512,6 @@ onMounted(() => {
               v-model:value="registerEnabled"
               :loading="savingRegister"
               @update:value="handleToggleRegister"
-            >
-              <template #checked>{{ $t("page.system.config.on") }}</template>
-              <template #unchecked>{{ $t("page.system.config.off") }}</template>
-            </NSwitch>
-          </div>
-
-          <!-- Admin 2FA 开关 -->
-          <div
-            class="flex items-center justify-between p-4 rounded-lg border border-gray-200 dark:border-gray-700"
-          >
-            <div>
-              <div class="font-bold text-gray-800 dark:text-gray-200">
-                {{ $t("page.system.config.admin2fa") }}
-              </div>
-              <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {{ $t("page.system.config.admin2faDesc") }}
-              </div>
-            </div>
-            <NSwitch
-              v-model:value="admin2faEnabled"
-              :loading="saving2fa"
-              @update:value="handleToggleAdmin2FA"
             >
               <template #checked>{{ $t("page.system.config.on") }}</template>
               <template #unchecked>{{ $t("page.system.config.off") }}</template>

@@ -2,7 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue';
 import { useMessage } from 'naive-ui';
 import type { FormInst, FormRules } from 'naive-ui';
-import { fetchChangePassword, fetchGetUserProfile, fetchUpdateProfile, fetchGetTelegramConfig, fetchGetTelegramStatus, fetchGenerateTelegramBindCode, fetchUnbindTelegram, fetchGetNotificationPreference, fetchSaveNotificationPreference } from '@/service/api';
+import { fetchChangePassword, fetchGetUserProfile, fetchUpdateProfile, fetchGetTelegramConfig, fetchGetTelegramStatus, fetchGenerateTelegramBindCode, fetchUnbindTelegram, fetchGetNotificationPreference, fetchSaveNotificationPreference, fetchUser2FASetup, fetchUser2FAEnable, fetchUser2FADisable } from '@/service/api';
 import { useAuthStore } from '@/store/modules/auth';
 import { $t } from '@/locales';
 import AppearanceSettings from '@/layouts/modules/theme-drawer/modules/appearance/index.vue';
@@ -13,6 +13,7 @@ import ConfigOperation from '@/layouts/modules/theme-drawer/modules/config-opera
 import { useClipboard } from '@vueuse/core';
 import { useEcharts } from '@/hooks/common/echarts';
 import { fetchMyTokenUsage } from '@/service/api';
+import QRCode from 'qrcode';
 
 defineOptions({ name: 'UserProfile' });
 
@@ -257,6 +258,80 @@ async function handleSaveNotificationPreference() {
   savingNotification.value = false;
 }
 
+// ---------- 两步验证 (TOTP 自助开关) ----------
+const twoFAEnabled = computed(() => profile.value?.twoFAEnabled ?? false);
+const twoFASwitching = ref(false);
+const twoFASetupShow = ref(false);
+const twoFASetupInfo = ref<Api.Auth.TwoFactorSetupInfo | null>(null);
+const twoFAQrDataUrl = ref('');
+const twoFACode = ref('');
+const twoFASubmitting = ref(false);
+const twoFADisableShow = ref(false);
+
+/** 开关被点击: 开启进入绑定流程, 关闭要求验证码确认 */
+function handleTwoFASwitch(active: boolean) {
+  twoFACode.value = '';
+  if (active) {
+    openTwoFASetup();
+  } else {
+    twoFADisableShow.value = true;
+  }
+}
+
+async function openTwoFASetup() {
+  twoFASwitching.value = true;
+  try {
+    const { data, error } = await fetchUser2FASetup();
+    if (error || !data) return;
+    twoFASetupInfo.value = data;
+    // 本地生成二维码, 含密钥的 otpauth URL 不发给第三方服务
+    twoFAQrDataUrl.value = await QRCode.toDataURL(data.qrCodeUrl, { width: 200, margin: 1 });
+    twoFASetupShow.value = true;
+  } catch (e) {
+    console.error('generate 2fa qr failed', e);
+    message.error($t('page.userProfile.twoFAQrFailed'));
+  } finally {
+    twoFASwitching.value = false;
+  }
+}
+
+async function handleTwoFAEnable() {
+  if (!twoFASetupInfo.value) return;
+  if (!twoFACode.value || twoFACode.value.length !== 6) {
+    message.error($t('page.userProfile.twoFACodeRequired'));
+    return;
+  }
+  twoFASubmitting.value = true;
+  try {
+    const { error } = await fetchUser2FAEnable(twoFASetupInfo.value.secret, twoFACode.value);
+    if (error) return;
+    message.success($t('page.userProfile.twoFAEnableSuccess'));
+    twoFASetupShow.value = false;
+    twoFASetupInfo.value = null;
+    twoFAQrDataUrl.value = '';
+    await loadProfile();
+  } finally {
+    twoFASubmitting.value = false;
+  }
+}
+
+async function handleTwoFADisable() {
+  if (!twoFACode.value || twoFACode.value.length !== 6) {
+    message.error($t('page.userProfile.twoFACodeRequired'));
+    return;
+  }
+  twoFASubmitting.value = true;
+  try {
+    const { error } = await fetchUser2FADisable(twoFACode.value);
+    if (error) return;
+    message.success($t('page.userProfile.twoFADisableSuccess'));
+    twoFADisableShow.value = false;
+    await loadProfile();
+  } finally {
+    twoFASubmitting.value = false;
+  }
+}
+
 // Load profile, telegram config and notification preference on mount
 loadProfile();
 loadTelegramConfig();
@@ -390,6 +465,28 @@ loadNotificationPreference();
                     {{ $t('page.userProfile.changePassword') }}
                   </NButton>
                 </div>
+              </div>
+            </NTabPane>
+
+            <NTabPane name="security" tab="两步验证">
+              <div class="max-w-600px py-4">
+                <NCard title="两步验证 (TOTP)">
+                  <div class="space-y-4">
+                    <NAlert type="info">
+                      开启后，登录除密码外还需输入身份验证器应用的 6 位验证码。请使用 Google
+                      Authenticator 等 TOTP 应用绑定。
+                    </NAlert>
+                    <div class="flex items-center justify-between">
+                      <div>
+                        <div class="font-medium">身份验证器应用</div>
+                        <div class="text-12px text-gray-500">
+                          {{ twoFAEnabled ? '已开启：登录时需要输入验证码' : '未开启：仅凭密码即可登录' }}
+                        </div>
+                      </div>
+                      <NSwitch :value="twoFAEnabled" :loading="twoFASwitching" @update:value="handleTwoFASwitch" />
+                    </div>
+                  </div>
+                </NCard>
               </div>
             </NTabPane>
 
@@ -631,6 +728,59 @@ loadNotificationPreference();
         </NCard>
       </div>
     </NSpin>
+
+    <!-- 两步验证: 开启弹窗 (扫码 + 验证码确认) -->
+    <NModal v-model:show="twoFASetupShow" preset="card" title="开启两步验证" :style="{ width: '420px' }">
+      <div class="space-y-4">
+        <div class="text-sm text-gray-500 text-center">
+          使用 TOTP 应用扫描二维码，或手动输入密钥
+        </div>
+        <div class="flex justify-center">
+          <div v-if="twoFAQrDataUrl" class="p-3 bg-white rounded-lg border border-gray-200">
+            <img :src="twoFAQrDataUrl" alt="TOTP QR Code" class="w-[200px] h-[200px]" />
+          </div>
+          <NSpin v-else class="p-3" />
+        </div>
+        <div v-if="twoFASetupInfo" class="text-center text-xs text-gray-400">
+          无法扫描？手动输入密钥：<code class="font-mono">{{ twoFASetupInfo.secret }}</code>
+        </div>
+        <NInput
+          v-model:value="twoFACode"
+          placeholder="输入应用中的6位验证码"
+          maxlength="6"
+          @keyup.enter="handleTwoFAEnable"
+        />
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <NButton @click="twoFASetupShow = false">{{ $t('common.cancel') }}</NButton>
+          <NButton type="primary" :loading="twoFASubmitting" @click="handleTwoFAEnable">
+            {{ $t('common.confirm') }}
+          </NButton>
+        </div>
+      </template>
+    </NModal>
+
+    <!-- 两步验证: 关闭弹窗 (验证码确认) -->
+    <NModal v-model:show="twoFADisableShow" preset="card" title="关闭两步验证" :style="{ width: '420px' }">
+      <div class="space-y-4">
+        <NAlert type="warning">关闭后登录将不再要求验证码，请输入身份验证器应用中的当前验证码确认。</NAlert>
+        <NInput
+          v-model:value="twoFACode"
+          placeholder="输入应用中的6位验证码"
+          maxlength="6"
+          @keyup.enter="handleTwoFADisable"
+        />
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <NButton @click="twoFADisableShow = false">{{ $t('common.cancel') }}</NButton>
+          <NButton type="error" :loading="twoFASubmitting" @click="handleTwoFADisable">
+            确认关闭
+          </NButton>
+        </div>
+      </template>
+    </NModal>
   </div>
 </template>
 
