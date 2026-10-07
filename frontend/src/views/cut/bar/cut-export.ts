@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import { canvasToBlob, downloadBlob, formatFileTimestamp, printBlobUrl } from '@/utils/cut-export';
+import { canvasToBlob, downloadBlob, formatFileTimestamp } from '@/utils/cut-export';
 
 /**
  * 一维切割示意图绘制与导出
@@ -404,12 +404,4 @@ export function buildBarCutPDF(results: BarRow[], summary?: Api.Cut.BarSummary |
 /** 导出切割示意图 PDF (横向 A4, 单根料不跨页) */
 export async function exportBarCutPDF(results: BarRow[], summary?: Api.Cut.BarSummary | null): Promise<void> {
   buildBarCutPDF(results, summary).save(`切割图-${formatFileTimestamp()}.pdf`);
-}
-
-/** 直接打印切割示意图 (PDF autoPrint, 新窗口打开后自动弹出打印对话框) */
-export async function printBarCut(results: BarRow[], summary?: Api.Cut.BarSummary | null): Promise<boolean> {
-  const pdf = buildBarCutPDF(results, summary);
-  pdf.autoPrint();
-  const blobUrl = pdf.output('bloburl');
-  return printBlobUrl(String(blobUrl));
 }

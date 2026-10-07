@@ -1625,6 +1625,15 @@ func (s *CutService) DeleteScrap(userID, id uint) error {
 	return nil
 }
 
+// BatchDeleteScraps 批量删除库存余料 (仅本人, 返回实际删除条数)
+func (s *CutService) BatchDeleteScraps(userID uint, ids []uint) (int64, error) {
+	result := DB.Where("user_id = ? AND id IN ?", userID, ids).Delete(&model.CutScrap{})
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return result.RowsAffected, nil
+}
+
 // DeductScraps 批量扣减库存余料 (一维, quantity -= count, 归零自动删除); 库存不足报错整体回滚
 func (s *CutService) DeductScraps(userID uint, items []model.DeductScrapItem) error {
 	return DB.Transaction(func(tx *gorm.DB) error {

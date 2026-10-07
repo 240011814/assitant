@@ -115,6 +115,22 @@ func (h *CutHandler) HandleDeleteScrap(c *gin.Context) {
 	SendSuccess(c, nil)
 }
 
+// HandleBatchDeleteScraps 批量删除库存余料
+func (h *CutHandler) HandleBatchDeleteScraps(c *gin.Context) {
+	userID := GetUserID(c)
+	var req model.BatchDeleteScrapsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请求参数错误: "+err.Error())
+		return
+	}
+	deleted, err := h.svc.BatchDeleteScraps(userID, req.IDs)
+	if err != nil {
+		SendError(c, "500", "批量删除余料失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, gin.H{"deleted": deleted})
+}
+
 // HandleAddRecord 添加切割记录
 func (h *CutHandler) HandleAddRecord(c *gin.Context) {
 	userID := GetUserID(c)

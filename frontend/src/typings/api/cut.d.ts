@@ -170,6 +170,11 @@ declare namespace Api {
       note: string;
     }
 
+    /** 批量删除库存余料 */
+    interface BatchDeleteCutScrapRequest {
+      ids: number[];
+    }
+
     interface Item {
       label: string;
       width: number;

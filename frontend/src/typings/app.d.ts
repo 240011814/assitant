@@ -1532,8 +1532,6 @@ declare namespace App {
           reasonExhausted: string;
           /** 旧料库/余料入库 */
           scrapLibrary: string;
-          scrapStockIn: string;
-          scrapStockedIn: string;
           scrapStockInSuccess: string;
           scrapFromCutting: string;
           scrapApplied: string;

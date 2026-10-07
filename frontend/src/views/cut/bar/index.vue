@@ -2,9 +2,9 @@
 import { computed, h, onMounted, onUnmounted, ref } from 'vue';
 import { NButton, NGi, NGrid, NInput, NInputNumber, NModal, NSelect, NSpin, NStatistic, NTooltip, useMessage } from 'naive-ui';
 import { $t } from '@/locales';
-import { addCutScraps, cutBar, fetchCutScraps } from '@/service/api';
+import { cutBar, fetchCutScraps } from '@/service/api';
 import ScrapLibraryModal from '@/components/cut/ScrapLibraryModal.vue';
-import { exportBarCutPDF, exportBarCutPNG, printBarCut } from './cut-export';
+import { exportBarCutPDF, exportBarCutPNG } from './cut-export';
 
 interface NewMaterialRow {
   label: string;
@@ -52,16 +52,9 @@ const saveData = ref<Api.Cut.RecordRequest | null>(null);
 const canvasWrapper = ref<HTMLDivElement | null>(null);
 const containerWidth = ref(800); // 动态容器宽度
 
-// 余料入库 / 旧料库 / 导出 / 打印状态
+// 旧料库 / 导出状态
 const scrapModalShow = ref(false);
-const scrapStocking = ref(false);
-const scrapStockedIn = ref(false);
 const exporting = ref<'png' | 'pdf' | null>(null);
-const printing = ref(false);
-
-const canStockIn = computed(
-  () => (summaryData.value?.scrapCount ?? 0) > 0 && (cutResult.value ?? []).some(item => item.remaining > 0)
-);
 
 function fmtLen(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
@@ -204,7 +197,6 @@ function clearAll() {
   cutResult.value = null;
   summaryData.value = null;
   saveData.value = null;
-  scrapStockedIn.value = false;
   itemType.value = null;
   matLabel.value = null;
 }
@@ -289,7 +281,6 @@ async function fetchData() {
     if (error || !data) return;
     cutResult.value = data.results;
     summaryData.value = data.summary;
-    scrapStockedIn.value = false;
     saveData.value = {
       type: '1',
       request: JSON.stringify({ rowItems: itemsData.value, rowMaterials: materialsData.value, ...request }),
@@ -326,29 +317,6 @@ function collectDeductScraps(): Array<{ id: number; count: number }> {
     consumedPool.set(key, pool - take);
   }
   return Array.from(out.entries()).map(([id, count]) => ({ id, count }));
-}
-
-// 余料一键入库: remaining>0 的每根料登记为一维余料; 材料类型取该根料的来源类型 (新料规格名/旧料类型名)
-async function stockInScraps() {
-  const scrapRows = (cutResult.value ?? []).filter(item => item.remaining > 0);
-  if (scrapRows.length === 0) return;
-  scrapStocking.value = true;
-  try {
-    const { error } = await addCutScraps(
-      scrapRows.map(item => ({
-        scrapType: 1 as const,
-        materialType: item.materialType?.trim() || undefined,
-        lengthValue: item.remaining,
-        quantity: 1,
-        note: $t('page.cut.scrapFromCutting')
-      }))
-    );
-    if (error) return;
-    scrapStockedIn.value = true;
-    message.success($t('page.cut.scrapStockInSuccess', { count: scrapRows.length }));
-  } finally {
-    scrapStocking.value = false;
-  }
 }
 
 // 旧料库带入表单: 库存条目转材料行(保留类型名)
@@ -430,23 +398,6 @@ async function exportPDF() {
     message.error($t('page.cut.exportFailed'));
   } finally {
     exporting.value = null;
-  }
-}
-
-// 直接打印切割图 (PDF autoPrint, 横向 A4 按页渲染)
-async function printChart() {
-  if (!cutResult.value?.length) return;
-  printing.value = true;
-  try {
-    const opened = await printBarCut(processedResult.value, summaryData.value);
-    if (!opened) {
-      message.warning($t('page.cut.allowPopup'));
-    }
-  } catch (e) {
-    console.error(e);
-    message.error($t('page.cut.exportFailed'));
-  } finally {
-    printing.value = false;
   }
 }
 
@@ -596,30 +547,18 @@ onUnmounted(() => {
       </div>
     </NCard>
 
-    <!-- 结果统计: 汇总卡片 + 余料入库 + 导出 -->
+    <!-- 结果统计: 汇总卡片 + 导出 -->
     <NCard v-if="summaryData" size="large" class="mb-4">
       <template #header>
         {{ $t('page.cut.summaryTitle') }}
       </template>
       <template #header-extra>
         <div class="flex items-center gap-2">
-          <NButton
-            size="small"
-            type="success"
-            :loading="scrapStocking"
-            :disabled="!canStockIn || scrapStockedIn"
-            @click="stockInScraps"
-          >
-            {{ scrapStockedIn ? $t('page.cut.scrapStockedIn') : $t('page.cut.scrapStockIn') }}
-          </NButton>
           <NButton size="small" secondary type="primary" :loading="exporting === 'png'" @click="exportPNG">
             {{ $t('page.cut.exportPng') }}
           </NButton>
           <NButton size="small" secondary type="primary" :loading="exporting === 'pdf'" @click="exportPDF">
             {{ $t('page.cut.exportPdf') }}
-          </NButton>
-          <NButton size="small" secondary type="primary" :loading="printing" @click="printChart">
-            {{ $t('page.cut.printChart') }}
           </NButton>
         </div>
       </template>

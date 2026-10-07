@@ -1490,8 +1490,6 @@ const local: App.I18n.Schema = {
       reasonOversized: "超过材料尺寸",
       reasonExhausted: "材料已用完",
       scrapLibrary: "旧料库",
-      scrapStockIn: "余料入库",
-      scrapStockedIn: "已入库",
       scrapStockInSuccess: "成功入库 {count} 根余料",
       scrapFromCutting: "切割余料",
       scrapApplied: "已带入 {count} 条库存",

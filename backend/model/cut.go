@@ -141,6 +141,11 @@ type UpdateScrapRequest struct {
 	Note         string `json:"note"`
 }
 
+// BatchDeleteScrapsRequest 批量删除库存余料
+type BatchDeleteScrapsRequest struct {
+	IDs []uint `json:"ids" binding:"required,min=1,max=200"`
+}
+
 // PlaneSummary 平面切割汇总
 type PlaneSummary struct {
 	BinCount      int     `json:"binCount"`      // 用料总数 (旧料 + 新板材)

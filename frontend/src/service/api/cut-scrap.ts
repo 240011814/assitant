@@ -27,11 +27,20 @@ export function deleteCutScrap(id: number) {
 }
 
 
-/** 修改库存余料 (数量/名称/备注) */
+/** 修改库存余料 (数量/名称/材料类型/备注) */
 export function updateCutScrap(id: number, data: Api.Cut.UpdateCutScrapRequest) {
   return request<null>({
     url: `/api/cut/scraps/${id}`,
     method: 'put',
+    data
+  });
+}
+
+/** 批量删除库存余料 (返回实际删除条数) */
+export function batchDeleteCutScraps(data: Api.Cut.BatchDeleteCutScrapRequest) {
+  return request<{ deleted: number }>({
+    url: '/api/cut/scraps/batch-delete',
+    method: 'post',
     data
   });
 }

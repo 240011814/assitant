@@ -35,6 +35,11 @@ const summary = computed(() => {
   };
 });
 
+// 段宽占比(%), 低于阈值不直标尺寸(过窄会溢出), 靠下方切割顺序行补充
+function segPercent(value: number, totalLength: number): number {
+  return totalLength > 0 ? (value / totalLength) * 100 : 0;
+}
+
 function printResult() {
   if (!printArea.value) return;
 
@@ -49,9 +54,22 @@ function printResult() {
           body { font-family: Arial, sans-serif; }
           table { width: 100%; border-collapse: collapse; }
           th, td { border: 1px solid #000; padding: 4px; text-align: center; }
-          .bar-container { display: grid; grid-auto-flow: column; width: 100%; height: 20px; }
-          .bar-segment { border: 1px solid #fff; text-align: center; font-size: 10px; color: white; overflow: hidden; }
-          .bar-remaining { background-color: #ccc; color: black; }
+          .bar-container { display: grid; grid-auto-flow: column; width: 100%; height: 24px; }
+          .bar-segment {
+            border-right: 2px solid #1f2937;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 11px; font-weight: bold; color: #fff;
+            text-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+            overflow: hidden;
+            -webkit-print-color-adjust: exact; print-color-adjust: exact;
+          }
+          .bar-remaining {
+            background-color: #d1d5db; color: #111827;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 11px; overflow: hidden;
+            -webkit-print-color-adjust: exact; print-color-adjust: exact;
+          }
+          .cut-seq { margin-top: 2px; font-size: 10px; color: #374151; text-align: left; }
           .hidden-print { display: block !important; }
         </style>
       </head>
@@ -95,13 +113,13 @@ function printResult() {
             <td>{{ item.totalLength }}</td>
             <td>{{ item.used }}</td>
             <td>{{ item.remaining }}</td>
-            <td colspan="4">
+            <td>
               <div
                 class="bar-container"
                 :style="{
                   gridTemplateColumns: [
-                    ...item.cuts.map(c => (c / item.totalLength) * 100 + '%'),
-                    item.remaining > 0 ? (item.remaining / item.totalLength) * 100 + '%' : ''
+                    ...item.cuts.map(c => `${segPercent(Number(c), item.totalLength)}%`),
+                    ...(item.remaining > 0 ? [`${segPercent(item.remaining, item.totalLength)}%`] : [])
                   ].join(' ')
                 }"
               >
@@ -109,10 +127,16 @@ function printResult() {
                   v-for="(cut, idx) in item.cuts"
                   :key="idx"
                   class="bar-segment"
-                  :style="{ backgroundColor: randomColors[idx % randomColors.length] }"
+                  :style="{ backgroundColor: randomColors[Number(idx) % randomColors.length] }"
                 >
-                  {{ cut }}cm
+                  <span v-if="segPercent(Number(cut), item.totalLength) >= 8">{{ cut }}</span>
                 </div>
+                <div v-if="item.remaining > 0" class="bar-remaining">
+                  <span v-if="segPercent(item.remaining, item.totalLength) >= 8">余{{ item.remaining }}</span>
+                </div>
+              </div>
+              <div class="cut-seq">
+                切割顺序: {{ item.cuts.join(' + ') }}{{ item.remaining > 0 ? ` | 余料 ${item.remaining}cm` : '' }}
               </div>
             </td>
           </tr>
@@ -136,6 +160,43 @@ function printResult() {
 .bar-table {
   width: 100%;
   border-collapse: collapse;
+}
+
+/* 与 printResult 写入打印窗口的样式保持一致, 页面直接 Ctrl+P 时同样生效 */
+.bar-container {
+  display: grid;
+  grid-auto-flow: column;
+  width: 100%;
+  height: 24px;
+}
+
+.bar-segment {
+  border-right: 2px solid #1f2937;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: bold;
+  color: #fff;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.bar-remaining {
+  background-color: #d1d5db;
+  color: #111827;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  overflow: hidden;
+}
+
+.cut-seq {
+  margin-top: 2px;
+  font-size: 10px;
+  color: #374151;
+  text-align: left;
 }
 
 @media print {

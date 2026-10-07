@@ -254,6 +254,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			cutGroup.POST("/scraps", api.RequirePermission("cut:record:create"), cutHandler.HandleAddScraps)
 			cutGroup.PUT("/scraps/:id", api.RequirePermission("cut:record:create"), cutHandler.HandleUpdateScrap)
 			cutGroup.DELETE("/scraps/:id", api.RequirePermission("cut:record:delete"), cutHandler.HandleDeleteScrap)
+			cutGroup.POST("/scraps/batch-delete", api.RequirePermission("cut:record:delete"), cutHandler.HandleBatchDeleteScraps)
 		}
 
 		cutRecordGroup := apiGroup.Group("/cutRecord")

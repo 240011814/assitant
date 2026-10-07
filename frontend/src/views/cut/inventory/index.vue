@@ -2,12 +2,15 @@
 import { h, onMounted, ref, computed } from 'vue';
 import { NButton, NCard, NDataTable, NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NTag, useMessage } from 'naive-ui';
 import type { DataTableColumns, FormInst, FormRules } from 'naive-ui';
-import { addCutScraps, deleteCutScrap, fetchCutScraps, updateCutScrap } from '@/service/api';
+import { addCutScraps, batchDeleteCutScraps, deleteCutScrap, fetchCutScraps, updateCutScrap } from '@/service/api';
 
 const message = useMessage();
 
 const loading = ref(false);
 const data = ref<Api.Cut.CutScrap[]>([]);
+// 勾选行 (批量操作)
+const checkedKeys = ref<number[]>([]);
+const batchDeleting = ref(false);
 
 const searchType = ref<0 | 1 | 2>(0);
 const searchLabel = ref('');
@@ -27,6 +30,7 @@ const filteredData = computed(() =>
 );
 
 const columns = computed<DataTableColumns<Api.Cut.CutScrap>>(() => [
+  { type: 'selection' },
   {
     key: 'scrapType',
     title: '类型',
@@ -112,9 +116,27 @@ async function getData() {
     const { data: res, error } = await fetchCutScraps(params);
     if (!error && res) {
       data.value = res;
+      // 清掉已不在列表里的勾选, 避免批量操作计数虚高
+      const idSet = new Set(res.map(row => row.id));
+      checkedKeys.value = checkedKeys.value.filter(id => idSet.has(id));
     }
   } finally {
     loading.value = false;
+  }
+}
+
+// 批量删除勾选的库存条目
+async function batchRemove() {
+  if (checkedKeys.value.length === 0) return;
+  batchDeleting.value = true;
+  try {
+    const { data, error } = await batchDeleteCutScraps({ ids: checkedKeys.value });
+    if (error) return;
+    message.success(`已删除 ${data?.deleted ?? checkedKeys.value.length} 条库存`);
+    checkedKeys.value = [];
+    getData();
+  } finally {
+    batchDeleting.value = false;
   }
 }
 
@@ -228,10 +250,26 @@ onMounted(() => {
             <NSelect v-model:value="searchType" :options="typeOptions" style="width: 140px" @update:value="getData" />
             <NInput v-model:value="searchLabel" placeholder="按名称筛选" clearable style="width: 180px" />
           </div>
-          <NButton type="primary" @click="openAdd">新增余料</NButton>
+          <div class="flex gap-2 items-center">
+            <NPopconfirm @positive-click="batchRemove">
+              <template #trigger>
+                <NButton
+                  type="error"
+                  ghost
+                  :disabled="checkedKeys.length === 0"
+                  :loading="batchDeleting"
+                >
+                  批量删除{{ checkedKeys.length > 0 ? `(${checkedKeys.length})` : '' }}
+                </NButton>
+              </template>
+              确认删除选中的 {{ checkedKeys.length }} 条库存?
+            </NPopconfirm>
+            <NButton type="primary" @click="openAdd">新增余料</NButton>
+          </div>
         </div>
 
         <NDataTable
+          v-model:checked-row-keys="checkedKeys"
           :columns="columns"
           :data="filteredData"
           :loading="loading"

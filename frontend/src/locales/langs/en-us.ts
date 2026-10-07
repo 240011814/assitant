@@ -1498,8 +1498,6 @@ const local: App.I18n.Schema = {
       reasonOversized: "Oversized for materials",
       reasonExhausted: "Materials exhausted",
       scrapLibrary: "Scrap Inventory",
-      scrapStockIn: "Stock Scrap",
-      scrapStockedIn: "Stocked",
       scrapStockInSuccess: "{count} scrap bar(s) stocked in",
       scrapFromCutting: "Cutting scrap",
       scrapApplied: "{count} inventory item(s) applied",
