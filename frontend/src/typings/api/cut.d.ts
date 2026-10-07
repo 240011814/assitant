@@ -67,6 +67,8 @@ declare namespace Api {
       fit?: ProductFit;
       /** 是否计算玻璃压条 (固定格与开启扇均出压条件) */
       bead?: boolean;
+      /** 压条规格 (压条不与框共享型材; 空 = 行标签只有 "压条") */
+      beadSeries?: string;
       count: number;
       grid: WindowGridSpec;
     }

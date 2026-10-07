@@ -288,8 +288,9 @@ export function mergePieces(pieces: PieceDraft[]): PieceDraft[] {
   return [...map.values()];
 }
 
-/** 导入切割行: 一批产品的切割件 × 数量, 按 (部件族+系列, 长度) 合并;
- * 行标签即一维切割的材料类型 (如 "外框 70" = 70系外框料), 与库存型材的分类口径一致 */
+/** 导入切割行: 一批产品的切割件 × 数量, 按 (部件族+规格, 长度) 合并;
+ * 行标签即一维切割的材料类型: 框/梃/扇挂产品系列 (如 "外框 70" = 70系外框料),
+ * 压条挂独立压条规格 (压条不与框共享型材; 未填时标签只有 "压条") */
 export function productCutRows(items: ProductItem[]): Array<{ label: string; length: number; quantity: number }> {
   const map = new Map<string, { label: string; length: number; quantity: number }>();
   for (const item of items) {

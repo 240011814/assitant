@@ -246,7 +246,8 @@ type CutProductItem struct {
 	FrameWidth float64        `json:"frameWidth"` // 框料宽 cm (由系列换算)
 	Series     string         `json:"series"`     // 框料截面宽度 mm (即型材系列: 55/60/65/70/75/80)
 	Fit        *CutProductFit `json:"fit,omitempty"`
-	Bead       bool           `json:"bead,omitempty"` // 是否计算玻璃压条
+	Bead       bool           `json:"bead,omitempty"`       // 是否计算玻璃压条
+	BeadSeries string         `json:"beadSeries,omitempty"` // 压条规格 (压条不与框共享型材; 空 = 行标签只有 "压条")
 	Count      int            `json:"count"`
 	Grid       CutWindowGrid  `json:"grid"`
 }

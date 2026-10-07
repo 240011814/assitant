@@ -1553,6 +1553,8 @@ declare namespace App {
           pdFitOverlap: string;
           pdFitBeadDeduct: string;
           pdBead: string;
+          pdBeadSeries: string;
+          pdBeadSeriesPh: string;
           pdMenuFixed: string;
           pdMenuSash: string;
           pdMenuMergeLeft: string;

@@ -1521,6 +1521,8 @@ const local: App.I18n.Schema = {
       pdFitOverlap: "Sash overlap",
       pdFitBeadDeduct: "Bead deduct",
       pdBead: "Calculate glazing beads",
+      pdBeadSeries: "Bead spec",
+      pdBeadSeriesPh: "e.g. 20×35, optional",
       pdPreviewTip: "Click a pane to toggle fixed/sash; right-click a pane for actions (merge/split, for asymmetric layouts)",
       pdMenuFixed: "Set as fixed",
       pdMenuSash: "Set as sash",

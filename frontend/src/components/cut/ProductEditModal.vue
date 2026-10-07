@@ -62,6 +62,7 @@ const reachMm = ref<number | null>(FIT_DEFAULTS.reach);
 const overlapMm = ref<number | null>(FIT_DEFAULTS.overlap);
 const beadDeductMm = ref<number | null>(FIT_DEFAULTS.beadDeduct);
 const bead = ref(false);
+const beadSeries = ref('');
 const count = ref<number | null>(1);
 /** 正在回改清单中的下标, -1 = 新产品 */
 const editingIndex = ref(-1);
@@ -216,6 +217,7 @@ const currentItem = computed<ProductItem>(() => {
       beadDeduct: beadDeductMm.value ?? FIT_DEFAULTS.beadDeduct
     },
     bead: bead.value,
+    beadSeries: beadSeries.value.trim() || undefined,
     count: Math.max(count.value ?? 1, 1),
     grid: {
       cols: cols.value,
@@ -286,6 +288,7 @@ function editItem(index: number) {
   overlapMm.value = item.fit?.overlap ?? FIT_DEFAULTS.overlap;
   beadDeductMm.value = item.fit?.beadDeduct ?? FIT_DEFAULTS.beadDeduct;
   bead.value = item.bead ?? false;
+  beadSeries.value = item.beadSeries ?? '';
   count.value = item.count;
 }
 
@@ -436,6 +439,7 @@ watch(show, opened => {
   overlapMm.value = items.value[0]?.fit?.overlap ?? FIT_DEFAULTS.overlap;
   beadDeductMm.value = items.value[0]?.fit?.beadDeduct ?? FIT_DEFAULTS.beadDeduct;
   bead.value = items.value[0]?.bead ?? false;
+  beadSeries.value = items.value[0]?.beadSeries ?? '';
   count.value = items.value[0]?.count ?? 1;
   applyTemplate(WINDOW_TEMPLATES[0]!.key);
 });
@@ -554,6 +558,8 @@ watch(show, opened => {
             <template v-if="bead">
               <span class="text-gray-500 text-xs whitespace-nowrap">{{ $t('page.cut.pdFitBeadDeduct') }}</span>
               <NInputNumber v-model:value="beadDeductMm" :min="0" :max="50" :step="1" size="small" class="w-20" show-button />
+              <span class="text-gray-500 text-xs whitespace-nowrap">{{ $t('page.cut.pdBeadSeries') }}</span>
+              <NInput v-model:value="beadSeries" size="small" class="w-32" :placeholder="$t('page.cut.pdBeadSeriesPh')" clearable />
             </template>
           </div>
 

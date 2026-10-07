@@ -1513,6 +1513,8 @@ const local: App.I18n.Schema = {
       pdFitOverlap: "扇间搭接",
       pdFitBeadDeduct: "压条扣尺",
       pdBead: "计算玻璃压条",
+      pdBeadSeries: "压条规格",
+      pdBeadSeriesPh: "如 20×35, 可留空",
       pdPreviewTip: "单击面板切换 固定/开启; 右键面板弹出操作菜单 (合并/拆分, 可拼上下不对称窗型)",
       pdMenuFixed: "设为固定",
       pdMenuSash: "设为开启",
