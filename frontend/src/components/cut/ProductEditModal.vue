@@ -41,6 +41,8 @@ const templateOptions = WINDOW_TEMPLATES.map(t => ({ label: t.label, value: t.ke
 
 /** 框料截面宽度候选 (mm, 即型材系列), 支持手动输入其他系列; 选择后自动带入框料宽 */
 const SERIES_OPTIONS = ['55', '60', '65', '70', '75', '80'].map(v => ({ label: `${v}mm`, value: v }));
+/** 新建产品默认系列 (框料宽 = 系列/10 cm) */
+const DEFAULT_SERIES = '55';
 
 // ===== 产品单内容 =====
 const name = ref('');
@@ -98,9 +100,12 @@ function applyTemplate(key: string) {
   sliding.value = def.sliding;
   width.value = def.defaults.width;
   height.value = def.defaults.height;
-  frameWidth.value = def.defaults.frameWidth;
-  cols.value = evenSplit(availableColWidth(def.defaults.width, def.defaults.frameWidth, def.cols, def.sliding), def.cols);
-  rows.value = evenSplit(availableRowHeight(def.defaults.height, def.defaults.frameWidth, def.rows), def.rows);
+  // 框料宽优先取当前系列 (mm/10), 与框料截面宽度保持同步; 模板默认仅作未选系列时兜底
+  const mm = parseFloat(series.value ?? '');
+  frameWidth.value = Number.isFinite(mm) && mm > 0 ? round2(mm / 10) : def.defaults.frameWidth;
+  const c = frameWidth.value;
+  cols.value = evenSplit(availableColWidth(width.value, c, def.cols, def.sliding), def.cols);
+  rows.value = evenSplit(availableRowHeight(height.value, c, def.rows), def.rows);
   cells.value = def.cells.map(r => [...r]);
   editingIndex.value = -1;
 }
@@ -433,7 +438,7 @@ watch(show, opened => {
     name.value = '';
   }
   items.value = list.map(item => JSON.parse(JSON.stringify(item)) as ProductItem);
-  series.value = items.value[0]?.series ?? null;
+  series.value = items.value[0]?.series || DEFAULT_SERIES;
   gapMm.value = items.value[0]?.fit?.gap ?? FIT_DEFAULTS.gap;
   reachMm.value = items.value[0]?.fit?.reach ?? FIT_DEFAULTS.reach;
   overlapMm.value = items.value[0]?.fit?.overlap ?? FIT_DEFAULTS.overlap;
@@ -554,13 +559,15 @@ watch(show, opened => {
             </template>
           </div>
           <div class="flex items-center gap-2">
-            <NCheckbox v-model:checked="bead">{{ $t('page.cut.pdBead') }}</NCheckbox>
-            <template v-if="bead">
-              <span class="text-gray-500 text-xs whitespace-nowrap">{{ $t('page.cut.pdFitBeadDeduct') }}</span>
-              <NInputNumber v-model:value="beadDeductMm" :min="0" :max="50" :step="1" size="small" class="w-20" show-button />
-              <span class="text-gray-500 text-xs whitespace-nowrap">{{ $t('page.cut.pdBeadSeries') }}</span>
-              <NInput v-model:value="beadSeries" size="small" class="w-32" :placeholder="$t('page.cut.pdBeadSeriesPh')" clearable />
-            </template>
+            <span class="w-20 shrink-0"></span>
+            <NCheckbox v-model:checked="bead" class="shrink-0">{{ $t('page.cut.pdBead') }}</NCheckbox>
+          </div>
+          <div v-if="bead" class="flex items-center gap-2">
+            <span class="w-20 shrink-0"></span>
+            <span class="text-gray-500 text-xs whitespace-nowrap shrink-0">{{ $t('page.cut.pdFitBeadDeduct') }}</span>
+            <NInputNumber v-model:value="beadDeductMm" :min="0" :max="50" :step="1" size="small" class="w-20 shrink-0" show-button />
+            <span class="text-gray-500 text-xs whitespace-nowrap shrink-0">{{ $t('page.cut.pdBeadSeries') }}</span>
+            <NInput v-model:value="beadSeries" size="small" class="w-32 shrink-0" clearable />
           </div>
 
           <div v-if="geometryError" class="text-red-500 text-xs">{{ geometryError }}</div>
