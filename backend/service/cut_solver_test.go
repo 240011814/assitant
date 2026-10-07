@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"backend/model"
@@ -81,19 +82,42 @@ func TestSolvePreciseGroupScrapShortage(t *testing.T) {
 	}
 }
 
-// 未配置求解地址时, precise 模式自动回退快速算法, 结果照常产出
-func TestBarCutPreciseFallbackWithoutSolver(t *testing.T) {
+// 未配置求解地址时, precise 模式直接报错 (不再静默回退快速算法), 错误信息应指向 BAOSTOCK_API_URL
+func TestBarCutPreciseFailsWithoutSolver(t *testing.T) {
 	s := NewCutService("")
 	resp, err := s.BarCut(1, model.BarRequest{
 		Items:             model.BarItemList{{Length: 2000}, {Length: 1500}},
 		NewMaterialLength: 6000,
 		Mode:              model.BarModePrecise,
 	})
-	if err != nil {
-		t.Fatalf("precise 回退路径不应报错: %v", err)
+	if err == nil {
+		t.Fatalf("未配置求解地址应报错, 却返回了结果: %+v", resp.Summary)
 	}
-	if len(resp.Results) == 0 || resp.Summary.MaterialCount == 0 {
-		t.Fatalf("回退后应有结果: %+v", resp.Summary)
+	if !strings.Contains(err.Error(), "BAOSTOCK_API_URL") {
+		t.Fatalf("报错应提示未配置求解地址 (BAOSTOCK_API_URL): %v", err)
+	}
+}
+
+// precise 模式下求解服务失败 (如 HTTP 500) 也直接报错, 错误信息携带服务端响应摘要
+func TestBarCutPreciseFailsOnSolverError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"detail": "bad request"}`))
+	}))
+	defer srv.Close()
+
+	s := NewCutService(srv.URL)
+	_, err := s.BarCut(1, model.BarRequest{
+		Items:             model.BarItemList{{Length: 2000}},
+		NewMaterialLength: 6000,
+		Mode:              model.BarModePrecise,
+	})
+	if err == nil {
+		t.Fatal("求解服务 422 应报错, 不应回退快速模式")
+	}
+	if !strings.Contains(err.Error(), "422") {
+		t.Fatalf("报错应携带服务端状态码: %v", err)
 	}
 }
 

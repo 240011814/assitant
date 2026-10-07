@@ -190,25 +190,24 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 			restScraps[i] = groupScraps[idx]
 		}
 
-		// 精确模式: OR-Tools sidecar 列生成 (未配置地址或求解失败自动回退内置快速算法)
-		var results []model.BarResult
+		// 精确模式: OR-Tools sidecar 列生成; 未配置地址或求解失败直接报错给前端, 不再静默回退快速算法
 		if req.Mode == model.BarModePrecise {
-			if client := s.solverClient(); client != nil {
-				precise, _, err := s.solvePreciseGroup(client, aggItems, remainingDemand, materialLens, materialLabels,
-					restScraps, restLabelsFrom(groupScraps, groupLabels, restIdxs), kerf,
-					math.Max(1, req.UtilizationWeight), newIdx)
-				if err == nil {
-					results = precise
-					newIdx += len(results)
-					allResults = append(allResults, results...)
-					continue
-				}
-				log.Printf("[Cut] 精确求解失败 (回退快速模式): %v", err)
-			} else {
-				log.Printf("[Cut] 精确模式未配置求解地址 (BAOSTOCK_API_URL), 回退快速模式")
+			client := s.solverClient()
+			if client == nil {
+				return nil, errors.New("精确模式未配置求解服务地址 (BAOSTOCK_API_URL)")
 			}
+			precise, _, err := s.solvePreciseGroup(client, aggItems, remainingDemand, materialLens, materialLabels,
+				restScraps, restLabelsFrom(groupScraps, groupLabels, restIdxs), kerf,
+				math.Max(1, req.UtilizationWeight), newIdx)
+			if err != nil {
+				return nil, fmt.Errorf("精确求解失败: %w", err)
+			}
+			newIdx += len(precise)
+			allResults = append(allResults, precise...)
+			continue
 		}
 
+		var results []model.BarResult
 		var patterns []pattern
 		for _, l := range materialLens {
 			patterns = append(patterns, s.generateInitialPatterns(aggItems, remainingDemand, l, restScraps, kerf)...)

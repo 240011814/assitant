@@ -15,7 +15,7 @@ import (
 
 // ===== OR-Tools 精确求解 sidecar 客户端 (cut_api/, 与 baostock 同款 sidecar 模式) =====
 // 求解地址取 Baostock ENV `BAOSTOCK_API_URL` (sidecar 路由与行情同进程; 空 = 未启用精确模式)。
-// sidecar 失败/超时/解不完备时 BarCut 自动回退内置快速算法 (DP+贪心), 不阻断功能。
+// 精确模式下 sidecar 失败/超时/解不完备时 BarCut 直接报错给前端, 不静默回退内置快速算法。
 
 const (
 	cutSolverTimeout = 20 * time.Second
@@ -80,7 +80,7 @@ type cutSolverResponse struct {
 }
 
 // solvePreciseGroup 对一个规格组调 sidecar 精确求解。
-// 返回组装好的结果与被消费旧料下标 (相对 restScraps); 任何异常返回 error 由调用方回退快速模式。
+// 返回组装好的结果与被消费旧料下标 (相对 restScraps); 任何异常返回 error 由调用方直接报给前端。
 func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem, demand []int,
 	materialLens []float64, materialLabels []string, restScraps []float64, restLabels []string,
 	kerf float64, utilWeight float64, startIdx int) ([]model.BarResult, []int, error) {
