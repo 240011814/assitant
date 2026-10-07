@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -162,5 +163,82 @@ func TestBarCutLeftoverFallsBackToLargerSpec(t *testing.T) {
 	}
 	if totalCut != 5 {
 		t.Fatalf("期望切出 5 件, 实际 %d", totalCut)
+	}
+}
+
+// 回归 (线上反馈): 贪心按利用率吃模式把 102 提前耗尽后, 尾部剩 [130×2] 与 [60×6] 各占一根
+// 整料 (29 根 / 89.59%)。低利用率料重排应把 [130×2]+[60×6]+[130×4] 三根合并为两根, 降到 28 根。
+func TestBarCutResidualRepack(t *testing.T) {
+	req := model.BarRequest{
+		NewMaterialLength: 600,
+		NewMaterials:      []model.BarMaterial{{Length: 600}, {Label: "1", Length: 600}},
+		Loss:              0.2,
+		UtilizationWeight: 4,
+	}
+	addItems := func(length float64, n int) {
+		for i := 0; i < n; i++ {
+			req.Items = append(req.Items, model.BarItem{Length: length, Spec: "1"})
+		}
+	}
+	addItems(185, 36)
+	addItems(102, 24)
+	addItems(130, 36)
+	addItems(60, 30)
+
+	s := NewCutService("")
+	resp, err := s.BarCut(1, req)
+	if err != nil {
+		t.Fatalf("求解失败: %v", err)
+	}
+	if len(resp.Results) > 28 {
+		t.Fatalf("期望 ≤28 根 (优化前 29 根为次优解), 实得 %d", len(resp.Results))
+	}
+	// 零件守恒 + 每根不超容量 (重排不得丢件/超切)
+	want := map[float64]int{185: 36, 102: 24, 130: 36, 60: 30}
+	got := map[float64]int{}
+	for _, r := range resp.Results {
+		used := 0.0
+		for i, c := range r.Cuts {
+			got[c]++
+			used += c
+			if i > 0 {
+				used += 0.2
+			}
+		}
+		if used > r.TotalLength+1e-6 {
+			t.Fatalf("料 #%d 超容量: used=%v total=%v", r.Index, used, r.TotalLength)
+		}
+	}
+	for l, n := range want {
+		if got[l] != n {
+			t.Fatalf("长度 %v 切割数不符: 期望 %d, 实得 %d", l, n, got[l])
+		}
+	}
+}
+
+// 回归 (线上反馈): 无旧料时 Scraps 为 nil 切片, Marshal 成 "scraps":null, pydantic 的
+// list 字段拒绝 null → sidecar 422, 精确模式一直静默回退快速模式 (两种方案结果一样)。
+// 请求体三个集合字段必须始终是数组, 不允许 null。
+func TestSolvePreciseGroupPayloadArraysNotNull(t *testing.T) {
+	raw := map[string]json.RawMessage{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &raw)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"bars": []any{}, "unplaced": []any{}, "iterations": 0, "elapsed_ms": 0})
+	}))
+	defer srv.Close()
+
+	s := NewCutService("")
+	client := &cutSolverClient{baseURL: srv.URL, httpClient: srv.Client()}
+	items := []aggItem{{length: 185, demand: 1}}
+	_, _, err := s.solvePreciseGroup(client, items, []int{1}, []float64{600}, []string{"1"}, nil, nil, 0.2, 4, 1)
+	if err != nil {
+		t.Fatalf("求解失败: %v", err)
+	}
+	for _, key := range []string{"items", "materials", "scraps"} {
+		if v, ok := raw[key]; !ok || string(v) == "null" {
+			t.Fatalf("请求体 %s 应为数组, 实得: %s", key, v)
+		}
 	}
 }

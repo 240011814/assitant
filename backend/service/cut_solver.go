@@ -85,7 +85,16 @@ func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem,
 	materialLens []float64, materialLabels []string, restScraps []float64, restLabels []string,
 	kerf float64, utilWeight float64, startIdx int) ([]model.BarResult, []int, error) {
 
-	reqBody := cutSolverRequest{Kerf: kerf, TimeLimitMS: cutSolverBudget, UtilizationWeight: utilWeight}
+	// 三个集合显式初始化为空数组: nil 切片会被 Marshal 成 null, pydantic 的 list 字段
+	// 不接受 null, 会 422 (线上问题: 无旧料时 scraps=null 导致精确模式始终回退)
+	reqBody := cutSolverRequest{
+		Kerf:              kerf,
+		Items:             []cutSolverItem{},
+		Materials:         []cutSolverMaterial{},
+		Scraps:            []cutSolverScrap{},
+		TimeLimitMS:       cutSolverBudget,
+		UtilizationWeight: utilWeight,
+	}
 	for t := range items {
 		reqBody.Items = append(reqBody.Items, cutSolverItem{Length: items[t].length, Demand: demand[t]})
 	}

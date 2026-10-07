@@ -589,9 +589,21 @@ func (s *CutService) mixedPattern(items []aggItem, demand []int, L float64, kerf
 	return nil
 }
 
-// solveGreedy 贪心求解 (多材料规格: 新料 pattern 按各自容量利用率参与排序, 总长取 pattern.capacity)
+// solveGreedy 贪心求解 (多材料规格: 新料 pattern 按各自容量利用率参与排序, 总长取 pattern.capacity);
+// 求解后再对低利用率的新料做重排优化 (reduceNewBars), 合并尾部零散料降低总根数。
 // startIdx 为结果编号起点 (按规格分组求解时全局连续); 返回: 结果 / 被消费旧料在 scraps 中的下标
 func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []int, materialLens []float64, materialLabels []string, scraps []float64, scrapLabels []string, kerf float64, startIdx int) ([]model.BarResult, []int) {
+	results, usedScrapIdxs, isNewBar := s.solveGreedyCore(patterns, items, demand, materialLens, materialLabels, scraps, scrapLabels, kerf, startIdx)
+	results = s.reduceNewBars(results, isNewBar, items, kerf)
+	for i := range results {
+		results[i].Index = startIdx + i
+	}
+	return results, usedScrapIdxs
+}
+
+// solveGreedyCore 贪心主体: 按利用率顺序套用模式池, 尾部按类型兜底; 返回结果 / 消费的旧料下标 /
+// 各结果是否为新料 (旧料容量不可替换, 重排时排除)
+func (s *CutService) solveGreedyCore(patterns []pattern, items []aggItem, demand []int, materialLens []float64, materialLabels []string, scraps []float64, scrapLabels []string, kerf float64, startIdx int) ([]model.BarResult, []int, []bool) {
 	types := len(items)
 	remaining := make([]int, len(demand))
 	copy(remaining, demand)
@@ -605,6 +617,7 @@ func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []i
 	}
 
 	var results []model.BarResult
+	isNewBar := make([]bool, 0, 32)
 	newIdx := startIdx
 
 	// 按利用率排序模式
@@ -670,6 +683,7 @@ func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []i
 				Remaining:    round2(p.capacity - p.used),
 				MaterialType: materialType,
 			})
+			isNewBar = append(isNewBar, p.isNew)
 			newIdx++
 
 			// 更新需求
@@ -764,6 +778,7 @@ func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []i
 				Remaining:    round2(L - used),
 				MaterialType: lengthLabel[L],
 			})
+			isNewBar = append(isNewBar, true)
 			newIdx++
 		}
 	}
@@ -775,7 +790,128 @@ func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []i
 			usedScrapIdxs = append(usedScrapIdxs, idx)
 		}
 	}
-	return results, usedScrapIdxs
+	return results, usedScrapIdxs, isNewBar
+}
+
+// ===== 低利用率新料重排 =====
+// 贪心按利用率吃模式时, 稀缺类型 (如短料) 可能被次优模式提前耗尽, 尾部剩下多种零散件
+// 各占一根整料 (如 [130×2] 与 [60×6])。此处反复取利用率最低的若干根同规格新料, 把其中
+// 零件用同一套模式池重新排料; 只有根数严格减少才替换, 保证结果不劣于原解。
+// 旧料的容量不可替换, 不参与重排。
+
+const (
+	repackMaxPickBars = 8  // 单次参与重排的最多料根数
+	repackMaxRounds   = 50 // 重排轮数上限 (每轮严格减根数, 防御性上限)
+	repackMaxTypes    = 64 // 参与重排的聚合类型数上限 (超大盘订单模式池生成成本高, 跳过)
+)
+
+// reduceNewBars 低利用率新料重排: 见上方说明。返回重排后的结果 (顺序: 未动的料保持原位)
+func (s *CutService) reduceNewBars(results []model.BarResult, isNewBar []bool, items []aggItem, kerf float64) []model.BarResult {
+	if len(items) == 0 || len(items) > repackMaxTypes {
+		return results
+	}
+	for round := 0; round < repackMaxRounds; round++ {
+		pos := make([]int, 0, len(results))
+		for i := range results {
+			if isNewBar[i] {
+				pos = append(pos, i)
+			}
+		}
+		if len(pos) < 2 {
+			break
+		}
+		// 按利用率升序, 最浪费的优先尝试合并重排
+		sort.Slice(pos, func(a, b int) bool {
+			ra, rb := results[pos[a]], results[pos[b]]
+			if ua, ub := ra.Used/ra.TotalLength, rb.Used/rb.TotalLength; ua != ub {
+				return ua < ub
+			}
+			return pos[a] < pos[b]
+		})
+		replaced := false
+		for k := 2; k <= repackMaxPickBars && k <= len(pos); k++ {
+			sel := pos[:k]
+			capLen := results[sel[0]].TotalLength
+			// 只重排同规格 (同总长) 的料, 重排容量不变, 正确性直观
+			sameCap := true
+			for _, p := range sel {
+				if results[p].TotalLength != capLen {
+					sameCap = false
+					break
+				}
+			}
+			if !sameCap {
+				continue
+			}
+			demand, ok := demandOfPicked(results, sel, items)
+			if !ok {
+				continue
+			}
+			repacked := s.repackOnCapacity(items, demand, capLen, results[sel[0]].MaterialType, kerf)
+			if len(repacked) >= k {
+				continue
+			}
+			results, isNewBar = replaceBars(results, isNewBar, sel, repacked)
+			replaced = true
+			break
+		}
+		if !replaced {
+			break
+		}
+	}
+	return results
+}
+
+// demandOfPicked 汇总被选料中的零件到需求向量 (零件长度必须能对应到聚合类型)
+func demandOfPicked(results []model.BarResult, sel []int, items []aggItem) ([]int, bool) {
+	idxOf := make(map[float64]int, len(items))
+	for t := range items {
+		idxOf[items[t].length] = t
+	}
+	demand := make([]int, len(items))
+	for _, p := range sel {
+		for _, cut := range results[p].Cuts {
+			t, ok := idxOf[cut]
+			if !ok {
+				return nil, false
+			}
+			demand[t]++
+		}
+	}
+	return demand, true
+}
+
+// repackOnCapacity 把剩余需求在单一容量上重新排料 (同一套模式池+贪心+尾部, 不再递归优化)
+func (s *CutService) repackOnCapacity(items []aggItem, demand []int, L float64, materialType string, kerf float64) []model.BarResult {
+	patterns := s.generateInitialPatterns(items, demand, L, nil, kerf)
+	bars, _, _ := s.solveGreedyCore(patterns, items, demand, []float64{L}, []string{materialType}, nil, nil, kerf, 0)
+	return bars
+}
+
+// replaceBars 用重排结果替换被选中的料 (插到第一个被选位置, 其余删除)
+func replaceBars(results []model.BarResult, isNewBar []bool, sel []int, repacked []model.BarResult) ([]model.BarResult, []bool) {
+	keep := make([]bool, len(results))
+	for _, p := range sel {
+		keep[p] = true
+	}
+	merged := make([]model.BarResult, 0, len(results)-len(sel)+len(repacked))
+	mergedIsNew := make([]bool, 0, cap(merged))
+	inserted := false
+	for i := range results {
+		if keep[i] {
+			if !inserted {
+				merged = append(merged, repacked...)
+				for range repacked {
+					mergedIsNew = append(mergedIsNew, true)
+				}
+				inserted = true
+			}
+			continue
+		}
+		merged = append(merged, results[i])
+		mergedIsNew = append(mergedIsNew, isNewBar[i])
+	}
+	return merged, mergedIsNew
 }
 
 // patternKey 生成模式的唯一键
