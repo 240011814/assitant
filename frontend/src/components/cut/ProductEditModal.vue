@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, h, ref, watch } from 'vue';
-import { NButton, NCheckbox, NInput, NInputNumber, NModal, NSelect, NTag, useMessage } from 'naive-ui';
+import { NButton, NCheckbox, NInput, NInputNumber, NModal, NSelect, NTag, NTooltip, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { $t } from '@/locales';
 import { saveCutProduct } from '@/service/api';
@@ -454,7 +454,7 @@ watch(show, opened => {
   <NModal v-model:show="show" preset="card" :title="modalTitle" class="w-1200px max-w-[97vw]">
     <div class="flex flex-col gap-3">
       <div class="flex items-center gap-2">
-        <span class="w-20 shrink-0">{{ $t('page.cut.pdName') }}</span>
+        <span class="w-30 shrink-0 whitespace-nowrap">{{ $t('page.cut.pdName') }}</span>
         <NInput v-model:value="name" :placeholder="$t('page.cut.pdNamePh')" />
       </div>
 
@@ -476,19 +476,19 @@ watch(show, opened => {
 
         <div class="flex flex-1 flex-col gap-2">
           <div class="flex items-center gap-2">
-            <span class="w-20 shrink-0">{{ $t('page.cut.pdTemplate') }}</span>
+            <span class="w-30 shrink-0 whitespace-nowrap">{{ $t('page.cut.pdTemplate') }}</span>
             <NSelect :value="curType" :options="templateOptions" @update:value="applyTemplate" />
           </div>
           <div class="flex items-center gap-2">
-            <span class="w-20 shrink-0">{{ $t('page.cut.pdWidthLabel') }}</span>
+            <span class="w-30 shrink-0 whitespace-nowrap">{{ $t('page.cut.pdWidthLabel') }}</span>
             <NInputNumber :value="width" :min="1" class="flex-1" @update:value="onWidthChange" />
             <span class="text-gray-400">×</span>
             <NInputNumber :value="height" :min="1" class="flex-1" @update:value="onHeightChange" />
-            <span class="w-20 shrink-0 text-right">{{ $t('page.cut.pdFrameWidth') }}</span>
+            <span class="w-24 shrink-0 whitespace-nowrap text-right">{{ $t('page.cut.pdFrameWidth') }}</span>
             <NInputNumber :value="frameWidth" :min="0" class="w-30" @update:value="onFrameWidthChange" />
           </div>
           <div class="flex items-center gap-2">
-            <span class="w-20 shrink-0">{{ $t('page.cut.pdCols') }}</span>
+            <span class="w-30 shrink-0 whitespace-nowrap">{{ $t('page.cut.pdCols') }}</span>
             <NInputNumber
               :value="cols.length"
               :min="1"
@@ -508,7 +508,7 @@ watch(show, opened => {
             <NInputNumber v-model:value="count" :min="1" class="w-24" />
           </div>
           <div class="flex items-center gap-2">
-            <span class="w-20 shrink-0">{{ $t('page.cut.pdColWidths') }}</span>
+            <span class="w-30 shrink-0 whitespace-nowrap">{{ $t('page.cut.pdColWidths') }}</span>
             <div class="flex flex-wrap gap-1">
               <NInputNumber
                 v-for="(cw, i) in cols"
@@ -522,7 +522,7 @@ watch(show, opened => {
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <span class="w-20 shrink-0">{{ $t('page.cut.pdRowHeights') }}</span>
+            <span class="w-30 shrink-0 whitespace-nowrap">{{ $t('page.cut.pdRowHeights') }}</span>
             <div class="flex flex-wrap gap-1">
               <NInputNumber
                 v-for="(rh, i) in rows"
@@ -536,10 +536,19 @@ watch(show, opened => {
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <span class="w-20 shrink-0">{{ $t('page.cut.pdSeries') }}</span>
+            <NTooltip trigger="hover" placement="top" :style="{ maxWidth: '360px' }">
+              <template #trigger>
+                <span class="w-30 shrink-0 whitespace-nowrap cursor-help">{{ $t('page.cut.pdSeries') }}</span>
+              </template>
+              <div class="text-left">
+                框料宽(cm) = 系列 ÷ 10, 选择后自动带入并重算分格。
+                <br />影响: 外框横梃/竖梃(上下横/边封)、横向中梃、竖向中梃的下料长度与各分格净尺寸。
+              </div>
+            </NTooltip>
             <NSelect
               v-model:value="series"
               :options="SERIES_OPTIONS"
+              class="flex-1"
               filterable
               tag
               clearable
@@ -548,23 +557,55 @@ watch(show, opened => {
             />
           </div>
           <div class="flex items-center gap-2">
-            <span class="w-20 shrink-0">{{ $t('page.cut.pdFit') }}</span>
-            <span class="text-gray-500 text-xs whitespace-nowrap">{{ $t('page.cut.pdFitGap') }}</span>
-            <NInputNumber v-model:value="gapMm" :min="0" :max="50" :step="0.5" size="small" class="w-20" show-button />
+            <span class="w-30 shrink-0 whitespace-nowrap">{{ $t('page.cut.pdFit') }}</span>
+            <NTooltip trigger="hover" placement="top" :style="{ maxWidth: '360px' }">
+              <template #trigger>
+                <span class="text-gray-500 text-xs whitespace-nowrap shrink-0 cursor-help">{{ $t('page.cut.pdFitGap') }}</span>
+              </template>
+              <div class="text-left">
+                平开: 扇横梃、扇竖梃 = 分格净尺寸 − 2×缝隙 (扇比开口每边小缝隙, 保证能开合)。
+                <br />推拉: 扇上下横在边封侧/固定侧各 − 缝隙 (留出滑动间隙)。
+              </div>
+            </NTooltip>
+            <NInputNumber v-model:value="gapMm" :min="0" :max="50" :step="0.5" size="small" class="w-20 shrink-0" show-button />
             <template v-if="sliding">
-              <span class="text-gray-500 text-xs whitespace-nowrap">{{ $t('page.cut.pdFitReach') }}</span>
-              <NInputNumber v-model:value="reachMm" :min="0" :max="50" :step="1" size="small" class="w-20" show-button />
-              <span class="text-gray-500 text-xs whitespace-nowrap">{{ $t('page.cut.pdFitOverlap') }}</span>
-              <NInputNumber v-model:value="overlapMm" :min="0" :max="50" :step="1" size="small" class="w-20" show-button />
+              <NTooltip trigger="hover" placement="top" :style="{ maxWidth: '360px' }">
+                <template #trigger>
+                  <span class="text-gray-500 text-xs whitespace-nowrap shrink-0 cursor-help">{{ $t('page.cut.pdFitReach') }}</span>
+                </template>
+                <div class="text-left">
+                  仅推拉窗: 扇竖梃(光企/勾企) = 行净高 + 2×搭入,
+                  <br />扇钩伸入上滑/下滑轨道, 防止脱轨; 取值参考型材轨道深度。
+                </div>
+              </NTooltip>
+              <NInputNumber v-model:value="reachMm" :min="0" :max="50" :step="1" size="small" class="w-20 shrink-0" show-button />
+              <NTooltip trigger="hover" placement="top" :style="{ maxWidth: '360px' }">
+                <template #trigger>
+                  <span class="text-gray-500 text-xs whitespace-nowrap shrink-0 cursor-help">{{ $t('page.cut.pdFitOverlap') }}</span>
+                </template>
+                <div class="text-left">
+                  仅推拉窗: 相邻两扇光企/勾企互搭, 每扇的扇上下横各 + 搭接÷2,
+                  <br />关窗时中间重叠密封; 取值参考光企/勾企搭接配合尺寸。
+                </div>
+              </NTooltip>
+              <NInputNumber v-model:value="overlapMm" :min="0" :max="50" :step="1" size="small" class="w-20 shrink-0" show-button />
             </template>
           </div>
           <div class="flex items-center gap-2">
-            <span class="w-20 shrink-0"></span>
+            <span class="w-30 shrink-0 whitespace-nowrap"></span>
             <NCheckbox v-model:checked="bead" class="shrink-0">{{ $t('page.cut.pdBead') }}</NCheckbox>
           </div>
           <div v-if="bead" class="flex items-center gap-2">
-            <span class="w-20 shrink-0"></span>
-            <span class="text-gray-500 text-xs whitespace-nowrap shrink-0">{{ $t('page.cut.pdFitBeadDeduct') }}</span>
+            <span class="w-30 shrink-0 whitespace-nowrap"></span>
+            <NTooltip trigger="hover" placement="top" :style="{ maxWidth: '360px' }">
+              <template #trigger>
+                <span class="text-gray-500 text-xs whitespace-nowrap shrink-0 cursor-help">{{ $t('page.cut.pdFitBeadDeduct') }}</span>
+              </template>
+              <div class="text-left">
+                每根压条(横/竖) = 基准长度 − 扣尺; 基准: 固定格取开口净尺寸, 开启扇取扇外框尺寸。
+                <br />45° 拼角取 0, 直拼按压条宽度扣除; 影响全部压条件的下料长度。
+              </div>
+            </NTooltip>
             <NInputNumber v-model:value="beadDeductMm" :min="0" :max="50" :step="1" size="small" class="w-20 shrink-0" show-button />
             <span class="text-gray-500 text-xs whitespace-nowrap shrink-0">{{ $t('page.cut.pdBeadSeries') }}</span>
             <NInput v-model:value="beadSeries" size="small" class="w-32 shrink-0" clearable />
