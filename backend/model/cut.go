@@ -115,6 +115,17 @@ type BarResult struct {
 	MaterialType string    `json:"materialType"` // 材料类型 (新料规格名/旧料类型名, 空则前端显示"新材料")
 }
 
+// BarMaterialTypeSummary 一维按材料类型分组统计 (口径同整体汇总)
+type BarMaterialTypeSummary struct {
+	MaterialType        string  `json:"materialType"`        // 材料类型名 (空=未命名的新材料规格)
+	Count               int     `json:"count"`               // 该类型用料根数
+	TotalMaterialLength float64 `json:"totalMaterialLength"` // 该类型材料总长
+	TotalCutLength      float64 `json:"totalCutLength"`      // 该类型零件总长
+	TotalRemaining      float64 `json:"totalRemaining"`      // 该类型余料总长
+	ScrapCount          int     `json:"scrapCount"`          // 该类型可入库余料根数 (Remaining > 0)
+	Utilization         float64 `json:"utilization"`         // 该类型利用率 (百分比)
+}
+
 // BarSummary 一维切割汇总 (利用率/余料统计, 供结果页展示与余料入库)
 type BarSummary struct {
 	MaterialCount       int     `json:"materialCount"`       // 使用材料根数
@@ -123,6 +134,8 @@ type BarSummary struct {
 	TotalRemaining      float64 `json:"totalRemaining"`      // 余料总长
 	Utilization         float64 `json:"utilization"`         // 整体利用率 (百分比)
 	ScrapCount          int     `json:"scrapCount"`          // 可入库余料根数 (Remaining > 0)
+	// ByMaterialType 按材料类型分组统计, 保持结果中首次出现的顺序; 序列化为 [] 不为 null
+	ByMaterialType []BarMaterialTypeSummary `json:"byMaterialType"`
 }
 
 // BarCutResponse 一维切割响应

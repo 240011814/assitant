@@ -186,6 +186,41 @@ const materialColumns = [
   }
 ];
 
+// 按材料类型分组统计表 (summaryData.byMaterialType, 后端汇总)
+const typeSummaryColumns = [
+  {
+    title: $t('page.cut.materialType'),
+    key: 'materialType',
+    render: (row: Api.Cut.BarMaterialTypeSummary) => row.materialType?.trim() || $t('page.cut.summaryNewMaterial')
+  },
+  { title: $t('page.cut.summaryMaterialCount'), key: 'count' },
+  {
+    title: $t('page.cut.summaryMaterialLength'),
+    key: 'totalMaterialLength',
+    render: (row: Api.Cut.BarMaterialTypeSummary) => `${fmtLen(row.totalMaterialLength)} cm`
+  },
+  {
+    title: $t('page.cut.summaryCutLength'),
+    key: 'totalCutLength',
+    render: (row: Api.Cut.BarMaterialTypeSummary) => `${fmtLen(row.totalCutLength)} cm`
+  },
+  {
+    title: $t('page.cut.summaryRemaining'),
+    key: 'totalRemaining',
+    render: (row: Api.Cut.BarMaterialTypeSummary) => `${fmtLen(row.totalRemaining)} cm`
+  },
+  {
+    title: $t('page.cut.summaryScrapCount'),
+    key: 'scrapCount',
+    render: (row: Api.Cut.BarMaterialTypeSummary) => `${row.scrapCount} ${$t('page.cut.unitBar')}`
+  },
+  {
+    title: $t('page.cut.summaryTypeUtilization'),
+    key: 'utilization',
+    render: (row: Api.Cut.BarMaterialTypeSummary) => `${row.utilization}%`
+  }
+];
+
 function addItem() {
   const type = itemType.value?.trim();
   if (type && itemLength.value && itemQty.value && itemQty.value > 0) {
@@ -627,6 +662,13 @@ onUnmounted(() => {
           <NStatistic :label="$t('page.cut.summaryScrapCount')" :value="`${summaryData.scrapCount} ${$t('page.cut.unitBar')}`" />
         </NGi>
       </NGrid>
+
+      <template v-if="summaryData.byMaterialType?.length">
+        <NDivider title-placement="left" class="!mt-6 !mb-4">
+          {{ $t('page.cut.summaryByTypeTitle') }}
+        </NDivider>
+        <NDataTable size="small" :columns="typeSummaryColumns" :data="summaryData.byMaterialType" :bordered="false" />
+      </template>
     </NCard>
 
     <!-- 裁剪图示 -->

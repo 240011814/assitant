@@ -12,6 +12,7 @@ let parsedRequest: Api.Cut.BarRequest & {
   rowMaterials: Api.Cut.BarItem[];
 } | null = null;
 let parsedResponse: Api.Cut.BarResult[] = [];
+let parsedSummary: Api.Cut.BarSummary | null = null;
 try {
   const rawRequest = route.query.request;
   const rawResponse = route.query.response;
@@ -25,6 +26,9 @@ try {
   // 兼容新旧记录: 旧记录响应为数组, 新记录响应为 { results, summary }
   const raw = JSON.parse(rawResponse) as Api.Cut.BarResult[] | Api.Cut.BarCutResponse;
   parsedResponse = Array.isArray(raw) ? raw : raw.results;
+  if (!Array.isArray(raw)) {
+    parsedSummary = raw.summary ?? null;
+  }
 } catch {
   parseError.value = true;
 }
@@ -38,6 +42,7 @@ const loss = ref(request?.loss || 0);
 const utilizationWeight = ref(request?.utilizationWeight || 1);
 const group = ref(false);
 const cutResult = ref<Api.Cut.BarResult[] | null>(response || null);
+const summaryData = ref<Api.Cut.BarSummary | null>(parsedSummary);
 const scaleFactor = ref(1);
 const canvasWrapper = ref<HTMLDivElement | null>(null);
 const containerWidth = ref(800); // 动态容器宽度
@@ -91,6 +96,21 @@ const result = computed(() => {
     usagePercent: ((totalUsed / totalLength) * 100).toFixed(2)
   };
 });
+
+// 按材料类型分组统计表 (取保存响应里的 summary.byMaterialType, 旧记录无此字段则不展示)
+const typeSummaryColumns = [
+  {
+    title: '材料类型',
+    key: 'materialType',
+    render: (row: Api.Cut.BarMaterialTypeSummary) => row.materialType?.trim() || '新材料'
+  },
+  { title: '用料根数', key: 'count' },
+  { title: '材料总长(cm)', key: 'totalMaterialLength', render: (row: Api.Cut.BarMaterialTypeSummary) => row.totalMaterialLength.toFixed(2) },
+  { title: '零件总长(cm)', key: 'totalCutLength', render: (row: Api.Cut.BarMaterialTypeSummary) => row.totalCutLength.toFixed(2) },
+  { title: '余料总长(cm)', key: 'totalRemaining', render: (row: Api.Cut.BarMaterialTypeSummary) => row.totalRemaining.toFixed(2) },
+  { title: '余料根数', key: 'scrapCount' },
+  { title: '利用率(%)', key: 'utilization' }
+];
 
 // 裁剪图示排序: 同类型材料相邻展示
 function compareByMaterialType(a: Api.Cut.BarResult, b: Api.Cut.BarResult) {
@@ -245,6 +265,14 @@ onUnmounted(() => {
         材料总数: {{ result.totalMaterials }} 根 | 总长度: {{ result.totalLength }} cm | 已用长度:
         {{ result.totalUsed }} cm | 剩余长度: {{ result.totalRemaining }} cm | 使用率: {{ result.usagePercent }}%
       </p>
+      <NDataTable
+        v-if="summaryData?.byMaterialType?.length"
+        class="mt-4"
+        size="small"
+        :columns="typeSummaryColumns"
+        :data="summaryData.byMaterialType"
+        :bordered="false"
+      />
     </NCard>
 
     <!-- 裁剪图示 -->

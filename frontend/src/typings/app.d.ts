@@ -1519,6 +1519,10 @@ declare namespace App {
           summaryUtilization: string;
           summaryRemaining: string;
           summaryScrapCount: string;
+          /** 按材料类型分组统计表 */
+          summaryByTypeTitle: string;
+          summaryTypeUtilization: string;
+          summaryNewMaterial: string;
           summaryBinCount: string;
           summaryTotalArea: string;
           summaryUsedArea: string;

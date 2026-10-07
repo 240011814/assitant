@@ -10,6 +10,24 @@ declare namespace Api {
       materialType?: string;
     }
 
+    /** 一维按材料类型分组统计 (口径同整体汇总) */
+    interface BarMaterialTypeSummary {
+      /** 材料类型名 (空=未命名的新材料规格) */
+      materialType: string;
+      /** 该类型用料根数 */
+      count: number;
+      /** 该类型材料总长 */
+      totalMaterialLength: number;
+      /** 该类型零件总长 */
+      totalCutLength: number;
+      /** 该类型余料总长 */
+      totalRemaining: number;
+      /** 该类型可入库余料根数 (remaining>0) */
+      scrapCount: number;
+      /** 该类型利用率 (已乘100的百分数) */
+      utilization: number;
+    }
+
     /** 一维切割汇总 */
     interface BarSummary {
       /** 使用材料根数 */
@@ -24,6 +42,8 @@ declare namespace Api {
       utilization: number;
       /** 可入库余料根数 (remaining>0) */
       scrapCount: number;
+      /** 按材料类型分组统计 (旧记录无此字段) */
+      byMaterialType?: BarMaterialTypeSummary[];
     }
 
     /** 一维切割响应 */

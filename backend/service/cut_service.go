@@ -277,9 +277,10 @@ func restLabelsFrom(scraps []float64, labels []string, restIdxs []int) []string 
 	return out
 }
 
-// summarizeBarResults 一维结果汇总: 材料总长/零件总长/利用率/可入库余料
+// summarizeBarResults 一维结果汇总: 材料总长/零件总长/利用率/可入库余料, 并按材料类型分组统计
 func summarizeBarResults(results []model.BarResult) model.BarSummary {
-	summary := model.BarSummary{}
+	summary := model.BarSummary{ByMaterialType: []model.BarMaterialTypeSummary{}}
+	typeIdx := make(map[string]int)
 	for _, r := range results {
 		summary.MaterialCount++
 		summary.TotalMaterialLength += r.TotalLength
@@ -290,9 +291,35 @@ func summarizeBarResults(results []model.BarResult) model.BarSummary {
 			summary.ScrapCount++
 			summary.TotalRemaining += r.Remaining
 		}
+
+		// 按材料类型分组累计, 保持首次出现顺序
+		idx, ok := typeIdx[r.MaterialType]
+		if !ok {
+			idx = len(summary.ByMaterialType)
+			typeIdx[r.MaterialType] = idx
+			summary.ByMaterialType = append(summary.ByMaterialType, model.BarMaterialTypeSummary{MaterialType: r.MaterialType})
+		}
+		g := &summary.ByMaterialType[idx]
+		g.Count++
+		g.TotalMaterialLength += r.TotalLength
+		for _, c := range r.Cuts {
+			g.TotalCutLength += c
+		}
+		if r.Remaining > 0 {
+			g.ScrapCount++
+			g.TotalRemaining += r.Remaining
+		}
 	}
 	if summary.TotalMaterialLength > 0 {
 		summary.Utilization = round2(summary.TotalCutLength / summary.TotalMaterialLength * 100)
+	}
+	for i := range summary.ByMaterialType {
+		g := &summary.ByMaterialType[i]
+		if g.TotalMaterialLength > 0 {
+			g.Utilization = round2(g.TotalCutLength / g.TotalMaterialLength * 100)
+		}
+		g.TotalRemaining = round2(g.TotalRemaining)
+		g.TotalCutLength = round2(g.TotalCutLength)
 	}
 	summary.TotalRemaining = round2(summary.TotalRemaining)
 	summary.TotalCutLength = round2(summary.TotalCutLength)
