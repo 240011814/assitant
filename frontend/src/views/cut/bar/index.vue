@@ -4,6 +4,7 @@ import { NButton, NGi, NGrid, NInput, NInputNumber, NModal, NSelect, NSpin, NSta
 import { $t } from '@/locales';
 import { cutBar, fetchCutScraps } from '@/service/api';
 import ScrapLibraryModal from '@/components/cut/ScrapLibraryModal.vue';
+import WindowSpecModal from '@/components/cut/WindowSpecModal.vue';
 import { exportBarCutPDF, exportBarCutPNG } from './cut-export';
 
 interface NewMaterialRow {
@@ -57,9 +58,27 @@ const saveData = ref<Api.Cut.RecordRequest | null>(null);
 const canvasWrapper = ref<HTMLDivElement | null>(null);
 const containerWidth = ref(800); // 动态容器宽度
 
-// 旧料库 / 导出状态
+// 旧料库 / 窗户生成 / 导出状态
 const scrapModalShow = ref(false);
+const windowModalShow = ref(false);
 const exporting = ref<'png' | 'pdf' | null>(null);
+
+// 国标窗户生成: 模板切割件并入零件清单 (同材料类型+长度合并数量)
+function applyWindow(rows: Array<{ label: string; length: number; quantity: number }>) {
+  let added = 0;
+  rows.forEach(row => {
+    const existing = itemsData.value.find(item => (item.label ?? '') === row.label && item.length === row.length);
+    if (existing) {
+      existing.quantity += row.quantity;
+    } else {
+      itemsData.value.push({ label: row.label, length: row.length, quantity: row.quantity });
+    }
+    added += row.quantity;
+  });
+  // 生成的类型可能新增, 刷新下拉候选
+  loadMaterialTypes();
+  message.success(`已按窗户生成 ${added} 件切割尺寸`);
+}
 
 function fmtLen(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
@@ -497,6 +516,7 @@ onUnmounted(() => {
         <NInputNumber v-model:value="itemLength" placeholder="长度" class="w-40" />
         <NInputNumber v-model:value="itemQty" placeholder="数量" class="w-32" />
         <NButton type="primary" @click="addItem">{{ $t('page.cut.addItem') }}</NButton>
+        <NButton type="info" secondary @click="windowModalShow = true">窗户生成</NButton>
       </div>
       <NDataTable :columns="itemColumns" :data="itemsData" />
 
@@ -653,6 +673,9 @@ onUnmounted(() => {
 
     <!-- 旧料库弹窗 -->
     <ScrapLibraryModal v-model:show="scrapModalShow" :scrap-type="1" @apply="applyScraps" />
+
+    <!-- 国标窗户生成弹窗 -->
+    <WindowSpecModal v-model:show="windowModalShow" :type-options="materialTypeOptions" @apply="applyWindow" />
 
     <!-- 加载中弹窗 -->
     <NModal v-model:show="loading" preset="dialog" title="计算中...">
