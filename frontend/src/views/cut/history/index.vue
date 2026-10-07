@@ -1,6 +1,6 @@
 <script setup lang="tsx">
 import { h, onMounted, ref, computed } from 'vue';
-import { NButton, NCard, NDataTable, NPopconfirm, NTag, NSelect, NDatePicker, useMessage } from 'naive-ui';
+import { NButton, NCard, NDataTable, NInputNumber, NModal, NPopconfirm, NTag, NSelect, NDatePicker, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { cutList, deleteRecod, addCutScraps } from '@/service/api';
 import { useRouterPush } from '@/hooks/common/router';
@@ -73,22 +73,14 @@ const columns = computed<DataTableColumns<any>>(() => [
       if (row.type === '1' && !row.scrapImported && scrapRowsOf(row).length > 0) {
         buttons.push(
           h(
-            NPopconfirm,
-            { onPositiveClick: () => stockInFromRecord(row) },
+            NButton,
             {
-              trigger: () =>
-                h(
-                  NButton,
-                  {
-                    size: 'small',
-                    type: 'warning',
-                    quaternary: true,
-                    loading: stockingId.value === row.id
-                  },
-                  { default: () => '余料入库' }
-                ),
-              default: () => `确认将 ${scrapRowsOf(row).length} 根余料入库?`
-            }
+              size: 'small',
+              type: 'warning',
+              quaternary: true,
+              onClick: () => openStockIn(row)
+            },
+            { default: () => '余料入库' }
           )
         );
       }
@@ -173,17 +165,57 @@ function scrapRowsOf(row: Api.Cut.CutRecord): Api.Cut.BarResult[] {
   }
 }
 
-const stockingId = ref<string | null>(null);
+// ===== 余料入库弹窗: 列出该记录的剩余余料, 支持按最小长度过滤 (短料不值得入库) =====
+const stockInModal = ref<{ show: boolean; row: Api.Cut.CutRecord | null }>({ show: false, row: null });
+const stockInMinLen = ref<number | null>(null);
+const stockInLoading = ref(false);
 
-// 历史记录余料入库: 把该记录切割剩余的每根料登记为一维余料库存;
-// 材料类型取切割结果里的来源类型 (新料规格名/旧料类型名), 与名称分开; 入库成功后端会把记录标记为已入库
-async function stockInFromRecord(row: Api.Cut.CutRecord) {
-  const scrapRows = scrapRowsOf(row);
-  if (scrapRows.length === 0) return;
-  stockingId.value = row.id;
+interface StockInRow extends Api.Cut.BarResult {
+  kept: boolean;
+}
+
+function openStockIn(row: Api.Cut.CutRecord) {
+  stockInMinLen.value = null;
+  stockInModal.value = { show: true, row };
+}
+
+const stockInList = computed<StockInRow[]>(() => {
+  const row = stockInModal.value.row;
+  if (!row) return [];
+  const min = stockInMinLen.value;
+  return scrapRowsOf(row).map(item => ({ ...item, kept: !(min && min > 0) || item.remaining >= min }));
+});
+
+const stockInKept = computed(() => stockInList.value.filter(item => item.kept));
+
+const stockInColumns: DataTableColumns<StockInRow> = [
+  { title: '材料类型', key: 'materialType', render: row => row.materialType?.trim() || '新材料' },
+  { title: '长度(cm)', key: 'remaining', width: 100, align: 'center' },
+  {
+    title: '处理',
+    key: 'kept',
+    width: 90,
+    align: 'center',
+    render: row =>
+      row.kept
+        ? h(NTag, { size: 'small', type: 'success', bordered: false }, { default: () => '入库' })
+        : h(NTag, { size: 'small', bordered: false }, { default: () => '已过滤' })
+  }
+];
+
+// 确认入库: 只导入未被过滤的余料; 入库成功后端会把记录标记为已入库 (含被过滤的短料, 不再重复弹窗)
+async function confirmStockIn() {
+  const row = stockInModal.value.row;
+  if (!row) return;
+  const rows = stockInKept.value;
+  if (rows.length === 0) {
+    message.warning('没有符合长度条件的余料可入库');
+    return;
+  }
+  stockInLoading.value = true;
   try {
     const { error } = await addCutScraps(
-      scrapRows.map(item => ({
+      rows.map(item => ({
         scrapType: 1 as const,
         materialType: item.materialType?.trim() || undefined,
         lengthValue: item.remaining,
@@ -194,9 +226,10 @@ async function stockInFromRecord(row: Api.Cut.CutRecord) {
     );
     if (error) return;
     row.scrapImported = true;
-    message.success($t('page.cut.scrapStockInSuccess', { count: scrapRows.length }));
+    message.success($t('page.cut.scrapStockInSuccess', { count: rows.length }));
+    stockInModal.value = { show: false, row: null };
   } finally {
-    stockingId.value = null;
+    stockInLoading.value = false;
   }
 }
 
@@ -273,6 +306,38 @@ onMounted(() => {
         />
       </div>
     </NCard>
+
+    <!-- 余料入库弹窗 -->
+    <NModal v-model:show="stockInModal.show" preset="card" title="余料入库" class="w-560px max-w-[96vw]">
+      <div class="flex flex-col gap-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-sm whitespace-nowrap">只入库长度 ≥</span>
+          <NInputNumber v-model:value="stockInMinLen" :min="0" class="w-32" placeholder="不限制" show-button />
+          <span class="text-sm">cm</span>
+          <span class="text-gray-400 text-xs">小于该尺寸的短料不入库</span>
+        </div>
+        <NDataTable
+          size="small"
+          :columns="stockInColumns"
+          :data="stockInList"
+          max-height="300"
+          :row-key="(row: StockInRow) => `${row.materialType ?? ''}|${row.remaining}`"
+        />
+        <div class="text-gray-500 text-xs">
+          共 {{ stockInList.length }} 根, 将入库 {{ stockInKept.length }} 根{{
+            stockInList.length !== stockInKept.length ? `, 过滤 ${stockInList.length - stockInKept.length} 根短料` : ''
+          }}
+        </div>
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <NButton @click="stockInModal.show = false">取消</NButton>
+          <NButton type="primary" :loading="stockInLoading" @click="confirmStockIn">
+            确认入库 ({{ stockInKept.length }})
+          </NButton>
+        </div>
+      </template>
+    </NModal>
   </div>
 </template>
 

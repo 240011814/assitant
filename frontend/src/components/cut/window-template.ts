@@ -51,6 +51,8 @@ export interface ProductItem {
   fit?: ProductFit;
   /** 是否计算玻璃压条 (固定格与开启扇均出压条件) */
   bead?: boolean;
+  /** 压条规格 (压条与框不共享型材; 空 = 行标签只有 "压条") */
+  beadSeries?: string;
   /** 数量 */
   count: number;
   grid: WindowGridSpec;
@@ -292,9 +294,11 @@ export function productCutRows(items: ProductItem[]): Array<{ label: string; len
   const map = new Map<string, { label: string; length: number; quantity: number }>();
   for (const item of items) {
     if (item.width <= 0 || item.height <= 0 || item.count < 1) continue;
-    const suffix = item.series?.trim() ? ` ${item.series.trim()}` : '';
+    // 框/梃/扇挂产品系列, 压条挂独立的压条规格 (压条不与框共享型材)
+    const seriesSuffix = item.series?.trim() ? ` ${item.series.trim()}` : '';
+    const beadSuffix = item.beadSeries?.trim() ? ` ${item.beadSeries.trim()}` : '';
     for (const p of buildPieces(item)) {
-      const label = `${p.family}${suffix}`;
+      const label = `${p.family}${p.family === '压条' ? beadSuffix : seriesSuffix}`;
       const quantity = p.quantity * item.count;
       const key = `${label}|${p.length}`;
       const exist = map.get(key);
