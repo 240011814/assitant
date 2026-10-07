@@ -1744,15 +1744,43 @@ func (s *CutService) DeleteCutRecord(userID uint, id string) error {
 
 // ===== 余料库存 =====
 
-// ListScraps 用户余料库存列表
-func (s *CutService) ListScraps(userID uint, scrapType int) ([]model.CutScrap, error) {
-	query := DB.Where("user_id = ?", userID)
-	if scrapType > 0 {
-		query = query.Where("scrap_type = ?", scrapType)
+// ListScraps 余料库存列表 (分页 + 名称/长度/类型筛选; 分页参数省略时返回全部, 上限 500)
+func (s *CutService) ListScraps(userID uint, params model.CutScrapSearchParams) (*model.CutScrapListResponse, error) {
+	query := DB.Model(&model.CutScrap{}).Where("user_id = ?", userID)
+	if params.ScrapType > 0 {
+		query = query.Where("scrap_type = ?", params.ScrapType)
 	}
+	if params.Name != "" {
+		query = query.Where("label LIKE ?", "%"+params.Name+"%")
+	}
+	// 长度范围只匹配一维余料 (二维没有长度属性)
+	if params.LengthMin != nil {
+		query = query.Where("scrap_type = 1 AND length_value >= ?", *params.LengthMin)
+	}
+	if params.LengthMax != nil {
+		query = query.Where("scrap_type = 1 AND length_value <= ?", *params.LengthMax)
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, err
+	}
+
 	var list []model.CutScrap
-	err := query.Order("created_at DESC").Limit(500).Find(&list).Error
-	return list, err
+	q := query.Order("created_at DESC")
+	if params.Page > 0 {
+		pageSize := params.PageSize
+		if pageSize <= 0 || pageSize > 200 {
+			pageSize = 20
+		}
+		q = q.Offset((params.Page - 1) * pageSize).Limit(pageSize)
+	} else {
+		q = q.Limit(500)
+	}
+	if err := q.Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return &model.CutScrapListResponse{Total: total, Records: list}, nil
 }
 
 // AddScraps 登记余料 (支持批量, 结果页一键入库); 带记录 ID 的条目入库成功后把对应切割记录标记为已入库

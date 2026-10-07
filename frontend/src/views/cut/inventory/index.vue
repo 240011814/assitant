@@ -13,7 +13,10 @@ const checkedKeys = ref<number[]>([]);
 const batchDeleting = ref(false);
 
 const searchType = ref<0 | 1 | 2>(0);
-const searchLabel = ref('');
+const searchName = ref('');
+// 长度范围筛选 (后端按一维余料 lengthValue 过滤; 二维无长度属性, 不匹配)
+const searchLengthMin = ref<number | null>(null);
+const searchLengthMax = ref<number | null>(null);
 
 const typeOptions = [
   { label: '全部', value: 0 },
@@ -21,13 +24,49 @@ const typeOptions = [
   { label: '二维余料', value: 2 }
 ];
 
-const filteredData = computed(() =>
-  data.value.filter(row => {
-    if (searchType.value > 0 && row.scrapType !== searchType.value) return false;
-    if (searchLabel.value && !(row.label ?? '').includes(searchLabel.value)) return false;
-    return true;
-  })
-);
+// 服务端分页 (筛选条件变化时回第一页)
+const pagination = ref({
+  page: 1,
+  pageSize: 10,
+  itemCount: 0,
+  showSizePicker: true,
+  pageSizes: [10, 15, 20],
+  onChange: (page: number) => {
+    pagination.value.page = page;
+    getData();
+  },
+  onUpdatePageSize: (pageSize: number) => {
+    pagination.value.pageSize = pageSize;
+    pagination.value.page = 1;
+    getData();
+  }
+});
+
+async function getData() {
+  loading.value = true;
+  try {
+    const { data: res, error } = await fetchCutScraps({
+      scrapType: searchType.value,
+      current: pagination.value.page,
+      size: pagination.value.pageSize,
+      name: searchName.value.trim() || undefined,
+      lengthMin: searchLengthMin.value ?? undefined,
+      lengthMax: searchLengthMax.value ?? undefined
+    });
+    if (!error && res) {
+      data.value = res.records;
+      pagination.value.itemCount = res.total;
+    }
+  } finally {
+    loading.value = false;
+  }
+}
+
+// 筛选条件变化: 回到第一页再查
+function applyFilter() {
+  pagination.value.page = 1;
+  getData();
+}
 
 const columns = computed<DataTableColumns<Api.Cut.CutScrap>>(() => [
   { type: 'selection' },
@@ -109,23 +148,7 @@ const columns = computed<DataTableColumns<Api.Cut.CutScrap>>(() => [
   }
 ]);
 
-async function getData() {
-  loading.value = true;
-  try {
-    const params = searchType.value > 0 ? { scrapType: searchType.value as 1 | 2 } : undefined;
-    const { data: res, error } = await fetchCutScraps(params);
-    if (!error && res) {
-      data.value = res;
-      // 清掉已不在列表里的勾选, 避免批量操作计数虚高
-      const idSet = new Set(res.map(row => row.id));
-      checkedKeys.value = checkedKeys.value.filter(id => idSet.has(id));
-    }
-  } finally {
-    loading.value = false;
-  }
-}
-
-// 批量删除勾选的库存条目
+// 批量删除勾选的库存条目 (跨页勾选保留; 以服务端实际删除数为准)
 async function batchRemove() {
   if (checkedKeys.value.length === 0) return;
   batchDeleting.value = true;
@@ -247,8 +270,36 @@ onMounted(() => {
       <div class="flex flex-col h-full gap-4">
         <div class="flex justify-between items-center">
           <div class="flex gap-4 items-center">
-            <NSelect v-model:value="searchType" :options="typeOptions" style="width: 140px" @update:value="getData" />
-            <NInput v-model:value="searchLabel" placeholder="按名称筛选" clearable style="width: 180px" />
+            <NSelect v-model:value="searchType" :options="typeOptions" style="width: 140px" @update:value="applyFilter" />
+            <NInput
+              v-model:value="searchName"
+              placeholder="按名称筛选"
+              clearable
+              style="width: 180px"
+              @keyup.enter="applyFilter"
+              @clear="applyFilter"
+            />
+            <div class="flex items-center gap-1">
+              <NInputNumber
+                v-model:value="searchLengthMin"
+                :min="0"
+                placeholder="最小长度"
+                clearable
+                style="width: 130px"
+                @update:value="applyFilter"
+                @clear="applyFilter"
+              />
+              <span class="text-gray-400">~</span>
+              <NInputNumber
+                v-model:value="searchLengthMax"
+                :min="0"
+                placeholder="最大长度"
+                clearable
+                style="width: 130px"
+                @update:value="applyFilter"
+                @clear="applyFilter"
+              />
+            </div>
           </div>
           <div class="flex gap-2 items-center">
             <NPopconfirm @positive-click="batchRemove">
@@ -271,8 +322,10 @@ onMounted(() => {
         <NDataTable
           v-model:checked-row-keys="checkedKeys"
           :columns="columns"
-          :data="filteredData"
+          :data="data"
           :loading="loading"
+          :pagination="pagination"
+          remote
           :row-key="(row) => row.id"
           flex-height
           class="flex-1"

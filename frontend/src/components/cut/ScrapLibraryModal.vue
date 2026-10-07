@@ -95,9 +95,9 @@ async function loadList() {
   const { data, error } = await fetchCutScraps({ scrapType: props.scrapType });
   loading.value = false;
   if (error || !data) return;
-  list.value = data;
+  list.value = data.records;
   // 默认全选, 方便一键带入
-  checkedKeys.value = data.map(item => item.id);
+  checkedKeys.value = data.records.map(item => item.id);
 }
 
 watch(show, val => {

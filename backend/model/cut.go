@@ -90,7 +90,7 @@ const (
 
 // BarRequest 一维切割请求
 type BarRequest struct {
-	Items     BarItemList    `json:"items" binding:"required,min=1"`
+	Items     BarItemList     `json:"items" binding:"required,min=1"`
 	Materials BarMaterialList `json:"materials"` // 旧料 (带类型, 兼容纯长度数组)
 	// NewMaterials 新材料类型列表; 为空时回退 NewMaterialLength 单一规格 (兼容旧请求)
 	NewMaterials      []BarMaterial `json:"newMaterials"`
@@ -179,14 +179,14 @@ type PlaneCutResponse struct {
 type CutScrap struct {
 	ID           uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	UserID       uint      `gorm:"not null;index" json:"userId"`
-	ScrapType    int       `json:"scrapType"`   // 1=一维余料(长度) 2=二维余料(板材)
+	ScrapType    int       `json:"scrapType"`    // 1=一维余料(长度) 2=二维余料(板材)
 	MaterialType string    `json:"materialType"` // 材料类型/来源材料规格 (如: 45#方管), 与名称分开维护
-	Label        string    `json:"label"`       // 余料名称 (用户自定, 如: 长料余料)
-	LengthValue  float64   `json:"lengthValue"` // 一维: 长度
-	WidthValue   float64   `json:"widthValue"`  // 二维: 宽
-	HeightValue  float64   `json:"heightValue"` // 二维: 高
-	Quantity     int       `json:"quantity"`    // 数量
-	Note         string    `json:"note"`        // 备注
+	Label        string    `json:"label"`        // 余料名称 (用户自定, 如: 长料余料)
+	LengthValue  float64   `json:"lengthValue"`  // 一维: 长度
+	WidthValue   float64   `json:"widthValue"`   // 二维: 宽
+	HeightValue  float64   `json:"heightValue"`  // 二维: 高
+	Quantity     int       `json:"quantity"`     // 数量
+	Note         string    `json:"note"`         // 备注
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
@@ -264,6 +264,23 @@ type CutRecordSearchParams struct {
 	Type      string `form:"type"`
 	StartTime *int64 `form:"startTime"`
 	EndTime   *int64 `form:"endTime"`
+}
+
+// CutScrapSearchParams 余料库存列表查询参数 (分页 + 筛选; 分页可省略, 省略时返回全部, 上限 500)
+type CutScrapSearchParams struct {
+	Page      int    `form:"current" binding:"min=1"`
+	PageSize  int    `form:"size" binding:"min=1,max=200"`
+	ScrapType int    `form:"scrapType"` // 0=全部 1=一维 2=二维
+	Name      string `form:"name"`      // 名称模糊
+	// LengthMin/LengthMax 长度范围 (cm, 含边界); 仅匹配一维余料 (二维无长度属性)
+	LengthMin *float64 `form:"lengthMin"`
+	LengthMax *float64 `form:"lengthMax"`
+}
+
+// CutScrapListResponse 余料库存列表响应
+type CutScrapListResponse struct {
+	Total   int64      `json:"total"`
+	Records []CutScrap `json:"records"`
 }
 
 // CutRecordListResponse 切割记录列表响应

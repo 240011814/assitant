@@ -104,7 +104,7 @@ async function loadMaterialTypes() {
   const { data, error } = await fetchCutScraps({ scrapType: 1 });
   if (error || !data) return;
   const set = new Set<string>();
-  data.forEach(item => {
+  data.records.forEach(item => {
     const type = item.materialType?.trim() || item.label?.trim();
     if (type) set.add(type);
   });

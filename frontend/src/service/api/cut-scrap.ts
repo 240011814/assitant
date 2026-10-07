@@ -1,8 +1,8 @@
 import { request } from '../request';
 
-/** 余料库存列表 (scrapType=0或不传=全部, 1=一维余料, 2=二维余料) */
-export function fetchCutScraps(params?: { scrapType?: 0 | 1 | 2 }) {
-  return request<Api.Cut.CutScrap[]>({
+/** 余料库存列表 (分页+筛选; 不传分页参数 = 返回全部, 上限 500) */
+export function fetchCutScraps(params?: Api.Cut.CutScrapSearchParams) {
+  return request<Api.Cut.CutScrapListResponse>({
     url: '/api/cut/scraps',
     method: 'get',
     params

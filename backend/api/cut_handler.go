@@ -72,16 +72,20 @@ func (h *CutHandler) HandleUpdateScrap(c *gin.Context) {
 	SendSuccess(c, nil)
 }
 
-// HandleListScraps 余料库存列表
+// HandleListScraps 余料库存列表 (分页 + 名称/长度/类型筛选)
 func (h *CutHandler) HandleListScraps(c *gin.Context) {
 	userID := GetUserID(c)
-	scrapType, _ := strconv.Atoi(c.DefaultQuery("scrapType", "0"))
-	list, err := h.svc.ListScraps(userID, scrapType)
+	var params model.CutScrapSearchParams
+	if err := c.ShouldBindQuery(&params); err != nil {
+		SendError(c, "400", "请求参数错误: "+err.Error())
+		return
+	}
+	result, err := h.svc.ListScraps(userID, params)
 	if err != nil {
 		SendError(c, "500", "获取余料库存失败: "+err.Error())
 		return
 	}
-	SendSuccess(c, list)
+	SendSuccess(c, result)
 }
 
 // HandleAddScraps 余料批量入库 (结果页一键入库)

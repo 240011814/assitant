@@ -84,6 +84,25 @@ declare namespace Api {
       updatedAt: string;
     }
 
+    /** 余料库存列表查询参数 (分页可省略, 省略时返回全部) */
+    interface CutScrapSearchParams {
+      /** 0=全部 1=一维 2=二维 */
+      scrapType?: 0 | 1 | 2;
+      current?: number;
+      size?: number;
+      /** 名称模糊 */
+      name?: string;
+      /** 长度范围 (cm, 含边界), 仅匹配一维余料 */
+      lengthMin?: number;
+      lengthMax?: number;
+    }
+
+    /** 余料库存列表响应 (分页) */
+    interface CutScrapListResponse {
+      total: number;
+      records: CutScrap[];
+    }
+
     /** 余料入库请求 (批量) */
     interface AddCutScrapRequest {
       scrapType: 1 | 2;
