@@ -1550,6 +1550,11 @@ declare namespace App {
           pdCount: string;
           pdSeries: string;
           pdSeriesPh: string;
+          /** 玻璃模板 (平面切割) */
+          pdGlassThickness: string;
+          pdGlassThicknessPh: string;
+          pdGlassPlain: string;
+          pdGlassTip: string;
           pdFit: string;
           pdFitGap: string;
           pdFitReach: string;
@@ -1568,6 +1573,8 @@ declare namespace App {
           pdUpdateToList: string;
           pdListTitle: string;
           pdNeedSeries: string;
+          pdNeedThickness: string;
+          pdMixedGoCut: string;
           pdPendingEdit: string;
           pdEmptyOrder: string;
           pdSaved: string;
@@ -1584,6 +1591,7 @@ declare namespace App {
           pdDeleted: string;
           pdImported: string;
           pdImportEmpty: string;
+          planeSpecRowsAdded: string;
           /** 未排入件警示 */
           unplacedAlert: string;
           unplacedLabel: string;

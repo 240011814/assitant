@@ -7,11 +7,11 @@ import { $t } from '@/locales';
 import { deleteCutProduct, fetchCutProducts } from '@/service/api';
 import ProductEditModal from '@/components/cut/ProductEditModal.vue';
 import WindowGridPreview from '@/components/cut/WindowGridPreview.vue';
-import { findWindowTemplate, parseProductSpec } from '@/components/cut/window-template';
+import { isGlassItem, parseProductSpec, productTypeLabel } from '@/components/cut/window-template';
 
 /**
  * 产品管理: 维护待切割产品单 (一单可含多种类型的多件产品),
- * 记录上"去裁剪"跳转一维切割页并直接预填所需切割材料。
+ * 记录上"去裁剪"按产品类型跳转: 窗类→一维切割, 玻璃→平面切割 (一维/平面只能有一种), 由其消费 query.products 预填。
  */
 
 interface OrderRow extends Api.Cut.CutProduct {
@@ -37,10 +37,17 @@ async function getData() {
   }
 }
 
-/** 去裁剪: 跳一维切割页, 由其消费 query.products 预填所需切割材料 */
+/** 去裁剪: 按产品类型分流 — 窗类跳一维切割, 玻璃跳平面切割; 两类混选拦截 (一维/平面只能有一种) */
 function goCut(ids: number[]) {
   if (ids.length === 0) return;
-  router.push({ path: '/cut/bar', query: { products: ids.join(',') } });
+  const items = rows.value.filter(row => ids.includes(row.id)).flatMap(row => row.parsed.items);
+  const hasGlass = items.some(isGlassItem);
+  const hasWindow = items.some(item => !isGlassItem(item));
+  if (hasGlass && hasWindow) {
+    message.warning($t('page.cut.pdMixedGoCut'));
+    return;
+  }
+  router.push({ path: hasGlass ? '/cut/plane' : '/cut/bar', query: { products: ids.join(',') } });
 }
 
 const columns = computed<DataTableColumns<OrderRow>>(() => [
@@ -48,22 +55,22 @@ const columns = computed<DataTableColumns<OrderRow>>(() => [
     type: 'expand',
     key: 'expand',
     renderExpand(row) {
-      const detailColumns: DataTableColumns<Api.Cut.ProductItem> = [
-        {
-          title: $t('page.cut.pdTemplate'),
-          key: 'type',
-          width: 180,
-          render: item => findWindowTemplate(item.type)?.label ?? item.type
-        },
-        { title: '尺寸(cm)', key: 'size', width: 100, align: 'center', render: item => `${item.width}×${item.height}` },
-        {
-          title: $t('page.cut.pdGrid'),
-          key: 'grid',
-          width: 110,
-          align: 'center',
-          render: item => `${item.grid.cols.length}列×${item.grid.rows.length}行`
-        },
-        { title: $t('page.cut.pdSeries'), key: 'series', width: 110, align: 'center', render: item => (item.series ? `${item.series}mm` : '-') },
+        const detailColumns: DataTableColumns<Api.Cut.ProductItem> = [
+          {
+            title: $t('page.cut.pdTemplate'),
+            key: 'type',
+            width: 180,
+            render: item => productTypeLabel(item.type)
+          },
+          { title: '尺寸(cm)', key: 'size', width: 100, align: 'center', render: item => `${item.width}×${item.height}` },
+          {
+            title: $t('page.cut.pdGrid'),
+            key: 'grid',
+            width: 110,
+            align: 'center',
+            render: item => (isGlassItem(item) ? '-' : `${item.grid.cols.length}列×${item.grid.rows.length}行`)
+          },
+          { title: $t('page.cut.pdSeries'), key: 'series', width: 110, align: 'center', render: item => (item.series ? `${item.series}mm` : '-') },
         { title: $t('page.cut.pdCount'), key: 'count', width: 70, align: 'center' },
         {
           title: $t('page.cut.pdPreview'),

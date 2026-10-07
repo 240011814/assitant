@@ -249,13 +249,14 @@ type CutProductFit struct {
 	BeadDeduct *float64 `json:"beadDeduct,omitempty"` // 玻璃压条每根扣尺 (默认 10)
 }
 
-// CutProductItem 产品单内的一件产品 (type 为前端产品模板 key; 尺寸单位 cm)
+// CutProductItem 产品单内的一件产品 (type 为前端产品模板 key; 尺寸单位 cm;
+// type=glass 为玻璃产品: 无框料/拼装参数, series 字段承载玻璃厚度 mm, grid 存 1×1 平凡格)
 type CutProductItem struct {
 	Type       string         `json:"type"`
 	Width      float64        `json:"width"`
 	Height     float64        `json:"height"`
-	FrameWidth float64        `json:"frameWidth"` // 框料宽 cm (由系列换算)
-	Series     string         `json:"series"`     // 框料截面宽度 mm (即型材系列: 55/60/65/70/75/80)
+	FrameWidth float64        `json:"frameWidth"` // 框料宽 cm (由系列换算; 玻璃为 0)
+	Series     string         `json:"series"`     // 产品级材料规格 mm (窗=框料截面宽度/型材系列; 玻璃=厚度)
 	Fit        *CutProductFit `json:"fit,omitempty"`
 	Bead       bool           `json:"bead,omitempty"`       // 是否计算玻璃压条
 	BeadSeries string         `json:"beadSeries,omitempty"` // 压条规格 (压条不与框共享型材; 空 = 行标签只有 "压条")

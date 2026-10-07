@@ -37,15 +37,15 @@ export interface WindowGridSpec {
 
 /** 一件产品 (与后端 CutProductItem 同构) */
 export interface ProductItem {
-  /** 产品模板 key (WINDOW_TEMPLATES 项的 key) */
+  /** 产品模板 key (WINDOW_TEMPLATES 项的 key; 玻璃 = GLASS_TYPE) */
   type: string;
   /** 总宽 cm */
   width: number;
   /** 总高 cm */
   height: number;
-  /** 框料宽 cm (由系列换算: 系列 mm / 10) */
+  /** 框料宽 cm (由系列换算: 系列 mm / 10); 玻璃无框料 = 0 */
   frameWidth: number;
-  /** 框料截面宽度 mm (即型材系列: 55/60/65/70/75/80) */
+  /** 产品级材料规格 mm (窗 = 型材系列: 55/60/65/70/75/80; 玻璃 = 玻璃厚度) */
   series: string;
   /** 拼装搭接参数 mm (省略走默认) */
   fit?: ProductFit;
@@ -117,6 +117,57 @@ export const WINDOW_TEMPLATES: WindowTemplateDef[] = [
 
 export function findWindowTemplate(key: string): WindowTemplateDef | undefined {
   return WINDOW_TEMPLATES.find(t => t.key === key);
+}
+
+// ===== 玻璃产品 (平面切割, 与窗类互斥: 一维/平面只能有一种) =====
+
+/** 玻璃模板 key (非窗型模板, 无分格/拼装参数; series 字段承载玻璃厚度) */
+export const GLASS_TYPE = 'glass';
+export const GLASS_LABEL = '玻璃';
+
+/** 玻璃常见厚度候选 (mm), 支持手动输入 (如中空玻璃 5+9A+5) */
+export const GLASS_THICKNESS_OPTIONS = ['5', '6', '8', '10', '12'].map(v => ({ label: `${v}mm`, value: v }));
+
+export function isGlassItem(item: Pick<ProductItem, 'type'>): boolean {
+  return item.type === GLASS_TYPE;
+}
+
+/** 产品类型显示名 (玻璃或窗型模板名) */
+export function productTypeLabel(type: string): string {
+  return type === GLASS_TYPE ? GLASS_LABEL : (findWindowTemplate(type)?.label ?? type);
+}
+
+/** 玻璃产品初始项 (无框料/拼装参数; 分格存 1×1 平凡格以兼容后端几何校验) */
+export function glassItemFromDefaults(width = 150, height = 200): ProductItem {
+  return {
+    type: GLASS_TYPE,
+    width,
+    height,
+    frameWidth: 0,
+    series: '',
+    count: 1,
+    grid: { cols: [width], rows: [height], cells: [[CELL_FIXED]], sliding: false }
+  };
+}
+
+/** 导入平面切割行: 一批玻璃产品 → 平面零件行; spec = 玻璃厚度 (材料规格, 如 "5mm")。
+ * 玻璃只能进平面切割 (窗类只能进一维), 非玻璃产品跳过 */
+export function productPlaneRows(
+  items: ProductItem[]
+): Array<{ label: string; width: number; height: number; quantity: number; spec?: string }> {
+  const rows: Array<{ label: string; width: number; height: number; quantity: number; spec?: string }> = [];
+  for (const item of items) {
+    if (!isGlassItem(item) || item.width <= 0 || item.height <= 0 || item.count < 1) continue;
+    const thickness = item.series?.trim();
+    rows.push({
+      label: thickness ? `${GLASS_LABEL} ${thickness}mm` : GLASS_LABEL,
+      width: item.width,
+      height: item.height,
+      quantity: item.count,
+      spec: thickness ? `${thickness}mm` : undefined
+    });
+  }
+  return rows;
 }
 
 /** 解析产品单 spec JSON (坏数据按空单处理, 不抛错; 兼容旧版窗户单的 windows key) */
@@ -290,11 +341,12 @@ export function mergePieces(pieces: PieceDraft[]): PieceDraft[] {
 
 /** 导入切割行: 一批产品的切割件 × 数量, 按 (部件族+规格, 长度) 合并;
  * 行标签即一维切割的材料类型: 框/梃/扇挂产品系列 (如 "外框 70" = 70系外框料),
- * 压条挂独立压条规格 (压条不与框共享型材; 未填时标签只有 "压条") */
+ * 压条挂独立压条规格 (压条不与框共享型材; 未填时标签只有 "压条")。
+ * 玻璃产品走平面切割 (productPlaneRows), 此处跳过 */
 export function productCutRows(items: ProductItem[]): Array<{ label: string; length: number; quantity: number }> {
   const map = new Map<string, { label: string; length: number; quantity: number }>();
   for (const item of items) {
-    if (item.width <= 0 || item.height <= 0 || item.count < 1) continue;
+    if (isGlassItem(item) || item.width <= 0 || item.height <= 0 || item.count < 1) continue;
     // 框/梃/扇挂产品系列, 压条挂独立的压条规格 (压条不与框共享型材)
     const seriesSuffix = item.series?.trim() ? ` ${item.series.trim()}` : '';
     const beadSuffix = item.beadSeries?.trim() ? ` ${item.beadSeries.trim()}` : '';

@@ -143,6 +143,22 @@ func TestPlaneCutScrapReservedForSpec(t *testing.T) {
 	}
 }
 
+// 玻璃产品校验: series 承载厚度 (必填), 1×1 平凡格 + frameWidth=0 通过窗类几何校验
+func TestValidateProductSpecGlass(t *testing.T) {
+	glass := model.CutProductItem{
+		Type: "glass", Width: 150, Height: 200, FrameWidth: 0, Series: "5", Count: 2,
+		Grid: model.CutWindowGrid{Cols: []float64{150}, Rows: []float64{200}, Cells: [][]int{{1}}},
+	}
+	if err := validateProductSpec(model.CutProductSpec{Items: []model.CutProductItem{glass}}); err != nil {
+		t.Fatalf("合法玻璃产品不应报错: %v", err)
+	}
+	noThickness := glass
+	noThickness.Series = " "
+	if err := validateProductSpec(model.CutProductSpec{Items: []model.CutProductItem{noThickness}}); err == nil || !strings.Contains(err.Error(), "玻璃厚度") {
+		t.Fatalf("缺厚度应报未指定玻璃厚度, 实际: %v", err)
+	}
+}
+
 // 精确模式请求应携带零件规格与候选板规格, 备用新板按规格补足
 func TestSolvePlanePreciseSpecPayload(t *testing.T) {
 	var got *cut2dSolverRequest

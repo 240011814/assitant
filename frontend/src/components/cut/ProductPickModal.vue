@@ -4,10 +4,15 @@ import { NButton, NDataTable, NModal, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { $t } from '@/locales';
 import { fetchCutProducts } from '@/service/api';
-import { parseProductSpec } from './window-template';
+import { isGlassItem, parseProductSpec } from './window-template';
 
-/** 产品单选择弹窗: 列出已保存的产品单, 勾选后导入切割清单 */
+/** 产品单选择弹窗: 列出已保存的产品单, 勾选后导入切割清单。
+ * mode 过滤: bar=只列含窗类(一维)产品, plane=只列含玻璃(平面)产品 (一维/平面只能有一种) */
 const show = defineModel<boolean>('show', { default: false });
+
+const props = defineProps<{
+  mode?: 'bar' | 'plane';
+}>();
 
 const emit = defineEmits<{ (e: 'confirm', records: Api.Cut.CutProduct[]): void }>();
 
@@ -49,7 +54,13 @@ watch(show, async opened => {
   loading.value = true;
   try {
     const { data, error } = await fetchCutProducts();
-    if (!error && data) records.value = data;
+    if (!error && data) {
+      // 按切割方式过滤: 一维吃窗类件, 平面吃玻璃件; 混合单两边都会列出, 导入时各取所需
+      records.value = data.filter(row => {
+        const items = parseProductSpec(row).items;
+        return props.mode === 'plane' ? items.some(isGlassItem) : items.some(item => !isGlassItem(item));
+      });
+    }
   } finally {
     loading.value = false;
   }

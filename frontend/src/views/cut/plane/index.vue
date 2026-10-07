@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue';
+import { computed, h, onActivated, onMounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { NButton, NGi, NGrid, NSelect, NStatistic, NTag, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { $t } from '@/locales';
-import { cutBin, fetchCutScraps } from '@/service/api';
+import { cutBin, fetchCutProducts, fetchCutScraps } from '@/service/api';
 import ScrapLibraryModal from '@/components/cut/ScrapLibraryModal.vue';
+import ProductPickModal from '@/components/cut/ProductPickModal.vue';
+import { parseProductSpec, productPlaneRows } from '@/components/cut/window-template';
 import { exportPlaneCutPDF, exportPlaneCutPNG, printPlaneCut } from './cut-export';
 
 const message = useMessage();
@@ -45,12 +48,66 @@ const strategyOptions = [
   { label: '精确 (OR-Tools)', value: 'Precise' }
 ];
 
-// 旧料库 / 导出 / 打印状态
+// 旧料库 / 产品导入 / 导出 / 打印状态
 const scrapModalShow = ref(false);
+const productPickShow = ref(false);
 const exporting = ref<'png' | 'pdf' | null>(null);
 const printing = ref(false);
 
 const loading = ref(false);
+
+const route = useRoute();
+const router = useRouter();
+
+/** 把玻璃产品单预填为平面零件行 (spec=玻璃厚度, 材料规格); 返回导入件数与自动补的规格行数 */
+function fillItemsFromGlassOrders(records: Api.Cut.CutProduct[]): { pieces: number; addedSpecs: number } {
+  const rows = records.flatMap(record => productPlaneRows(parseProductSpec(record).items));
+  items.value.push(
+    ...rows.map(row => ({ label: row.label, width: row.width, height: row.height, quantity: row.quantity, spec: row.spec }))
+  );
+  // 新厚度没有同名新材料规格时自动补行 (宽高留空, 提交前需按实际板材补全)
+  let addedSpecs = 0;
+  rows.forEach(row => {
+    const spec = row.spec?.trim();
+    if (spec && !newMaterialRows.value.some(board => board.label.trim() === spec)) {
+      newMaterialRows.value.push({ label: spec, width: null, height: null });
+      addedSpecs++;
+    }
+  });
+  // 库存可能新增了类型, 刷新下拉候选
+  loadMaterialTypes();
+  return { pieces: rows.reduce((sum, row) => sum + row.quantity, 0), addedSpecs };
+}
+
+function glassImportResult(count: number, result: { pieces: number; addedSpecs: number }) {
+  if (result.pieces > 0) {
+    message.success($t('page.cut.pdImported', { count, bars: result.pieces }));
+    if (result.addedSpecs > 0) {
+      message.warning($t('page.cut.planeSpecRowsAdded'));
+    }
+  } else {
+    message.warning($t('page.cut.pdImportEmpty'));
+  }
+}
+
+// keepAlive 页面: 产品管理页"去裁剪"(玻璃类)跳入时消费 query.products 预填
+onActivated(async () => {
+  const raw = route.query.products;
+  if (typeof raw !== 'string' || !raw) return;
+  // 先清掉 query, 避免切回该页时重复导入
+  router.replace({ query: { ...route.query, products: undefined } });
+  const ids = raw.split(',').map(Number).filter(n => Number.isInteger(n) && n > 0);
+  if (ids.length === 0) return;
+  const { data, error } = await fetchCutProducts();
+  if (error || !data) return;
+  const selected = data.filter(record => ids.includes(record.id));
+  glassImportResult(selected.length, fillItemsFromGlassOrders(selected));
+});
+
+// 导入产品弹窗确认: 预填所选玻璃产品单
+function handleProductPick(records: Api.Cut.CutProduct[]) {
+  glassImportResult(records.length, fillItemsFromGlassOrders(records));
+}
 
 function fmtNum(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
@@ -465,6 +522,7 @@ async function printChart() {
         <NInputNumber v-model:value="height" type="number" placeholder="高(cm)" step="0.1" min="0.1" class="w-40" />
         <NInputNumber v-model:value="quantity" type="number" placeholder="数量" class="w-40" min="1" />
         <NButton type="primary" @click="addItem">{{ $t('page.cut.addItem') }}</NButton>
+        <NButton type="info" secondary @click="productPickShow = true">{{ $t('page.cut.pdImport') }}</NButton>
       </div>
 
       <!-- 切割项目列表 -->
@@ -608,6 +666,9 @@ async function printChart() {
 
     <!-- 旧料库弹窗 -->
     <ScrapLibraryModal v-model:show="scrapModalShow" :scrap-type="2" @apply="applyScraps" />
+
+    <!-- 导入产品弹窗: 只列含玻璃产品的单, 预填平面零件 (spec=玻璃厚度) -->
+    <ProductPickModal v-model:show="productPickShow" mode="plane" @confirm="handleProductPick" />
 
     <NModal v-model:show="loading" preset="dialog" title="计算中...">
       <div class="flex flex-col items-center justify-center p-6">

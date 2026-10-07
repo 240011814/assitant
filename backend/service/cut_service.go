@@ -2121,14 +2121,22 @@ func validateProductSpec(spec model.CutProductSpec) error {
 		if w.Width <= 0 || w.Height <= 0 || w.Width > 1e6 || w.Height > 1e6 {
 			return fmt.Errorf("%s宽高必须大于 0", at)
 		}
-		if w.FrameWidth < 0 || w.FrameWidth*2 >= math.Min(w.Width, w.Height) {
-			return fmt.Errorf("%s框料宽不合法", at)
+		isGlass := strings.TrimSpace(w.Type) == "glass"
+		if isGlass {
+			// 玻璃产品: 无框料/拼装参数, series 字段承载玻璃厚度; 分格为前端生成的 1×1 平凡格, 走通用几何校验
+			if strings.TrimSpace(w.Series) == "" {
+				return fmt.Errorf("%s未指定玻璃厚度", at)
+			}
+		} else {
+			if w.FrameWidth < 0 || w.FrameWidth*2 >= math.Min(w.Width, w.Height) {
+				return fmt.Errorf("%s框料宽不合法", at)
+			}
+			if strings.TrimSpace(w.Series) == "" {
+				return fmt.Errorf("%s未指定框料截面宽度", at)
+			}
 		}
 		if w.Count < 1 {
 			return fmt.Errorf("%s数量至少为 1", at)
-		}
-		if strings.TrimSpace(w.Series) == "" {
-			return fmt.Errorf("%s未指定框料截面宽度", at)
 		}
 		// 拼装搭接参数范围 (mm): 实际取值以型材/五金厂家下料表为准
 		if w.Fit != nil {
