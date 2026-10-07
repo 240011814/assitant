@@ -123,6 +123,20 @@ declare namespace Api {
       reason: 'oversized' | 'exhausted';
     }
 
+    /** 二维按材料类型分组统计 (口径同整体汇总) */
+    interface PlaneMaterialTypeSummary {
+      /** 材料类型名 (空=未命名的旧料) */
+      materialType: string;
+      /** 该类型用板块数 */
+      count: number;
+      /** 该类型用料总面积 */
+      totalArea: number;
+      /** 该类型已排入零件总面积 */
+      usedArea: number;
+      /** 该类型利用率 (已乘100的百分数) */
+      utilization: number;
+    }
+
     /** 二维切割汇总 */
     interface PlaneSummary {
       /** 用料块数 (旧料 + 新板材) */
@@ -135,6 +149,8 @@ declare namespace Api {
       utilization: number;
       /** 未排入件数 */
       unplacedCount: number;
+      /** 按材料类型分组统计 (旧记录无此字段) */
+      byMaterialType?: PlaneMaterialTypeSummary[];
     }
 
     /** 二维切割响应 */
@@ -247,6 +263,8 @@ declare namespace Api {
     interface BinRequest {
       items: Item[];
       materials: Item[];
+      /** 新板材规格列表 (label=材料类型名); 不传时后端按 width/height 单一规格计算 */
+      newMaterials?: Item[];
       height: number;
       width: number;
       strategy: string;
@@ -280,6 +298,8 @@ declare namespace Api {
       width: number;
       height: number;
       quantity?: number;
+      /** 零件归属的材料类型 (newMaterials 的 label); 空=通用 (算法自由选料) */
+      spec?: string;
     }
 
     interface BarItem {

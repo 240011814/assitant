@@ -1472,6 +1472,8 @@ const local: App.I18n.Schema = {
       newMaterialLabel: "规格名(选填)",
       newMaterialLength: "长度(cm)",
       newMaterialInvalid: "每行新材料规格长度必须大于 0",
+      planeNewMaterialInvalid: "每行新材料规格的宽和高必须大于 0",
+      planeSpecUndefined: "裁剪尺寸「{label}」引用了未定义的材料规格: {spec}",
       loading: "加载中...",
       summaryTitle: "结果统计",
       summaryMaterialCount: "用料根数",

@@ -10,6 +10,7 @@ class Item(BaseModel):
     width: float = Field(gt=0)
     height: float = Field(gt=0)
     demand: int = Field(ge=1)
+    spec: str = ""  # 材料类型约束: 非空时只能排入同 spec 的板; 空 = 通用 (任意板)
 
 
 class Board(BaseModel):
@@ -17,6 +18,7 @@ class Board(BaseModel):
     width: float = Field(gt=0)
     height: float = Field(gt=0)
     is_scrap: bool = False  # 旧料: 成本 0 (优先消耗); 新板: 成本=面积
+    spec: str = ""  # 板的材料类型 (旧料=来源类型名, 新板=规格名; 空=不限)
 
 
 class Placement(BaseModel):

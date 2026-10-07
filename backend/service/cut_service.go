@@ -1030,6 +1030,24 @@ func (s *CutService) PlaneCut(req model.BinRequest) (*model.PlaneCutResponse, er
 		return nil, errors.New("材料尺寸必须大于0")
 	}
 
+	// 新板材规格校验 (newMaterials 为空时回退 Width/Height 单一规格, 兼容旧请求)
+	specs := planeSpecRows(req)
+	for _, sp := range specs {
+		if sp.width <= 0 || sp.height <= 0 {
+			return nil, errors.New("新材料规格宽高必须大于0")
+		}
+	}
+	specNames := make(map[string]bool, len(specs))
+	for _, sp := range specs {
+		specNames[sp.name] = true
+	}
+	// 指定材料类型的零件必须引用已定义的新板材规格 (与一维口径一致)
+	for _, it := range req.Items {
+		if spec := planeItemSpec(it); spec != "" && !specNames[spec] {
+			return nil, fmt.Errorf("切割项目 %s 引用了未定义的材料规格: %s", it.Label, spec)
+		}
+	}
+
 	var resp *model.PlaneCutResponse
 	var err error
 	switch req.Strategy {
@@ -1052,19 +1070,38 @@ func (s *CutService) PlaneCut(req model.BinRequest) (*model.PlaneCutResponse, er
 	return resp, nil
 }
 
-// summarizePlaneResults 平面结果汇总
+// summarizePlaneResults 平面结果汇总 (整体口径 + 按材料类型分组统计)
 func summarizePlaneResults(results []model.BinResult, unplaced []model.UnplacedItem) model.PlaneSummary {
 	summary := model.PlaneSummary{
-		BinCount:      len(results),
-		UnplacedCount: 0,
+		BinCount:       len(results),
+		UnplacedCount:  0,
+		ByMaterialType: []model.PlaneMaterialTypeSummary{},
 	}
 	for _, u := range unplaced {
 		summary.UnplacedCount += u.Quantity
 	}
+	// 按材料类型分组累计, 保持首次出现顺序
+	type typeStat struct {
+		count                 int
+		totalArea, usedArea   float64
+	}
+	typeIdx := make(map[string]int)
 	for _, r := range results {
 		summary.TotalArea += r.MaterialWidth * r.MaterialHeight
 		for _, p := range r.Pieces {
 			summary.UsedArea += p.W * p.H
+		}
+		idx, ok := typeIdx[r.MaterialType]
+		if !ok {
+			idx = len(summary.ByMaterialType)
+			typeIdx[r.MaterialType] = idx
+			summary.ByMaterialType = append(summary.ByMaterialType, model.PlaneMaterialTypeSummary{MaterialType: r.MaterialType})
+		}
+		g := &summary.ByMaterialType[idx]
+		g.Count++
+		g.TotalArea += r.MaterialWidth * r.MaterialHeight
+		for _, p := range r.Pieces {
+			g.UsedArea += p.W * p.H
 		}
 	}
 	if summary.TotalArea > 0 {
@@ -1072,6 +1109,14 @@ func summarizePlaneResults(results []model.BinResult, unplaced []model.UnplacedI
 	}
 	summary.UsedArea = round2(summary.UsedArea)
 	summary.TotalArea = round2(summary.TotalArea)
+	for i := range summary.ByMaterialType {
+		g := &summary.ByMaterialType[i]
+		if g.TotalArea > 0 {
+			g.Utilization = round2(g.UsedArea / g.TotalArea * 100)
+		}
+		g.UsedArea = round2(g.UsedArea)
+		g.TotalArea = round2(g.TotalArea)
+	}
 	return summary
 }
 
@@ -1266,7 +1311,60 @@ type planeMaterial struct {
 	Priority int
 }
 
-// buildPlaneMaterials 构建材料实例列表: 旧料优先消费, 之后开备用新板材
+// planeSpecRow 平面新板材规格 (name 为材料类型名, 空 label 归一化为 "新板材")
+type planeSpecRow struct {
+	name         string
+	width, height float64
+}
+
+// planeItemSpec 零件归属的材料类型 (去除首尾空白)
+func planeItemSpec(it model.Item) string {
+	return strings.TrimSpace(it.Spec)
+}
+
+// planeScrapLabel 旧料的类型名 (去除首尾空白)
+func planeScrapLabel(m model.Item) string {
+	return strings.TrimSpace(m.Label)
+}
+
+// planeSpecRows 解析请求的新板材规格: newMaterials 优先 (同名取首个定义),
+// 为空时回退 Width/Height 单一未命名规格 (兼容旧请求)
+func planeSpecRows(req model.BinRequest) []planeSpecRow {
+	if len(req.NewMaterials) > 0 {
+		rows := make([]planeSpecRow, 0, len(req.NewMaterials))
+		seen := make(map[string]bool, len(req.NewMaterials))
+		for _, m := range req.NewMaterials {
+			name := planeScrapLabel(m)
+			if name == "" {
+				name = cut2dNewBoardName
+			}
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			rows = append(rows, planeSpecRow{name: name, width: m.Width, height: m.Height})
+		}
+		return rows
+	}
+	return []planeSpecRow{{name: cut2dNewBoardName, width: req.Width, height: req.Height}}
+}
+
+// planeFitsAnySpec 零件能否容纳于其可用的新板材规格 (spec 非空时仅查同名规格, 含旋转)
+func planeFitsAnySpec(specs []planeSpecRow, item model.Item) bool {
+	spec := planeItemSpec(item)
+	for _, sp := range specs {
+		if spec != "" && sp.name != spec {
+			continue
+		}
+		if (item.Width <= sp.width && item.Height <= sp.height) ||
+			(item.Height <= sp.width && item.Width <= sp.height) {
+			return true
+		}
+	}
+	return false
+}
+
+// buildPlaneMaterials 构建材料实例列表: 旧料优先消费, 之后开备用新板材 (每种规格各预留上限)
 func buildPlaneMaterials(req model.BinRequest) []planeMaterial {
 	materials := []planeMaterial{}
 	for _, m := range req.Materials {
@@ -1275,12 +1373,14 @@ func buildPlaneMaterials(req model.BinRequest) []planeMaterial {
 			count = 1
 		}
 		for i := 0; i < count; i++ {
-			materials = append(materials, planeMaterial{Name: m.Label, Width: m.Width, Height: m.Height, Priority: 10})
+			materials = append(materials, planeMaterial{Name: planeScrapLabel(m), Width: m.Width, Height: m.Height, Priority: 10})
 		}
 	}
 	// 备用新板材上限: 防止极端输入无限开板; 用尽后零件进入"未排入"清单而非静默丢弃
-	for i := 0; i < 100; i++ {
-		materials = append(materials, planeMaterial{Name: "新板材", Width: req.Width, Height: req.Height, Priority: 0})
+	for _, sp := range planeSpecRows(req) {
+		for i := 0; i < 100; i++ {
+			materials = append(materials, planeMaterial{Name: sp.name, Width: sp.width, Height: sp.height, Priority: 0})
+		}
 	}
 	// 按优先级(旧料先) + 面积降序
 	sort.Slice(materials, func(i, j int) bool {
@@ -1292,15 +1392,33 @@ func buildPlaneMaterials(req model.BinRequest) []planeMaterial {
 	return materials
 }
 
-// takePlaneMaterial 从列表中取出第一个能容纳该零件的材料 (旧料优先已由排序保证), 未找到返回 nil
-func takePlaneMaterial(materials []planeMaterial, w, h float64) (*planeMaterial, []planeMaterial) {
+// takePlaneMaterial 从列表中取出第一个能容纳该零件的材料 (旧料优先已由排序保证), 未找到返回 nil。
+// spec 非空时只取同名材料; spec 为空(通用)时跳过被明确规格认领的同名旧料 (旧料预留给该规格的零件, 同一维口径)
+func takePlaneMaterial(materials []planeMaterial, w, h float64, spec string, claimedScrap map[string]bool) (*planeMaterial, []planeMaterial) {
 	for i, m := range materials {
+		if spec != "" && m.Name != spec {
+			continue
+		}
+		if spec == "" && m.Priority > 0 && claimedScrap[m.Name] {
+			continue
+		}
 		if w <= m.Width && h <= m.Height {
 			remaining := append(append([]planeMaterial{}, materials[:i]...), materials[i+1:]...)
 			return &planeMaterial{Name: m.Name, Width: m.Width, Height: m.Height, Priority: m.Priority}, remaining
 		}
 	}
 	return nil, materials
+}
+
+// claimedScrapTypes 被零件明确指定材料类型认领的类型名集合 (通用零件不得消耗这些同名旧料)
+func claimedScrapTypes(items []model.Item) map[string]bool {
+	claimed := make(map[string]bool)
+	for _, it := range items {
+		if spec := planeItemSpec(it); spec != "" {
+			claimed[spec] = true
+		}
+	}
+	return claimed
 }
 
 func (s *CutService) guillotineCut(req model.BinRequest) (*model.PlaneCutResponse, error) {
@@ -1328,6 +1446,8 @@ func (s *CutService) guillotineCut(req model.BinRequest) (*model.PlaneCutRespons
 
 	// 旧料优先, 用尽后开新板材 (旧实现完全忽略旧料入参)
 	materials := buildPlaneMaterials(req)
+	specs := planeSpecRows(req)
+	claimed := claimedScrapTypes(allItems)
 
 	oversized := []model.Item{}
 	exhausted := []model.Item{}
@@ -1336,8 +1456,11 @@ func (s *CutService) guillotineCut(req model.BinRequest) (*model.PlaneCutRespons
 	for _, item := range validItems {
 		placed := false
 
-		// 尝试放入现有板材
+		// 尝试放入现有板材 (指定材料类型的零件只能放同名材料的板)
 		for i, bin := range bins {
+			if item.Spec != "" && results[i].MaterialType != item.Spec {
+				continue
+			}
 			placement := bin.Insert(item)
 			if placement != nil {
 				results[i].Pieces = append(results[i].Pieces, createPieceFromPlacement(item, *placement))
@@ -1348,13 +1471,11 @@ func (s *CutService) guillotineCut(req model.BinRequest) (*model.PlaneCutRespons
 
 		// 若无板材可放, 取一块能容纳它的材料开新板
 		if !placed {
-			selected, rest := takePlaneMaterial(materials, item.Width, item.Height)
+			selected, rest := takePlaneMaterial(materials, item.Width, item.Height, item.Spec, claimed)
 			if selected == nil {
 				// 所有材料(含备用新板材)都放不下或已耗尽:
-				// 新板材(含旋转)都容纳不下 => 零件超尺寸; 否则 => 备用材料耗尽
-				fitsNew := (item.Width <= req.Width && item.Height <= req.Height) ||
-					(item.Height <= req.Width && item.Width <= req.Height)
-				if !fitsNew {
+				// 该件可用的新板材规格(含旋转)都容纳不下 => 零件超尺寸; 否则 => 备用材料耗尽
+				if !planeFitsAnySpec(specs, item) {
 					oversized = append(oversized, item)
 				} else {
 					exhausted = append(exhausted, item)
@@ -1585,6 +1706,8 @@ func (s *CutService) maxRectsCut(req model.BinRequest) (*model.PlaneCutResponse,
 
 	// 旧料优先, 用尽后开备用新板材
 	materials := buildPlaneMaterials(req)
+	specs := planeSpecRows(req)
+	claimed := claimedScrapTypes(allItems)
 
 	// 按面积从大到小排序物品
 	sort.Slice(allItems, func(i, j int) bool {
@@ -1600,8 +1723,11 @@ func (s *CutService) maxRectsCut(req model.BinRequest) (*model.PlaneCutResponse,
 	for _, item := range allItems {
 		placed := false
 
-		// 尝试放入已有 bin
+		// 尝试放入已有 bin (指定材料类型的零件只能放同名材料的板)
 		for i, bin := range bins {
+			if item.Spec != "" && results[i].MaterialType != item.Spec {
+				continue
+			}
 			rect := bin.Insert(item.Width, item.Height, true)
 			if rect != nil {
 				results[i].Pieces = append(results[i].Pieces, createMaxRectPiece(item, *rect))
@@ -1612,12 +1738,10 @@ func (s *CutService) maxRectsCut(req model.BinRequest) (*model.PlaneCutResponse,
 
 		// 放不下则选择新的材料开 bin
 		if !placed {
-			selected, rest := takePlaneMaterial(materials, item.Width, item.Height)
+			selected, rest := takePlaneMaterial(materials, item.Width, item.Height, item.Spec, claimed)
 			if selected == nil {
 				// 所有材料(含备用新板材)都放不下或已耗尽
-				fitsNew := (item.Width <= req.Width && item.Height <= req.Height) ||
-					(item.Height <= req.Width && item.Width <= req.Height)
-				if !fitsNew {
+				if !planeFitsAnySpec(specs, item) {
 					oversized = append(oversized, item)
 				} else {
 					exhausted = append(exhausted, item)
@@ -1681,6 +1805,7 @@ func (s *CutService) expandItems(items []model.Item) []model.Item {
 				Label:  label,
 				Width:  item.Width,
 				Height: item.Height,
+				Spec:   item.Spec,
 			})
 		}
 	}

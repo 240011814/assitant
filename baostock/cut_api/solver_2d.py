@@ -10,6 +10,7 @@
 
 规模防御: 展开件数/板数/件×板乘积超限返回 failed, 由 Go 回退启发式。
 放不进任何候选板的零件按 oversized 剔除并报告 (Go 视为合法未排入, 与启发式口径一致)。
+材料类型: 零件 spec 非空时只能排入同 spec 的板 (空 spec = 通用, 任意板)。
 """
 
 from __future__ import annotations
@@ -38,6 +39,11 @@ def _scale_for(dims: list[float]) -> int:
     return 100
 
 
+def _spec_ok(item_spec: str, board_spec: str) -> bool:
+    """材料类型兼容: 通用零件 (spec 空) 可上任意板; 指定 spec 的零件只能上同名板"""
+    return not item_spec or item_spec == board_spec
+
+
 def solve(req: SolveRequest) -> SolveResponse:
     t0 = time.time()
     elapsed_ms = lambda: int((time.time() - t0) * 1000)  # noqa: E731
@@ -64,11 +70,11 @@ def solve(req: SolveRequest) -> SolveResponse:
     def fits(w: int, h: int, bw: int, bh: int) -> bool:
         return (w <= bw + EPS and h <= bh + EPS) or (h <= bw + EPS and w <= bh + EPS)
 
-    # 放不进任何候选板的零件: oversized, 不进模型 (Go 侧与启发式同口径报告未排入)
+    # 放不进任何兼容候选板的零件: oversized, 不进模型 (Go 侧与启发式同口径报告未排入)
     placeable: list[int] = []
     oversized: dict[int, int] = {}
     for pi, (ti, w, h) in enumerate(pieces):
-        if any(fits(w, h, bw, bh) for bw, bh, _ in boards):
+        if any(_spec_ok(req.items[ti].spec, b.spec) and fits(w, h, bw, bh) for bw, bh, b in boards):
             placeable.append(pi)
         else:
             oversized[ti] = oversized.get(ti, 0) + 1
@@ -106,9 +112,12 @@ def solve(req: SolveRequest) -> SolveResponse:
     intervals_x: list[list] = [[] for _ in boards]
     intervals_y: list[list] = [[] for _ in boards]
     for pi in placeable:
-        _, w, h = pieces[pi]
+        ti, w, h = pieces[pi]
+        item_spec = req.items[ti].spec
         lits = []
         for bi, (bw, bh, _b) in enumerate(boards):
+            if not _spec_ok(item_spec, _b.spec):
+                continue  # 材料类型不兼容的板不建 (件,板) 变量
             normal_ok = w <= bw + EPS and h <= bh + EPS
             rot_ok = h <= bw + EPS and w <= bh + EPS
             if not normal_ok and not rot_ok:

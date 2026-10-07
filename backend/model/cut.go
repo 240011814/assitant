@@ -163,6 +163,15 @@ type BatchDeleteScrapsRequest struct {
 	IDs []uint `json:"ids" binding:"required,min=1,max=200"`
 }
 
+// PlaneMaterialTypeSummary 平面按材料类型分组统计 (口径同整体汇总)
+type PlaneMaterialTypeSummary struct {
+	MaterialType string  `json:"materialType"`        // 材料类型名 (空=未命名的旧料/新板材)
+	Count        int     `json:"count"`               // 该类型用板块数
+	TotalArea    float64 `json:"totalArea"`           // 该类型用料总面积
+	UsedArea     float64 `json:"usedArea"`            // 该类型已排入零件总面积
+	Utilization  float64 `json:"utilization"`         // 该类型利用率 (百分比)
+}
+
 // PlaneSummary 平面切割汇总
 type PlaneSummary struct {
 	BinCount      int     `json:"binCount"`      // 用料总数 (旧料 + 新板材)
@@ -170,6 +179,8 @@ type PlaneSummary struct {
 	TotalArea     float64 `json:"totalArea"`     // 用料总面积
 	Utilization   float64 `json:"utilization"`   // 整体利用率 (百分比)
 	UnplacedCount int     `json:"unplacedCount"` // 未排入件数
+	// ByMaterialType 按材料类型分组统计, 保持结果中首次出现的顺序; 序列化为 [] 不为 null
+	ByMaterialType []PlaneMaterialTypeSummary `json:"byMaterialType"`
 }
 
 // UnplacedItem 未排入零件 (带数量归并): 件尺寸超过所有可用材料或材料耗尽时产生
@@ -278,12 +289,14 @@ type SaveCutProductRequest struct {
 	Spec CutProductSpec `json:"spec"`
 }
 
-// Item 切割项目
+// Item 切割项目 (BinRequest.Materials 复用时 Spec 留空, 类型名用 Label)
 type Item struct {
 	Label    string  `json:"label"`
 	Width    float64 `json:"width" binding:"required,min=1"`
 	Height   float64 `json:"height" binding:"required,min=1"`
 	Quantity int     `json:"quantity"`
+	// Spec 归属材料类型 (newMaterials 的 label); 空=通用 (算法自由选料, 不可用被明确规格认领的旧料)
+	Spec string `json:"spec,omitempty"`
 }
 
 // Piece 切割块
@@ -298,11 +311,13 @@ type Piece struct {
 
 // BinRequest 平面切割请求
 type BinRequest struct {
-	Items     []Item  `json:"items" binding:"required,min=1"`
-	Materials []Item  `json:"materials"`
-	Height    float64 `json:"height" binding:"required,min=1"`
-	Width     float64 `json:"width" binding:"required,min=1"`
-	Strategy  string  `json:"strategy" binding:"required"`
+	Items     []Item `json:"items" binding:"required,min=1"`
+	Materials []Item `json:"materials"`
+	// NewMaterials 新板材规格列表 (label=材料类型名); 为空时回退 Width/Height 单一规格 (兼容旧请求)
+	NewMaterials []Item  `json:"newMaterials"`
+	Height       float64 `json:"height" binding:"required,min=1"`
+	Width        float64 `json:"width" binding:"required,min=1"`
+	Strategy     string  `json:"strategy" binding:"required"`
 }
 
 // BinResult 平面切割结果

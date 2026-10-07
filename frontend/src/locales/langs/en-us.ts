@@ -1480,6 +1480,8 @@ const local: App.I18n.Schema = {
       newMaterialLabel: "Spec name (optional)",
       newMaterialLength: "Length (cm)",
       newMaterialInvalid: "Each new material spec length must be greater than 0",
+      planeNewMaterialInvalid: "Width and height of each new board spec must be greater than 0",
+      planeSpecUndefined: 'Cutting item "{label}" references an undefined material spec: {spec}',
       loading: "Loading...",
       summaryTitle: "Result Summary",
       summaryMaterialCount: "Bars Used",

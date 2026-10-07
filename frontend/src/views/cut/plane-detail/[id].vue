@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NButton, NResult } from 'naive-ui';
+import type { DataTableColumns } from 'naive-ui';
 
 const route = useRoute();
 const router = useRouter();
@@ -12,6 +13,7 @@ let parsedRequest: Api.Cut.BinRequest & {
   rowItems: Api.Cut.Item[];
 } | null = null;
 let parsedResponse: Api.Cut.BinResult[] = [];
+let parsedSummary: Api.Cut.PlaneSummary | null = null;
 try {
   const rawRequest = route.query.request;
   const rawResponse = route.query.response;
@@ -24,11 +26,13 @@ try {
   // 兼容新旧记录: 旧记录响应为数组, 新记录响应为 { results, unplaced, summary }
   const raw = JSON.parse(rawResponse) as Api.Cut.BinResult[] | Api.Cut.PlaneCutResponse;
   parsedResponse = Array.isArray(raw) ? raw : raw.results;
+  parsedSummary = Array.isArray(raw) ? null : (raw.summary ?? null);
 } catch {
   parseError.value = true;
 }
 const request = parsedRequest;
 const response = parsedResponse;
+const summaryData = ref<Api.Cut.PlaneSummary | null>(parsedSummary);
 
 function goBack() {
   router.back();
@@ -36,8 +40,14 @@ function goBack() {
 
 const group = ref(false);
 const strategy = ref(request?.strategy || 'Guillotine');
-const newMaterialHeight = ref(request?.height || 200);
-const newMaterialWidth = ref(request?.width || 200);
+// 新板材规格列表: 新记录取 newMaterials, 旧记录回退单一规格 (兼容)
+const newBoards = ref<Api.Cut.Item[]>(
+  request?.newMaterials?.length
+    ? request.newMaterials
+    : request
+      ? [{ label: '', width: request.width, height: request.height }]
+      : []
+);
 const items = ref<Api.Cut.Item[]>(request?.rowItems || []);
 const materials = ref<Api.Cut.Item[]>(request?.materials || []);
 const results = ref<Api.Cut.BinResult[]>(response || []);
@@ -45,12 +55,39 @@ const strategyOptions = [
   { label: '刀切法', value: 'Guillotine' },
   { label: '最大空闲法', value: 'MaxRects' }
 ];
-// item 表格
+
+function fmtNum(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+// item 表格 (零件: 材料类型取 spec, 空=通用)
 const itemColumns = [
+  { title: '材料类型', key: 'spec', render: (row: Api.Cut.Item) => row.spec?.trim() || '通用' },
   { title: '标签', key: 'label' },
   { title: '宽(cm)', key: 'width' },
   { title: '高(cm)', key: 'height' },
   { title: '数量', key: 'quantity' }
+];
+
+// material 表格 (旧料: label 即材料类型)
+const materialColumns = [
+  { title: '材料类型', key: 'label' },
+  { title: '宽(cm)', key: 'width' },
+  { title: '高(cm)', key: 'height' },
+  { title: '数量', key: 'quantity' }
+];
+
+// 按材料类型分组统计表 (取保存响应里的 summary.byMaterialType, 旧记录无此字段则不展示)
+const typeSummaryColumns: DataTableColumns<Api.Cut.PlaneMaterialTypeSummary> = [
+  {
+    title: '材料类型',
+    key: 'materialType',
+    render: row => row.materialType?.trim() || '新板材'
+  },
+  { title: '用料块数', key: 'count' },
+  { title: '用料总面积(cm²)', key: 'totalArea', render: row => fmtNum(row.totalArea) },
+  { title: '零件总面积(cm²)', key: 'usedArea', render: row => fmtNum(row.usedArea) },
+  { title: '利用率', key: 'utilization', render: row => `${row.utilization}%` }
 ];
 </script>
 
@@ -77,21 +114,23 @@ const itemColumns = [
       <!-- 剩余材料列表 -->
 
       <h3 class="mb-2 text-lg font-semibold">剩余材料</h3>
-      <NDataTable :columns="itemColumns" :data="materials" />
+      <NDataTable :columns="materialColumns" :data="materials" />
 
       <h3 class="mt-6">参数配置</h3>
-      <div class="mb-4 flex items-center gap-6">
+      <div class="mb-4 flex flex-wrap items-start gap-6">
+        <div class="flex items-start gap-2">
+          <span class="w-24 pt-1">新材料规格</span>
+          <div class="flex flex-col gap-2">
+            <div v-for="(row, idx) in newBoards" :key="idx" class="flex items-center gap-2">
+              <span class="w-32 text-gray-600">{{ row.label?.trim() || '新板材' }}</span>
+              <NInputNumber :value="row.width" placeholder="宽(cm)" disabled class="w-40" />
+              <NInputNumber :value="row.height" placeholder="高(cm)" disabled class="w-40" />
+            </div>
+          </div>
+        </div>
         <div class="flex items-center gap-2">
           <span class="w-24">方案</span>
-          <NSelect v-model:value="strategy" :options="strategyOptions" />
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="w-24">新材料长度</span>
-          <NInputNumber v-model:value="newMaterialHeight" disabled class="w-40" />
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="w-24">新材料高度</span>
-          <NInputNumber v-model:value="newMaterialWidth" disabled class="w-40" />
+          <NSelect v-model:value="strategy" :options="strategyOptions" disabled />
         </div>
         <div class="flex items-center gap-2">
           <span class="w-24">聚合显示</span>
@@ -106,6 +145,13 @@ const itemColumns = [
     </NCard>
 
     <PlaneStats :results="results"></PlaneStats>
+
+    <!-- 按材料类型分组统计 (旧记录无此字段则不展示) -->
+    <NCard v-if="summaryData?.byMaterialType?.length" size="large" class="mb-4">
+      <template #header>按材料类型统计</template>
+      <NDataTable size="small" :columns="typeSummaryColumns" :data="summaryData.byMaterialType" :bordered="false" />
+    </NCard>
+
     <PlaneCanvas :results="results" :group-data="group" :materials="materials"></PlaneCanvas>
   </div>
 </template>

@@ -34,6 +34,7 @@ type cut2dSolverItem struct {
 	Width  float64 `json:"width"`
 	Height float64 `json:"height"`
 	Demand int     `json:"demand"`
+	Spec   string  `json:"spec,omitempty"` // 材料类型约束: 非空时只能排入同 spec 的板
 }
 
 type cut2dSolverBoard struct {
@@ -41,6 +42,7 @@ type cut2dSolverBoard struct {
 	Width   float64 `json:"width"`
 	Height  float64 `json:"height"`
 	IsScrap bool    `json:"is_scrap"`
+	Spec    string  `json:"spec,omitempty"` // 板的材料类型 (旧料=来源类型名, 新板=规格名)
 }
 
 type cut2dSolverPlacement struct {
@@ -85,10 +87,10 @@ func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.Bin
 	type expPiece struct {
 		typeIdx int
 		label   string
+		spec    string
 		w, h    float64
 	}
 	var expanded []expPiece
-	totalArea := 0.0
 	for ti, it := range req.Items {
 		q := it.Quantity
 		if q < 1 {
@@ -99,9 +101,8 @@ func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.Bin
 			if q > 1 {
 				label = it.Label + "_" + strconv.Itoa(i+1)
 			}
-			expanded = append(expanded, expPiece{typeIdx: ti, label: label, w: it.Width, h: it.Height})
+			expanded = append(expanded, expPiece{typeIdx: ti, label: label, spec: planeItemSpec(it), w: it.Width, h: it.Height})
 		}
-		totalArea += it.Width * it.Height * float64(q)
 	}
 	if len(expanded) == 0 || len(expanded) > cut2dMaxPieces {
 		log.Printf("[Cut] 精确模式跳过: 展开件数 %d 超限 (> %d)", len(expanded), cut2dMaxPieces)
@@ -120,6 +121,8 @@ func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.Bin
 		isScrap bool
 	}
 	var boards []candBoard
+	// 启发式用板按 (类型名, 尺寸) + 剩余额度匹配旧料; 未匹配到的视为新板材
+	// (多规格后新板名即规格名, 不能再按 "新板材" 字面区分)
 	scrapAvail := make([]int, len(req.Materials))
 	for i, m := range req.Materials {
 		q := m.Quantity
@@ -129,24 +132,22 @@ func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.Bin
 		scrapAvail[i] = q
 	}
 	for _, r := range heu.Results {
-		if r.MaterialType != cut2dNewBoardName {
-			boards = append(boards, candBoard{label: r.MaterialType, w: r.MaterialWidth, h: r.MaterialHeight, isScrap: true})
-			// 消耗一张同尺寸旧料额度
-			for i, m := range req.Materials {
-				if scrapAvail[i] > 0 && nearlyEq(m.Width, r.MaterialWidth) && nearlyEq(m.Height, r.MaterialHeight) {
-					scrapAvail[i]--
-					break
-				}
+		isScrap := false
+		for i, m := range req.Materials {
+			if scrapAvail[i] > 0 && planeScrapLabel(m) == r.MaterialType &&
+				nearlyEq(m.Width, r.MaterialWidth) && nearlyEq(m.Height, r.MaterialHeight) {
+				scrapAvail[i]--
+				isScrap = true
+				break
 			}
-			continue
 		}
-		boards = append(boards, candBoard{label: cut2dNewBoardName, w: r.MaterialWidth, h: r.MaterialHeight})
+		boards = append(boards, candBoard{label: r.MaterialType, w: r.MaterialWidth, h: r.MaterialHeight, isScrap: isScrap})
 	}
 	// 剩余旧料候选 (上限内追加): 求解器可能做出比启发式更优的新旧取舍
 	extra := 0
 	for i, m := range req.Materials {
 		for scrapAvail[i] > 0 && extra < cut2dMaxExtraScrap && len(boards) < cut2dMaxBoards {
-			boards = append(boards, candBoard{label: m.Label, w: m.Width, h: m.Height, isScrap: true})
+			boards = append(boards, candBoard{label: planeScrapLabel(m), w: m.Width, h: m.Height, isScrap: true})
 			scrapAvail[i]--
 			extra++
 		}
@@ -154,17 +155,39 @@ func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.Bin
 			break
 		}
 	}
-	// 备用新板: 覆盖"全用新板"的面积下界 + 2 余量 (求解器可能比启发式少用板)
-	if req.Width > 0 && req.Height > 0 {
-		lbNew := int(math.Ceil(totalArea / (req.Width * req.Height)))
-		newCount := 0
+	// 备用新板: 每种规格补到 max(启发式用板数, 该规格专属零件面积下界) + 1 张
+	// (+1 吸收通用件摊入; 未命名单一规格退化为旧口径 面积下界+2)。求解失败仍有 warm start 保底。
+	specRows := planeSpecRows(req)
+	if len(boards) < cut2dMaxBoards {
+		usedNew := make(map[string]int)
 		for _, b := range boards {
 			if !b.isScrap {
-				newCount++
+				usedNew[b.label]++
 			}
 		}
-		for i := newCount; i < lbNew+2 && len(boards) < cut2dMaxBoards; i++ {
-			boards = append(boards, candBoard{label: cut2dNewBoardName, w: req.Width, h: req.Height})
+		areaOfSpec := make(map[string]float64)
+		hasGeneric := false
+		for _, ep := range expanded {
+			if ep.spec == "" {
+				hasGeneric = true
+			}
+			areaOfSpec[ep.spec] += ep.w * ep.h
+		}
+		for _, sp := range specRows {
+			if len(boards) >= cut2dMaxBoards {
+				break
+			}
+			lb := int(math.Ceil(areaOfSpec[sp.name] / (sp.width * sp.height)))
+			target := usedNew[sp.name] + 1
+			if lb+1 > target {
+				target = lb + 1
+			}
+			if hasGeneric {
+				target++
+			}
+			for i := usedNew[sp.name]; i < target && len(boards) < cut2dMaxBoards; i++ {
+				boards = append(boards, candBoard{label: sp.name, w: sp.width, h: sp.height})
+			}
 		}
 	}
 	if len(boards) == 0 || len(boards) > cut2dMaxBoards || len(expanded)*len(boards) > cut2dMaxPairs {
@@ -208,10 +231,10 @@ func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.Bin
 		if q < 1 {
 			q = 1
 		}
-		reqBody.Items = append(reqBody.Items, cut2dSolverItem{Label: it.Label, Width: it.Width, Height: it.Height, Demand: q})
+		reqBody.Items = append(reqBody.Items, cut2dSolverItem{Label: it.Label, Width: it.Width, Height: it.Height, Demand: q, Spec: planeItemSpec(it)})
 	}
 	for _, b := range boards {
-		reqBody.Boards = append(reqBody.Boards, cut2dSolverBoard{Label: b.label, Width: b.w, Height: b.h, IsScrap: b.isScrap})
+		reqBody.Boards = append(reqBody.Boards, cut2dSolverBoard{Label: b.label, Width: b.w, Height: b.h, IsScrap: b.isScrap, Spec: b.label})
 	}
 	payload, err := json.Marshal(reqBody)
 	if err != nil {

@@ -1510,6 +1510,9 @@ declare namespace App {
           newMaterialLabel: string;
           newMaterialLength: string;
           newMaterialInvalid: string;
+          /** 平面切割材料类型 */
+          planeNewMaterialInvalid: string;
+          planeSpecUndefined: string;
           loading: string;
           /** 汇总卡片 */
           summaryTitle: string;

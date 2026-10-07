@@ -94,6 +94,33 @@ def main() -> None:
     assert len(resp.pieces) == 2
     print("[oversized] PASS unplaced=1(oversized) pieces=2")
 
+    # 6. 材料类型: spec 非空的零件只能上同名板; 通用零件 (spec 空) 任意板
+    req = SolveRequest(
+        items=[Item(label="背板", width=40, height=40, demand=2, spec="5mm背板"),
+               Item(label="门板", width=40, height=40, demand=2, spec="18mm门板"),
+               Item(label="通用", width=40, height=40, demand=1)],
+        boards=[Board(label="5mm背板", width=100, height=100, spec="5mm背板"),
+                Board(label="18mm门板", width=100, height=100, spec="18mm门板")],
+    )
+    resp = solve(req)
+    assert resp.status in ("optimal", "feasible")
+    assert len(resp.pieces) == 5, f"应排入 5 件: {resp.pieces}"
+    for p in resp.pieces:
+        it = req.items[p.item]
+        b = req.boards[p.board]
+        assert not it.spec or b.spec == it.spec, f"spec 件 {it.label} 落到了 {b.label} 板"
+    print(f"[材料类型] PASS pieces={len(resp.pieces)} status={resp.status} 耗时={resp.elapsed_ms}ms")
+
+    # 7. spec 件放不进自身规格板 => oversized (通用板放得下也不可上)
+    resp = solve(SolveRequest(
+        items=[Item(width=60, height=60, demand=1, spec="小板")],
+        boards=[Board(width=100, height=100), Board(width=50, height=50, spec="小板")],
+    ))
+    assert len(resp.unplaced) == 1 and resp.unplaced[0]["reason"] == "oversized" \
+        and resp.unplaced[0]["count"] == 1, f"spec 件应 oversized: {resp.unplaced}"
+    assert len(resp.pieces) == 0
+    print("[spec oversized] PASS unplaced=1(oversized) pieces=0")
+
     print("ALL CHECKS PASSED")
 
 
