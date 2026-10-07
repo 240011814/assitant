@@ -1081,10 +1081,6 @@ func summarizePlaneResults(results []model.BinResult, unplaced []model.UnplacedI
 		summary.UnplacedCount += u.Quantity
 	}
 	// 按材料类型分组累计, 保持首次出现顺序
-	type typeStat struct {
-		count                 int
-		totalArea, usedArea   float64
-	}
 	typeIdx := make(map[string]int)
 	for _, r := range results {
 		summary.TotalArea += r.MaterialWidth * r.MaterialHeight
