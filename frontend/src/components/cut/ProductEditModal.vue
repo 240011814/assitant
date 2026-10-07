@@ -479,33 +479,33 @@ watch(show, opened => {
             <span class="w-30 shrink-0 whitespace-nowrap">{{ $t('page.cut.pdTemplate') }}</span>
             <NSelect :value="curType" :options="templateOptions" @update:value="applyTemplate" />
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             <span class="w-30 shrink-0 whitespace-nowrap">{{ $t('page.cut.pdWidthLabel') }}</span>
-            <NInputNumber :value="width" :min="1" class="flex-1" @update:value="onWidthChange" />
+            <NInputNumber :value="width" :min="1" class="w-40 min-w-20" @update:value="onWidthChange" />
             <span class="text-gray-400">×</span>
-            <NInputNumber :value="height" :min="1" class="flex-1" @update:value="onHeightChange" />
+            <NInputNumber :value="height" :min="1" class="w-40 min-w-20" @update:value="onHeightChange" />
             <span class="w-24 shrink-0 whitespace-nowrap text-right">{{ $t('page.cut.pdFrameWidth') }}</span>
             <NInputNumber :value="frameWidth" :min="0" class="w-30" @update:value="onFrameWidthChange" />
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             <span class="w-30 shrink-0 whitespace-nowrap">{{ $t('page.cut.pdCols') }}</span>
             <NInputNumber
               :value="cols.length"
               :min="1"
               :max="20"
-              class="w-24"
+              class="w-24 shrink-0"
               @update:value="(v: number | null) => setColCount(v ?? 1)"
             />
-            <span class="w-16 shrink-0 text-right">{{ $t('page.cut.pdRows') }}</span>
+            <span class="w-16 shrink-0 whitespace-nowrap text-right">{{ $t('page.cut.pdRows') }}</span>
             <NInputNumber
               :value="rows.length"
               :min="1"
               :max="20"
-              class="w-24"
+              class="w-24 shrink-0"
               @update:value="(v: number | null) => setRowCount(v ?? 1)"
             />
-            <span class="w-16 shrink-0 text-right">{{ $t('page.cut.pdCount') }}</span>
-            <NInputNumber v-model:value="count" :min="1" class="w-24" />
+            <span class="w-16 shrink-0 whitespace-nowrap text-right">{{ $t('page.cut.pdCount') }}</span>
+            <NInputNumber v-model:value="count" :min="1" class="w-24 shrink-0" />
           </div>
           <div class="flex items-center gap-2">
             <span class="w-30 shrink-0 whitespace-nowrap">{{ $t('page.cut.pdColWidths') }}</span>
@@ -556,7 +556,7 @@ watch(show, opened => {
               @update:value="onSeriesChange"
             />
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             <span class="w-30 shrink-0 whitespace-nowrap">{{ $t('page.cut.pdFit') }}</span>
             <NTooltip trigger="hover" placement="top" :style="{ maxWidth: '360px' }">
               <template #trigger>
@@ -595,7 +595,7 @@ watch(show, opened => {
             <span class="w-30 shrink-0 whitespace-nowrap"></span>
             <NCheckbox v-model:checked="bead" class="shrink-0">{{ $t('page.cut.pdBead') }}</NCheckbox>
           </div>
-          <div v-if="bead" class="flex items-center gap-2">
+          <div v-if="bead" class="flex flex-wrap items-center gap-2">
             <span class="w-30 shrink-0 whitespace-nowrap"></span>
             <NTooltip trigger="hover" placement="top" :style="{ maxWidth: '360px' }">
               <template #trigger>
