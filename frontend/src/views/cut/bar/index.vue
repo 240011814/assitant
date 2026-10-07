@@ -2,7 +2,6 @@
 import { computed, h, onActivated, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NButton, NGi, NGrid, NInput, NInputNumber, NModal, NSelect, NSpin, NStatistic, useMessage } from 'naive-ui';
-import type { SelectOption } from 'naive-ui';
 import { $t } from '@/locales';
 import { cutBar, fetchCutProducts, fetchCutScraps } from '@/service/api';
 import ScrapLibraryModal from '@/components/cut/ScrapLibraryModal.vue';
@@ -48,25 +47,10 @@ const group = ref(false);
 // 求解模式: 快速=内置 DP+贪心 (本机秒级); 精确=服务端 OR-Tools 列生成 (全局更优),
 // 由 BAOSTOCK_API_URL 指向的求解服务计算, 未配置或求解失败直接报错, 不回退快速模式
 const solveMode = ref<'fast' | 'precise'>('precise');
-const solveModeOptions: Array<SelectOption & { desc: string }> = [
-  { label: '快速模式 (本机秒算)', value: 'fast', desc: '内置 DP+贪心算法, 秒级出结果; 常规批量下料够用, 不保证全局最优' },
-  { label: '精确模式 (云端求解)', value: 'precise', desc: '服务端 OR-Tools 列生成求全局更优解, 用料通常更省; 需已部署求解服务' }
+const solveModeOptions = [
+  { label: '快速模式 ', value: 'fast' },
+  { label: '精确模式 ', value: 'precise' }
 ];
-
-function renderSolveLabel(option: SelectOption) {
-  const desc = (option as { desc?: string }).desc ?? '';
-  return h('div', { class: 'flex flex-col leading-tight py-1' }, [
-    h('span', null, option.label as string),
-    h('span', { class: 'text-xs text-gray-400 whitespace-normal' }, desc)
-  ]);
-}
-
-// 选中模式的常显说明 (不用悬浮提示, 让用户直接看到区别)
-const solveModeHint = computed(() =>
-  solveMode.value === 'precise'
-    ? '由服务端 BAOSTOCK_API_URL 指向的求解服务做 OR-Tools 列生成, 求全局更优解; 未配置求解服务或求解失败将直接报错, 不会自动改用快速模式'
-    : '在本机用内置算法直接计算, 速度最快; 切割方案不保证全局最优, 追求省料请用精确模式'
-);
 const cutResult = ref<Api.Cut.BarResult[] | null>(null);
 const summaryData = ref<Api.Cut.BarSummary | null>(null);
 const loading = ref(false);
@@ -661,12 +645,9 @@ onUnmounted(() => {
           <span class="w-24">聚合显示</span>
           <NSwitch v-model:value="group" class="w-40" />
         </div>
-        <div class="flex items-start gap-2">
-          <span class="w-24 mt-2">求解模式</span>
-          <div class="flex flex-col gap-1">
-            <NSelect v-model:value="solveMode" class="w-60" :options="solveModeOptions" :render-label="renderSolveLabel" />
-            <div class="max-w-100 text-gray-400 text-xs leading-relaxed">{{ solveModeHint }}</div>
-          </div>
+        <div class="flex items-center gap-2">
+          <span class="w-24">求解模式</span>
+          <NSelect v-model:value="solveMode" class="w-60" :options="solveModeOptions" />
         </div>
       </div>
 
