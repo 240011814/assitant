@@ -2006,8 +2006,16 @@ func validateProductSpec(spec model.CutProductSpec) error {
 		if w.Count < 1 {
 			return fmt.Errorf("%s数量至少为 1", at)
 		}
-		if strings.TrimSpace(w.Thickness) == "" {
-			return fmt.Errorf("%s未指定材料厚度", at)
+		if strings.TrimSpace(w.Series) == "" {
+			return fmt.Errorf("%s未指定框料截面宽度", at)
+		}
+		// 拼装搭接参数范围 (mm): 实际取值以型材/五金厂家下料表为准
+		if w.Fit != nil {
+			for name, v := range map[string]*float64{"活动缝隙": w.Fit.Gap, "轨道搭入": w.Fit.Reach, "扇间搭接": w.Fit.Overlap} {
+				if v != nil && (*v < 0 || *v > 50) {
+					return fmt.Errorf("%s拼装参数 %s 不合法 (0~50mm)", at, name)
+				}
+			}
 		}
 		g := w.Grid
 		if len(g.Cols) == 0 || len(g.Rows) == 0 || len(g.Cols) > 20 || len(g.Rows) > 20 {
@@ -2016,13 +2024,17 @@ func validateProductSpec(spec model.CutProductSpec) error {
 		if len(g.Cells) != len(g.Rows) {
 			return fmt.Errorf("%s分格矩阵与行数不符", at)
 		}
-		for _, rowCells := range g.Cells {
+		for ri, rowCells := range g.Cells {
 			if len(rowCells) != len(g.Cols) {
 				return fmt.Errorf("%s分格矩阵与列数不符", at)
 			}
-			for _, v := range rowCells {
-				if v != 1 && v != 2 {
-					return fmt.Errorf("%s分格类型不合法 (1=固定格 2=开启扇)", at)
+			for ci, v := range rowCells {
+				if v != 1 && v != 2 && v != 3 {
+					return fmt.Errorf("%s分格类型不合法 (1=固定格 2=开启扇 3=与左格连通)", at)
+				}
+				// 延伸格必须与左侧格连通, 不能位于第一列
+				if v == 3 && ci == 0 {
+					return fmt.Errorf("%s第 %d 行第 1 列不能为连通格", at, ri+1)
 				}
 			}
 		}

@@ -63,7 +63,7 @@ const columns = computed<DataTableColumns<OrderRow>>(() => [
           align: 'center',
           render: item => `${item.grid.cols.length}列×${item.grid.rows.length}行`
         },
-        { title: $t('page.cut.pdThickness'), key: 'thickness', width: 110, align: 'center', render: item => (item.thickness ? `${item.thickness}mm` : '-') },
+        { title: $t('page.cut.pdSeries'), key: 'series', width: 110, align: 'center', render: item => (item.series ? `${item.series}mm` : '-') },
         { title: $t('page.cut.pdCount'), key: 'count', width: 70, align: 'center' },
         {
           title: $t('page.cut.pdPreview'),
@@ -81,7 +81,7 @@ const columns = computed<DataTableColumns<OrderRow>>(() => [
           columns: detailColumns,
           data: row.parsed.items,
           size: 'small',
-          rowKey: (item: Api.Cut.ProductItem) => `${item.type}|${item.width}|${item.height}|${item.thickness}`
+          rowKey: (item: Api.Cut.ProductItem) => `${item.type}|${item.width}|${item.height}|${item.series}`
         })
       ]);
     }
@@ -103,10 +103,10 @@ const columns = computed<DataTableColumns<OrderRow>>(() => [
     render: row => row.parsed.items.reduce((sum, item) => sum + (item.count || 0), 0)
   },
   {
-    title: $t('page.cut.pdThickness'),
-    key: 'thicknesses',
+    title: $t('page.cut.pdSeries'),
+    key: 'series',
     minWidth: 130,
-    render: row => [...new Set(row.parsed.items.map(item => item.thickness).filter(Boolean))].map(v => `${v}mm`).join(' / ') || '-'
+    render: row => [...new Set(row.parsed.items.map(item => item.series).filter(Boolean))].map(v => `${v}mm`).join(' / ') || '-'
   },
   {
     title: $t('page.cut.pdCreatedAt'),

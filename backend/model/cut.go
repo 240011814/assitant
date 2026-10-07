@@ -222,7 +222,7 @@ type AddCutScrapRequest struct {
 	RecordID string `json:"recordId,omitempty"`
 }
 
-// CutWindowGrid 窗户分格规格 (cols/rows 为格净尺寸 cm; cells[r][c]: 1=固定格 2=开启扇; sliding=推拉无竖向中梃)
+// CutWindowGrid 窗户分格规格 (cols/rows 为格净尺寸 cm; cells[r][c]: 1=固定格 2=开启扇 3=与左格连通(无竖梃); sliding=推拉无竖向中梃)
 type CutWindowGrid struct {
 	Cols    []float64 `json:"cols"`
 	Rows    []float64 `json:"rows"`
@@ -230,15 +230,23 @@ type CutWindowGrid struct {
 	Sliding bool      `json:"sliding"`
 }
 
+// CutProductFit 拼装搭接参数 (mm; 扇料下料 = 开口 ∓ 缝隙/搭接, 省略的字段走默认)
+type CutProductFit struct {
+	Gap     *float64 `json:"gap,omitempty"`     // 活动缝隙: 平开每边缩尺 / 推拉边封侧缝 (默认 5)
+	Reach   *float64 `json:"reach,omitempty"`   // 推拉扇上下轨道搭入, 每边 (默认 10)
+	Overlap *float64 `json:"overlap,omitempty"` // 推拉相邻扇光企/勾企互搭量 (默认 10)
+}
+
 // CutProductItem 产品单内的一件产品 (type 为前端产品模板 key; 尺寸单位 cm)
 type CutProductItem struct {
-	Type       string        `json:"type"`
-	Width      float64       `json:"width"`
-	Height     float64       `json:"height"`
-	FrameWidth float64       `json:"frameWidth"`
-	Thickness  string        `json:"thickness"` // 材料厚度 (型材壁厚 mm, 如 1.4); 部件 (外框/中梃/扇) 由切割件自身标识
-	Count      int           `json:"count"`
-	Grid       CutWindowGrid `json:"grid"`
+	Type       string         `json:"type"`
+	Width      float64        `json:"width"`
+	Height     float64        `json:"height"`
+	FrameWidth float64        `json:"frameWidth"` // 框料宽 cm (由系列换算)
+	Series     string         `json:"series"`     // 框料截面宽度 mm (即型材系列: 55/60/65/70/75/80)
+	Fit        *CutProductFit `json:"fit,omitempty"`
+	Count      int            `json:"count"`
+	Grid       CutWindowGrid  `json:"grid"`
 }
 
 // CutProductSpec 产品单内容 (一单可含多种类型的多件产品)

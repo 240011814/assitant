@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { CELL_FIXED, CELL_SASH, type ProductItem } from './window-template';
+import { CELL_FIXED, CELL_SASH, CELL_SPAN, type ProductItem } from './window-template';
 
 /**
  * 窗户分格 SVG 预览: 按真实比例绘制外框/中梃/分格, 格内标注类型与净尺寸。
- * 编辑模式 (readonly=false) 下点击格子切换 固定格/开启扇。
+ * 延伸格 (CELL_SPAN) 与左侧格合并绘制为一个整面板 (无竖梃)。
+ * 编辑模式 (readonly=false) 下: 单击面板切换 固定/开启; 双击合并面板从右侧拆出一列。
  */
 const props = withDefaults(
   defineProps<{
@@ -17,7 +18,7 @@ const props = withDefaults(
   { readonly: false, maxHeight: 380 }
 );
 
-const emit = defineEmits<{ (e: 'toggleCell', row: number, col: number): void }>();
+const emit = defineEmits<{ (e: 'toggleCell', row: number, col: number): void; (e: 'splitCell', row: number, col: number): void }>();
 
 const FRAME_COLOR = '#94a3b8';
 const FIXED_FILL = '#dbeafe';
@@ -27,33 +28,38 @@ const w = computed(() => Math.max(props.item.width, 1));
 const h = computed(() => Math.max(props.item.height, 1));
 const c = computed(() => props.item.frameWidth);
 
-interface CellBox {
+interface PaneBox {
   x: number;
   y: number;
   w: number;
   h: number;
   row: number;
+  /** 起始列 */
   col: number;
+  /** 结束列 (延伸合并时 > col) */
+  endCol: number;
   cell: number;
 }
 
-const cellBoxes = computed<CellBox[]>(() => {
+/** 面板盒: 延伸格并入左侧面板 */
+const cellBoxes = computed<PaneBox[]>(() => {
   const { grid } = props.item;
   const frame = c.value;
-  const boxes: CellBox[] = [];
+  const boxes: PaneBox[] = [];
   let y = frame;
   grid.rows.forEach((rowH, r) => {
     let x = frame;
+    let prev: PaneBox | null = null;
     grid.cols.forEach((colW, ci) => {
-      boxes.push({
-        x,
-        y,
-        w: colW,
-        h: rowH,
-        row: r,
-        col: ci,
-        cell: grid.cells[r]?.[ci] ?? CELL_FIXED
-      });
+      const cell = grid.cells[r]?.[ci] ?? CELL_FIXED;
+      if (cell === CELL_SPAN && prev && prev.row === r && prev.endCol === ci - 1) {
+        // 并入左侧面板 (推拉窗无竖梃位可吸收)
+        prev.w += (grid.sliding ? 0 : frame) + colW;
+        prev.endCol = ci;
+      } else {
+        prev = { x, y, w: colW, h: rowH, row: r, col: ci, endCol: ci, cell };
+        boxes.push(prev);
+      }
       x += colW + (grid.sliding ? 0 : frame);
     });
     y += rowH + frame;
@@ -61,22 +67,34 @@ const cellBoxes = computed<CellBox[]>(() => {
   return boxes;
 });
 
-/** 竖向中梃 x 坐标 (推拉窗无) */
-const vMullions = computed<number[]>(() => {
+/** 竖向中梃分段 (被延伸格跨过的行断开, 段含段内横向中梃); 推拉窗无 */
+const vMullionSegs = computed<Array<{ x: number; y: number; h: number }>>(() => {
   const { grid } = props.item;
   if (grid.sliding) return [];
   const frame = c.value;
-  const xs: number[] = [];
+  const segs: Array<{ x: number; y: number; h: number }> = [];
   let x = frame;
-  grid.cols.slice(0, -1).forEach(colW => {
+  grid.cols.slice(0, -1).forEach((colW, j) => {
     x += colW;
-    xs.push(x);
+    let segTop = frame;
+    let segH = 0;
+    grid.rows.forEach((rowH, r) => {
+      if (grid.cells[r]?.[j + 1] === CELL_SPAN) {
+        if (segH > 0) segs.push({ x, y: segTop, h: segH });
+        segH = 0;
+        segTop += rowH + frame;
+      } else {
+        segH += rowH + frame;
+      }
+    });
+    // 末尾多累计了一根横向中梃, 去掉
+    if (segH > 0) segs.push({ x, y: segTop, h: segH - frame });
     x += frame;
   });
-  return xs;
+  return segs;
 });
 
-/** 横向中梃 y 坐标 */
+/** 横向中梃 y 坐标 (通宽) */
 const hMullions = computed<number[]>(() => {
   const { grid } = props.item;
   const frame = c.value;
@@ -91,16 +109,20 @@ const hMullions = computed<number[]>(() => {
 });
 
 /** 开启扇内框示意 (内缩量) */
-function sashInset(box: CellBox): number {
+function sashInset(box: PaneBox): number {
   return Math.min(c.value * 0.5, Math.min(box.w, box.h) * 0.3);
 }
 
-function fontSize(box: CellBox): number {
+function fontSize(box: PaneBox): number {
   return Math.min(box.w, box.h) / 5;
 }
 
-function onCellClick(box: CellBox) {
+function onCellClick(box: PaneBox) {
   if (!props.readonly) emit('toggleCell', box.row, box.col);
+}
+
+function onCellDblclick(box: PaneBox) {
+  if (!props.readonly && box.endCol > box.col) emit('splitCell', box.row, box.col);
 }
 </script>
 
@@ -120,6 +142,7 @@ function onCellClick(box: CellBox) {
           :fill="box.cell === CELL_SASH ? SASH_FILL : FIXED_FILL"
           :class="readonly ? '' : 'cursor-pointer'"
           @click="onCellClick(box)"
+          @dblclick.prevent="onCellDblclick(box)"
         />
         <!-- 开启扇内框示意 -->
         <rect
@@ -151,12 +174,12 @@ function onCellClick(box: CellBox) {
 
       <!-- 中梃 -->
       <rect
-        v-for="(x, i) in vMullions"
+        v-for="(seg, i) in vMullionSegs"
         :key="`v${i}`"
-        :x="x"
-        :y="c"
+        :x="seg.x"
+        :y="seg.y"
         :width="c"
-        :height="h - 2 * c"
+        :height="seg.h"
         :fill="FRAME_COLOR"
         pointer-events="none"
       />

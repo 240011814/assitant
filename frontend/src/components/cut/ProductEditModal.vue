@@ -8,6 +8,8 @@ import WindowGridPreview from './WindowGridPreview.vue';
 import {
   CELL_FIXED,
   CELL_SASH,
+  CELL_SPAN,
+  FIT_DEFAULTS,
   WINDOW_TEMPLATES,
   availableColWidth,
   availableRowHeight,
@@ -37,8 +39,8 @@ const message = useMessage();
 
 const templateOptions = WINDOW_TEMPLATES.map(t => ({ label: t.label, value: t.key }));
 
-/** 常用型材壁厚 (mm), 支持手动输入其他值 */
-const THICKNESS_OPTIONS = ['0.8', '1.0', '1.2', '1.4', '1.6', '1.8', '2.0'].map(v => ({ label: `${v}mm`, value: v }));
+/** 框料截面宽度候选 (mm, 即型材系列), 支持手动输入其他系列; 选择后自动带入框料宽 */
+const SERIES_OPTIONS = ['55', '60', '65', '70', '75', '80'].map(v => ({ label: `${v}mm`, value: v }));
 
 // ===== 产品单内容 =====
 const name = ref('');
@@ -54,7 +56,10 @@ const cols = ref<number[]>([140]);
 const rows = ref<number[]>([190]);
 const cells = ref<number[][]>([[CELL_FIXED]]);
 const sliding = ref(false);
-const thickness = ref<string | null>(null);
+const series = ref<string | null>(null);
+const gapMm = ref<number | null>(FIT_DEFAULTS.gap);
+const reachMm = ref<number | null>(FIT_DEFAULTS.reach);
+const overlapMm = ref<number | null>(FIT_DEFAULTS.overlap);
 const count = ref<number | null>(1);
 /** 正在回改清单中的下标, -1 = 新产品 */
 const editingIndex = ref(-1);
@@ -97,7 +102,7 @@ function applyTemplate(key: string) {
   editingIndex.value = -1;
 }
 
-/** 总尺寸/框料宽变化: 等比缩放净宽高, 保持几何自洽 */
+/** 总尺寸/框料宽变化: 先写入值再等比缩放净宽高, 保持几何自洽 */
 function onOuterChange() {
   const w = width.value;
   const h = height.value;
@@ -105,6 +110,31 @@ function onOuterChange() {
   if (!w || !h || c === null || c < 0) return;
   cols.value = rescale(cols.value, availableColWidth(w, c, cols.value.length, sliding.value));
   rows.value = rescale(rows.value, availableRowHeight(h, c, rows.value.length));
+}
+
+function onWidthChange(v: number | null) {
+  width.value = v;
+  onOuterChange();
+}
+
+function onHeightChange(v: number | null) {
+  height.value = v;
+  onOuterChange();
+}
+
+function onFrameWidthChange(v: number | null) {
+  frameWidth.value = v;
+  onOuterChange();
+}
+
+/** 选择框料截面宽度 (系列): 框料宽自动按 系列/10 cm 带入并重算分格 */
+function onSeriesChange(v: string | null) {
+  series.value = v;
+  const mm = parseFloat(v ?? '');
+  if (Number.isFinite(mm) && mm > 0) {
+    frameWidth.value = round2(mm / 10);
+    onOuterChange();
+  }
 }
 
 function setColCount(n: number) {
@@ -176,7 +206,12 @@ const currentItem = computed<ProductItem>(() => {
     width: w,
     height: h,
     frameWidth: c,
-    thickness: thickness.value?.trim() ?? '',
+    series: series.value?.trim() ?? '',
+    fit: {
+      gap: gapMm.value ?? FIT_DEFAULTS.gap,
+      reach: reachMm.value ?? FIT_DEFAULTS.reach,
+      overlap: overlapMm.value ?? FIT_DEFAULTS.overlap
+    },
     count: Math.max(count.value ?? 1, 1),
     grid: {
       cols: cols.value,
@@ -198,15 +233,24 @@ function toggleCell(row: number, col: number) {
   line[col] = line[col] === CELL_SASH ? CELL_FIXED : CELL_SASH;
 }
 
-/** 厚度选择器 (下拉 + 手输) */
-function renderThicknessSelect(value: string, onUpdate: (v: string) => void) {
+/** 双击合并面板: 把最右一列从延伸格拆出为独立固定格 */
+function splitCell(row: number, col: number) {
+  const line = cells.value[row];
+  if (!line) return;
+  let end = col;
+  while (end + 1 < line.length && line[end + 1] === CELL_SPAN) end++;
+  if (end > col) line[end] = CELL_FIXED;
+}
+
+/** 系列选择器 (下拉 + 手输) */
+function renderSeriesSelect(value: string, onUpdate: (v: string) => void) {
   return h(NSelect, {
     value: value || null,
-    options: THICKNESS_OPTIONS,
+    options: SERIES_OPTIONS,
     filterable: true,
     tag: true,
     size: 'small',
-    placeholder: $t('page.cut.pdThickness'),
+    placeholder: $t('page.cut.pdSeries'),
     onUpdateValue: (v: string | null) => onUpdate(v ?? '')
   });
 }
@@ -224,7 +268,10 @@ function editItem(index: number) {
   cols.value = [...item.grid.cols];
   rows.value = [...item.grid.rows];
   cells.value = item.grid.cells.map(r => [...r]);
-  thickness.value = item.thickness;
+  series.value = item.series;
+  gapMm.value = item.fit?.gap ?? FIT_DEFAULTS.gap;
+  reachMm.value = item.fit?.reach ?? FIT_DEFAULTS.reach;
+  overlapMm.value = item.fit?.overlap ?? FIT_DEFAULTS.overlap;
   count.value = item.count;
 }
 
@@ -241,8 +288,8 @@ function addToList() {
     message.error(err);
     return;
   }
-  if (!currentItem.value.thickness) {
-    message.error($t('page.cut.pdNeedThickness'));
+  if (!currentItem.value.series) {
+    message.error($t('page.cut.pdNeedSeries'));
     return;
   }
   const copy = JSON.parse(JSON.stringify(currentItem.value)) as ProductItem;
@@ -252,7 +299,7 @@ function addToList() {
     items.value.push(copy);
   }
   editingIndex.value = -1;
-  // 重置编辑区为新产品 (保留材料厚度与数量, 方便连续录入同厚度产品)
+  // 重置编辑区为新产品 (保留系列/拼装参数与数量, 方便连续录入同系列产品)
   applyTemplate(curType.value);
 }
 
@@ -268,10 +315,10 @@ const listColumns = computed<DataTableColumns<ProductItem>>(() => [
   },
   { title: '尺寸(cm)', key: 'size', width: 110, render: row => `${row.width}×${row.height}` },
   {
-    title: $t('page.cut.pdThickness'),
-    key: 'thickness',
+    title: $t('page.cut.pdSeries'),
+    key: 'series',
     width: 130,
-    render: row => renderThicknessSelect(row.thickness, v => (row.thickness = v))
+    render: row => renderSeriesSelect(row.series, v => (row.series = v))
   },
   {
     title: $t('page.cut.pdCount'),
@@ -335,8 +382,8 @@ async function handleSave() {
       message.error(`${findWindowTemplate(item.type)?.label ?? item.type}: ${err}`);
       return;
     }
-    if (!item.thickness?.trim()) {
-      message.error($t('page.cut.pdNeedThickness'));
+    if (!item.series?.trim()) {
+      message.error($t('page.cut.pdNeedSeries'));
       return;
     }
     if (item.count < 1) item.count = 1;
@@ -369,7 +416,10 @@ watch(show, opened => {
     name.value = '';
   }
   items.value = list.map(item => JSON.parse(JSON.stringify(item)) as ProductItem);
-  thickness.value = items.value[0]?.thickness ?? null;
+  series.value = items.value[0]?.series ?? null;
+  gapMm.value = items.value[0]?.fit?.gap ?? FIT_DEFAULTS.gap;
+  reachMm.value = items.value[0]?.fit?.reach ?? FIT_DEFAULTS.reach;
+  overlapMm.value = items.value[0]?.fit?.overlap ?? FIT_DEFAULTS.overlap;
   count.value = items.value[0]?.count ?? 1;
   applyTemplate(WINDOW_TEMPLATES[0]!.key);
 });
@@ -387,7 +437,7 @@ watch(show, opened => {
       <div class="flex gap-4">
         <div class="w-360px shrink-0">
           <div class="border border-gray-200 rounded-md p-2">
-            <WindowGridPreview :item="currentItem" :max-height="280" @toggle-cell="toggleCell" />
+            <WindowGridPreview :item="currentItem" :max-height="280" @toggle-cell="toggleCell" @split-cell="splitCell" />
           </div>
           <div class="mt-1 text-center text-gray-400 text-xs">{{ $t('page.cut.pdPreviewTip') }}</div>
         </div>
@@ -399,11 +449,11 @@ watch(show, opened => {
           </div>
           <div class="flex items-center gap-2">
             <span class="w-20 shrink-0">{{ $t('page.cut.pdWidthLabel') }}</span>
-            <NInputNumber :value="width" :min="1" class="flex-1" @update:value="onOuterChange" />
+            <NInputNumber :value="width" :min="1" class="flex-1" @update:value="onWidthChange" />
             <span class="text-gray-400">×</span>
-            <NInputNumber :value="height" :min="1" class="flex-1" @update:value="onOuterChange" />
+            <NInputNumber :value="height" :min="1" class="flex-1" @update:value="onHeightChange" />
             <span class="w-20 shrink-0 text-right">{{ $t('page.cut.pdFrameWidth') }}</span>
-            <NInputNumber :value="frameWidth" :min="0" class="w-30" @update:value="onOuterChange" />
+            <NInputNumber :value="frameWidth" :min="0" class="w-30" @update:value="onFrameWidthChange" />
           </div>
           <div class="flex items-center gap-2">
             <span class="w-20 shrink-0">{{ $t('page.cut.pdCols') }}</span>
@@ -454,15 +504,25 @@ watch(show, opened => {
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <span class="w-20 shrink-0">{{ $t('page.cut.pdThickness') }}</span>
+            <span class="w-20 shrink-0">{{ $t('page.cut.pdSeries') }}</span>
             <NSelect
-              v-model:value="thickness"
-              :options="THICKNESS_OPTIONS"
+              v-model:value="series"
+              :options="SERIES_OPTIONS"
               filterable
               tag
               clearable
-              :placeholder="$t('page.cut.pdThicknessPh')"
+              :placeholder="$t('page.cut.pdSeriesPh')"
+              @update:value="onSeriesChange"
             />
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-20 shrink-0">{{ $t('page.cut.pdFit') }}</span>
+            <span class="text-gray-500 text-xs whitespace-nowrap">{{ $t('page.cut.pdFitGap') }}</span>
+            <NInputNumber v-model:value="gapMm" :min="0" :max="50" :step="0.5" size="small" class="w-20" show-button />
+            <span class="text-gray-500 text-xs whitespace-nowrap">{{ $t('page.cut.pdFitReach') }}</span>
+            <NInputNumber v-model:value="reachMm" :min="0" :max="50" :step="1" size="small" class="w-20" show-button />
+            <span class="text-gray-500 text-xs whitespace-nowrap">{{ $t('page.cut.pdFitOverlap') }}</span>
+            <NInputNumber v-model:value="overlapMm" :min="0" :max="50" :step="1" size="small" class="w-20" show-button />
           </div>
 
           <div v-if="geometryError" class="text-red-500 text-xs">{{ geometryError }}</div>

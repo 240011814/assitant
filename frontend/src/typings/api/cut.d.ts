@@ -59,11 +59,24 @@ declare namespace Api {
       type: string;
       width: number;
       height: number;
+      /** 框料宽 cm (由框料截面宽度/系列换算而来) */
       frameWidth: number;
-      /** 材料厚度 (型材壁厚 mm, 如 "1.4"); 部件 (外框/中梃/扇) 由切割件自身标识 */
-      thickness: string;
+      /** 框料截面宽度 mm (即型材系列: 55/60/65/70/75/80) */
+      series: string;
+      /** 拼装搭接参数 mm (省略的字段走默认) */
+      fit?: ProductFit;
       count: number;
       grid: WindowGridSpec;
+    }
+
+    /** 拼装搭接参数 (mm): 扇料下料 = 开口 ∓ 缝隙/搭接 */
+    interface ProductFit {
+      /** 活动缝隙: 平开每边缩尺 / 推拉边封侧缝 (默认 5) */
+      gap?: number;
+      /** 推拉扇上下轨道搭入, 每边 (默认 10) */
+      reach?: number;
+      /** 推拉相邻扇光企/勾企互搭量 (默认 10) */
+      overlap?: number;
     }
 
     /** 产品单内容 (一单可含多种类型的多件产品) */
