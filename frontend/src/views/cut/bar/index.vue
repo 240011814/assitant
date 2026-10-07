@@ -37,8 +37,9 @@ const newMaterialRows = ref<NewMaterialRow[]>([{ label: '', length: 600 }]);
 const loss = ref(0.2);
 const utilizationWeight = ref(4);
 const group = ref(false);
-// 求解模式: fast=内置 DP+贪心; precise=OR-Tools 精确求解 (服务端未配置时自动回退 fast)
-const solveMode = ref<'fast' | 'precise'>('fast');
+// 求解模式: precise=OR-Tools 精确求解 (默认, 实测亚秒级); 服务端未配置 BAOSTOCK_API_URL
+// 或求解失败时自动回退内置 DP+贪心, 结果不会比快速模式差
+const solveMode = ref<'fast' | 'precise'>('precise');
 const solveModeOptions = [
   { label: '快速 (DP+贪心)', value: 'fast' },
   { label: '精确 (OR-Tools)', value: 'precise' }
