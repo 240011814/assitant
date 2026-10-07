@@ -1551,6 +1551,10 @@ declare namespace App {
           pdFitGap: string;
           pdFitReach: string;
           pdFitOverlap: string;
+          pdMenuFixed: string;
+          pdMenuSash: string;
+          pdMenuMerge: string;
+          pdMenuSplit: string;
           pdPreviewTip: string;
           pdPieces: string;
           pdAddToList: string;

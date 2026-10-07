@@ -242,6 +242,13 @@ function splitCell(row: number, col: number) {
   if (end > col) line[end] = CELL_FIXED;
 }
 
+/** 双击独立面板: 与右侧格合并为连通格 (拼"上通亮"等上下不对称布局) */
+function mergeCell(row: number, col: number) {
+  const line = cells.value[row];
+  if (!line) return;
+  if (col + 1 < line.length) line[col + 1] = CELL_SPAN;
+}
+
 /** 系列选择器 (下拉 + 手输) */
 function renderSeriesSelect(value: string, onUpdate: (v: string) => void) {
   return h(NSelect, {
@@ -426,7 +433,7 @@ watch(show, opened => {
 </script>
 
 <template>
-  <NModal v-model:show="show" preset="card" :title="modalTitle" class="w-1000px max-w-[96vw]">
+  <NModal v-model:show="show" preset="card" :title="modalTitle" class="w-1200px max-w-[97vw]">
     <div class="flex flex-col gap-3">
       <div class="flex items-center gap-2">
         <span class="w-20 shrink-0">{{ $t('page.cut.pdName') }}</span>
@@ -435,9 +442,16 @@ watch(show, opened => {
 
       <!-- 编辑区: 左预览 + 右参数 -->
       <div class="flex gap-4">
-        <div class="w-360px shrink-0">
+        <div class="w-460px shrink-0">
           <div class="border border-gray-200 rounded-md p-2">
-            <WindowGridPreview :item="currentItem" :max-height="280" @toggle-cell="toggleCell" @split-cell="splitCell" />
+            <WindowGridPreview
+              :item="currentItem"
+              :max-height="430"
+              show-dims
+              @toggle-cell="toggleCell"
+              @split-cell="splitCell"
+              @merge-cell="mergeCell"
+            />
           </div>
           <div class="mt-1 text-center text-gray-400 text-xs">{{ $t('page.cut.pdPreviewTip') }}</div>
         </div>
