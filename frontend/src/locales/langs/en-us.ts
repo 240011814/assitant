@@ -538,6 +538,8 @@ const local: App.I18n.Schema = {
         s3Desc: "Configure S3-compatible object storage (MinIO / Alibaba Cloud OSS / Tencent COS, etc.) for users to upload documents for AI to read. Changes take effect immediately after saving.",
         s3EndpointPlaceholder: "127.0.0.1:9000 or oss-cn-hangzhou.aliyuncs.com",
         s3RegionPlaceholder: "Leave empty (only fill in if required, e.g. AWS)",
+        s3AccessKeyPlaceholder: "MinIO MINIO_ROOT_USER, or an Access Key created in the console (user/service account)",
+        s3SecretKeyPlaceholder: "The matching MINIO_ROOT_PASSWORD / Secret Key",
         s3MaxUpload: "Max Upload Size (MB)",
         virtualHostStyle: "Virtual-Host Style",
         saveS3: "Save S3 Settings",

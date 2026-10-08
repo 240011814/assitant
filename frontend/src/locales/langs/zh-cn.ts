@@ -532,6 +532,8 @@ const local: App.I18n.Schema = {
         s3Desc: "配置 S3 兼容对象存储 (MinIO / 阿里云 OSS / 腾讯 COS 等)，供用户上传文档供 AI 读取。保存后立即生效。",
         s3EndpointPlaceholder: "127.0.0.1:9000 或 oss-cn-hangzhou.aliyuncs.com",
         s3RegionPlaceholder: "留空即可 (AWS 等需要时填写)",
+        s3AccessKeyPlaceholder: "MinIO 的 MINIO_ROOT_USER, 或控制台创建的用户/服务账号 Access Key",
+        s3SecretKeyPlaceholder: "对应的 MINIO_ROOT_PASSWORD / Secret Key",
         s3MaxUpload: "单文件上限 (MB)",
         virtualHostStyle: "虚拟域名",
         saveS3: "保存 S3 存储配置",

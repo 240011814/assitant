@@ -757,6 +757,8 @@ declare namespace App {
             s3Desc: string;
             s3EndpointPlaceholder: string;
             s3RegionPlaceholder: string;
+            s3AccessKeyPlaceholder: string;
+            s3SecretKeyPlaceholder: string;
             s3MaxUpload: string;
             virtualHostStyle: string;
             saveS3: string;

@@ -889,7 +889,7 @@ onMounted(() => {
                 <NFormItemGi label="Access Key" path="s3AccessKey">
                   <NInput
                     v-model:value="s3AccessKey"
-                    placeholder="Access Key ID"
+                    :placeholder="$t('page.system.config.s3AccessKeyPlaceholder')"
                     :disabled="!s3Enabled"
                   />
                 </NFormItemGi>
@@ -897,7 +897,7 @@ onMounted(() => {
                   <NInput
                     v-model:value="s3SecretKey"
                     :type="showS3SecretKey ? 'text' : 'password'"
-                    placeholder="Secret Access Key"
+                    :placeholder="$t('page.system.config.s3SecretKeyPlaceholder')"
                     :disabled="!s3Enabled"
                   >
                     <template #suffix>
