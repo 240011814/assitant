@@ -91,19 +91,19 @@ export function fetchTwoFactorVerify(tempToken: string, code: string) {
  * 完整 JWT 认证, 用于个人中心
  */
 export function fetchUser2FASetup() {
-  return request<Api.Auth.TwoFactorSetupInfo>({ url: '/user/2fa/setup', method: 'post' });
+  return request<Api.Auth.TwoFactorSetupInfo>({ url: '/api/user/2fa/setup', method: 'post' });
 }
 
 /**
  * 自助绑定两步验证第二步: 校验验证码后正式开启
  */
 export function fetchUser2FAEnable(secret: string, code: string) {
-  return request({ url: '/user/2fa/enable', method: 'post', data: { secret, code } });
+  return request({ url: '/api/user/2fa/enable', method: 'post', data: { secret, code } });
 }
 
 /**
  * 自助关闭两步验证: 校验验证码后清除密钥
  */
 export function fetchUser2FADisable(code: string) {
-  return request({ url: '/user/2fa/disable', method: 'post', data: { code } });
+  return request({ url: '/api/user/2fa/disable', method: 'post', data: { code } });
 }
