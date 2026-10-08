@@ -1567,7 +1567,7 @@ const local: App.I18n.Schema = {
       pdDeleted: "Deleted",
       pdImported: "Imported {count} order(s), {bars} product(s)",
       pdImportEmpty: "Selected orders are empty",
-      planeSpecRowsAdded: "New board specs were auto-created from glass thicknesses; fill in their width/height in Parameters",
+      planeSpecRowsAdded: "Board specs were auto-created from glass thicknesses (default 200×200); adjust width/height to the actual boards in Parameters",
       unplacedAlert: "{count} piece(s) could not be placed on any material",
       unplacedLabel: "Label",
       unplacedReason: "Reason",

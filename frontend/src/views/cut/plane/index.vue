@@ -27,8 +27,10 @@ const width = ref<number | null>(null);
 const height = ref<number | null>(null);
 const quantity = ref(1);
 const itemSpec = ref<string | null>(null);
+// 新材料规格行默认板材尺寸 (cm): 手动新增与玻璃导入自动补行均按此预填
+const DEFAULT_BOARD_SIZE = 200;
 // 新板材多规格动态行 (参照一维新材料规格)
-const newMaterialRows = ref<NewBoardRow[]>([{ label: '', width: 200, height: 200 }]);
+const newMaterialRows = ref<NewBoardRow[]>([{ label: '', width: DEFAULT_BOARD_SIZE, height: DEFAULT_BOARD_SIZE }]);
 const materialName = ref<string | null>(null);
 const materialWidth = ref<number | null>(null);
 const materialHeight = ref<number | null>(null);
@@ -65,12 +67,12 @@ function fillItemsFromGlassOrders(records: Api.Cut.CutProduct[]): { pieces: numb
   items.value.push(
     ...rows.map(row => ({ label: row.label, width: row.width, height: row.height, quantity: row.quantity, spec: row.spec }))
   );
-  // 新厚度没有同名新材料规格时自动补行 (宽高留空, 提交前需按实际板材补全)
+  // 新厚度没有同名新材料规格时自动补行 (默认板材尺寸, 可按实际板材调整)
   let addedSpecs = 0;
   rows.forEach(row => {
     const spec = row.spec?.trim();
     if (spec && !newMaterialRows.value.some(board => board.label.trim() === spec)) {
-      newMaterialRows.value.push({ label: spec, width: null, height: null });
+      newMaterialRows.value.push({ label: spec, width: DEFAULT_BOARD_SIZE, height: DEFAULT_BOARD_SIZE });
       addedSpecs++;
     }
   });
@@ -357,7 +359,7 @@ function clearMaterialInputs() {
 
 // 新板材多规格行操作
 function addBoardRow() {
-  newMaterialRows.value.push({ label: '', width: null, height: null });
+  newMaterialRows.value.push({ label: '', width: DEFAULT_BOARD_SIZE, height: DEFAULT_BOARD_SIZE });
 }
 
 function removeBoardRow(index: number) {

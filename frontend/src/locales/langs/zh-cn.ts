@@ -1559,7 +1559,7 @@ const local: App.I18n.Schema = {
       pdDeleted: "删除成功",
       pdImported: "已导入 {count} 张产品单, 共 {bars} 件产品",
       pdImportEmpty: "所选产品单内容为空",
-      planeSpecRowsAdded: "已按玻璃厚度自动生成新材料规格行, 请在参数配置中补全板材宽高",
+      planeSpecRowsAdded: "已按玻璃厚度自动生成新材料规格行（默认 200×200），请按实际板材调整宽高",
       unplacedAlert: "有 {count} 件未能排入任何材料",
       unplacedLabel: "标签",
       unplacedReason: "原因",

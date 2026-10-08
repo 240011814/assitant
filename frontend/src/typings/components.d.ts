@@ -108,6 +108,8 @@ declare module 'vue' {
     PlaneCanvas: typeof import('./../components/print/PlaneCanvas.vue')['default']
     PlanePrinter: typeof import('./../components/print/PlanePrinter.vue')['default']
     PlaneStats: typeof import('./../components/print/PlaneStats.vue')['default']
+    ProductEditModal: typeof import('./../components/cut/ProductEditModal.vue')['default']
+    ProductPickModal: typeof import('./../components/cut/ProductPickModal.vue')['default']
     ReloadButton: typeof import('./../components/common/reload-button.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
@@ -121,9 +123,7 @@ declare module 'vue' {
     ThemeSchemaSwitch: typeof import('./../components/common/theme-schema-switch.vue')['default']
     WatchlistAddDialog: typeof import('./../components/custom/watchlist-add-dialog.vue')['default']
     WaveBg: typeof import('./../components/custom/wave-bg.vue')['default']
-    ProductEditModal: typeof import('./../components/cut/ProductEditModal.vue')['default']
     WindowGridPreview: typeof import('./../components/cut/WindowGridPreview.vue')['default']
-    ProductPickModal: typeof import('./../components/cut/ProductPickModal.vue')['default']
   }
 }
 
@@ -225,6 +225,8 @@ declare global {
   const PlaneCanvas: typeof import('./../components/print/PlaneCanvas.vue')['default']
   const PlanePrinter: typeof import('./../components/print/PlanePrinter.vue')['default']
   const PlaneStats: typeof import('./../components/print/PlaneStats.vue')['default']
+  const ProductEditModal: typeof import('./../components/cut/ProductEditModal.vue')['default']
+  const ProductPickModal: typeof import('./../components/cut/ProductPickModal.vue')['default']
   const ReloadButton: typeof import('./../components/common/reload-button.vue')['default']
   const RouterLink: typeof import('vue-router')['RouterLink']
   const RouterView: typeof import('vue-router')['RouterView']
@@ -238,7 +240,5 @@ declare global {
   const ThemeSchemaSwitch: typeof import('./../components/common/theme-schema-switch.vue')['default']
   const WatchlistAddDialog: typeof import('./../components/custom/watchlist-add-dialog.vue')['default']
   const WaveBg: typeof import('./../components/custom/wave-bg.vue')['default']
-  const ProductEditModal: typeof import('./../components/cut/ProductEditModal.vue')['default']
   const WindowGridPreview: typeof import('./../components/cut/WindowGridPreview.vue')['default']
-  const ProductPickModal: typeof import('./../components/cut/ProductPickModal.vue')['default']
 }
