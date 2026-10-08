@@ -1546,6 +1546,12 @@ declare namespace App {
           pdName: string;
           pdNamePh: string;
           pdTemplate: string;
+          /** 切割维度 (一维/平面), 区分窗户与玻璃 */
+          pdDimension: string;
+          pdDimensionLinear: string;
+          pdDimensionPlane: string;
+          pdDimensionMixed: string;
+          pdDimensionConflict: string;
           pdWidthLabel: string;
           pdFrameWidth: string;
           pdCols: string;

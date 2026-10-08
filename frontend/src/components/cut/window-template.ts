@@ -137,6 +137,26 @@ export function productTypeLabel(type: string): string {
   return type === GLASS_TYPE ? GLASS_LABEL : (findWindowTemplate(type)?.label ?? type);
 }
 
+// ===== 切割维度 (区分一维/平面, 把窗户与玻璃分成两类) =====
+
+/** 切割维度: linear=一维(线性, 窗类); plane=平面(二维, 玻璃) */
+export type CutDimension = 'linear' | 'plane';
+
+export const DIMENSION_LINEAR = 'linear';
+export const DIMENSION_PLANE = 'plane';
+
+/** 由产品模板 key 判定切割维度 (玻璃=平面, 其余窗型=一维) */
+export function itemDimension(item: Pick<ProductItem, 'type'>): CutDimension {
+  return isGlassItem(item) ? DIMENSION_PLANE : DIMENSION_LINEAR;
+}
+
+/** 一批产品的统一维度: 全是玻璃=平面, 全是窗类=一维, 混选=null */
+export function itemsDimension(items: Array<Pick<ProductItem, 'type'>>): CutDimension | null {
+  if (items.length === 0) return null;
+  const first = itemDimension(items[0]!);
+  return items.every(item => itemDimension(item) === first) ? first : null;
+}
+
 /** 玻璃产品初始项 (无框料/拼装参数; 分格存 1×1 平凡格以兼容后端几何校验) */
 export function glassItemFromDefaults(width = 150, height = 200): ProductItem {
   return {

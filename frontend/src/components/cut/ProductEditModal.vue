@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, h, ref, watch } from 'vue';
-import { NButton, NCheckbox, NInput, NInputNumber, NModal, NSelect, NTag, NTooltip, useMessage } from 'naive-ui';
+import { NButton, NCheckbox, NInput, NInputNumber, NModal, NRadioButton, NRadioGroup, NSelect, NTag, NTooltip, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { $t } from '@/locales';
 import { saveCutProduct } from '@/service/api';
@@ -9,6 +9,8 @@ import {
   CELL_FIXED,
   CELL_SASH,
   CELL_SPAN,
+  DIMENSION_LINEAR,
+  DIMENSION_PLANE,
   FIT_DEFAULTS,
   GLASS_LABEL,
   GLASS_THICKNESS_OPTIONS,
@@ -21,17 +23,22 @@ import {
   findWindowTemplate,
   glassItemFromDefaults,
   isGlassItem,
+  itemDimension,
+  itemsDimension,
   parseProductSpec,
   productTypeLabel,
   round2,
+  type CutDimension,
   type ProductItem
 } from './window-template';
 
 /**
  * 产品单编辑器: 左侧分格预览 (点击格子切换 固定/开启) + 右侧参数, 配好的产品加入清单,
  * 一单可含多种类型的多件产品, 整单保存入库。
+ * 新建/编辑产品时先选「切割维度」(一维=窗类 / 平面=玻璃), 把窗户与玻璃彻底分开:
+ * 一维走窗型模板 (框料/分格/拼装参数), 平面只填 宽×高×厚度×数量, 走平面切割。
  * 产品级只设材料规格 (窗 = 型材系列 mm; 玻璃 = 玻璃厚度 mm); 外框/中梃/扇等部件由切割件自动生成,
- * 导入切割时按部件族+规格分组。玻璃产品走平面切割, 编辑区只填 宽×高×厚度×数量。
+ * 导入切割时按部件族+规格分组。
  */
 const show = defineModel<boolean>('show', { default: false });
 
@@ -44,7 +51,8 @@ const emit = defineEmits<{ (e: 'saved'): void }>();
 
 const message = useMessage();
 
-const templateOptions = [...WINDOW_TEMPLATES.map(t => ({ label: t.label, value: t.key })), { label: GLASS_LABEL, value: GLASS_TYPE }];
+/** 窗型模板候选 (仅一维切割); 平面切割不选模板, 直接进入玻璃模式 */
+const windowTemplateOptions = WINDOW_TEMPLATES.map(t => ({ label: t.label, value: t.key }));
 
 /** 框料截面宽度候选 (mm, 即型材系列), 支持手动输入其他系列; 选择后自动带入框料宽 */
 const SERIES_OPTIONS = ['55', '60', '65', '70', '75', '80'].map(v => ({ label: `${v}mm`, value: v }));
@@ -57,6 +65,8 @@ const items = ref<ProductItem[]>([]);
 const saving = ref(false);
 
 // ===== 编辑区 (当前正在配置的一件产品) =====
+/** 当前编辑产品的切割维度: 一维(窗类) / 平面(玻璃); 决定产品类别与可选模板 */
+const dimension = ref<CutDimension>(DIMENSION_LINEAR);
 const curType = ref<string>(WINDOW_TEMPLATES[0]!.key);
 const width = ref<number | null>(150);
 const height = ref<number | null>(200);
@@ -80,6 +90,9 @@ const modalTitle = computed(() => (props.order ? $t('page.cut.pdEdit') : $t('pag
 
 /** 玻璃编辑模式: 只填 宽×高×厚度×数量, 隐藏分格/框料/拼装参数 */
 const isGlassMode = computed(() => curType.value === GLASS_TYPE);
+
+/** 整单统一维度: 清单内产品维度一致时返回该维度 (空单/混选为 null), 锁定后可加入的产品类型 */
+const orderDimension = computed(() => itemsDimension(items.value));
 
 /** 均分并吸收舍入差 (总和精确等于 total) */
 function evenSplit(total: number, n: number): number[] {
@@ -106,6 +119,7 @@ function rescale(arr: number[], total: number): number[] {
 function applyTemplate(key: string) {
   const def = findWindowTemplate(key);
   if (!def) return;
+  dimension.value = DIMENSION_LINEAR;
   curType.value = key;
   sliding.value = def.sliding;
   width.value = def.defaults.width;
@@ -124,6 +138,7 @@ function applyTemplate(key: string) {
 function onTemplateChange(key: string) {
   if (key === GLASS_TYPE) {
     const def = glassItemFromDefaults();
+    dimension.value = DIMENSION_PLANE;
     curType.value = GLASS_TYPE;
     width.value = def.width;
     height.value = def.height;
@@ -133,6 +148,15 @@ function onTemplateChange(key: string) {
     return;
   }
   applyTemplate(key);
+}
+
+/** 切换切割维度: 一维→窗型模板(窗户), 平面→玻璃; 把窗户与玻璃分成两个入口 */
+function onDimensionChange(v: CutDimension) {
+  if (v === DIMENSION_PLANE) {
+    onTemplateChange(GLASS_TYPE);
+  } else {
+    applyTemplate(curType.value === GLASS_TYPE ? WINDOW_TEMPLATES[0]!.key : curType.value);
+  }
 }
 
 /** 总尺寸/框料宽变化: 先写入值再等比缩放净宽高, 保持几何自洽 */
@@ -326,6 +350,7 @@ function editItem(index: number) {
   const item = items.value[index];
   if (!item) return;
   editingIndex.value = index;
+  dimension.value = itemDimension(item);
   curType.value = item.type;
   sliding.value = item.grid.sliding;
   width.value = item.width;
@@ -367,6 +392,12 @@ function addToList() {
     return;
   }
   const copy = JSON.parse(JSON.stringify(currentItem.value)) as ProductItem;
+  // 单一维度: 窗类走一维、玻璃走平面, 同一产品单不允许混入另一维度
+  if (orderDimension.value && orderDimension.value !== itemDimension(copy)) {
+    const need = orderDimension.value === DIMENSION_LINEAR ? $t('page.cut.pdDimensionLinear') : $t('page.cut.pdDimensionPlane');
+    message.error($t('page.cut.pdDimensionConflict', { type: need }));
+    return;
+  }
   if (editingIndex.value >= 0) {
     items.value.splice(editingIndex.value, 1, copy);
   } else {
@@ -390,6 +421,17 @@ const listColumns = computed<DataTableColumns<ProductItem>>(() => [
     key: 'type',
     width: 150,
     render: row => productTypeLabel(row.type)
+  },
+  {
+    title: $t('page.cut.pdDimension'),
+    key: 'dimension',
+    width: 110,
+    render: row => {
+      const plane = itemDimension(row) === DIMENSION_PLANE;
+      return h(NTag, { size: 'small', bordered: false, type: plane ? 'info' : 'success' }, {
+        default: () => (plane ? $t('page.cut.pdDimensionPlane') : $t('page.cut.pdDimensionLinear'))
+      });
+    }
   },
   { title: '尺寸(cm)', key: 'size', width: 110, render: row => `${row.width}×${row.height}` },
   {
@@ -517,8 +559,9 @@ watch(show, opened => {
   count.value = items.value[0]?.count ?? 1;
   const first = items.value[0];
   if (first && isGlassItem(first)) {
-    // 玻璃单: 编辑区直接进玻璃模式并带入首件尺寸
+    // 玻璃单: 编辑区直接进玻璃模式 (平面) 并带入首件尺寸
     const def = glassItemFromDefaults(first.width, first.height);
+    dimension.value = DIMENSION_PLANE;
     curType.value = GLASS_TYPE;
     width.value = def.width;
     height.value = def.height;
@@ -557,8 +600,20 @@ watch(show, opened => {
 
         <div class="flex flex-1 flex-col gap-2">
           <div class="flex items-center gap-2">
+            <span class="w-30 shrink-0 whitespace-nowrap">{{ $t('page.cut.pdDimension') }}</span>
+            <NRadioGroup :value="dimension" size="small" @update:value="(v: CutDimension) => onDimensionChange(v)">
+              <NRadioButton value="linear" :disabled="orderDimension !== null && orderDimension !== DIMENSION_LINEAR">
+                {{ $t('page.cut.pdDimensionLinear') }}
+              </NRadioButton>
+              <NRadioButton value="plane" :disabled="orderDimension !== null && orderDimension !== DIMENSION_PLANE">
+                {{ $t('page.cut.pdDimensionPlane') }}
+              </NRadioButton>
+            </NRadioGroup>
+          </div>
+          <div class="flex items-center gap-2">
             <span class="w-30 shrink-0 whitespace-nowrap">{{ $t('page.cut.pdTemplate') }}</span>
-            <NSelect :value="curType" :options="templateOptions" @update:value="onTemplateChange" />
+            <NSelect v-if="!isGlassMode" :value="curType" :options="windowTemplateOptions" @update:value="onTemplateChange" />
+            <NTag v-else type="info" :bordered="false">{{ GLASS_LABEL }}</NTag>
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <span class="w-30 shrink-0 whitespace-nowrap">{{ $t('page.cut.pdWidthLabel') }}</span>

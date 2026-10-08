@@ -1,16 +1,17 @@
 <script setup lang="tsx">
 import { computed, h, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { NButton, NCard, NDataTable, NPopconfirm, useMessage } from 'naive-ui';
+import { NButton, NCard, NDataTable, NPopconfirm, NTag, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { $t } from '@/locales';
 import { deleteCutProduct, fetchCutProducts } from '@/service/api';
 import ProductEditModal from '@/components/cut/ProductEditModal.vue';
 import WindowGridPreview from '@/components/cut/WindowGridPreview.vue';
-import { isGlassItem, parseProductSpec, productTypeLabel } from '@/components/cut/window-template';
+import { DIMENSION_PLANE, isGlassItem, itemsDimension, parseProductSpec, productTypeLabel } from '@/components/cut/window-template';
 
 /**
  * 产品管理: 维护待切割产品单 (一单可含多种类型的多件产品),
+ * 新建/编辑时先按「切割维度」区分一维(窗类) 与 平面(玻璃), 把窗户和玻璃分开。
  * 记录上"去裁剪"按产品类型跳转: 窗类→一维切割, 玻璃→平面切割 (一维/平面只能有一种), 由其消费 query.products 预填。
  */
 
@@ -101,6 +102,21 @@ const columns = computed<DataTableColumns<OrderRow>>(() => [
     width: 90,
     align: 'center',
     render: row => row.parsed.items.length
+  },
+  {
+    title: $t('page.cut.pdDimension'),
+    key: 'dimension',
+    width: 120,
+    align: 'center',
+    render(row) {
+      const dim = itemsDimension(row.parsed.items);
+      if (!dim) {
+        return h(NTag, { size: 'small', bordered: false, type: 'warning' }, { default: () => $t('page.cut.pdDimensionMixed') });
+      }
+      return h(NTag, { size: 'small', bordered: false, type: dim === DIMENSION_PLANE ? 'info' : 'success' }, {
+        default: () => (dim === DIMENSION_PLANE ? $t('page.cut.pdDimensionPlane') : $t('page.cut.pdDimensionLinear'))
+      });
+    }
   },
   {
     title: $t('page.cut.pdTotalCount'),
