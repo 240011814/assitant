@@ -763,6 +763,9 @@ declare namespace App {
             s3EnabledMsg: string;
             s3DisabledMsg: string;
             s3Saved: string;
+            s3TestRequired: string;
+            s3TestSuccess: string;
+            s3TestFailed: string;
             rag: string;
             ragDesc: string;
             ragBaseUrl: string;

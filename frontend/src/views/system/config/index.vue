@@ -39,6 +39,7 @@ const memoryExtractionModel = ref("");
 const memoryIdleMinutes = ref(15);
 const memoryMinUserMessages = ref(6);
 const savingS3 = ref(false);
+const testingS3 = ref(false);
 const showS3SecretKey = ref(false);
 const s3Enabled = ref(false);
 const s3Endpoint = ref("");
@@ -345,6 +346,38 @@ async function handleSaveS3() {
     message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     savingS3.value = false;
+  }
+}
+
+async function handleTestS3() {
+  if (!s3Endpoint.value || !s3Bucket.value || !s3AccessKey.value || !s3SecretKey.value) {
+    message.warning($t("page.system.config.s3TestRequired"));
+    return;
+  }
+  testingS3.value = true;
+  try {
+    const { data, error } = await request<{ message: string }>({
+      url: "/api/admin/system-config/test-s3",
+      method: "post",
+      data: {
+        endpoint: s3Endpoint.value,
+        region: s3Region.value,
+        bucket: s3Bucket.value,
+        access_key: s3AccessKey.value,
+        secret_key: s3SecretKey.value,
+        secure: s3Secure.value,
+        use_path_style: s3UsePathStyle.value
+      }
+    });
+    if (error || !data) {
+      message.error($t("page.system.config.s3TestFailed", { error: error?.message || $t("page.system.config.unknownError") }));
+      return;
+    }
+    message.success(data.message || $t("page.system.config.s3TestSuccess"));
+  } catch (err: any) {
+    message.error($t("page.system.config.s3TestFailed", { error: err?.message || $t("page.system.config.unknownError") }));
+  } finally {
+    testingS3.value = false;
   }
 }
 
@@ -906,14 +939,24 @@ onMounted(() => {
                 </NFormItemGi>
               </NGrid>
               <NFormItem class="mt-4">
-                <NButton
-                  type="primary"
-                  :loading="savingS3"
-                  :disabled="!s3Enabled"
-                  @click="handleSaveS3"
-                >
-                  {{ $t("page.system.config.saveS3") }}
-                </NButton>
+                <div class="flex items-center gap-3">
+                  <NButton
+                    type="primary"
+                    :loading="savingS3"
+                    :disabled="!s3Enabled"
+                    @click="handleSaveS3"
+                  >
+                    {{ $t("page.system.config.saveS3") }}
+                  </NButton>
+                  <NButton
+                    secondary
+                    :loading="testingS3"
+                    :disabled="!s3Enabled"
+                    @click="handleTestS3"
+                  >
+                    {{ $t("page.system.config.testConnection") }}
+                  </NButton>
+                </div>
               </NFormItem>
             </NForm>
           </div>

@@ -265,6 +265,9 @@ onMounted(() => {
       <div v-if="docStatus && !docStatus.enabled" class="flex flex-col items-center gap-3 py-16">
         <SvgIcon icon="mdi:cloud-off-outline" class="text-56px text-gray-300 dark:text-gray-600" />
         <div class="text-base font-medium">文档功能未开启</div>
+        <div v-if="docStatus.last_error" class="max-w-2xl px-4 text-center text-xs text-gray-400 break-all">
+          {{ docStatus.last_error }}
+        </div>
         <div class="flex items-center gap-2 mt-1">
           <NButton v-if="hasAuth('R_SUPER')" size="small" type="primary" @click="goConfig">
             <template #icon><SvgIcon icon="mdi:tune-variant" /></template>

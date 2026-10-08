@@ -62,14 +62,24 @@ type DocumentStatus struct {
 	RAGReady bool `json:"rag_ready"`
 	// MaxUploadMB 单文件上传上限 MB
 	MaxUploadMB int64 `json:"max_upload_mb"`
+	// LastError 存储未就绪时的失败原因 (未启用/连接失败), 便于前端与管理员定位
+	LastError string `json:"last_error"`
 }
 
 // Status 返回文档功能当前状态 (前端文档页判断展示"未开启"引导)
 func (s *UserDocumentService) Status() DocumentStatus {
+	lastErr := ""
+	if GetS3() == nil {
+		lastErr = GetS3LastError()
+		if lastErr == "" {
+			lastErr = "未启用或未配置 S3 存储 (系统配置 → 用户文档存储)"
+		}
+	}
 	return DocumentStatus{
 		Enabled:     GetS3() != nil,
 		RAGReady:    s.ragReady(),
 		MaxUploadMB: s.MaxUploadBytes() / 1024 / 1024,
+		LastError:   lastErr,
 	}
 }
 
@@ -127,14 +137,17 @@ func (s *UserDocumentService) RefreshStorageConfig() {
 	}
 	isTrue := func(v string) bool { return v == "1" || strings.EqualFold(v, "true") }
 
+	// endpoint 容错: 去空白/尾部斜杠; 若直接粘贴了带 scheme 的地址, 以 scheme 为准
+	endpoint, secure := NormalizeS3Endpoint(getVal("s3_endpoint"), isTrue(getVal("s3_secure")))
+
 	cfg := S3StorageConfig{
 		Enabled:      isTrue(getVal("s3_enabled")),
-		Endpoint:     getVal("s3_endpoint"),
-		Region:       getVal("s3_region"),
-		Bucket:       getVal("s3_bucket"),
-		AccessKey:    getVal("s3_access_key"),
-		SecretKey:    getVal("s3_secret_key"),
-		Secure:       isTrue(getVal("s3_secure")),
+		Endpoint:     endpoint,
+		Region:       strings.TrimSpace(getVal("s3_region")),
+		Bucket:       strings.TrimSpace(getVal("s3_bucket")),
+		AccessKey:    strings.TrimSpace(getVal("s3_access_key")),
+		SecretKey:    strings.TrimSpace(getVal("s3_secret_key")),
+		Secure:       secure,
 		UsePathStyle: isTrue(getVal("s3_use_path_style")),
 	}
 	if err := rebuildS3Storage(cfg); err != nil {

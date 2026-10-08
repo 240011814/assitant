@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,6 +19,9 @@ import (
 var (
 	s3Mu      sync.RWMutex
 	s3Storage *S3Storage
+
+	s3ErrMu   sync.RWMutex
+	s3LastErr string
 )
 
 // S3StorageConfig 用户文档存储配置 (来自 system_config 的 s3_* 键)
@@ -45,9 +49,33 @@ func GetS3() *S3Storage {
 	return s3Storage
 }
 
+// GetS3LastError 返回最近一次 S3 构建/连接失败原因 (成功时为 "")
+func GetS3LastError() string {
+	s3ErrMu.RLock()
+	defer s3ErrMu.RUnlock()
+	return s3LastErr
+}
+
+func setS3LastError(err error) {
+	s3ErrMu.Lock()
+	defer s3ErrMu.Unlock()
+	if err == nil {
+		s3LastErr = ""
+	} else {
+		s3LastErr = err.Error()
+	}
+}
+
 // rebuildS3Storage 用给定配置重建 S3 客户端并确保 bucket 存在。
-// 构建失败时不改动现有实例 (旧配置继续服务), 错误由调用方记录
+// 构建失败时不改动现有实例 (旧配置继续服务), 错误由调用方记录;
+// 同时记录最近一次失败原因, 供状态接口透出给前端/管理员排查
 func rebuildS3Storage(cfg S3StorageConfig) error {
+	err := rebuildS3StorageInner(cfg)
+	setS3LastError(err)
+	return err
+}
+
+func rebuildS3StorageInner(cfg S3StorageConfig) error {
 	if !cfg.Enabled {
 		s3Mu.Lock()
 		s3Storage = nil
@@ -90,6 +118,54 @@ func rebuildS3Storage(cfg S3StorageConfig) error {
 	s3Storage = &S3Storage{client: client, bucket: cfg.Bucket}
 	s3Mu.Unlock()
 	log.Printf("[S3] 已连接 %s (bucket=%s, pathStyle=%v)", cfg.Endpoint, cfg.Bucket, cfg.UsePathStyle)
+	return nil
+}
+
+// NormalizeS3Endpoint 规范化 endpoint: 去首尾空白与尾部斜杠;
+// 若地址自带 scheme, 以 scheme 为准对齐 secure, 避免与 HTTPS 开关冲突
+// (minio-go 会校验二者一致, 不一致会直接构建失败)
+func NormalizeS3Endpoint(endpoint string, secure bool) (string, bool) {
+	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	switch {
+	case strings.HasPrefix(strings.ToLower(endpoint), "https://"):
+		secure = true
+	case strings.HasPrefix(strings.ToLower(endpoint), "http://"):
+		secure = false
+	}
+	return endpoint, secure
+}
+
+// TestS3Connection 用给定配置测试连通性 (仅校验, 不修改全局实例),
+// 供系统配置页"测试连接"使用: 构建客户端 -> 检查/创建 bucket
+func TestS3Connection(ctx context.Context, cfg S3StorageConfig) error {
+	if cfg.Endpoint == "" || cfg.Bucket == "" || cfg.AccessKey == "" || cfg.SecretKey == "" {
+		return fmt.Errorf("endpoint/bucket/access_key/secret_key 不能为空")
+	}
+	lookup := minio.BucketLookupAuto
+	if cfg.UsePathStyle {
+		lookup = minio.BucketLookupPath
+	}
+	client, err := minio.New(cfg.Endpoint, &minio.Options{
+		Creds:        credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+		Secure:       cfg.Secure,
+		Region:       cfg.Region,
+		BucketLookup: lookup,
+	})
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	exists, err := client.BucketExists(ctx, cfg.Bucket)
+	if err != nil {
+		return fmt.Errorf("检查 bucket 失败: %w", err)
+	}
+	if !exists {
+		if err := client.MakeBucket(ctx, cfg.Bucket, minio.MakeBucketOptions{Region: cfg.Region}); err != nil {
+			return fmt.Errorf("bucket 不存在且自动创建失败: %w", err)
+		}
+	}
 	return nil
 }
 

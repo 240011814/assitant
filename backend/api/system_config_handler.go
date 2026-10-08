@@ -170,6 +170,44 @@ func (h *SystemConfigHandler) HandleTestEmbedding(c *gin.Context) {
 	SendSuccess(c, gin.H{"dims": dims, "message": fmt.Sprintf("连接成功, 向量维度 %d", dims)})
 }
 
+// HandleTestS3 测试 S3/MinIO 连接 (使用表单当前值, 保存前即可验证)
+func (h *SystemConfigHandler) HandleTestS3(c *gin.Context) {
+	var req struct {
+		Endpoint     string `json:"endpoint"`
+		Region       string `json:"region"`
+		Bucket       string `json:"bucket"`
+		AccessKey    string `json:"access_key"`
+		SecretKey    string `json:"secret_key"`
+		Secure       bool   `json:"secure"`
+		UsePathStyle bool   `json:"use_path_style"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请求参数错误")
+		return
+	}
+	if req.Endpoint == "" || req.Bucket == "" || req.AccessKey == "" || req.SecretKey == "" {
+		SendError(c, "400", "请先填写 endpoint / bucket / access_key / secret_key")
+		return
+	}
+
+	endpoint, secure := service.NormalizeS3Endpoint(req.Endpoint, req.Secure)
+	cfg := service.S3StorageConfig{
+		Enabled:      true,
+		Endpoint:     endpoint,
+		Region:       req.Region,
+		Bucket:       req.Bucket,
+		AccessKey:    req.AccessKey,
+		SecretKey:    req.SecretKey,
+		Secure:       secure,
+		UsePathStyle: req.UsePathStyle,
+	}
+	if err := service.TestS3Connection(c.Request.Context(), cfg); err != nil {
+		SendError(c, "500", "连接失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, gin.H{"message": "连接成功, 存储可用"})
+}
+
 // SendTestEmail 发送测试邮件
 func (h *SystemConfigHandler) SendTestEmail(c *gin.Context) {
 	var req struct {

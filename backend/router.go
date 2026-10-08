@@ -476,6 +476,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 				configGroup.PUT("", systemConfigHandler.Update)
 				configGroup.POST("/test-email", systemConfigHandler.SendTestEmail)
 				configGroup.POST("/test-embedding", systemConfigHandler.HandleTestEmbedding)
+				configGroup.POST("/test-s3", systemConfigHandler.HandleTestS3)
 			}
 
 			// Job Management (定时任务后台管理)

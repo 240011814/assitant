@@ -37,6 +37,8 @@ export interface DocumentStatus {
   rag_ready: boolean;
   /** 单文件上传上限 MB */
   max_upload_mb: number;
+  /** 存储未就绪时的失败原因 (未启用/连接失败) */
+  last_error: string;
 }
 
 /** 获取文档功能状态 (存储/检索/上传上限) */
