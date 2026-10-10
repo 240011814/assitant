@@ -20,5 +20,3 @@ backend/main
 .env*
 !frontend/.env*
 
-# Config
-backend/config.yaml

@@ -1,0 +1,19 @@
+database:
+  host: '10.1.6.156'
+  port: '3306'
+  user: 'root'
+  password: 'Wiseman9527'
+  dbname: 'thor_mocking'
+
+baostock:
+  url: 'http://127.0.0.1:3002'
+
+clickhouse:
+  enabled: false
+  host: '127.0.0.1'
+  port: '9000'
+  user: 'default'
+  password: ''
+  database: 'default'
+auth:
+  jwt_secret: 'your_jwt_secret_here'
