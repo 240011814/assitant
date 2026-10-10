@@ -336,10 +336,10 @@ onBeforeUnmount(() => {
         </NButton>
       </div>
       <div class="flex-1 overflow-auto p-3">
-        <div v-if="devices.length" class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <NCard v-for="device in devices" :key="device.id" size="small" class="h-full">
+        <div v-if="devices.length" class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <NCard v-for="device in devices" :key="device.id" class="h-full">
             <template #header>
-              <span class="font-mono">{{ device.id }}</span>
+              <span class="font-mono text-base">{{ device.id }}</span>
             </template>
             <template #header-extra>
               <NSpace :size="4">
@@ -349,7 +349,7 @@ onBeforeUnmount(() => {
                 </NTag>
               </NSpace>
             </template>
-            <div class="grid grid-cols-2 gap-y-1 text-sm">
+            <div class="space-y-1.5 text-sm">
               <div><span class="text-gray-400">IP: </span>{{ device.ip || '-' }}</div>
               <div><span class="text-gray-400">WiFi: </span>{{ device.ssid || '-' }}</div>
               <div>
@@ -359,7 +359,7 @@ onBeforeUnmount(() => {
               <div>
                 <span class="text-gray-400">{{ $t('page.tool.device.heap') }}: </span>{{ device.heap || '-' }}
               </div>
-              <div class="col-span-2">
+              <div>
                 <span class="text-gray-400">{{ $t('page.tool.device.broadcast') }}: </span>{{ device.broadcast || '-' }}
               </div>
               <div>
@@ -371,11 +371,11 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div class="mt-3 flex gap-2">
-              <NButton size="tiny" @click="openMacModal(device)">{{ $t('page.tool.device.addressBook') }}</NButton>
-              <NButton v-if="canManage" size="tiny" type="primary" @click="openWakeModal(device)">
+              <NButton size="small" @click="openMacModal(device)">{{ $t('page.tool.device.addressBook') }}</NButton>
+              <NButton v-if="canManage" size="small" type="primary" @click="openWakeModal(device)">
                 {{ $t('page.tool.device.wake') }}
               </NButton>
-              <NButton size="tiny" secondary @click="openDebugModal(device)">
+              <NButton size="small" secondary @click="openDebugModal(device)">
                 {{ $t('page.tool.device.debug') }}
               </NButton>
             </div>
