@@ -518,6 +518,18 @@ export const generatedRoutes: GeneratedRoute[] = [
         }
       },
       {
+        name: 'tool_device',
+        path: '/tool/device',
+        component: 'view.tool_device',
+        meta: {
+          title: 'tool_device',
+          i18nKey: 'route.tool_device',
+          icon: 'mdi:desktop-classic',
+          permissions: ['tool:device:view'],
+          order: 17
+        }
+      },
+      {
         name: 'tool_macro',
         path: '/tool/macro',
         component: 'view.tool_macro',

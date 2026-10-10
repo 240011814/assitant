@@ -174,6 +174,10 @@ func main() {
 	// 策略回测 (ClickHouse 只读副本)
 	backtestHandler := api.NewBacktestHandler(service.NewBacktestService())
 
+	// 设备管理 (WOL MQTT): 长连接会话 + 设备发现/唤醒/地址簿, 配置存 system_config
+	wolMqttService := service.NewWolMqttService(systemConfigService)
+	wolMqttHandler := api.NewWolMqttHandler(wolMqttService)
+
 	// Job Handler + 注册后台可调度的定时任务
 	jobHandler := api.NewJobHandler(jobScheduler)
 	if jobScheduler != nil {
@@ -223,6 +227,7 @@ func main() {
 		systemConfigHandler:  systemConfigHandler,
 		telegramHandler:      telegramHandler,
 		userPrefHandler:      userPrefHandler,
+		wolMqttHandler:       wolMqttHandler,
 	})
 
 	// Start Telegram Bot

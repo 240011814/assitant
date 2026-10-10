@@ -206,6 +206,7 @@ const routeMap: RouteMap = {
   "tool": "/tool",
   "tool_backtest": "/tool/backtest",
   "tool_calendar": "/tool/calendar",
+  "tool_device": "/tool/device",
   "tool_macro": "/tool/macro",
   "tool_stock-alert": "/tool/stock-alert",
   "tool_stockdetail": "/tool/stockdetail",

@@ -53,6 +53,7 @@ const customRouteMeta: Partial<Record<RouteKey, Partial<RouteMeta>>> = {
   tool: { icon: 'mdi:tools', order: 3 },
   tool_backtest: { icon: 'mdi:chart-bar', permissions: ['stock:screen:view'], order: 13 },
   tool_calendar: { icon: 'mdi:calendar-month-outline', order: 15 },
+  tool_device: { icon: 'mdi:desktop-classic', permissions: ['tool:device:view'], order: 17 },
   tool_macro: { icon: 'mdi:bank-outline', permissions: ['stock:macro:view'], order: 14 },
   'tool_stock-alert': { icon: 'mdi:bell-outline', permissions: ['stock:watchlist:view'], order: 12 },
   tool_stockdetail: { permissions: ['stock:menu:view'], hideInMenu: true, activeMenu: 'tool_stockscreen', order: 16 },

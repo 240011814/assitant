@@ -41,6 +41,7 @@ type appDeps struct {
 	systemConfigHandler  *api.SystemConfigHandler
 	telegramHandler      *api.TelegramHandler
 	userPrefHandler      *api.UserPreferenceHandler
+	wolMqttHandler       *api.WolMqttHandler
 }
 
 // setupRouter 把全部 HTTP 路由挂载到 engine (与原 main.go 逐行等价, 仅依赖来源改为 appDeps)
@@ -75,6 +76,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 	adminHandler := d.adminHandler
 	mcpHandler := d.mcpHandler
 	jobHandler := d.jobHandler
+	wolMqttHandler := d.wolMqttHandler
 
 	r.GET("/api/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -392,6 +394,20 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			stockGroup.POST("/sync/finance", api.RequirePermission("stock:sync:execute"), stockHandler.HandleSyncFinanceData)
 			stockGroup.POST("/sync/finance-all", api.RequirePermission("stock:sync:execute"), stockHandler.HandleSyncAllFinance)
 			stockGroup.GET("/sync/status", stockHandler.HandleSyncStatus)
+		}
+
+		// 设备管理 (WOL MQTT): 远程发现设备并下发唤醒/地址簿命令
+		wolGroup := apiGroup.Group("/wol")
+		{
+			wolGroup.GET("/config", api.RequirePermission("tool:device:view"), wolMqttHandler.GetConfig)
+			wolGroup.GET("/status", api.RequirePermission("tool:device:view"), wolMqttHandler.Status)
+			wolGroup.GET("/devices", api.RequirePermission("tool:device:view"), wolMqttHandler.ListDevices)
+			wolGroup.GET("/devices/:id/macs", api.RequirePermission("tool:device:view"), wolMqttHandler.GetMacList)
+			wolGroup.PUT("/config", api.RequirePermission("tool:device:manage"), wolMqttHandler.UpdateConfig)
+			wolGroup.POST("/connect", api.RequirePermission("tool:device:manage"), wolMqttHandler.Connect)
+			wolGroup.POST("/disconnect", api.RequirePermission("tool:device:manage"), wolMqttHandler.Disconnect)
+			wolGroup.POST("/devices/:id/mac", api.RequirePermission("tool:device:manage"), wolMqttHandler.UpdateMac)
+			wolGroup.POST("/devices/:id/wake", api.RequirePermission("tool:device:manage"), wolMqttHandler.Wake)
 		}
 
 		// Lottery Admin APIs (需要登录+权限)

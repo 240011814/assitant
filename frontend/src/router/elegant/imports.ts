@@ -54,6 +54,7 @@ export const views: Record<LastLevelRouteKey, RouteComponent | (() => Promise<Ro
   system_user: () => import("@/views/system/user/index.vue"),
   tool_backtest: () => import("@/views/tool/backtest/index.vue"),
   tool_calendar: () => import("@/views/tool/calendar/index.vue"),
+  tool_device: () => import("@/views/tool/device/index.vue"),
   tool_macro: () => import("@/views/tool/macro/index.vue"),
   "tool_stock-alert": () => import("@/views/tool/stock-alert/index.vue"),
   tool_stockdetail: () => import("@/views/tool/stockdetail/index.vue"),

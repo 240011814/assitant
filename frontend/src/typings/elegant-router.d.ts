@@ -60,6 +60,7 @@ declare module "@elegant-router/types" {
     "tool": "/tool";
     "tool_backtest": "/tool/backtest";
     "tool_calendar": "/tool/calendar";
+    "tool_device": "/tool/device";
     "tool_macro": "/tool/macro";
     "tool_stock-alert": "/tool/stock-alert";
     "tool_stockdetail": "/tool/stockdetail";
@@ -168,6 +169,7 @@ declare module "@elegant-router/types" {
     | "system_user"
     | "tool_backtest"
     | "tool_calendar"
+    | "tool_device"
     | "tool_macro"
     | "tool_stock-alert"
     | "tool_stockdetail"
