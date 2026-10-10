@@ -119,3 +119,20 @@ func (h *WolMqttHandler) Wake(c *gin.Context) {
 	}
 	SendSuccess(c, nil)
 }
+
+// Publish 调试用: 向任意主题下发原始报文
+func (h *WolMqttHandler) Publish(c *gin.Context) {
+	var req struct {
+		Topic   string `json:"topic" binding:"required"`
+		Payload string `json:"payload"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请填写主题")
+		return
+	}
+	if err := h.svc.PublishRaw(req.Topic, req.Payload); err != nil {
+		SendError(c, "400", err.Error())
+		return
+	}
+	SendSuccess(c, nil)
+}

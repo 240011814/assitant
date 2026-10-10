@@ -377,15 +377,28 @@ func (s *WolMqttService) subscribeAll(client mqtt.Client) error {
 }
 
 func (s *WolMqttService) publish(topic string, payload interface{}) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return s.publishBytes(topic, data)
+}
+
+// PublishRaw 调试用: 向指定主题发送原始报文 (不做 JSON 校验)
+func (s *WolMqttService) PublishRaw(topic, payload string) error {
+	topic = strings.TrimSpace(topic)
+	if topic == "" {
+		return errors.New("主题不能为空")
+	}
+	return s.publishBytes(topic, []byte(payload))
+}
+
+func (s *WolMqttService) publishBytes(topic string, data []byte) error {
 	s.mu.Lock()
 	client := s.client
 	s.mu.Unlock()
 	if client == nil || !client.IsConnected() {
 		return errors.New("MQTT 未连接, 请先连接")
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
 	}
 	token := client.Publish(topic, 0, false, data)
 	if !token.WaitTimeout(3 * time.Second) {
@@ -405,19 +418,21 @@ func (s *WolMqttService) handleMessage(_ mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	// 温度主题: 只更新温度
+	// 温度主题: 只更新温度 (id 优先取 payload, 缺失时从主题后缀取)
 	if strings.HasPrefix(topic, wolTempTopicPrefix) {
-		id := in.ID
-		if id == "" {
-			id = strings.TrimPrefix(topic, wolTempTopicPrefix)
+		deviceID := in.ID
+		if deviceID == "" {
+			deviceID = strings.TrimPrefix(topic, wolTempTopicPrefix)
 		}
-		s.applyTemp(id, in.TempC)
+		s.applyTemp(deviceID, in.TempC)
+		s.recordMessage(deviceID, in.Cmd, string(payload))
 		return
 	}
 
 	// 地址簿列表应答
 	if in.Cmd == "mac_list" {
 		s.applyMacList(in.ID, in.Macs)
+		s.recordMessage(in.ID, in.Cmd, string(payload))
 		s.notifyWaiter(in.ID, "mac_list", payload)
 		return
 	}
@@ -425,6 +440,7 @@ func (s *WolMqttService) handleMessage(_ mqtt.Client, msg mqtt.Message) {
 	// 设备状态上报 (含状态字段)
 	if in.ID != "" && isWolDeviceStatus(in) {
 		s.applyDeviceStatus(in)
+		s.recordMessage(in.ID, in.Cmd, string(payload))
 		return
 	}
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, h, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { NButton, NTag, useMessage } from 'naive-ui'
+import { NButton, useMessage } from 'naive-ui'
 import { useAuth } from '@/hooks/business/auth'
 import {
   connectWol,
@@ -9,6 +9,7 @@ import {
   getWolDevices,
   getWolMacList,
   getWolStatus,
+  publishWolRaw,
   updateWolConfig,
   updateWolMac,
   wakeWolDevice
@@ -41,6 +42,10 @@ const macForm = reactive({ mac: '', ip: '' })
 // 唤醒弹窗
 const wakeModalVisible = ref(false)
 const wakeForm = reactive({ mac: '', ip: '' })
+
+// 调试弹窗
+const debugModalVisible = ref(false)
+const debugForm = reactive({ topic: '', payload: '' })
 
 const macReg = /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i
 
@@ -195,80 +200,30 @@ async function sendWake() {
   }
 }
 
-const macOptions = computed(() => macList.value.map(item => ({ label: item.mac, value: item.mac })))
-
-function deviceRowKey(row: Api.Wol.Device) {
-  return row.id
+function openDebugModal(device: Api.Wol.Device) {
+  activeDevice.value = device
+  debugForm.topic = `wakemanager/cmd/${device.id}`
+  debugForm.payload = '{"cmd":"wake","mac":"","ip":""}'
+  debugModalVisible.value = true
 }
+
+async function sendDebug() {
+  if (!debugForm.topic.trim()) {
+    message.warning($t('page.tool.device.topicRequired'))
+    return
+  }
+  const { error } = await publishWolRaw({ topic: debugForm.topic.trim(), payload: debugForm.payload })
+  if (!error) message.success($t('page.tool.device.sent'))
+}
+
+// 最近报文 (倒序)
+const debugReports = computed(() => [...(statusInfo.value?.messages || [])].reverse())
+
+const macOptions = computed(() => macList.value.map(item => ({ label: item.mac, value: item.mac })))
 
 function macRowKey(row: Api.Wol.MacEntry) {
   return row.mac
 }
-
-const columns = [
-  { title: $t('page.tool.device.id'), key: 'id', width: 150, fixed: 'left' as const },
-  { title: 'IP', key: 'ip', width: 130 },
-  { title: $t('page.tool.device.ssid'), key: 'ssid', width: 120, ellipsis: { tooltip: true } },
-  {
-    title: 'RSSI',
-    key: 'rssi',
-    width: 90,
-    render: (row: Api.Wol.Device) =>
-      h(NTag, { size: 'small', type: rssiTag(row.rssi), bordered: false }, { default: () => `${row.rssi} dBm` })
-  },
-  {
-    title: $t('page.tool.device.temp'),
-    key: 'temp_c',
-    width: 90,
-    render: (row: Api.Wol.Device) => (row.temp_c ? `${row.temp_c.toFixed(2)} °C` : '-')
-  },
-  {
-    title: $t('page.tool.device.heap'),
-    key: 'heap',
-    width: 110,
-    render: (row: Api.Wol.Device) => row.heap || '-'
-  },
-  { title: $t('page.tool.device.broadcast'), key: 'broadcast', width: 140 },
-  { title: $t('page.tool.device.macCount'), key: 'mac_count', width: 90 },
-  {
-    title: 'MQTT',
-    key: 'mqtt_connected',
-    width: 90,
-    render: (row: Api.Wol.Device) =>
-      h(
-        NTag,
-        { size: 'small', type: row.mqtt_connected ? 'success' : 'error', bordered: false },
-        { default: () => (row.mqtt_connected ? $t('page.tool.device.online') : $t('page.tool.device.offline')) }
-      )
-  },
-  {
-    title: $t('page.tool.device.lastSeen'),
-    key: 'last_seen',
-    width: 170,
-    render: (row: Api.Wol.Device) => formatTime(row.last_seen)
-  },
-  {
-    title: $t('common.action'),
-    key: 'actions',
-    width: 190,
-    fixed: 'right' as const,
-    render: (row: Api.Wol.Device) =>
-      h('div', { class: 'flex gap-2' }, [
-        h(
-          NButton,
-          { size: 'tiny', text: true, onClick: () => openMacModal(row) },
-          { default: () => $t('page.tool.device.addressBook') }
-        ),
-        canManage.value
-          ? h(
-              NButton,
-              { size: 'tiny', text: true, type: 'primary', onClick: () => openWakeModal(row) },
-              { default: () => $t('page.tool.device.wake') }
-            )
-          : null
-      ])
-  }
-]
 
 const macColumns = [
   { title: $t('page.tool.device.mac'), key: 'mac', minWidth: 160 },
@@ -354,7 +309,7 @@ onBeforeUnmount(() => {
         </div>
       </NCard>
 
-      <NCard :title="$t('page.tool.device.statusTitle')" size="small" class="mb-4">
+      <NCard :title="$t('page.tool.device.statusTitle')" size="small">
         <div class="flex items-center gap-2 mb-2">
           <NTag :type="connected ? 'success' : 'error'" size="small" :bordered="false">
             {{ connected ? $t('page.tool.device.connected') : $t('page.tool.device.disconnected') }}
@@ -370,27 +325,9 @@ onBeforeUnmount(() => {
           {{ statusInfo.last_error }}
         </NAlert>
       </NCard>
-
-      <NCard :title="$t('page.tool.device.messages')" size="small">
-        <div v-if="!statusInfo?.messages?.length" class="text-sm text-gray-400">
-          {{ $t('page.tool.device.msgEmpty') }}
-        </div>
-        <div v-else class="max-h-64 overflow-y-auto space-y-1">
-          <div
-            v-for="(msg, index) in [...(statusInfo?.messages || [])].reverse()"
-            :key="index"
-            class="text-xs border-b border-gray-100 pb-1"
-          >
-            <div class="text-gray-400">
-              {{ formatTime(msg.received_at) }} · {{ msg.device_id || '-' }} · {{ msg.cmd || '-' }}
-            </div>
-            <div class="break-all text-gray-700">{{ msg.payload }}</div>
-          </div>
-        </div>
-      </NCard>
     </div>
 
-    <!-- 右侧: 设备列表 -->
+    <!-- 右侧: 设备卡片 -->
     <div class="flex flex-1 flex-col overflow-hidden">
       <div class="flex items-center justify-between border-b border-gray-200 p-3">
         <span class="text-lg font-bold">{{ $t('page.tool.device.devices') }}</span>
@@ -399,19 +336,52 @@ onBeforeUnmount(() => {
         </NButton>
       </div>
       <div class="flex-1 overflow-auto p-3">
-        <NDataTable
-          :columns="columns"
-          :data="devices"
-          :loading="discovering"
-          :row-key="deviceRowKey"
-          :scroll-x="1400"
-          size="small"
-          striped
-        >
-          <template #empty>
-            <NEmpty :description="$t('page.tool.device.empty')" />
-          </template>
-        </NDataTable>
+        <div v-if="devices.length" class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <NCard v-for="device in devices" :key="device.id" size="small" class="h-full">
+            <template #header>
+              <span class="font-mono">{{ device.id }}</span>
+            </template>
+            <template #header-extra>
+              <NSpace :size="4">
+                <NTag size="small" :type="rssiTag(device.rssi)" :bordered="false">{{ device.rssi }} dBm</NTag>
+                <NTag size="small" :type="device.mqtt_connected ? 'success' : 'error'" :bordered="false">
+                  {{ device.mqtt_connected ? $t('page.tool.device.online') : $t('page.tool.device.offline') }}
+                </NTag>
+              </NSpace>
+            </template>
+            <div class="grid grid-cols-2 gap-y-1 text-sm">
+              <div><span class="text-gray-400">IP: </span>{{ device.ip || '-' }}</div>
+              <div><span class="text-gray-400">WiFi: </span>{{ device.ssid || '-' }}</div>
+              <div>
+                <span class="text-gray-400">{{ $t('page.tool.device.temp') }}: </span>
+                {{ device.temp_c ? `${device.temp_c.toFixed(2)} °C` : '-' }}
+              </div>
+              <div>
+                <span class="text-gray-400">{{ $t('page.tool.device.heap') }}: </span>{{ device.heap || '-' }}
+              </div>
+              <div class="col-span-2">
+                <span class="text-gray-400">{{ $t('page.tool.device.broadcast') }}: </span>{{ device.broadcast || '-' }}
+              </div>
+              <div>
+                <span class="text-gray-400">{{ $t('page.tool.device.macCount') }}: </span>{{ device.mac_count }}
+              </div>
+              <div>
+                <span class="text-gray-400">{{ $t('page.tool.device.lastSeen') }}: </span>
+                {{ formatTime(device.last_seen) }}
+              </div>
+            </div>
+            <div class="mt-3 flex gap-2">
+              <NButton size="tiny" @click="openMacModal(device)">{{ $t('page.tool.device.addressBook') }}</NButton>
+              <NButton v-if="canManage" size="tiny" type="primary" @click="openWakeModal(device)">
+                {{ $t('page.tool.device.wake') }}
+              </NButton>
+              <NButton size="tiny" secondary @click="openDebugModal(device)">
+                {{ $t('page.tool.device.debug') }}
+              </NButton>
+            </div>
+          </NCard>
+        </div>
+        <NEmpty v-else class="mt-20" :description="$t('page.tool.device.empty')" />
       </div>
     </div>
 
@@ -475,6 +445,63 @@ onBeforeUnmount(() => {
         <div class="flex justify-end gap-2">
           <NButton @click="wakeModalVisible = false">{{ $t('common.cancel') }}</NButton>
           <NButton type="primary" @click="sendWake">{{ $t('page.tool.device.wakeSend') }}</NButton>
+        </div>
+      </template>
+    </NModal>
+
+    <!-- 调试弹窗 -->
+    <NModal
+      v-model:show="debugModalVisible"
+      preset="card"
+      style="width: 760px"
+      :title="$t('page.tool.device.debugTitle')"
+    >
+      <div class="mb-2 text-sm text-gray-500">
+        {{ $t('page.tool.device.id') }}: <strong>{{ activeDevice?.id }}</strong>
+      </div>
+
+      <div class="mb-1 flex items-center justify-between">
+        <span class="font-bold">{{ $t('page.tool.device.reports') }}</span>
+        <NButton size="tiny" quaternary :loading="discovering" @click="loadStatus">
+          {{ $t('page.tool.device.refreshMac') }}
+        </NButton>
+      </div>
+      <div class="mb-3 max-h-60 overflow-y-auto rounded border border-gray-200 p-2">
+        <div v-if="!debugReports.length" class="text-sm text-gray-400">
+          {{ $t('page.tool.device.reportsEmpty') }}
+        </div>
+        <div
+          v-for="(msg, index) in debugReports"
+          :key="index"
+          class="border-b border-gray-100 py-1 text-xs last:border-0"
+        >
+          <div class="text-gray-400">
+            {{ formatTime(msg.received_at) }} · {{ msg.device_id || '-' }} · {{ msg.cmd || '-' }}
+          </div>
+          <div class="break-all text-gray-700">{{ msg.payload }}</div>
+        </div>
+      </div>
+
+      <NDivider class="!my-3" />
+
+      <NForm label-placement="top" :show-feedback="false">
+        <NFormItem :label="$t('page.tool.device.topic')">
+          <NInput v-model:value="debugForm.topic" :placeholder="$t('page.tool.device.topicPlaceholder')" />
+        </NFormItem>
+        <NFormItem :label="$t('page.tool.device.payload')">
+          <NInput
+            v-model:value="debugForm.payload"
+            type="textarea"
+            :autosize="{ minRows: 2, maxRows: 6 }"
+            :placeholder="$t('page.tool.device.payloadPlaceholder')"
+          />
+        </NFormItem>
+      </NForm>
+
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <NButton @click="debugModalVisible = false">{{ $t('common.cancel') }}</NButton>
+          <NButton v-if="canManage" type="primary" @click="sendDebug">{{ $t('page.tool.device.send') }}</NButton>
         </div>
       </template>
     </NModal>

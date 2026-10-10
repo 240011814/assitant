@@ -75,3 +75,12 @@ export function wakeWolDevice(deviceId: string, data: { mac: string; ip?: string
     data
   })
 }
+
+/** 调试: 向任意主题下发原始报文 */
+export function publishWolRaw(data: { topic: string; payload: string }) {
+  return request<null>({
+    url: '/api/wol/publish',
+    method: 'post',
+    data
+  })
+}

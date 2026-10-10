@@ -927,8 +927,6 @@ declare namespace App {
             disconnected: string;
             statusTitle: string;
             deviceCount: string;
-            messages: string;
-            msgEmpty: string;
             devices: string;
             refresh: string;
             empty: string;
@@ -943,6 +941,7 @@ declare namespace App {
             lastSeen: string;
             addressBook: string;
             wake: string;
+            debug: string;
             wakeTitle: string;
             wakeIp: string;
             wakeIpPlaceholder: string;
@@ -961,6 +960,16 @@ declare namespace App {
             cleared: string;
             macEmpty: string;
             refreshMac: string;
+            debugTitle: string;
+            reports: string;
+            reportsEmpty: string;
+            topic: string;
+            topicPlaceholder: string;
+            payload: string;
+            payloadPlaceholder: string;
+            send: string;
+            sent: string;
+            topicRequired: string;
           };
           stockAlert: {
             title: string;
