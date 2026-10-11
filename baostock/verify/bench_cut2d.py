@@ -27,7 +27,7 @@ def run(label: str, req: SolveRequest) -> None:
     t0 = time.time()
     resp = solve(req)
     print(f"[{label}] status={resp.status} placed={len(resp.pieces)} "
-          f"boards={len({p.board for p in resp.pieces})} wall={time.time()-t0:.1f}s elapsed_ms={resp.elapsed_ms}")
+          f"boards={len({p.board for p in resp.pieces})} wall={time.time() - t0:.1f}s elapsed_ms={resp.elapsed_ms}")
 
 
 def main() -> None:
