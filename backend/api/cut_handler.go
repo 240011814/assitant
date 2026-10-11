@@ -144,10 +144,15 @@ func (h *CutHandler) HandleBatchDeleteScraps(c *gin.Context) {
 	SendSuccess(c, gin.H{"deleted": deleted})
 }
 
-// HandleListProducts 产品单列表 (本人全部)
+// HandleListProducts 产品单列表 (本人全部; 带分页参数时服务端分页, 省略时返回全部)
 func (h *CutHandler) HandleListProducts(c *gin.Context) {
 	userID := GetUserID(c)
-	list, err := h.svc.ListProducts(userID)
+	var params model.CutProductSearchParams
+	if err := c.ShouldBindQuery(&params); err != nil {
+		SendError(c, "400", "请求参数错误: "+err.Error())
+		return
+	}
+	list, err := h.svc.ListProducts(userID, params)
 	if err != nil {
 		SendError(c, "500", "获取产品单失败: "+err.Error())
 		return

@@ -288,6 +288,18 @@ func (CutProduct) TableName() string {
 	return "cut_product"
 }
 
+// CutProductSearchParams 产品单列表查询参数 (分页可省略, 省略时返回全部, 上限 500)
+type CutProductSearchParams struct {
+	Page     int `form:"current" binding:"omitempty,min=1"`
+	PageSize int `form:"size" binding:"omitempty,min=1,max=200"`
+}
+
+// CutProductListResponse 产品单列表响应
+type CutProductListResponse struct {
+	Total   int64        `json:"total"`
+	Records []CutProduct `json:"records"`
+}
+
 // SaveCutProductRequest 新增/更新产品单 (ID=0 新增)
 type SaveCutProductRequest struct {
 	ID   uint           `json:"id"`

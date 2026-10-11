@@ -102,6 +102,18 @@ declare namespace Api {
       updatedAt: string;
     }
 
+    /** 产品单列表查询参数 (分页可省略, 省略时返回全部) */
+    interface CutProductSearchParams {
+      current?: number;
+      size?: number;
+    }
+
+    /** 产品单列表响应 */
+    interface CutProductListResponse {
+      total: number;
+      records: CutProduct[];
+    }
+
     /** 新增/更新产品单 (id 缺省为新增) */
     interface SaveCutProductRequest {
       id?: number;

@@ -26,19 +26,42 @@ const loading = ref(false);
 const rows = ref<OrderRow[]>([]);
 const checkedKeys = ref<number[]>([]);
 
+// 服务端分页 (产品单数量多时避免全量渲染; 勾选跨页保留)
+const pagination = ref({
+  page: 1,
+  pageSize: 10,
+  itemCount: 0,
+  showSizePicker: true,
+  pageSizes: [10, 15, 20],
+  onChange: (page: number) => {
+    pagination.value.page = page;
+    getData();
+  },
+  onUpdatePageSize: (pageSize: number) => {
+    pagination.value.pageSize = pageSize;
+    pagination.value.page = 1;
+    getData();
+  }
+});
+
 async function getData() {
   loading.value = true;
   try {
-    const { data, error } = await fetchCutProducts();
+    const { data, error } = await fetchCutProducts({
+      current: pagination.value.page,
+      size: pagination.value.pageSize
+    });
     if (!error && data) {
-      rows.value = data.map(row => ({ ...row, parsed: parseProductSpec(row) }));
+      rows.value = data.records.map(row => ({ ...row, parsed: parseProductSpec(row) }));
+      pagination.value.itemCount = data.total;
     }
   } finally {
     loading.value = false;
   }
 }
 
-/** 去裁剪: 按产品类型分流 — 窗类跳一维切割, 玻璃跳平面切割; 两类混选拦截 (一维/平面只能有一种) */
+/** 去裁剪: 按产品类型分流 — 窗类跳一维切割, 玻璃跳平面切割; 两类混选拦截 (一维/平面只能有一种)。
+ * 混选校验基于当前页已加载的行; 跨页混选时由目标切割页的导入过滤兜底 */
 function goCut(ids: number[]) {
   if (ids.length === 0) return;
   const items = rows.value.filter(row => ids.includes(row.id)).flatMap(row => row.parsed.items);
@@ -215,6 +238,8 @@ onMounted(() => {
           :columns="columns"
           :data="rows"
           :loading="loading"
+          :pagination="pagination"
+          remote
           :row-key="(row: OrderRow) => row.id"
           flex-height
           class="flex-1"

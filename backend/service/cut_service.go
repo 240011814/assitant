@@ -2271,11 +2271,31 @@ func (s *CutService) UpdateScrap(userID, id uint, req model.UpdateScrapRequest) 
 
 // ===== 窗户单 (待切割窗户) =====
 
-// ListProducts 产品单列表 (本人全部, 新单在前, 上限 200)
-func (s *CutService) ListProducts(userID uint) ([]model.CutProduct, error) {
+// ListProducts 产品单列表 (仅本人, 新单在前)。
+// 带分页参数时服务端分页; 省略时返回全部 (上限 500, 兼容产品选择弹窗/"去裁剪"预填等全量消费方)。
+func (s *CutService) ListProducts(userID uint, params model.CutProductSearchParams) (*model.CutProductListResponse, error) {
+	query := DB.Model(&model.CutProduct{}).Where("user_id = ?", userID)
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, err
+	}
+
+	q := query.Order("id DESC")
+	if params.Page > 0 {
+		pageSize := params.PageSize
+		if pageSize <= 0 || pageSize > 200 {
+			pageSize = 20
+		}
+		q = q.Offset((params.Page - 1) * pageSize).Limit(pageSize)
+	} else {
+		q = q.Limit(500)
+	}
 	var list []model.CutProduct
-	err := DB.Where("user_id = ?", userID).Order("id DESC").Limit(200).Find(&list).Error
-	return list, err
+	if err := q.Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return &model.CutProductListResponse{Total: total, Records: list}, nil
 }
 
 // SaveProduct 新增/更新产品单 (仅本人); spec 逐件校验后存 JSON

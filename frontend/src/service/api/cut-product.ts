@@ -1,10 +1,11 @@
 import { request } from '../request';
 
-/** 产品单列表 (本人全部, 新单在前) */
-export function fetchCutProducts() {
-  return request<Api.Cut.CutProduct[]>({
+/** 产品单列表 (仅本人, 新单在前; 带分页参数时服务端分页, 省略时返回全部) */
+export function fetchCutProducts(params?: Api.Cut.CutProductSearchParams) {
+  return request<Api.Cut.CutProductListResponse>({
     url: '/api/cut/products',
-    method: 'get'
+    method: 'get',
+    params
   });
 }
 

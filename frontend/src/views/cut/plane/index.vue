@@ -176,7 +176,7 @@ onActivated(async () => {
   if (ids.length === 0) return;
   const { data, error } = await fetchCutProducts();
   if (error || !data) return;
-  const selected = data.filter(record => ids.includes(record.id));
+  const selected = data.records.filter(record => ids.includes(record.id));
   glassImportResult(selected.length, fillItemsFromGlassOrders(selected));
 });
 

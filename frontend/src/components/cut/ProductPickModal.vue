@@ -53,10 +53,11 @@ watch(show, async opened => {
   checkedKeys.value = [];
   loading.value = true;
   try {
+    // 全量拉取 (后端上限 500): mode 过滤基于 spec 内容, 只能客户端做
     const { data, error } = await fetchCutProducts();
     if (!error && data) {
       // 按切割方式过滤: 一维吃窗类件, 平面吃玻璃件; 混合单两边都会列出, 导入时各取所需
-      records.value = data.filter(row => {
+      records.value = data.records.filter(row => {
         const items = parseProductSpec(row).items;
         return props.mode === 'plane' ? items.some(isGlassItem) : items.some(item => !isGlassItem(item));
       });
