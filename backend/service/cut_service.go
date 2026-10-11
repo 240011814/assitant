@@ -1569,7 +1569,9 @@ func takePlaneMaterial(materials []planeMaterial, w, h float64, spec string, cla
 		if spec == "" && m.Priority > 0 && claimedScrap[m.Name] {
 			continue
 		}
-		if w <= m.Width && h <= m.Height {
+		// 开新板选料同样允许旋转放置 (含锯缝时两式等价: (w+kerf)≤(W+kerf) ⟺ w≤W);
+		// 只查正向会漏掉"转 90° 才放得下"的新板, 且下游会把它误判成材料耗尽
+		if (w <= m.Width && h <= m.Height) || (h <= m.Width && w <= m.Height) {
 			remaining := append(append([]planeMaterial{}, materials[:i]...), materials[i+1:]...)
 			return &planeMaterial{Name: m.Name, Width: m.Width, Height: m.Height, Priority: m.Priority}, remaining
 		}

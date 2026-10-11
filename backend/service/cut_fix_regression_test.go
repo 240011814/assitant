@@ -558,3 +558,33 @@ func TestSolvePlanePreciseRejectsTypeOverflow(t *testing.T) {
 		t.Fatal("类型出现次数超需求数应判非法")
 	}
 }
+
+// ===== 开新板选料的旋转适配 =====
+
+// 零件只能旋转 90° 才放进新板 (90×150 → 150×100 的板): 开板选料应接受并旋转放置。
+// 旧实现 takePlaneMaterial 只查正向, 该件被误判为"材料耗尽"进未排入清单
+func TestPlaneCutOpensBoardForRotatedFit(t *testing.T) {
+	for _, strategy := range []string{"Guillotine", "MaxRects"} {
+		req := model.BinRequest{
+			Items:    []model.Item{{Label: "A", Width: 90, Height: 150, Quantity: 1}},
+			Width:    150,
+			Height:   100,
+			Strategy: strategy,
+		}
+		s := NewCutService("")
+		resp, err := s.PlaneCut(req)
+		if err != nil {
+			t.Fatalf("%s 求解失败: %v", strategy, err)
+		}
+		if len(resp.Results) != 1 || len(resp.Results[0].Pieces) != 1 {
+			t.Fatalf("%s 应旋转放入 1 板 1 件, 实得 %+v (unplaced=%+v)", strategy, resp.Results, resp.Unplaced)
+		}
+		p := resp.Results[0].Pieces[0]
+		if !p.Rotated || p.W != 150 || p.H != 90 {
+			t.Fatalf("%s 应旋转放置且输出真实宽高 150×90, 实得 %+v", strategy, p)
+		}
+		if len(resp.Unplaced) != 0 {
+			t.Fatalf("%s 不应有未排入件: %+v", strategy, resp.Unplaced)
+		}
+	}
+}
