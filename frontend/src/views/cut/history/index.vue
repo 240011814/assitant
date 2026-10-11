@@ -21,8 +21,8 @@ const searchParams = ref({
 });
 
 const typeOptions = [
-  { label: '一维', value: '1' },
-  { label: '平面', value: '2' }
+  { label: $t('page.cut.dimLinear'), value: '1' },
+  { label: $t('page.cut.dimPlane'), value: '2' }
 ];
 
 const pagination = ref({
@@ -43,22 +43,22 @@ const pagination = ref({
 });
 
 const columns = computed<DataTableColumns<any>>(() => [
-  { key: 'code', title: '编号', align: 'center', minWidth: 100 },
-  { key: 'name', title: '名称', align: 'center', minWidth: 100 },
+  { key: 'code', title: $t('page.cut.recordNo'), align: 'center', minWidth: 100 },
+  { key: 'name', title: $t('page.cut.name'), align: 'center', minWidth: 100 },
   {
     key: 'type',
-    title: '类型',
+    title: $t('page.cut.type'),
     align: 'center',
     width: 120,
     render(row) {
-      const label = row.type === '1' ? '一维' : '平面';
+      const label = row.type === '1' ? $t('page.cut.dimLinear') : $t('page.cut.dimPlane');
       return h(NTag, { bordered: false }, { default: () => label });
     }
   },
-  { key: 'createTime', title: '创建时间', align: 'center', minWidth: 200 },
+  { key: 'createTime', title: $t('page.cut.createdAt'), align: 'center', minWidth: 200 },
   {
     key: 'operate',
-    title: '操作',
+    title: $t('common.action'),
     align: 'center',
     width: 320,
     render(row) {
@@ -66,12 +66,12 @@ const columns = computed<DataTableColumns<any>>(() => [
         h(
           NButton,
           { size: 'small', type: 'primary', quaternary: true, onClick: () => edit(row) },
-          { default: () => '查看' }
+          { default: () => $t('page.cut.view') }
         ),
         h(
           NButton,
           { size: 'small', type: 'info', quaternary: true, onClick: () => reuse(row) },
-          { default: () => '重新编辑' }
+          { default: () => $t('page.cut.reEdit') }
         )
       ];
       // 尚未入库过的记录提供余料入库入口; 是否真有余料在打开弹窗按 id 取全量响应后判断
@@ -85,7 +85,7 @@ const columns = computed<DataTableColumns<any>>(() => [
               quaternary: true,
               onClick: () => openStockIn(row)
             },
-            { default: () => '余料入库' }
+            { default: () => $t('page.cut.scrapStockIn') }
           )
         );
       }
@@ -95,8 +95,8 @@ const columns = computed<DataTableColumns<any>>(() => [
           { onPositiveClick: () => deleteData(row.id) },
           {
             trigger: () =>
-              h(NButton, { size: 'small', type: 'error', quaternary: true }, { default: () => '删除' }),
-            default: () => '确认删除?'
+              h(NButton, { size: 'small', type: 'error', quaternary: true }, { default: () => $t('common.delete') }),
+            default: () => $t('common.confirmDelete')
           }
         )
       );
@@ -124,7 +124,7 @@ async function getData() {
       pagination.value.itemCount = total.value;
     }
   } catch {
-    message.error('加载失败');
+    message.error($t('page.cut.loadFailed'));
   } finally {
     loading.value = false;
   }
@@ -141,7 +141,7 @@ async function deleteData(id: string) {
     message.success($t('common.deleteSuccess'));
     getData();
   } else {
-    message.error('删除失败');
+    message.error($t('page.cut.deleteFailed'));
   }
 }
 
@@ -266,38 +266,38 @@ const stockInTotal = computed(() =>
 );
 
 const stockInBarColumns: DataTableColumns<StockInBarRow> = [
-  { title: '材料类型', key: 'materialType', render: row => row.materialType?.trim() || '新材料' },
-  { title: '长度(cm)', key: 'remaining', width: 100, align: 'center' },
+  { title: $t('page.cut.materialType'), key: 'materialType', render: row => row.materialType?.trim() || $t('page.cut.summaryNewMaterial') },
+  { title: $t('page.cut.lengthCm'), key: 'remaining', width: 100, align: 'center' },
   {
-    title: '处理',
+    title: $t('page.cut.handle'),
     key: 'kept',
     width: 90,
     align: 'center',
     render: row =>
       row.kept
-        ? h(NTag, { size: 'small', type: 'success', bordered: false }, { default: () => '入库' })
-        : h(NTag, { size: 'small', bordered: false }, { default: () => '已过滤' })
+        ? h(NTag, { size: 'small', type: 'success', bordered: false }, { default: () => $t('page.cut.stockIn') })
+        : h(NTag, { size: 'small', bordered: false }, { default: () => $t('page.cut.filtered') })
   }
 ];
 
 const stockInPlaneColumns: DataTableColumns<StockInPlaneRow> = [
-  { title: '材料类型', key: 'materialType', render: row => row.materialType?.trim() || '新板材' },
+  { title: $t('page.cut.materialType'), key: 'materialType', render: row => row.materialType?.trim() || $t('page.cut.newBoard') },
   {
-    title: '尺寸(cm)',
+    title: $t('page.cut.sizeCm'),
     key: 'size',
     align: 'center',
     render: row => `${row.width} × ${row.height}`
   },
-  { title: '数量', key: 'quantity', width: 70, align: 'center' },
+  { title: $t('page.cut.quantity'), key: 'quantity', width: 70, align: 'center' },
   {
-    title: '处理',
+    title: $t('page.cut.handle'),
     key: 'kept',
     width: 90,
     align: 'center',
     render: row =>
       row.kept
-        ? h(NTag, { size: 'small', type: 'success', bordered: false }, { default: () => '入库' })
-        : h(NTag, { size: 'small', bordered: false }, { default: () => '已过滤' })
+        ? h(NTag, { size: 'small', type: 'success', bordered: false }, { default: () => $t('page.cut.stockIn') })
+        : h(NTag, { size: 'small', bordered: false }, { default: () => $t('page.cut.filtered') })
   }
 ];
 
@@ -308,7 +308,7 @@ async function confirmStockIn() {
   const isBar = stockInType.value === '1';
   const rows = isBar ? stockInBarList.value.filter(item => item.kept) : stockInPlaneList.value.filter(item => item.kept);
   if (rows.length === 0) {
-    message.warning(isBar ? '没有符合长度条件的余料可入库' : '没有符合尺寸条件的余料可入库');
+    message.warning(isBar ? $t('page.cut.noScrapByLength') : $t('page.cut.noScrapBySize'));
     return;
   }
   stockInConfirmLoading.value = true;
@@ -351,7 +351,7 @@ onMounted(() => {
     <NCard :bordered="false" shadow="sm" class="flex-1">
       <template #header>
         <div class="flex items-center gap-4">
-          <span class="text-18px font-bold">历史记录</span>
+          <span class="text-18px font-bold">{{ $t('page.cut.history') }}</span>
         </div>
       </template>
       <div class="flex flex-col h-full gap-4">
@@ -359,14 +359,14 @@ onMounted(() => {
           <div class="flex gap-4 items-center">
             <NInput
               v-model:value="searchParams.name"
-              placeholder="输入名称搜索"
+              :placeholder="$t('page.cut.searchNamePh')"
               clearable
               style="width: 180px"
               @keyup.enter="getData"
             />
             <NSelect
               v-model:value="searchParams.type"
-              placeholder="选择类型"
+              :placeholder="$t('page.cut.selectTypePh')"
               clearable
               :options="typeOptions"
               style="width: 120px"
@@ -376,14 +376,14 @@ onMounted(() => {
               v-model:value="searchParams.startTime"
               type="datetime"
               clearable
-              placeholder="开始时间"
+              :placeholder="$t('page.cut.startTime')"
               style="width: 180px"
             />
             <NDatePicker
               v-model:value="searchParams.endTime"
               type="datetime"
               clearable
-              placeholder="结束时间"
+              :placeholder="$t('page.cut.endTime')"
               style="width: 180px"
             />
             <NButton type="primary" @click="getData">
@@ -416,22 +416,22 @@ onMounted(() => {
     </NCard>
 
     <!-- 余料入库弹窗: 一维按最小长度过滤 / 平面按最小宽高过滤 -->
-    <NModal v-model:show="stockInModal.show" preset="card" title="余料入库" class="w-560px max-w-[96vw]">
+    <NModal v-model:show="stockInModal.show" preset="card" :title="$t('page.cut.scrapStockIn')" class="w-560px max-w-[96vw]">
       <NSpin :show="stockInModal.loading">
         <div class="flex flex-col gap-3">
           <div v-if="stockInType === '1'" class="flex flex-wrap items-center gap-2">
-            <span class="text-sm whitespace-nowrap">只入库长度 ≥</span>
-            <NInputNumber v-model:value="stockInMinLen" :min="0" class="w-32" placeholder="不限制" show-button />
+            <span class="text-sm whitespace-nowrap">{{ $t('page.cut.stockInMinLenLabel') }}</span>
+            <NInputNumber v-model:value="stockInMinLen" :min="0" class="w-32" :placeholder="$t('page.cut.noLimit')" show-button />
             <span class="text-sm">cm</span>
-            <span class="text-gray-400 text-xs">小于该尺寸的短料不入库</span>
+            <span class="text-gray-400 text-xs">{{ $t('page.cut.shortScrapHint') }}</span>
           </div>
           <div v-else class="flex flex-wrap items-center gap-2">
-            <span class="text-sm whitespace-nowrap">只入库宽 ≥</span>
-            <NInputNumber v-model:value="stockInMinWidth" :min="0" class="w-28" placeholder="不限制" show-button />
-            <span class="text-sm whitespace-nowrap">高 ≥</span>
-            <NInputNumber v-model:value="stockInMinHeight" :min="0" class="w-28" placeholder="不限制" show-button />
+            <span class="text-sm whitespace-nowrap">{{ $t('page.cut.stockInMinWidthLabel') }}</span>
+            <NInputNumber v-model:value="stockInMinWidth" :min="0" class="w-28" :placeholder="$t('page.cut.noLimit')" show-button />
+            <span class="text-sm whitespace-nowrap">{{ $t('page.cut.stockInMinHeightLabel') }}</span>
+            <NInputNumber v-model:value="stockInMinHeight" :min="0" class="w-28" :placeholder="$t('page.cut.noLimit')" show-button />
             <span class="text-sm">cm</span>
-            <span class="text-gray-400 text-xs">小于该尺寸的边角料不入库</span>
+            <span class="text-gray-400 text-xs">{{ $t('page.cut.smallScrapHint') }}</span>
           </div>
           <NDataTable
             v-if="stockInType === '1'"
@@ -450,18 +450,29 @@ onMounted(() => {
             :row-key="(row: StockInPlaneRow) => `${row.materialType}|${row.width}|${row.height}`"
           />
           <div class="text-gray-500 text-xs">
-            共 {{ stockInTotal }} {{ stockInType === '1' ? '根' : '种' }}, 将入库
-            {{ stockInKept }} {{ stockInType === '1' ? '根' : '种' }}{{
-              stockInTotal !== stockInKept ? `, 过滤 ${stockInTotal - stockInKept} ${stockInType === '1' ? '根短料' : '种小料'}` : ''
+            {{
+              $t('page.cut.stockInSummary', {
+                total: stockInTotal,
+                unit: stockInType === '1' ? $t('page.cut.unitBar') : $t('page.cut.unitKind'),
+                kept: stockInKept,
+                keptUnit: stockInType === '1' ? $t('page.cut.unitBar') : $t('page.cut.unitKind')
+              })
+            }}{{
+              stockInTotal !== stockInKept
+                ? $t('page.cut.stockInFiltered', {
+                    count: stockInTotal - stockInKept,
+                    unit: stockInType === '1' ? $t('page.cut.unitShortBar') : $t('page.cut.unitSmallPiece')
+                  })
+                : ''
             }}
           </div>
         </div>
       </NSpin>
       <template #footer>
         <div class="flex justify-end gap-2">
-          <NButton @click="stockInModal.show = false">取消</NButton>
+          <NButton @click="stockInModal.show = false">{{ $t('common.cancel') }}</NButton>
           <NButton type="primary" :loading="stockInConfirmLoading" :disabled="stockInModal.loading" @click="confirmStockIn">
-            确认入库 ({{ stockInKept }})
+            {{ $t('page.cut.confirmStockIn', { count: stockInKept }) }}
           </NButton>
         </div>
       </template>

@@ -15,18 +15,20 @@ import (
 )
 
 // ===== 二维精确求解 sidecar 客户端 (cut_api/solver_2d, 与一维同款 sidecar 模式) =====
-// 策略 Precise: 先跑 MaxRects 得到保底解, 再把启发式解作为完整 warm start 传给 sidecar
-// CP-SAT (NoOverlap2D) 优化。未配置求解地址/规模超限/求解失败/解不完备/超时一律回退
-// 启发式结果, 保证精确模式的产出永不劣于 MaxRects。
+// 策略 Precise: 先跑 MaxRects 得到完整 warm start, 再交 sidecar CP-SAT (NoOverlap2D) 优化。
+// 与一维精确模式同一语义: 未配置地址/规模超限/求解失败/解不完备/超时一律返回 false,
+// 由调用方直接报错给前端, 不静默回退启发式。
 
 const (
 	cut2dSolverTimeout = 150 * time.Second // HTTP 超时 = 求解预算 (2 分钟) + 组装余量
 	cut2dSolverBudget  = 120000            // 传给 sidecar 的求解预算 ms (限时 2 分钟)
-	cut2dMaxPieces     = 400               // 展开件数上限, 超过直接回退启发式
+	cut2dMaxPieces     = 400               // 展开件数上限, 超过直接报错
 	cut2dMaxBoards     = 40                // 候选板材上限 (启发式用板 + 剩余旧料 + 备用新板)
 	cut2dMaxPairs      = 9600              // 件×板 乘积上限 (模型规模防御)
 	cut2dMaxExtraScrap = 12                // 启发式未消费旧料的候选追加上限
 	cut2dNewBoardName  = "新板材"            // 与 buildPlaneMaterials 的新板标注一致
+	// cut2dMaxResponseBytes 求解响应体上限 (1MB)
+	cut2dMaxResponseBytes = 1 << 20
 )
 
 type cut2dSolverItem struct {
@@ -75,15 +77,7 @@ type cut2dSolverResponse struct {
 	ElapsedMS int                    `json:"elapsed_ms"`
 }
 
-// solvePlanePrecise 二维精确求解; 任何失败一律返回 fallback (启发式解), 调用方无需判错
-func (s *CutService) solvePlanePrecise(client *cutSolverClient, req model.BinRequest, fallback *model.PlaneCutResponse) *model.PlaneCutResponse {
-	resp, ok := s.trySolvePlanePrecise(client, req)
-	if !ok {
-		return fallback
-	}
-	return resp
-}
-
+// trySolvePlanePrecise 二维精确求解; 失败返回 false, 调用方直接报错 (不回退启发式)
 func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.BinRequest) (*model.PlaneCutResponse, bool) {
 	// 展开零件 (顺序与 sidecar 的展开一致: items 顺序 × quantity; label 规则同 expandItems)
 	type expPiece struct {
@@ -254,13 +248,18 @@ func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.Bin
 	httpClient := &http.Client{Timeout: cut2dSolverTimeout}
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
-		log.Printf("[Cut] 精确求解失败 (回退 MaxRects): %v", err)
+		log.Printf("[Cut] 精确求解失败: %v", err)
 		return nil, false
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	// 多读 1 字节探测超限: LimitReader 截断会让 Unmarshal 报 "unexpected EOF" 误导排障
+	body, err := io.ReadAll(io.LimitReader(resp.Body, cut2dMaxResponseBytes+1))
 	if err != nil {
 		log.Printf("[Cut] 精确求解响应读取失败: %v", err)
+		return nil, false
+	}
+	if len(body) > cut2dMaxResponseBytes {
+		log.Printf("[Cut] 精确求解响应超过 %d MB 上限", cut2dMaxResponseBytes>>20)
 		return nil, false
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -273,11 +272,11 @@ func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.Bin
 		return nil, false
 	}
 	if out.Status != "optimal" && out.Status != "feasible" {
-		log.Printf("[Cut] 精确求解无可用解 (回退 MaxRects): status=%s elapsed=%dms", out.Status, out.ElapsedMS)
+		log.Printf("[Cut] 精确求解无可用解: status=%s elapsed=%dms", out.Status, out.ElapsedMS)
 		return nil, false
 	}
 
-	// 未排入: 只接受 oversized (与启发式口径一致); "放得下却未排" 视为解不完备, 整体回退
+	// 未排入: 只接受 oversized; "放得下却未排" 视为解不完备, 返回 false 由调用方报错
 	var unplaced []model.UnplacedItem
 	oversizedCount := 0
 	for _, u := range out.Unplaced {
@@ -286,7 +285,7 @@ func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.Bin
 			return nil, false
 		}
 		if u.Reason != "oversized" {
-			log.Printf("[Cut] 精确求解存在未排入零件 (回退 MaxRects): item=%d count=%d reason=%s", u.ItemIndex, u.Count, u.Reason)
+			log.Printf("[Cut] 精确求解存在未排入零件: item=%d count=%d reason=%s", u.ItemIndex, u.Count, u.Reason)
 			return nil, false
 		}
 		it := req.Items[u.ItemIndex]
@@ -313,7 +312,7 @@ func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.Bin
 		placedTotal++
 	}
 	if placedTotal+oversizedCount != len(expanded) {
-		log.Printf("[Cut] 精确求解解不完备 (回退 MaxRects): placed=%d oversized=%d expanded=%d", placedTotal, oversizedCount, len(expanded))
+		log.Printf("[Cut] 精确求解解不完备: placed=%d oversized=%d expanded=%d", placedTotal, oversizedCount, len(expanded))
 		return nil, false
 	}
 

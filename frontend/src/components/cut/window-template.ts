@@ -234,27 +234,6 @@ export function checkGridGeometry(item: Pick<ProductItem, 'width' | 'height' | '
   return null;
 }
 
-/** 由模板定义构造初始产品 (净宽高均分) */
-export function productItemFromTemplate(def: WindowTemplateDef, series = ''): ProductItem {
-  const { width, height, frameWidth } = def.defaults;
-  const col = round2(availableColWidth(width, frameWidth, def.cols, def.sliding) / def.cols);
-  const row = round2(availableRowHeight(height, frameWidth, def.rows) / def.rows);
-  return {
-    type: def.key,
-    width,
-    height,
-    frameWidth,
-    series,
-    count: 1,
-    grid: {
-      cols: Array.from({ length: def.cols }, () => col),
-      rows: Array.from({ length: def.rows }, () => row),
-      cells: def.cells.map(r => [...r]),
-      sliding: def.sliding
-    }
-  };
-}
-
 /** 生成单件切割件 (同名同长合并)。
  * 延伸格 (CELL_SPAN) 与左侧格连通: 该处不立竖向中梃, 连通扇/玻璃吸收中梃位宽度。
  * 扇料下料按拼装搭接修正 (否则装不上/打不开):

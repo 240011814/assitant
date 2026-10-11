@@ -8,6 +8,8 @@ declare namespace Api {
       remaining: number;
       /** 材料类型: 新料规格名/旧料类型名/库存余料名, 空=未命名(新材料) */
       materialType?: string;
+      /** 消费的库存余料条目 id (请求材料带 id 时回填; 新料缺省) */
+      scrapId?: number;
     }
 
     /** 一维按材料类型分组统计 (口径同整体汇总) */
@@ -323,8 +325,8 @@ declare namespace Api {
     interface BarRequest {
       /** 零件: 纯长度数组 或 带材料规格名的对象数组 [{ length, spec }] */
       items: Array<number | { length: number; spec?: string }>;
-      /** 旧料: 纯长度数组 或 带类型名对象数组(页面内部用对象形态) */
-      materials: Array<number | { label?: string; length: number }>;
+      /** 旧料: 纯长度数组 或 带类型名对象数组(页面内部用对象形态; id=库存余料条目 id, 结果行回填 scrapId) */
+      materials: Array<number | { label?: string; length: number; id?: number }>;
       newMaterialLength: number;
       /** 多材料规格(可选): 不传时按 newMaterialLength 单规格计算 */
       newMaterials?: NewMaterialSpec[];

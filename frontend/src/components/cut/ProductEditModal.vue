@@ -298,7 +298,7 @@ const currentItem = computed<ProductItem>(() => {
 
 const geometryError = computed(() => {
   if (isGlassMode.value) {
-    if ((width.value ?? 0) <= 0 || (height.value ?? 0) <= 0) return '玻璃宽高必须大于 0';
+    if ((width.value ?? 0) <= 0 || (height.value ?? 0) <= 0) return $t('page.cut.glassSizePositive');
     return null;
   }
   return checkGridGeometry(currentItem.value);
@@ -433,7 +433,7 @@ const listColumns = computed<DataTableColumns<ProductItem>>(() => [
       });
     }
   },
-  { title: '尺寸(cm)', key: 'size', width: 110, render: row => `${row.width}×${row.height}` },
+  { title: $t('page.cut.sizeCm'), key: 'size', width: 110, render: row => `${row.width}×${row.height}` },
   {
     title: $t('page.cut.pdSeries'),
     key: 'series',
@@ -464,12 +464,12 @@ const listColumns = computed<DataTableColumns<ProductItem>>(() => [
       h('span', null, [
         isGlassItem(row)
           ? $t('page.cut.pdGlassPlain')
-          : `${row.grid.cols.length}列×${row.grid.rows.length}行`,
+          : $t('page.cut.pdGridSize', { cols: row.grid.cols.length, rows: row.grid.rows.length }),
         row.grid.sliding ? h(NTag, { size: 'small', bordered: false, type: 'info', class: 'ml-1' }, { default: () => $t('page.cut.pdSliding') }) : null
       ])
   },
   {
-    title: '操作',
+    title: $t('common.action'),
     key: 'actions',
     width: 110,
     render(row, index) {
@@ -477,7 +477,7 @@ const listColumns = computed<DataTableColumns<ProductItem>>(() => [
         h(
           NButton,
           { size: 'small', type: 'primary', quaternary: true, onClick: () => editItem(index) },
-          { default: () => '编辑' }
+          { default: () => $t('common.edit') }
         ),
         h(
           NButton,
@@ -501,7 +501,7 @@ async function handleSave() {
   for (const item of items.value) {
     if (isGlassItem(item)) {
       if (item.width <= 0 || item.height <= 0) {
-        message.error(`${GLASS_LABEL}: 玻璃宽高必须大于 0`);
+        message.error(`${GLASS_LABEL}: ${$t('page.cut.glassSizePositive')}`);
         return;
       }
       if (!item.series?.trim()) {
@@ -686,8 +686,8 @@ watch(show, opened => {
                 <span class="w-30 shrink-0 whitespace-nowrap cursor-help">{{ $t('page.cut.pdSeries') }}</span>
               </template>
               <div class="text-left">
-                框料宽(cm) = 系列 ÷ 10, 选择后自动带入并重算分格。
-                <br />影响: 外框横梃/竖梃(上下横/边封)、横向中梃、竖向中梃的下料长度与各分格净尺寸。
+                {{ $t('page.cut.pdSeriesTip1') }}
+                <br />{{ $t('page.cut.pdSeriesTip2') }}
               </div>
             </NTooltip>
             <span v-else class="w-30 shrink-0 whitespace-nowrap">{{ $t('page.cut.pdGlassThickness') }}</span>
@@ -710,8 +710,8 @@ watch(show, opened => {
                   <span class="text-gray-500 text-xs whitespace-nowrap shrink-0 cursor-help">{{ $t('page.cut.pdFitGap') }}</span>
                 </template>
                 <div class="text-left">
-                  平开: 扇横梃、扇竖梃 = 分格净尺寸 − 2×缝隙 (扇比开口每边小缝隙, 保证能开合)。
-                  <br />推拉: 扇上下横在边封侧/固定侧各 − 缝隙 (留出滑动间隙)。
+                  {{ $t('page.cut.pdFitGapTip1') }}
+                  <br />{{ $t('page.cut.pdFitGapTip2') }}
                 </div>
               </NTooltip>
               <NInputNumber v-model:value="gapMm" :min="0" :max="50" :step="0.5" size="small" class="w-20 shrink-0" show-button />
@@ -721,8 +721,8 @@ watch(show, opened => {
                     <span class="text-gray-500 text-xs whitespace-nowrap shrink-0 cursor-help">{{ $t('page.cut.pdFitReach') }}</span>
                   </template>
                   <div class="text-left">
-                    仅推拉窗: 扇竖梃(光企/勾企) = 行净高 + 2×搭入,
-                    <br />扇钩伸入上滑/下滑轨道, 防止脱轨; 取值参考型材轨道深度。
+                    {{ $t('page.cut.pdFitReachTip1') }}
+                    <br />{{ $t('page.cut.pdFitReachTip2') }}
                   </div>
                 </NTooltip>
                 <NInputNumber v-model:value="reachMm" :min="0" :max="50" :step="1" size="small" class="w-20 shrink-0" show-button />
@@ -731,8 +731,8 @@ watch(show, opened => {
                     <span class="text-gray-500 text-xs whitespace-nowrap shrink-0 cursor-help">{{ $t('page.cut.pdFitOverlap') }}</span>
                   </template>
                   <div class="text-left">
-                    仅推拉窗: 相邻两扇光企/勾企互搭, 每扇的扇上下横各 + 搭接÷2,
-                    <br />关窗时中间重叠密封; 取值参考光企/勾企搭接配合尺寸。
+                    {{ $t('page.cut.pdFitOverlapTip1') }}
+                    <br />{{ $t('page.cut.pdFitOverlapTip2') }}
                   </div>
                 </NTooltip>
                 <NInputNumber v-model:value="overlapMm" :min="0" :max="50" :step="1" size="small" class="w-20 shrink-0" show-button />
@@ -749,8 +749,8 @@ watch(show, opened => {
                   <span class="text-gray-500 text-xs whitespace-nowrap shrink-0 cursor-help">{{ $t('page.cut.pdFitBeadDeduct') }}</span>
                 </template>
                 <div class="text-left">
-                  每根压条(横/竖) = 基准长度 − 扣尺; 基准: 固定格取开口净尺寸, 开启扇取扇外框尺寸。
-                  <br />45° 拼角取 0, 直拼按压条宽度扣除; 影响全部压条件的下料长度。
+                  {{ $t('page.cut.pdFitBeadTip1') }}
+                  <br />{{ $t('page.cut.pdFitBeadTip2') }}
                 </div>
               </NTooltip>
               <NInputNumber v-model:value="beadDeductMm" :min="0" :max="50" :step="1" size="small" class="w-20 shrink-0" show-button />
@@ -767,10 +767,10 @@ watch(show, opened => {
             </NButton>
             <div class="flex-1 rounded-md border border-gray-200 p-2">
               <div class="mb-1 text-gray-500 text-xs">
-                {{ $t('page.cut.pdPieces') }} (共 {{ previewTotal }} 件)
+                {{ $t('page.cut.pdPieces') }} ({{ $t('page.cut.piecesTotal', { count: previewTotal }) }})
               </div>
               <div v-if="isGlassMode" class="flex items-center justify-between text-sm">
-                <span>整块玻璃 {{ width }}×{{ height }} cm</span>
+                <span>{{ $t('page.cut.glassWholeSize', { width, height }) }}</span>
                 <span class="text-gray-500">× {{ previewTotal }}</span>
               </div>
               <div v-else class="flex max-h-32 flex-col gap-0.5 overflow-y-auto">

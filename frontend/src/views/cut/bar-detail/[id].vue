@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NButton, NCard, NDataTable, NInputNumber, NResult, NSpin, useMessage } from 'naive-ui';
+import { $t } from '@/locales';
 import { fetchCutRecord } from '@/service/api';
 
 const message = useMessage();
@@ -14,9 +15,12 @@ const parseError = ref(false);
 // 内容全部在按 id 拉取记录后填充
 const itemsData = ref<Api.Cut.BarItem[]>([]);
 const materialsData = ref<Api.Cut.BarItem[]>([]);
-const newMaterialLength = ref(600);
+const newMaterials = ref<Array<{ label?: string; length: number }>>([]);
 const loss = ref(0);
-const utilizationWeight = ref(1);
+const solveModeLabel = ref($t('page.cut.solveModeFast'));
+const protectEnabled = ref(false);
+const protectMin = ref<number | null>(null);
+const protectMax = ref<number | null>(null);
 const group = ref(false);
 const cutResult = ref<Api.Cut.BarResult[] | null>(null);
 const summaryData = ref<Api.Cut.BarSummary | null>(null);
@@ -45,14 +49,20 @@ onMounted(async () => {
     const raw = JSON.parse(data.response) as Api.Cut.BarResult[] | Api.Cut.BarCutResponse;
     itemsData.value = req.rowItems ?? [];
     materialsData.value = req.rowMaterials ?? [];
-    newMaterialLength.value = req.newMaterialLength || 600;
+    // 多规格回显 (旧记录回退单一规格)
+    newMaterials.value = req.newMaterials?.length
+      ? req.newMaterials.map(row => ({ label: row.label, length: row.length }))
+      : [{ label: '', length: req.newMaterialLength || 600 }];
     loss.value = req.loss ?? 0;
-    utilizationWeight.value = req.utilizationWeight ?? 1;
+    solveModeLabel.value = req.mode === 'precise' ? $t('page.cut.solveModePreciseCloud') : $t('page.cut.solveModeFastLocal');
+    protectEnabled.value = req.protectEnabled ?? false;
+    protectMin.value = req.protectMin ?? null;
+    protectMax.value = req.protectMax ?? null;
     cutResult.value = Array.isArray(raw) ? raw : raw.results;
     summaryData.value = Array.isArray(raw) ? null : (raw.summary ?? null);
   } catch {
     parseError.value = true;
-    message.error('记录加载失败');
+    message.error($t('page.cut.recordLoadFailed'));
   } finally {
     loading.value = false;
   }
@@ -64,16 +74,16 @@ function goBack() {
 
 // item 表格
 const itemColumns = [
-  { title: '材料类型', key: 'label' },
-  { title: '长度(cm)', key: 'length' },
-  { title: '数量', key: 'quantity' }
+  { title: $t('page.cut.materialType'), key: 'label' },
+  { title: $t('page.cut.lengthCm'), key: 'length' },
+  { title: $t('page.cut.quantity'), key: 'quantity' }
 ];
 
 // material 表格
 const materialColumns = [
-  { title: '材料类型', key: 'label' },
-  { title: '长度(cm)', key: 'length' },
-  { title: '数量', key: 'quantity' }
+  { title: $t('page.cut.materialType'), key: 'label' },
+  { title: $t('page.cut.lengthCm'), key: 'length' },
+  { title: $t('page.cut.quantity'), key: 'quantity' }
 ];
 
 // 统计信息
@@ -111,16 +121,16 @@ const result = computed(() => {
 // 按材料类型分组统计表 (取保存响应里的 summary.byMaterialType, 旧记录无此字段则不展示)
 const typeSummaryColumns = [
   {
-    title: '材料类型',
+    title: $t('page.cut.materialType'),
     key: 'materialType',
-    render: (row: Api.Cut.BarMaterialTypeSummary) => row.materialType?.trim() || '新材料'
+    render: (row: Api.Cut.BarMaterialTypeSummary) => row.materialType?.trim() || $t('page.cut.summaryNewMaterial')
   },
-  { title: '用料根数', key: 'count' },
-  { title: '材料总长(cm)', key: 'totalMaterialLength', render: (row: Api.Cut.BarMaterialTypeSummary) => row.totalMaterialLength.toFixed(2) },
-  { title: '零件总长(cm)', key: 'totalCutLength', render: (row: Api.Cut.BarMaterialTypeSummary) => row.totalCutLength.toFixed(2) },
-  { title: '余料总长(cm)', key: 'totalRemaining', render: (row: Api.Cut.BarMaterialTypeSummary) => row.totalRemaining.toFixed(2) },
-  { title: '余料根数', key: 'scrapCount' },
-  { title: '利用率(%)', key: 'utilization' }
+  { title: $t('page.cut.summaryMaterialCount'), key: 'count' },
+  { title: $t('page.cut.summaryMaterialLengthCm'), key: 'totalMaterialLength', render: (row: Api.Cut.BarMaterialTypeSummary) => row.totalMaterialLength.toFixed(2) },
+  { title: $t('page.cut.summaryCutLengthCm'), key: 'totalCutLength', render: (row: Api.Cut.BarMaterialTypeSummary) => row.totalCutLength.toFixed(2) },
+  { title: $t('page.cut.summaryRemainingCm'), key: 'totalRemaining', render: (row: Api.Cut.BarMaterialTypeSummary) => row.totalRemaining.toFixed(2) },
+  { title: $t('page.cut.summaryScrapCount'), key: 'scrapCount' },
+  { title: $t('page.cut.utilizationPercent'), key: 'utilization' }
 ];
 
 // 裁剪图示排序: 同类型材料相邻展示
@@ -177,6 +187,8 @@ let startX = 0;
 let scrollLeft = 0;
 
 const handleWheel = (e: WheelEvent) => {
+  // Ctrl+滚轮缩放; 无修饰键时不拦截, 悬停图示区仍可正常滚动页面
+  if (!e.ctrlKey) return;
   e.preventDefault();
   scaleFactor.value += e.deltaY * -0.001;
   scaleFactor.value = Math.min(Math.max(0.5, scaleFactor.value), 3);
@@ -228,54 +240,72 @@ onUnmounted(() => {
   <NResult
     v-if="parseError"
     status="error"
-    title="数据加载失败"
-    description="裁剪记录不存在或格式不正确，无法展示详情"
+    :title="$t('page.cut.loadFailedTitle')"
+    :description="$t('page.cut.loadFailedDesc')"
     class="mt-16"
   >
     <template #footer>
-      <NButton type="primary" @click="goBack">返回</NButton>
+      <NButton type="primary" @click="goBack">{{ $t('page.cut.goBack') }}</NButton>
     </template>
   </NResult>
 
   <NSpin v-else :show="loading">
     <div class="p-4">
     <!-- 输入区域 -->
-    <NCard title="材料裁剪可视化" size="large" class="mb-4">
-      <h3>裁剪尺寸</h3>
+    <NCard :title="$t('page.cut.vizTitle')" size="large" class="mb-4">
+      <h3>{{ $t('page.cut.cutSizes') }}</h3>
       <NDataTable :columns="itemColumns" :data="itemsData" />
-      <h3 class="mt-6">材料库存</h3>
+      <h3 class="mt-6">{{ $t('page.cut.materialStock') }}</h3>
       <NDataTable :columns="materialColumns" :data="materialsData" />
 
-      <h3 class="mt-6">参数配置</h3>
-      <div class="mb-4 flex items-center gap-6">
-        <div class="flex items-center gap-2">
-          <span class="w-24">新材料长度</span>
-          <NInputNumber v-model:value="newMaterialLength" disabled class="w-40" />
+      <h3 class="mt-6">{{ $t('page.cut.paramsConfig') }}</h3>
+      <div class="mb-4 flex flex-wrap items-start gap-6">
+        <div class="flex items-start gap-2">
+          <span class="w-24 pt-1">{{ $t('page.cut.newMaterialSpec') }}</span>
+          <div class="flex flex-col gap-2">
+            <div v-for="(row, idx) in newMaterials" :key="idx" class="flex items-center gap-2">
+              <span class="w-32 text-gray-600">{{ row.label?.trim() || $t('page.cut.unnamedSpec') }}</span>
+              <NInputNumber :value="row.length" disabled class="w-40" />
+            </div>
+          </div>
         </div>
         <div class="flex items-center gap-2">
-          <span class="w-24">切割损耗</span>
+          <span class="w-24">{{ $t('page.cut.loss') }}</span>
           <NInputNumber v-model:value="loss" disabled class="w-40" />
         </div>
         <div class="flex items-center gap-2">
-          <span class="w-24">利用率权重</span>
-          <NSlider v-model:value="utilizationWeight" disabled :min="1" :max="8" :step="0.1" class="w-40" />
+          <span class="w-24">{{ $t('page.cut.solveMode') }}</span>
+          <NInput :value="solveModeLabel" disabled class="w-52" />
+        </div>
+        <div v-if="protectEnabled" class="flex items-center gap-2">
+          <span class="w-24">{{ $t('page.cut.materialProtect') }}</span>
+          <span class="whitespace-nowrap text-gray-600">
+            {{ $t('page.cut.protectRange', { min: protectMin ?? '-', max: protectMax ?? '-' }) }}
+          </span>
         </div>
         <div class="flex items-center gap-2">
-          <span class="w-24">聚合显示</span>
+          <span class="w-24">{{ $t('page.cut.aggregateDisplay') }}</span>
           <NSwitch v-model:value="group" class="w-40" />
         </div>
       </div>
 
       <div class="mt-4 flex gap-2">
-        <BarPrinter :data="cutResult" />
+        <BarPrinter :data="processedResult" />
       </div>
     </NCard>
 
     <!-- 结果统计 -->
-    <NCard title="结果统计" size="large" class="mb-4">
+    <NCard :title="$t('page.cut.summaryTitle')" size="large" class="mb-4">
       <p>
-        材料总数: {{ result.totalMaterials }} 根 | 总长度: {{ result.totalLength }} cm | 已用长度:
-        {{ result.totalUsed }} cm | 剩余长度: {{ result.totalRemaining }} cm | 使用率: {{ result.usagePercent }}%
+        {{
+          $t('page.cut.barSummary', {
+            count: result.totalMaterials,
+            total: result.totalLength,
+            used: result.totalUsed,
+            remaining: result.totalRemaining,
+            usage: result.usagePercent
+          })
+        }}
       </p>
       <NDataTable
         v-if="summaryData?.byMaterialType?.length"
@@ -288,14 +318,16 @@ onUnmounted(() => {
     </NCard>
 
     <!-- 裁剪图示 -->
-    <NCard title="裁剪图示" size="large">
+    <NCard :title="$t('page.cut.cutChart')" size="large">
       <div ref="canvasWrapper" class="cursor-grab overflow-x-auto border border-gray-300 rounded-md p-4">
         <div class="origin-top-left" :style="{ transform: `scale(${scaleFactor})` }">
           <div v-for="item in processedResult" :key="item.index" class="mb-6">
             <!-- 标签 -->
             <div class="mb-1 font-bold">
-              材料 #{{ item.index }} (总长: {{ item.totalLength }}cm, 已用: {{ item.used }}cm, 剩余:
-              {{ item.remaining }}cm) * {{ item.count || 1 }} 根
+              {{ $t('page.cut.barLabel', { index: item.index }) }}
+              {{
+                $t('page.cut.barStats', { total: item.totalLength, used: item.used, remaining: item.remaining, count: item.count || 1 })
+              }}
             </div>
 
             <!-- 条形图 -->
@@ -319,7 +351,7 @@ onUnmounted(() => {
                   width: item.remaining * (containerWidth / maxTotalLength) + 'px'
                 }"
               >
-                剩余{{ item.remaining }}cm
+                {{ $t('page.cut.tailRemaining', { remaining: item.remaining }) }}
               </div>
             </div>
           </div>

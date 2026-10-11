@@ -56,12 +56,11 @@ func TestSolvePlanePreciseAssembly(t *testing.T) {
 
 	s := NewCutService("")
 	req := cut2dTestRequest()
-	fallback, err := s.maxRectsCut(req)
-	if err != nil {
-		t.Fatalf("启发式失败: %v", err)
-	}
 	client := &cutSolverClient{baseURL: srv.URL, httpClient: &http.Client{}}
-	resp := s.solvePlanePrecise(client, req, fallback)
+	resp, ok := s.trySolvePlanePrecise(client, req)
+	if !ok {
+		t.Fatal("回显解应被接受")
+	}
 
 	placed := 0
 	for _, r := range resp.Results {
@@ -74,6 +73,10 @@ func TestSolvePlanePreciseAssembly(t *testing.T) {
 		t.Fatalf("应排入 3 件, 实际 %d", placed)
 	}
 	// 组装的宽高必须与启发式一致 (含旋转互换口径)
+	fallback, err := s.maxRectsCut(req)
+	if err != nil {
+		t.Fatalf("启发式失败: %v", err)
+	}
 	heuPieces := map[string]model.Piece{}
 	for _, r := range fallback.Results {
 		for _, p := range r.Pieces {
@@ -112,12 +115,11 @@ func TestSolvePlanePreciseOversizedAccepted(t *testing.T) {
 		Height:   1000,
 		Strategy: "Precise",
 	}
-	fallback, err := s.maxRectsCut(req)
-	if err != nil {
-		t.Fatalf("启发式失败: %v", err)
-	}
 	client := &cutSolverClient{baseURL: srv.URL, httpClient: &http.Client{}}
-	resp := s.solvePlanePrecise(client, req, fallback)
+	resp, ok := s.trySolvePlanePrecise(client, req)
+	if !ok {
+		t.Fatal("oversized-only 未排入应被接受")
+	}
 
 	placed := 0
 	for _, r := range resp.Results {
@@ -131,14 +133,10 @@ func TestSolvePlanePreciseOversizedAccepted(t *testing.T) {
 	}
 }
 
-// 求解服务 500 / "unfit" 未排入 / 解不完备 / 规模超限 → 一律回退启发式结果
-func TestSolvePlanePreciseFallback(t *testing.T) {
+// 求解服务 500 / "unfit" 未排入 / 解不完备 / 规模超限 → 一律失败 (不降级, 由调用方直接报错)
+func TestSolvePlanePreciseFailsOnAnyDefect(t *testing.T) {
 	s := NewCutService("")
 	req := cut2dTestRequest()
-	fallback, err := s.maxRectsCut(req)
-	if err != nil {
-		t.Fatalf("启发式失败: %v", err)
-	}
 
 	t.Run("HTTP500", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -146,8 +144,8 @@ func TestSolvePlanePreciseFallback(t *testing.T) {
 		}))
 		defer srv.Close()
 		client := &cutSolverClient{baseURL: srv.URL, httpClient: &http.Client{}}
-		if resp := s.solvePlanePrecise(client, req, fallback); resp != fallback {
-			t.Fatal("HTTP 500 应回退启发式结果")
+		if resp, ok := s.trySolvePlanePrecise(client, req); ok || resp != nil {
+			t.Fatal("HTTP 500 应失败")
 		}
 	})
 
@@ -159,8 +157,8 @@ func TestSolvePlanePreciseFallback(t *testing.T) {
 		})
 		defer srv.Close()
 		client := &cutSolverClient{baseURL: srv.URL, httpClient: &http.Client{}}
-		if resp := s.solvePlanePrecise(client, req, fallback); resp != fallback {
-			t.Fatal("存在 unfit 未排入应回退启发式结果")
+		if resp, ok := s.trySolvePlanePrecise(client, req); ok || resp != nil {
+			t.Fatal("存在 unfit 未排入应失败")
 		}
 	})
 
@@ -174,8 +172,8 @@ func TestSolvePlanePreciseFallback(t *testing.T) {
 		})
 		defer srv.Close()
 		client := &cutSolverClient{baseURL: srv.URL, httpClient: &http.Client{}}
-		if resp := s.solvePlanePrecise(client, req, fallback); resp != fallback {
-			t.Fatal("解不完备应回退启发式结果")
+		if resp, ok := s.trySolvePlanePrecise(client, req); ok || resp != nil {
+			t.Fatal("解不完备应失败")
 		}
 	})
 
@@ -187,17 +185,14 @@ func TestSolvePlanePreciseFallback(t *testing.T) {
 		}))
 		defer srv.Close()
 		bigReq := model.BinRequest{
-			Items:  []model.Item{{Label: "件", Width: 10, Height: 10, Quantity: cut2dMaxPieces + 1}},
-			Width:  6000,
-			Height: 4000,
-		}
-		bigFallback, err := s.maxRectsCut(bigReq)
-		if err != nil {
-			t.Fatalf("启发式失败: %v", err)
+			Items:    []model.Item{{Label: "件", Width: 10, Height: 10, Quantity: cut2dMaxPieces + 1}},
+			Width:    6000,
+			Height:   4000,
+			Strategy: "Precise",
 		}
 		client := &cutSolverClient{baseURL: srv.URL, httpClient: &http.Client{}}
-		if resp := s.solvePlanePrecise(client, bigReq, bigFallback); resp != bigFallback {
-			t.Fatal("展开件数超限应回退启发式结果")
+		if resp, ok := s.trySolvePlanePrecise(client, bigReq); ok || resp != nil {
+			t.Fatal("展开件数超限应失败")
 		}
 		if called {
 			t.Fatal("超限时不应调用求解服务")
@@ -205,10 +200,10 @@ func TestSolvePlanePreciseFallback(t *testing.T) {
 	})
 }
 
-// 未配置求解地址时 Precise 策略整体回退 MaxRects, 结果照常产出
-func TestPlaneCutPreciseFallbackWithoutSolver(t *testing.T) {
+// 未配置求解地址时 Precise 策略直接报错 (不再静默回退 MaxRects, 与一维精确模式同口径)
+func TestPlaneCutPreciseFailsWithoutSolverConfig(t *testing.T) {
 	s := NewCutService("")
-	resp, err := s.PlaneCut(model.BinRequest{
+	_, err := s.PlaneCut(model.BinRequest{
 		Items: []model.Item{
 			{Label: "件A", Width: 400, Height: 300, Quantity: 3},
 			{Label: "件B", Width: 200, Height: 200, Quantity: 2},
@@ -217,17 +212,7 @@ func TestPlaneCutPreciseFallbackWithoutSolver(t *testing.T) {
 		Height:   800,
 		Strategy: "Precise",
 	})
-	if err != nil {
-		t.Fatalf("Precise 回退路径不应报错: %v", err)
-	}
-	if len(resp.Results) == 0 {
-		t.Fatal("回退后应有结果")
-	}
-	total := 0
-	for _, r := range resp.Results {
-		total += len(r.Pieces)
-	}
-	if total != 5 {
-		t.Fatalf("应排入 5 件, 实际 %d", total)
+	if err == nil {
+		t.Fatal("未配置求解地址应报错, 不应回退 MaxRects")
 	}
 }

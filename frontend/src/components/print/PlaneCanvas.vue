@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { NCard } from 'naive-ui';
+import { $t } from '@/locales';
 
 const props = defineProps<{
   results: Api.Cut.BinResult[];
@@ -97,10 +98,13 @@ function drawAllBins() {
       ctx.stroke();
     }
 
-    // 绘制 piece
+    // 绘制 piece (确定性颜色: 同一零件每次绘制颜色一致, 不随重绘变化)
     bin.pieces.forEach((piece: Api.Cut.Piece) => {
-      const hue = Math.floor(Math.random() * 360);
-      const color = `hsl(${hue}, 70%, 80%)`;
+      let hash = 0;
+      for (let i = 0; i < piece.label.length; i += 1) {
+        hash = (hash * 31 + piece.label.charCodeAt(i)) % 360;
+      }
+      const color = `hsl(${hash}, 70%, 80%)`;
 
       const x = piece.x * scale;
       const y = piece.y * scale;
@@ -132,28 +136,31 @@ function drawAllBins() {
   });
 }
 
-// 监听变化
+// 监听变化 (挂载后画一次 + 数据变化再画; 旧实现 immediate + onMounted 双路径会重复绘制两遍)
 watch(
   () => [props.results, props.groupData],
   async () => {
     await nextTick();
     drawAllBins();
   },
-  { deep: true, immediate: true }
+  { deep: true }
 );
 
-onMounted(() => {
-  if (props.results.length) {
-    setTimeout(() => drawAllBins(), 100);
-  }
+onMounted(async () => {
+  await nextTick();
+  drawAllBins();
 });
 </script>
 
 <template>
   <NCard v-if="groupedResults.length">
     <h3 class="mb-4 text-xl font-semibold">
-      优化结果: 使用 {{ props.results.length }} 块材料 , 放置
-      {{ props.results.reduce((s, b) => s + b.pieces.length, 0) }} 个项目
+      {{
+        $t('page.cut.planeResultTitle', {
+          materials: props.results.length,
+          pieces: props.results.reduce((s, b) => s + b.pieces.length, 0)
+        })
+      }}
     </h3>
 
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-3 sm:grid-cols-2">
@@ -168,12 +175,18 @@ onMounted(() => {
       >
         <div class="bg-gray-100 p-3">
           <h3 class="text-gray-800 font-semibold">
-            {{ group.bin.materialType || '材料' }}
+            {{ group.bin.materialType || $t('page.cut.material') }}
           </h3>
           <p class="text-sm text-gray-600">
-            尺寸: {{ group.bin.materialWidth.toFixed(1) }}×{{ group.bin.materialHeight.toFixed(1) }}cm | 利用率:
-            {{ group.bin.utilization.toFixed(1) }}% | 数量: {{ group.count }}
-            <span v-if="isRemainderMaterial(group.bin)" class="text-green-600">剩余材料</span>
+            {{
+              $t('page.cut.binStats', {
+                width: group.bin.materialWidth.toFixed(1),
+                height: group.bin.materialHeight.toFixed(1),
+                utilization: group.bin.utilization.toFixed(1),
+                count: group.count
+              })
+            }}
+            <span v-if="isRemainderMaterial(group.bin)" class="text-green-600">{{ $t('page.cut.remainingMaterial') }}</span>
           </p>
         </div>
         <div class="aspect-square bg-white">

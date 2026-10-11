@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -20,6 +21,8 @@ import (
 const (
 	cutSolverTimeout = 20 * time.Second
 	cutSolverBudget  = 8000 // 传给 sidecar 的求解预算 ms (含列生成 + 整数化)
+	// cutSolverMaxResponseBytes 求解响应体上限 (1MB)
+	cutSolverMaxResponseBytes = 1 << 20
 )
 
 type cutSolverClient struct {
@@ -81,12 +84,15 @@ type cutSolverResponse struct {
 	Unplaced   []cutSolverUnplaced `json:"unplaced"`
 	Iterations int                 `json:"iterations"`
 	ElapsedMS  int                 `json:"elapsed_ms"`
+	// Status 求解状态 (sidecar 1.1+ 返回): optimal/feasible/timeout/failed;
+	// 老版本无此字段 (空串), 按有解处理
+	Status string `json:"status"`
 }
 
 // solvePreciseGroup 对一个规格组调 sidecar 精确求解。
 // 返回组装好的结果与被消费旧料下标 (相对 restScraps); 任何异常返回 error 由调用方直接报给前端。
 func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem, demand []int,
-	materialLens []float64, materialLabels []string, restScraps []float64, restLabels []string,
+	materialLens []float64, materialLabels []string, restScraps []float64, restLabels []string, restIDs []uint,
 	kerf float64, utilWeight float64, protect cutProtect, startIdx int) ([]model.BarResult, []int, error) {
 
 	// 三个集合显式初始化为空数组: nil 切片会被 Marshal 成 null, pydantic 的 list 字段
@@ -132,9 +138,13 @@ func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem,
 		return nil, nil, fmt.Errorf("请求求解服务失败: %w", err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	// 多读 1 字节探测超限: LimitReader 截断会让 Unmarshal 报 "unexpected EOF" 误导排障
+	body, err := io.ReadAll(io.LimitReader(resp.Body, cutSolverMaxResponseBytes+1))
 	if err != nil {
 		return nil, nil, err
+	}
+	if len(body) > cutSolverMaxResponseBytes {
+		return nil, nil, fmt.Errorf("求解响应超过 %d MB 上限", cutSolverMaxResponseBytes>>20)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, nil, fmt.Errorf("求解服务返回 HTTP %d: %s", resp.StatusCode, truncateRunes(string(body), 200))
@@ -142,6 +152,12 @@ func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem,
 	var out cutSolverResponse
 	if err := json.Unmarshal(body, &out); err != nil {
 		return nil, nil, fmt.Errorf("解析求解响应失败: %w", err)
+	}
+	if out.Status == "failed" {
+		return nil, nil, fmt.Errorf("求解服务无可用解 (耗时 %dms)", out.ElapsedMS)
+	}
+	if out.Status == "timeout" {
+		log.Printf("[Cut] sidecar 求解超时但返回了可行解: iterations=%d elapsed=%dms", out.Iterations, out.ElapsedMS)
 	}
 	if len(out.Unplaced) > 0 {
 		if protect.enabled {
@@ -176,6 +192,7 @@ func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem,
 
 		var capacity float64
 		var materialType string
+		var scrapID uint
 		switch bar.Source {
 		case "material":
 			if bar.MaterialIndex == nil || *bar.MaterialIndex < 0 || *bar.MaterialIndex >= len(materialLens) {
@@ -223,6 +240,11 @@ func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem,
 				if scrapIdx < len(restLabels) && restLabels[scrapIdx] != "" {
 					materialType = restLabels[scrapIdx]
 				}
+				// 回填消费的库存旧料 id (请求材料带 id 时非 0), 前端据此精确扣减库存
+				scrapID = uint(0)
+				if scrapIdx < len(restIDs) {
+					scrapID = restIDs[scrapIdx]
+				}
 			}
 			results = append(results, model.BarResult{
 				Index:        idx,
@@ -231,6 +253,7 @@ func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem,
 				Used:         round2(used),
 				Remaining:    round2(capacity - used),
 				MaterialType: materialType,
+				ScrapID:      scrapID,
 			})
 			idx++
 		}

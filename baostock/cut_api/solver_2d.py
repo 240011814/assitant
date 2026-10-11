@@ -15,12 +15,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 
 from ortools.sat.python import cp_model
 
 from cut_api.models_2d import Placement, SolveRequest, SolveResponse
+
+logger = logging.getLogger("cut_api.solver_2d")
 
 EPS = 1e-6
 MAX_PIECES = 400   # 展开件数上限 (Go 侧已先挡, 这里兜底)
@@ -86,6 +89,9 @@ def solve(req: SolveRequest) -> SolveResponse:
     if not placeable:
         unplaced = [{"item_index": ti, "count": c, "reason": "oversized"} for ti, c in oversized.items()]
         return SolveResponse(pieces=[], unplaced=unplaced, status="feasible", elapsed_ms=elapsed_ms())
+
+    logger.info("cut2d solve: pieces=%d boards=%d kerf=%s budget=%dms (oversized=%d)",
+                total, len(boards), req.kerf, req.time_limit_ms, total - len(placeable))
 
     m = cp_model.CpModel()
 
@@ -214,6 +220,8 @@ def solve(req: SolveRequest) -> SolveResponse:
     solver.parameters.num_search_workers = min(8, os.cpu_count() or 4)
     status = solver.Solve(m)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        logger.warning("cut2d CP-SAT 无解: status=%s pieces=%d boards=%d elapsed=%dms",
+                       solver.StatusName(status), total, len(boards), elapsed_ms())
         return failed()
 
     out_pieces: list[Placement] = []
@@ -241,4 +249,7 @@ def solve(req: SolveRequest) -> SolveResponse:
 
     unplaced = [{"item_index": ti, "count": c, "reason": "oversized"} for ti, c in oversized.items()]
     status_str = "optimal" if status == cp_model.OPTIMAL else "feasible"
+    logger.info("cut2d done: placed=%d oversized=%d boards=%d elapsed=%dms status=%s",
+                len(out_pieces), sum(u["count"] for u in unplaced), len({p.board for p in out_pieces}),
+                elapsed_ms(), status_str)
     return SolveResponse(pieces=out_pieces, unplaced=unplaced, status=status_str, elapsed_ms=elapsed_ms())

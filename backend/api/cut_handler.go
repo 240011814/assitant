@@ -17,6 +17,15 @@ func NewCutHandler(svc *service.CutService) *CutHandler {
 	return &CutHandler{svc: svc}
 }
 
+// sendCutErr 按错误类型返回状态码: 输入校验类 400, 其余 500
+func sendCutErr(c *gin.Context, msg string, err error) {
+	if service.IsInvalidInput(err) {
+		SendError(c, "400", msg+": "+err.Error())
+		return
+	}
+	SendError(c, "500", msg+": "+err.Error())
+}
+
 // HandleBarCut 一维切割
 func (h *CutHandler) HandleBarCut(c *gin.Context) {
 	userID := GetUserID(c)
@@ -28,7 +37,7 @@ func (h *CutHandler) HandleBarCut(c *gin.Context) {
 
 	result, err := h.svc.BarCut(userID, req)
 	if err != nil {
-		SendError(c, "500", "切割失败: "+err.Error())
+		sendCutErr(c, "切割失败", err)
 		return
 	}
 
@@ -45,7 +54,7 @@ func (h *CutHandler) HandlePlaneCut(c *gin.Context) {
 
 	result, err := h.svc.PlaneCut(req)
 	if err != nil {
-		SendError(c, "500", "切割失败: "+err.Error())
+		sendCutErr(c, "切割失败", err)
 		return
 	}
 
@@ -98,7 +107,7 @@ func (h *CutHandler) HandleAddScraps(c *gin.Context) {
 	}
 	rows, err := h.svc.AddScraps(userID, reqs)
 	if err != nil {
-		SendError(c, "500", "余料入库失败: "+err.Error())
+		sendCutErr(c, "余料入库失败", err)
 		return
 	}
 	SendSuccess(c, rows)
@@ -156,7 +165,7 @@ func (h *CutHandler) HandleSaveProduct(c *gin.Context) {
 	}
 	row, err := h.svc.SaveProduct(userID, req)
 	if err != nil {
-		SendError(c, "500", "保存产品单失败: "+err.Error())
+		sendCutErr(c, "保存产品单失败", err)
 		return
 	}
 	SendSuccess(c, row)

@@ -63,13 +63,13 @@ const columns = computed<DataTableColumns<OrderRow>>(() => [
             width: 180,
             render: item => productTypeLabel(item.type)
           },
-          { title: '尺寸(cm)', key: 'size', width: 100, align: 'center', render: item => `${item.width}×${item.height}` },
+          { title: $t('page.cut.pdItemSize'), key: 'size', width: 100, align: 'center', render: item => `${item.width}×${item.height}` },
           {
             title: $t('page.cut.pdGrid'),
             key: 'grid',
             width: 110,
             align: 'center',
-            render: item => (isGlassItem(item) ? '-' : `${item.grid.cols.length}列×${item.grid.rows.length}行`)
+            render: item => (isGlassItem(item) ? '-' : $t('page.cut.pdGridSize', { cols: item.grid.cols.length, rows: item.grid.rows.length }))
           },
           { title: $t('page.cut.pdSeries'), key: 'series', width: 110, align: 'center', render: item => (item.series ? `${item.series}mm` : '-') },
         { title: $t('page.cut.pdCount'), key: 'count', width: 70, align: 'center' },
@@ -87,9 +87,11 @@ const columns = computed<DataTableColumns<OrderRow>>(() => [
       return h('div', { class: 'p-2' }, [
         h(NDataTable, {
           columns: detailColumns,
-          data: row.parsed.items,
+          data: row.parsed.items.map((item, idx) => ({ ...item, _key: idx })),
           size: 'small',
-          rowKey: (item: Api.Cut.ProductItem) => `${item.type}|${item.width}|${item.height}|${item.series}`
+          // 同单可能有多件同型同尺寸 (不同分格), key 里带展开序号防冲突
+          rowKey: (item: Api.Cut.ProductItem & { _key?: number }) =>
+            `${item.type}|${item.width}|${item.height}|${item.series}|${item._key ?? 0}`
         })
       ]);
     }
@@ -139,7 +141,7 @@ const columns = computed<DataTableColumns<OrderRow>>(() => [
     render: row => (row.createdAt ? new Date(row.createdAt).toLocaleString() : '-')
   },
   {
-    title: '操作',
+    title: $t('common.action'),
     key: 'operate',
     width: 220,
     align: 'center',
@@ -182,6 +184,8 @@ async function removeOrder(row: Api.Cut.CutProduct) {
   const { error } = await deleteCutProduct(row.id);
   if (error) return;
   message.success($t('page.cut.pdDeleted'));
+  // 清掉被删单的勾选, 避免残留 id 混进后续批量操作
+  checkedKeys.value = checkedKeys.value.filter(id => id !== row.id);
   getData();
 }
 

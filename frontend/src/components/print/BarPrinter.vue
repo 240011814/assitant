@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { NButton } from 'naive-ui';
+import { $t } from '@/locales';
 
 const props = defineProps<{
   data: Api.Cut.BarResult[] | null;
@@ -45,8 +46,13 @@ function printResult() {
 
   const printContent = printArea.value.innerHTML;
   const printWindow = window.open('', '');
+  // 弹窗被浏览器拦截时不直接崩, 提示用户放行
+  if (!printWindow) {
+    window.$message?.warning($t('page.cut.printBlocked'));
+    return;
+  }
 
-  printWindow!.document.write(`
+  printWindow.document.write(`
     <html>
       <head>
         <style>
@@ -88,28 +94,28 @@ function printResult() {
 
 <template>
   <div>
-    <NButton type="primary" :disabled="!data || data.length === 0" @click="printResult">打印</NButton>
+    <NButton type="primary" :disabled="!data || data.length === 0" @click="printResult">{{ $t('page.cut.printChart') }}</NButton>
 
     <!-- 隐藏打印区域 -->
     <div ref="printArea" class="hidden-print">
-      <h2>材料裁剪结果</h2>
+      <h2>{{ $t('page.cut.barPrintTitle') }}</h2>
 
       <!-- 表格 -->
       <table border="1" cellspacing="0" cellpadding="4" class="bar-table">
         <thead>
           <tr>
-            <th>材料编号</th>
-            <th>材料类型</th>
-            <th>总长度(cm)</th>
-            <th>已用(cm)</th>
-            <th>剩余(cm)</th>
-            <th>切割情况</th>
+            <th>{{ $t('page.cut.colBarIndex') }}</th>
+            <th>{{ $t('page.cut.materialType') }}</th>
+            <th>{{ $t('page.cut.colTotalLengthCm') }}</th>
+            <th>{{ $t('page.cut.colUsedCm') }}</th>
+            <th>{{ $t('page.cut.colRemainingCm') }}</th>
+            <th>{{ $t('page.cut.colCutDetail') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="item in data" :key="item.index">
             <td>{{ item.index }}</td>
-            <td>{{ item.materialType?.trim() || '新材料' }}</td>
+            <td>{{ item.materialType?.trim() || $t('page.cut.summaryNewMaterial') }}</td>
             <td>{{ item.totalLength }}</td>
             <td>{{ item.used }}</td>
             <td>{{ item.remaining }}</td>
@@ -132,11 +138,15 @@ function printResult() {
                   <span v-if="segPercent(Number(cut), item.totalLength) >= 8">{{ cut }}</span>
                 </div>
                 <div v-if="item.remaining > 0" class="bar-remaining">
-                  <span v-if="segPercent(item.remaining, item.totalLength) >= 8">余{{ item.remaining }}</span>
+                  <span v-if="segPercent(item.remaining, item.totalLength) >= 8">
+                    {{ $t('page.cut.remainShort', { remaining: item.remaining }) }}
+                  </span>
                 </div>
               </div>
               <div class="cut-seq">
-                切割顺序: {{ item.cuts.join(' + ') }}{{ item.remaining > 0 ? ` | 余料 ${item.remaining}cm` : '' }}
+                {{ $t('page.cut.cutOrder', { cuts: item.cuts.join(' + ') }) }}{{
+                  item.remaining > 0 ? $t('page.cut.remainTail', { remaining: item.remaining }) : ''
+                }}
               </div>
             </td>
           </tr>
@@ -145,8 +155,15 @@ function printResult() {
 
       <!-- 总统计 -->
       <p v-if="summary">
-        材料总数: {{ summary.totalMaterials }} 根 | 总长度: {{ summary.totalLength }} cm | 已用长度:
-        {{ summary.totalUsed }} cm | 剩余长度: {{ summary.totalRemaining }} cm | 使用率: {{ summary.usagePercent }}%
+        {{
+          $t('page.cut.barSummary', {
+            count: summary.totalMaterials,
+            total: summary.totalLength,
+            used: summary.totalUsed,
+            remaining: summary.totalRemaining,
+            usage: summary.usagePercent
+          })
+        }}
       </p>
     </div>
   </div>

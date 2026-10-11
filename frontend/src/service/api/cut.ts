@@ -45,6 +45,6 @@ export function fetchCutRecord(id: string) {
 export function deleteRecod(id: string) {
   return request<boolean>({
     url: `/api/cutRecord/delete/${id}`,
-    method: 'post'
+    method: 'delete'
   });
 }

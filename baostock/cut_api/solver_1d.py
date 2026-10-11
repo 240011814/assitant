@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Iterable, Optional
 
@@ -26,6 +27,8 @@ from ortools.linear_solver import pywraplp
 from ortools.sat.python import cp_model
 
 from cut_api.models_1d import Bar, SolveRequest, SolveResponse
+
+logger = logging.getLogger("cut_api.solver_1d")
 
 EPS = 1e-6
 MAX_ITERATIONS = 300
@@ -168,6 +171,9 @@ def solve(req: SolveRequest) -> SolveResponse:
 
     n = len(req.items)
     demand = [it.demand for it in req.items]
+    logger.info("cut1d solve: items=%d demand=%d materials=%d scraps=%d kerf=%s protect=%s budget=%dms",
+                n, sum(demand), len(req.materials), len(req.scraps), req.kerf,
+                req.protect_enabled, deadline_ms)
     # 倍率覆盖零件长度与保护区间, 保证 (长度+kerf)×scale 全部整化
     scale = _scale_for(req.kerf, (it.length for it in req.items),
                        (req.protect_min, req.protect_max) if req.protect_enabled else ())
@@ -191,7 +197,7 @@ def solve(req: SolveRequest) -> SolveResponse:
         return SolveResponse(
             bars=[],
             unplaced=[{"item_index": i, "count": d} for i, d in enumerate(demand) if d > 0],
-            iterations=iters, elapsed_ms=int(elapsed()))
+            iterations=iters, elapsed_ms=int(elapsed()), status="failed")
 
     if n == 0:
         return SolveResponse(bars=[], unplaced=[], iterations=0, elapsed_ms=int(elapsed()))
@@ -290,7 +296,7 @@ def solve(req: SolveRequest) -> SolveResponse:
         if st2 in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
             solution = _read_solution(rows2)
     except Exception:  # noqa: BLE001 — stage2 失败一律回退 stage1 解
-        pass
+        logger.exception("stage2 整数化失败, 回退 stage1 解")
 
     bars: list[Bar] = []
     covered = [0] * n
@@ -305,4 +311,8 @@ def solve(req: SolveRequest) -> SolveResponse:
             bars.append(Bar(source="scrap", scrap_length=s["scrap_length"], pattern=pat, count=count))
     unplaced = [{"item_index": i, "count": demand[i] - covered[i]}
                 for i in range(n) if demand[i] - covered[i] > 0]
-    return SolveResponse(bars=bars, unplaced=unplaced, iterations=iters, elapsed_ms=int(elapsed()))
+    # 限时耗尽时列池不完整, 解可能次优: 标记 timeout 供 Go 侧区分 (有完整解仍接受)
+    status = "timeout" if elapsed() >= deadline_ms else "feasible"
+    logger.info("cut1d done: bars=%d unplaced=%d iters=%d elapsed=%dms status=%s",
+                sum(b.count for b in bars), sum(u["count"] for u in unplaced), iters, int(elapsed()), status)
+    return SolveResponse(bars=bars, unplaced=unplaced, iterations=iters, elapsed_ms=int(elapsed()), status=status)

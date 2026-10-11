@@ -178,12 +178,8 @@ func TestSolvePlanePreciseSpecPayload(t *testing.T) {
 		Width:        300,
 		Strategy:     "Precise",
 	}
-	fallback, err := s.maxRectsCut(req)
-	if err != nil {
-		t.Fatalf("启发式失败: %v", err)
-	}
 	client := &cutSolverClient{baseURL: srv.URL, httpClient: &http.Client{}}
-	_ = s.solvePlanePrecise(client, req, fallback)
+	_, _ = s.trySolvePlanePrecise(client, req)
 
 	if got == nil {
 		t.Fatal("未捕获求解请求")

@@ -47,3 +47,6 @@ class SolveResponse(BaseModel):
     unplaced: list[dict]  # [{item_index, count}]
     iterations: int = 0
     elapsed_ms: int = 0
+    # status 求解状态: optimal/feasible=有解, timeout=限时内返回的可行解 (列池不完整),
+    # failed=无可行解。Go 侧据此区分 "超时但有解" 与 "真失败", 2D 同名字段对齐
+    status: str = "feasible"

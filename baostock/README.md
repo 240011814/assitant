@@ -49,6 +49,24 @@
 
 以上 `query_lhb_detail`、`query_fund_flow`、`query_north_flow`、`query_gdp`、`query_cpi`、`query_pmi`、`query_ppi`、`query_lpr` 共 8 个接口基于 akshare 实现，不经过 baostock，不受每日限额与串行限制。
 
+## 切割精确求解 (cut_api)
+
+供 assitant Go 后端「精确模式」调用（环境变量 `BAOSTOCK_API_URL` 指向本服务），失败/超时由 Go 侧直接报错给前端，不静默回退启发式算法。
+
+- `POST /cut1d/solve` — 一维列生成（零件/材料/旧料、锯缝 kerf、材料保护区间、利用率偏好权重，预算 `time_limit_ms` ≤ 60s）
+- `POST /cut2d/solve` — 二维 CP-SAT NoOverlap2D 排样（旋转、锯缝 kerf、材料类型 spec、Go 启发式解作 warm start，预算 ≤ 180s）
+- 并发治理：同时求解数上限 2，超限返回 `503`（求解是 CPU 密集任务，该进程还承载行情查询）
+- 响应 `status`: `optimal` / `feasible` = 有解；`timeout` = 限时内返回的可行解（可能次优）；`failed` = 无可行解
+- 规模防御：2D 展开件数 >400 / 板数 >40 / 件×板 >9600 返回 `failed`；1D 旧料分组 >64 组静默丢弃多余组
+- 自验脚本（需先建 venv 安装 requirements）：
+  ```bash
+  cd baostock && python -m venv .venv
+  ./.venv/Scripts/python.exe -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+  PYTHONPATH=. ./.venv/Scripts/python.exe verify/verify_cut1d.py
+  PYTHONPATH=. ./.venv/Scripts/python.exe verify/verify_cut2d.py
+  ```
+  全部通过打印 `ALL CHECKS PASSED`。HTTP 冒烟：启动服务后 `POST /cut1d/solve`、`POST /cut2d/solve`。
+
 ## 特性
 
 - 本地调用计数持久化到 `data/usage.json`

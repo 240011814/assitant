@@ -1,8 +1,8 @@
 """cut_api: 切割优化精确求解 (OR-Tools), 挂载在 baostock sidecar。
 
 一维列生成 (solver_1d, POST /cut1d/solve) 与二维 CP-SAT NoOverlap2D (solver_2d,
-POST /cut2d/solve) 两个端点共用本包, main.py `from cutopt import router` 引入;
-失败/超时由 Go 后端回退内置算法。两类求解的模型独立在 models_1d / models_2d。
+POST /cut2d/solve) 两个端点共用本包, main.py `from cut_api import router as cut_api_router` 引入;
+求解失败/超时由 Go 后端直接报错给前端 (一维/二维均不静默回退)。两类求解的模型独立在 models_1d / models_2d。
 """
 
 from cut_api.models_1d import Bar, Material, Scrap

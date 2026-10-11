@@ -2,6 +2,7 @@
 import { h, onMounted, ref, computed } from 'vue';
 import { NButton, NCard, NDataTable, NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NTag, useMessage } from 'naive-ui';
 import type { DataTableColumns, FormInst, FormRules } from 'naive-ui';
+import { $t } from '@/locales';
 import { addCutScraps, batchDeleteCutScraps, deleteCutScrap, fetchCutScraps, updateCutScrap } from '@/service/api';
 
 const message = useMessage();
@@ -19,9 +20,9 @@ const searchLengthMin = ref<number | null>(null);
 const searchLengthMax = ref<number | null>(null);
 
 const typeOptions = [
-  { label: '全部', value: 0 },
-  { label: '一维余料', value: 1 },
-  { label: '二维余料', value: 2 }
+  { label: $t('page.cut.all'), value: 0 },
+  { label: $t('page.cut.scrapType1d'), value: 1 },
+  { label: $t('page.cut.scrapType2d'), value: 2 }
 ];
 
 // 服务端分页 (筛选条件变化时回第一页)
@@ -72,60 +73,60 @@ const columns = computed<DataTableColumns<Api.Cut.CutScrap>>(() => [
   { type: 'selection' },
   {
     key: 'scrapType',
-    title: '类型',
+    title: $t('page.cut.type'),
     align: 'center',
     width: 100,
     render(row) {
-      const label = row.scrapType === 1 ? '一维' : '二维';
+      const label = row.scrapType === 1 ? $t('page.cut.dimLinear') : $t('page.cut.dim2d');
       return h(NTag, { bordered: false, type: row.scrapType === 1 ? 'info' : 'success' }, { default: () => label });
     }
   },
   {
     key: 'materialType',
-    title: '材料类型',
+    title: $t('page.cut.materialType'),
     align: 'center',
     minWidth: 120,
     render: row => row.materialType || '-'
   },
   {
     key: 'label',
-    title: '名称',
+    title: $t('page.cut.name'),
     align: 'center',
     minWidth: 120,
     render: row => row.label || '-'
   },
   {
     key: 'lengthValue',
-    title: '长度',
+    title: $t('page.cut.length'),
     align: 'center',
     width: 110,
     render: row => (row.scrapType === 1 ? row.lengthValue : '-')
   },
   {
     key: 'size',
-    title: '宽 × 高',
+    title: $t('page.cut.widthXHeight'),
     align: 'center',
     width: 130,
     render: row => (row.scrapType === 2 ? `${row.widthValue} × ${row.heightValue}` : '-')
   },
-  { key: 'quantity', title: '数量', align: 'center', width: 80 },
+  { key: 'quantity', title: $t('page.cut.quantity'), align: 'center', width: 80 },
   {
     key: 'note',
-    title: '备注',
+    title: $t('page.cut.scrapNote'),
     align: 'center',
     minWidth: 120,
     render: row => row.note || '-'
   },
   {
     key: 'createdAt',
-    title: '登记时间',
+    title: $t('page.cut.pdCreatedAt'),
     align: 'center',
     minWidth: 180,
     render: row => (row.createdAt ? new Date(row.createdAt).toLocaleString() : '-')
   },
   {
     key: 'operate',
-    title: '操作',
+    title: $t('common.action'),
     align: 'center',
     width: 160,
     render(row) {
@@ -133,14 +134,14 @@ const columns = computed<DataTableColumns<Api.Cut.CutScrap>>(() => [
         h(
           NButton,
           { size: 'small', type: 'primary', quaternary: true, onClick: () => openEdit(row) },
-          { default: () => '编辑' }
+          { default: () => $t('common.edit') }
         ),
         h(
           NPopconfirm,
           { onPositiveClick: () => removeScrap(row) },
           {
-            trigger: () => h(NButton, { size: 'small', type: 'error', quaternary: true }, { default: () => '删除' }),
-            default: () => '确认删除该条库存?'
+            trigger: () => h(NButton, { size: 'small', type: 'error', quaternary: true }, { default: () => $t('common.delete') }),
+            default: () => $t('page.cut.scrapDeleteConfirm')
           }
         )
       ]);
@@ -155,7 +156,7 @@ async function batchRemove() {
   try {
     const { data, error } = await batchDeleteCutScraps({ ids: checkedKeys.value });
     if (error) return;
-    message.success(`已删除 ${data?.deleted ?? checkedKeys.value.length} 条库存`);
+    message.success($t('page.cut.stockDeletedCount', { count: data?.deleted ?? checkedKeys.value.length }));
     checkedKeys.value = [];
     getData();
   } finally {
@@ -180,18 +181,18 @@ const form = ref({
 
 const rules: FormRules = {
   lengthValue: [
-    { required: true, type: 'number', message: '请输入长度', trigger: ['blur', 'change'] },
-    { type: 'number', min: 0.1, message: '长度必须大于 0', trigger: ['blur', 'change'] }
+    { required: true, type: 'number', message: $t('page.cut.inputLength'), trigger: ['blur', 'change'] },
+    { type: 'number', min: 0.1, message: $t('page.cut.lengthPositive'), trigger: ['blur', 'change'] }
   ],
   widthValue: [
-    { required: true, type: 'number', message: '请输入宽度', trigger: ['blur', 'change'] },
-    { type: 'number', min: 0.1, message: '宽度必须大于 0', trigger: ['blur', 'change'] }
+    { required: true, type: 'number', message: $t('page.cut.inputWidth'), trigger: ['blur', 'change'] },
+    { type: 'number', min: 0.1, message: $t('page.cut.widthPositive'), trigger: ['blur', 'change'] }
   ],
   heightValue: [
-    { required: true, type: 'number', message: '请输入高度', trigger: ['blur', 'change'] },
-    { type: 'number', min: 0.1, message: '高度必须大于 0', trigger: ['blur', 'change'] }
+    { required: true, type: 'number', message: $t('page.cut.inputHeight'), trigger: ['blur', 'change'] },
+    { type: 'number', min: 0.1, message: $t('page.cut.heightPositive'), trigger: ['blur', 'change'] }
   ],
-  quantity: [{ required: true, type: 'number', min: 1, message: '数量至少为 1', trigger: ['blur', 'change'] }]
+  quantity: [{ required: true, type: 'number', min: 1, message: $t('page.cut.quantityMinOne'), trigger: ['blur', 'change'] }]
 };
 
 function openAdd() {
@@ -244,7 +245,7 @@ async function submitForm() {
         note: form.value.note
       });
       if (error) return;
-      message.success('修改成功');
+      message.success($t('common.modifySuccess'));
     } else {
       const payload: Api.Cut.AddCutScrapRequest[] = [
         {
@@ -260,7 +261,7 @@ async function submitForm() {
       ];
       const { error } = await addCutScraps(payload);
       if (error) return;
-      message.success('登记成功');
+      message.success($t('page.cut.registerSuccess'));
     }
     modalShow.value = false;
     getData();
@@ -272,7 +273,7 @@ async function submitForm() {
 async function removeScrap(row: Api.Cut.CutScrap) {
   const { error } = await deleteCutScrap(row.id);
   if (error) return;
-  message.success('删除成功');
+  message.success($t('common.deleteSuccess'));
   getData();
 }
 
@@ -286,7 +287,7 @@ onMounted(() => {
     <NCard :bordered="false" shadow="sm" class="flex-1">
       <template #header>
         <div class="flex items-center gap-4">
-          <span class="text-18px font-bold">库存管理</span>
+          <span class="text-18px font-bold">{{ $t('page.cut.stockManage') }}</span>
         </div>
       </template>
       <div class="flex flex-col h-full gap-4">
@@ -295,7 +296,7 @@ onMounted(() => {
             <NSelect v-model:value="searchType" :options="typeOptions" style="width: 140px" @update:value="applyFilter" />
             <NInput
               v-model:value="searchName"
-              placeholder="按名称筛选"
+              :placeholder="$t('page.cut.filterByNamePh')"
               clearable
               style="width: 180px"
               @keyup.enter="applyFilter"
@@ -305,7 +306,7 @@ onMounted(() => {
               <NInputNumber
                 v-model:value="searchLengthMin"
                 :min="0"
-                placeholder="最小长度"
+                :placeholder="$t('page.cut.minLengthPh')"
                 clearable
                 style="width: 130px"
                 @update:value="applyFilter"
@@ -315,7 +316,7 @@ onMounted(() => {
               <NInputNumber
                 v-model:value="searchLengthMax"
                 :min="0"
-                placeholder="最大长度"
+                :placeholder="$t('page.cut.maxLengthPh')"
                 clearable
                 style="width: 130px"
                 @update:value="applyFilter"
@@ -332,12 +333,12 @@ onMounted(() => {
                   :disabled="checkedKeys.length === 0"
                   :loading="batchDeleting"
                 >
-                  批量删除{{ checkedKeys.length > 0 ? `(${checkedKeys.length})` : '' }}
+                  {{ $t('common.batchDelete') }}{{ checkedKeys.length > 0 ? `(${checkedKeys.length})` : '' }}
                 </NButton>
               </template>
-              确认删除选中的 {{ checkedKeys.length }} 条库存?
+              {{ $t('page.cut.stockBatchDeleteConfirm', { count: checkedKeys.length }) }}
             </NPopconfirm>
-            <NButton type="primary" @click="openAdd">新增余料</NButton>
+            <NButton type="primary" @click="openAdd">{{ $t('page.cut.scrapAddNew') }}</NButton>
           </div>
         </div>
 
@@ -355,42 +356,42 @@ onMounted(() => {
       </div>
     </NCard>
 
-    <NModal v-model:show="modalShow" preset="card" :title="editing ? '编辑余料' : '新增余料'" class="w-480px">
+    <NModal v-model:show="modalShow" preset="card" :title="editing ? $t('page.cut.scrapEditTitle') : $t('page.cut.scrapAddNew')" class="w-480px">
       <NForm ref="formRef" :model="form" :rules="rules" label-placement="left" label-width="80">
-        <NFormItem label="类型" :show-feedback="!editing">
+        <NFormItem :label="$t('page.cut.type')" :show-feedback="!editing">
           <NSelect
             v-model:value="form.scrapType"
-            :options="[{ label: '一维余料', value: 1 }, { label: '二维余料', value: 2 }]"
+            :options="[{ label: $t('page.cut.scrapType1d'), value: 1 }, { label: $t('page.cut.scrapType2d'), value: 2 }]"
             :disabled="!!editing"
           />
         </NFormItem>
-        <NFormItem label="材料类型">
-          <NInput v-model:value="form.materialType" placeholder="选填, 来源材料规格, 如: 45#方管" />
+        <NFormItem :label="$t('page.cut.materialType')">
+          <NInput v-model:value="form.materialType" :placeholder="$t('page.cut.materialTypePh')" />
         </NFormItem>
-        <NFormItem label="名称">
-          <NInput v-model:value="form.label" placeholder="选填, 如: 长料余料" />
+        <NFormItem :label="$t('page.cut.name')">
+          <NInput v-model:value="form.label" :placeholder="$t('page.cut.labelPh')" />
         </NFormItem>
-        <NFormItem v-if="form.scrapType === 1" label="长度" path="lengthValue">
+        <NFormItem v-if="form.scrapType === 1" :label="$t('page.cut.length')" path="lengthValue">
           <NInputNumber v-model:value="form.lengthValue" :min="0.1" class="w-full" placeholder="mm" />
         </NFormItem>
         <template v-else>
-          <NFormItem label="宽" path="widthValue">
+          <NFormItem :label="$t('page.cut.scrapWidth')" path="widthValue">
             <NInputNumber v-model:value="form.widthValue" :min="0.1" class="w-full" placeholder="mm" />
           </NFormItem>
-          <NFormItem label="高" path="heightValue">
+          <NFormItem :label="$t('page.cut.scrapHeight')" path="heightValue">
             <NInputNumber v-model:value="form.heightValue" :min="0.1" class="w-full" placeholder="mm" />
           </NFormItem>
         </template>
-        <NFormItem label="数量" path="quantity">
+        <NFormItem :label="$t('page.cut.quantity')" path="quantity">
           <NInputNumber v-model:value="form.quantity" :min="1" class="w-full" />
         </NFormItem>
-        <NFormItem label="备注">
-          <NInput v-model:value="form.note" placeholder="选填" />
+        <NFormItem :label="$t('page.cut.scrapNote')">
+          <NInput v-model:value="form.note" :placeholder="$t('page.cut.optional')" />
         </NFormItem>
       </NForm>
       <template #action>
-        <NButton @click="modalShow = false">取消</NButton>
-        <NButton type="primary" :loading="saving" @click="submitForm">确定</NButton>
+        <NButton @click="modalShow = false">{{ $t('common.cancel') }}</NButton>
+        <NButton type="primary" :loading="saving" @click="submitForm">{{ $t('common.confirm') }}</NButton>
       </template>
     </NModal>
   </div>

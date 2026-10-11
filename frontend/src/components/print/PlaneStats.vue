@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { $t } from '@/locales';
 
 const props = defineProps<{
   results: Api.Cut.BinResult[];
@@ -34,11 +35,17 @@ const overallUtilization = computed(() => {
 </script>
 
 <template>
-  <NCard v-if="results.length" title="结果统计" size="large" class="mb-4">
+  <NCard v-if="results.length" :title="$t('page.cut.summaryTitle')" size="large" class="mb-4">
     <p>
-      总项目数: {{ totalItems }} (面积: {{ totalItemArea.toFixed(1) }} m²) | 材料使用面积:
-      {{ totalMaterialArea.toFixed(1) }} m² | 总体利用率: {{ overallUtilization.toFixed(1) }}% | 使用材料数:
-      {{ results.length }}
+      {{
+        $t('page.cut.planeStatsLine', {
+          items: totalItems,
+          itemArea: totalItemArea.toFixed(1),
+          materialArea: totalMaterialArea.toFixed(1),
+          utilization: overallUtilization.toFixed(1),
+          materialCount: results.length
+        })
+      }}
     </p>
   </NCard>
 </template>

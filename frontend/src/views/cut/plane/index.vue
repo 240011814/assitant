@@ -55,10 +55,10 @@ const summaryData = ref<Api.Cut.PlaneSummary | null>(null);
 // 切割损耗 (锯缝 cm): 相邻零件间距, 默认 0 不留缝
 const loss = ref<number | null>(0);
 const strategyOptions = [
-  { label: '刀切法', value: 'Guillotine' },
-  { label: '最大空闲法', value: 'MaxRects' },
-  // OR-Tools 精确求解 (限时 2 分钟, 超时/失败自动回退最大空闲法)
-  { label: '精确 (OR-Tools)', value: 'Precise' }
+  { label: $t('page.cut.strategyGuillotine'), value: 'Guillotine' },
+  { label: $t('page.cut.strategyMaxRects'), value: 'MaxRects' },
+  // OR-Tools 精确求解 (限时 2 分钟); 失败/超时直接报错, 不回退启发式 (与一维精确模式口径一致)
+  { label: $t('page.cut.strategyPrecise'), value: 'Precise' }
 ];
 
 // 旧料库 / 产品导入 / 导出 / 打印状态
@@ -72,12 +72,16 @@ const loading = ref(false);
 const route = useRoute();
 const router = useRouter();
 
-/** 把玻璃产品单预填为平面零件行 (spec=玻璃厚度, 材料规格); 返回导入件数与自动补的规格行数 */
+/** 把玻璃产品单预填为平面零件行 (替换现有清单, 与一维页导入口径一致); 返回导入件数与自动补的规格行数 */
 function fillItemsFromGlassOrders(records: Api.Cut.CutProduct[]): { pieces: number; addedSpecs: number } {
   const rows = records.flatMap(record => productPlaneRows(parseProductSpec(record).items));
-  items.value.push(
-    ...rows.map(row => ({ label: row.label, width: row.width, height: row.height, quantity: row.quantity, spec: row.spec }))
-  );
+  items.value = rows.map(row => ({
+    label: row.label,
+    width: row.width,
+    height: row.height,
+    quantity: row.quantity,
+    spec: row.spec
+  }));
   // 新厚度没有同名新材料规格时自动补行 (默认板材尺寸, 可按实际板材调整)
   let addedSpecs = 0;
   rows.forEach(row => {
@@ -153,9 +157,11 @@ function groupExpandedItems(list: Api.Cut.Item[]): Api.Cut.Item[] {
   return out;
 }
 
-// keepAlive 页面: 产品管理页"去裁剪"(玻璃类)跳入时消费 query.products 预填;
+// keepAlive 页面: 每次激活刷新材料类型候选 (库存页可能增删了类型);
+// 产品管理页"去裁剪"(玻璃类)跳入时消费 query.products 预填;
 // 历史记录"重新编辑"跳入时消费 query.reuse 回填表单
 onActivated(async () => {
+  loadMaterialTypes();
   const reuse = route.query.reuse;
   if (typeof reuse === 'string' && reuse) {
     router.replace({ query: { ...route.query, reuse: undefined } });
@@ -263,12 +269,12 @@ const itemColumns = [
       return renderItemSpecSelect(row, index);
     }
   },
-  { title: '标签', key: 'label' },
-  { title: '宽(cm)', key: 'width' },
-  { title: '高(cm)', key: 'height' },
-  { title: '数量', key: 'quantity' },
+  { title: $t('page.cut.label'), key: 'label' },
+  { title: $t('page.cut.widthCm'), key: 'width' },
+  { title: $t('page.cut.heightCm'), key: 'height' },
+  { title: $t('page.cut.quantity'), key: 'quantity' },
   {
-    title: '操作',
+    title: $t('common.action'),
     key: 'actions',
     render(_row: any, index: number) {
       return h(
@@ -287,11 +293,11 @@ const itemColumns = [
 // material 表格
 const materialColumns = [
   { title: $t('page.cut.materialType'), key: 'label' },
-  { title: '宽(cm)', key: 'width' },
-  { title: '高(cm)', key: 'height' },
-  { title: '数量', key: 'quantity' },
+  { title: $t('page.cut.widthCm'), key: 'width' },
+  { title: $t('page.cut.heightCm'), key: 'height' },
+  { title: $t('page.cut.quantity'), key: 'quantity' },
   {
-    title: '操作',
+    title: $t('common.action'),
     key: 'actions',
     render(_row: any, index: number) {
       return h(
@@ -559,11 +565,11 @@ onMounted(() => {
   loadMaterialTypes();
 });
 
-// 导出 PNG (全部板材拼接纵向长图)
+// 导出 PNG (全部板材拼接纵向长图; 聚合显示开启时按聚合口径导出)
 async function exportPNG() {  if (results.value.length === 0) return;
   exporting.value = 'png';
   try {
-    await exportPlaneCutPNG(results.value);
+    await exportPlaneCutPNG(results.value, group.value);
   } catch (e) {
     console.error(e);
     message.error($t('page.cut.exportFailed'));
@@ -572,12 +578,12 @@ async function exportPNG() {  if (results.value.length === 0) return;
   }
 }
 
-// 导出 PDF (逐板分页)
+// 导出 PDF (逐板分页; 聚合口径同上)
 async function exportPDF() {
   if (results.value.length === 0) return;
   exporting.value = 'pdf';
   try {
-    await exportPlaneCutPDF(results.value);
+    await exportPlaneCutPDF(results.value, group.value);
   } catch (e) {
     console.error(e);
     message.error($t('page.cut.exportFailed'));
@@ -586,12 +592,12 @@ async function exportPDF() {
   }
 }
 
-// 直接打印切割图 (PDF autoPrint)
+// 直接打印切割图 (PDF autoPrint; 聚合口径同上)
 async function printChart() {
   if (results.value.length === 0) return;
   printing.value = true;
   try {
-    const opened = await printPlaneCut(results.value);
+    const opened = await printPlaneCut(results.value, group.value);
     if (!opened) {
       message.warning($t('page.cut.allowPopup'));
     }
@@ -606,10 +612,10 @@ async function printChart() {
 
 <template>
   <div class="p-4">
-    <NCard title="材料裁剪可视化" size="large" class="mb-4">
+    <NCard :title="$t('page.cut.vizTitle')" size="large" class="mb-4">
       <!-- 添加切割项目 -->
 
-      <h3 class="mb-3 text-lg font-semibold">裁剪尺寸</h3>
+      <h3 class="mb-3 text-lg font-semibold">{{ $t('page.cut.cutSizes') }}</h3>
       <div class="mb-2 flex items-center gap-2">
         <NSelect
           v-model:value="itemSpec"
@@ -620,22 +626,22 @@ async function printChart() {
           :placeholder="$t('page.cut.materialType')"
           class="w-40"
         />
-        <NInput v-model:value="label" class="input-width" type="text" placeholder="标签" />
-        <NInputNumber v-model:value="width" type="number" placeholder="宽(cm)" step="0.1" :min="0.1" class="w-40" />
-        <NInputNumber v-model:value="height" type="number" placeholder="高(cm)" step="0.1" :min="0.1" class="w-40" />
-        <NInputNumber v-model:value="quantity" type="number" placeholder="数量" class="w-40" :min="1" />
+        <NInput v-model:value="label" class="input-width" type="text" :placeholder="$t('page.cut.label')" />
+        <NInputNumber v-model:value="width" type="number" :placeholder="$t('page.cut.widthCm')" step="0.1" :min="0.1" class="w-40" />
+        <NInputNumber v-model:value="height" type="number" :placeholder="$t('page.cut.heightCm')" step="0.1" :min="0.1" class="w-40" />
+        <NInputNumber v-model:value="quantity" type="number" :placeholder="$t('page.cut.quantity')" class="w-40" :min="1" />
         <NButton type="primary" @click="addItem">{{ $t('page.cut.addItem') }}</NButton>
         <NButton type="info" secondary @click="productPickShow = true">{{ $t('page.cut.pdImport') }}</NButton>
       </div>
 
       <!-- 切割项目列表 -->
 
-      <h3 class="mb-2 text-lg font-semibold">切割项目</h3>
+      <h3 class="mb-2 text-lg font-semibold">{{ $t('page.cut.cutItems') }}</h3>
       <NDataTable :columns="itemColumns" :data="items" />
 
       <!-- 添加剩余材料 -->
 
-      <h3 class="mb-3 text-lg font-semibold">库存材料</h3>
+      <h3 class="mb-3 text-lg font-semibold">{{ $t('page.cut.stockMaterial') }}</h3>
       <div class="mb-2 flex items-center gap-2">
         <NSelect
           v-model:value="materialName"
@@ -648,7 +654,7 @@ async function printChart() {
         <NInputNumber
           v-model:value="materialWidth"
           type="number"
-          placeholder="宽(cm)"
+          :placeholder="$t('page.cut.widthCm')"
           step="0.1"
           :min="0.1"
           class="w-40"
@@ -656,30 +662,30 @@ async function printChart() {
         <NInputNumber
           v-model:value="materialHeight"
           type="number"
-          placeholder="高(cm)"
+          :placeholder="$t('page.cut.heightCm')"
           step="0.1"
           :min="0.1"
           class="w-40"
         />
-        <NInputNumber v-model:value="materialCount" type="number" placeholder="数量" class="w-40" :min="1" />
+        <NInputNumber v-model:value="materialCount" type="number" :placeholder="$t('page.cut.quantity')" class="w-40" :min="1" />
         <NButton type="primary" @click="addMaterial">{{ $t('page.cut.addMaterial') }}</NButton>
         <NButton type="info" secondary @click="scrapModalShow = true">{{ $t('page.cut.scrapLibrary') }}</NButton>
       </div>
 
       <!-- 剩余材料列表 -->
 
-      <h3 class="mb-2 text-lg font-semibold">库存材料</h3>
+      <h3 class="mb-2 text-lg font-semibold">{{ $t('page.cut.stockMaterial') }}</h3>
       <NDataTable :columns="materialColumns" :data="materials" />
 
-      <h3 class="mt-6">参数配置</h3>
+      <h3 class="mt-6">{{ $t('page.cut.paramsConfig') }}</h3>
       <div class="mb-4 flex flex-wrap items-start gap-6">
         <div class="flex items-start gap-2">
-          <span class="w-24 pt-1">新材料规格</span>
+          <span class="w-24 pt-1">{{ $t('page.cut.newMaterialSpec') }}</span>
           <div class="flex flex-col gap-2">
             <div v-for="(row, idx) in newMaterialRows" :key="idx" class="flex items-center gap-2">
               <NInput v-model:value="row.label" :placeholder="$t('page.cut.newMaterialLabel')" class="w-32" />
-              <NInputNumber v-model:value="row.width" placeholder="宽(cm)" class="w-40" :min="0.1" />
-              <NInputNumber v-model:value="row.height" placeholder="高(cm)" class="w-40" :min="0.1" />
+              <NInputNumber v-model:value="row.width" :placeholder="$t('page.cut.widthCm')" class="w-40" :min="0.1" />
+              <NInputNumber v-model:value="row.height" :placeholder="$t('page.cut.heightCm')" class="w-40" :min="0.1" />
               <NButton size="small" type="error" quaternary :disabled="newMaterialRows.length <= 1" @click="removeBoardRow(idx)">
                 {{ $t('common.delete') }}
               </NButton>
@@ -688,7 +694,7 @@ async function printChart() {
           </div>
         </div>
         <div class="flex items-center gap-2">
-          <span class="w-24">方案</span>
+          <span class="w-24">{{ $t('page.cut.strategy') }}</span>
           <NSelect v-model:value="strategy" :options="strategyOptions" />
         </div>
         <div class="flex items-center gap-2">
@@ -698,7 +704,7 @@ async function printChart() {
           </NInputNumber>
         </div>
         <div class="flex items-center gap-2">
-          <span class="w-24">聚合显示</span>
+          <span class="w-24">{{ $t('page.cut.aggregateDisplay') }}</span>
           <NSwitch v-model:value="group" class="w-40" />
         </div>
       </div>
@@ -706,7 +712,7 @@ async function printChart() {
       <!-- 操作按钮 -->
       <div class="mt-4 flex gap-2">
         <NButton type="primary" :loading="loading" @click="runOptimization">{{ $t('page.cut.startCutting') }}</NButton>
-        <PlanePrinter :results="results" :materials="materials"></PlanePrinter>
+        <PlanePrinter :results="results" :materials="materials" :group-data="group"></PlanePrinter>
         <SaveCutRecord :data="saveData" @saved="saveData = null"></SaveCutRecord>
         <NButton type="warning" @click="clearAll">{{ $t('page.cut.clearAll') }}</NButton>
       </div>
@@ -780,7 +786,7 @@ async function printChart() {
     <ProductPickModal v-model:show="productPickShow" mode="plane" @confirm="handleProductPick" />
 
     <!-- 加载中弹窗: 不可关闭, 防止求解期间重复提交 -->
-    <NModal v-model:show="loading" preset="dialog" title="计算中..." :mask-closable="false" :closable="false">
+    <NModal v-model:show="loading" preset="dialog" :title="$t('page.cut.calculating')" :mask-closable="false" :closable="false">
       <div class="flex flex-col items-center justify-center p-6">
         <NSpin size="large" />
         <div class="mt-3">{{ $t('page.cut.loading') }}</div>

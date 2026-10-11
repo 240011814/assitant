@@ -48,8 +48,8 @@ const group = ref(false);
 // 由 BAOSTOCK_API_URL 指向的求解服务计算, 未配置或求解失败直接报错, 不回退快速模式
 const solveMode = ref<'fast' | 'precise'>('precise');
 const solveModeOptions = [
-  { label: '快速模式 ', value: 'fast' },
-  { label: '精确模式 ', value: 'precise' }
+  { label: $t('page.cut.solveModeFast'), value: 'fast' },
+  { label: $t('page.cut.solveModePrecise'), value: 'precise' }
 ];
 const cutResult = ref<Api.Cut.BarResult[] | null>(null);
 const summaryData = ref<Api.Cut.BarSummary | null>(null);
@@ -77,15 +77,14 @@ function cutRowsFromProductOrders(records: Api.Cut.CutProduct[]) {
   return productCutRows(items);
 }
 
-/** 用产品单预填裁剪尺寸 (替换现有清单); 返回导入的产品件数 */
+/** 用产品单预填裁剪尺寸 (替换现有清单); 返回导入的切割件数 (混合单的玻璃件走平面页, 不计入) */
 function fillItemsFromProductOrders(records: Api.Cut.CutProduct[]): number {
   const rows = cutRowsFromProductOrders(records);
   itemsData.value = rows.map(row => ({ label: row.label, length: row.length, quantity: row.quantity }));
   // 新类型刷新下拉候选
   loadMaterialTypes();
-  return records.reduce((sum, record) => {
-    return sum + parseProductSpec(record).items.reduce((s, item) => s + (item.count || 0), 0);
-  }, 0);
+  // 计数与实际导入的行一致 (旧口径按产品件数累计, 混合单会把被丢弃的玻璃件也计入)
+  return rows.reduce((sum, row) => sum + row.quantity, 0);
 }
 
 // 历史记录"重新编辑"跳入: 按 id 取回完整请求并回填表单 (invId 不回填, 重新保存不会重复扣库存)
@@ -141,9 +140,10 @@ function groupExpandedBarItems(list: Array<number | { length: number; spec?: str
   return out;
 }
 
-// keepAlive 页面: 产品管理页"去裁剪"跳入时消费 query.products 预填 (首次挂载后 onActivated 也会触发);
-// 历史记录"重新编辑"跳入时消费 query.reuse 回填表单
+// keepAlive 页面: 每次激活刷新材料类型候选 (库存页可能增删了类型);
+// 产品管理页"去裁剪"跳入时消费 query.products 预填; 历史记录"重新编辑"跳入时消费 query.reuse 回填
 onActivated(async () => {
+  loadMaterialTypes();
   const reuse = route.query.reuse;
   if (typeof reuse === 'string' && reuse) {
     router.replace({ query: { ...route.query, reuse: undefined } });
@@ -228,17 +228,17 @@ function renderTypeSelect(row: Api.Cut.BarItem, index: number, list: 'items' | '
 // item 表格
 const itemColumns = [
   {
-    title: '材料类型',
+    title: $t('page.cut.materialType'),
     key: 'label',
     width: 160,
     render(row: Api.Cut.BarItem, index: number) {
       return renderTypeSelect(row, index, 'items');
     }
   },
-  { title: '长度(cm)', key: 'length' },
-  { title: '数量', key: 'quantity' },
+  { title: $t('page.cut.lengthCm'), key: 'length' },
+  { title: $t('page.cut.quantity'), key: 'quantity' },
   {
-    title: '操作',
+    title: $t('common.action'),
     key: 'actions',
     render(_row: any, index: number) {
       return h(
@@ -257,17 +257,17 @@ const itemColumns = [
 // material 表格(类型名列可直接编辑)
 const materialColumns = [
   {
-    title: '材料类型',
+    title: $t('page.cut.materialType'),
     key: 'label',
     width: 160,
     render(row: Api.Cut.BarItem, index: number) {
       return renderTypeSelect(row, index, 'materials');
     }
   },
-  { title: '长度(cm)', key: 'length' },
-  { title: '数量', key: 'quantity' },
+  { title: $t('page.cut.lengthCm'), key: 'length' },
+  { title: $t('page.cut.quantity'), key: 'quantity' },
   {
-    title: '操作',
+    title: $t('common.action'),
     key: 'actions',
     render(_row: any, index: number) {
       return h(
@@ -407,11 +407,15 @@ async function fetchData() {
   const items: Array<number | { length: number; spec?: string }> = itemsData.value.flatMap((i: Api.Cut.BarItem) =>
     Array.from({ length: i.quantity }, () => ({ length: i.length, spec: i.label?.trim() }))
   );
-  // 旧料构造为对象数组(带类型名), 空长度行过滤
-  const materials: Array<number | { label?: string; length: number }> = materialsData.value.flatMap(row => {
+  // 旧料构造为对象数组(带类型名与库存 id), 空长度行过滤; 后端会把 id 回填到结果行 (scrapId) 供精确扣减
+  const materials: Array<number | { label?: string; length: number; id?: number }> = materialsData.value.flatMap(row => {
     if (!row.length || row.length <= 0) return [];
     const label = row.label?.trim();
-    return Array.from({ length: row.quantity }, () => ({ label: label ? label : undefined, length: row.length }));
+    return Array.from({ length: row.quantity }, () => ({
+      label: label ? label : undefined,
+      length: row.length,
+      id: row.invId
+    }));
   });
 
   // 构造多规格(不传时后端走 newMaterialLength 单规格, 这里始终传并保留 newMaterialLength 兼容)
@@ -434,7 +438,7 @@ async function fetchData() {
     const pmin = protectMin.value;
     const pmax = protectMax.value;
     if (!pmin || !pmax || pmin <= 0 || pmax < pmin) {
-      message.error('请输入有效的材料保护区间: 0 < 最小长度 ≤ 最大长度');
+      message.error($t('page.cut.protectRangeInvalid'));
       return;
     }
     request.protectEnabled = true;
@@ -465,10 +469,22 @@ async function fetchData() {
 }
 
 // 从库存带入的旧料行 (invId) 的实际消耗根数 → 保存记录时随请求扣减库存。
-// 消耗口径: 结果里每根 (materialType, totalLength) 匹配的旧料即消耗一根;
+// 优先口径: 后端在每根结果上回填了消费的库存旧料条目 id (scrapId), 按根精确归并;
+// 兜底口径 (旧响应无 scrapId): 结果里每根 (materialType, totalLength) 匹配的旧料即消耗一根,
 // 多行导入同一 (类型,长度) 时按行序分摊, 上限为该行数量。
 function collectDeductScraps(): Array<{ id: number; count: number }> {
   if (!cutResult.value) return [];
+  const byScrapId = new Map<number, number>();
+  let scrapIdSeen = false;
+  for (const r of cutResult.value) {
+    if (r.scrapId) {
+      scrapIdSeen = true;
+      byScrapId.set(r.scrapId, (byScrapId.get(r.scrapId) ?? 0) + 1);
+    }
+  }
+  if (scrapIdSeen) {
+    return Array.from(byScrapId.entries()).map(([id, count]) => ({ id, count }));
+  }
   const consumedPool = new Map<string, number>();
   for (const r of cutResult.value) {
     const key = `${r.materialType ?? ''}|${r.totalLength}`;
@@ -584,6 +600,8 @@ let startX = 0;
 let scrollLeft = 0;
 
 const handleWheel = (e: WheelEvent) => {
+  // Ctrl+滚轮缩放; 无修饰键时不拦截, 悬停图示区仍可正常滚动页面
+  if (!e.ctrlKey) return;
   e.preventDefault();
   scaleFactor.value += e.deltaY * -0.001;
   scaleFactor.value = Math.min(Math.max(0.5, scaleFactor.value), 3);
@@ -635,8 +653,8 @@ onUnmounted(() => {
 <template>
   <div class="p-4">
     <!-- 输入区域 -->
-    <NCard title="材料裁剪可视化" size="large" class="mb-4">
-      <h3>裁剪尺寸</h3>
+    <NCard :title="$t('page.cut.vizTitle')" size="large" class="mb-4">
+      <h3>{{ $t('page.cut.cutSizes') }}</h3>
       <div class="mb-2 flex items-center gap-2">
         <NSelect
           v-model:value="itemType"
@@ -646,14 +664,14 @@ onUnmounted(() => {
           :placeholder="$t('page.cut.materialType')"
           class="w-40"
         />
-        <NInputNumber v-model:value="itemLength" placeholder="长度" class="w-40" :min="0.1" />
-        <NInputNumber v-model:value="itemQty" placeholder="数量" class="w-32" :min="1" />
+        <NInputNumber v-model:value="itemLength" :placeholder="$t('page.cut.length')" class="w-40" :min="0.1" />
+        <NInputNumber v-model:value="itemQty" :placeholder="$t('page.cut.quantity')" class="w-32" :min="1" />
         <NButton type="primary" @click="addItem">{{ $t('page.cut.addItem') }}</NButton>
         <NButton type="info" secondary @click="productPickShow = true">{{ $t('page.cut.pdImport') }}</NButton>
       </div>
       <NDataTable :columns="itemColumns" :data="itemsData" />
 
-      <h3 class="mt-6">材料库存</h3>
+      <h3 class="mt-6">{{ $t('page.cut.materialStock') }}</h3>
       <div class="mb-2 flex items-center gap-2">
         <NSelect
           v-model:value="matLabel"
@@ -663,17 +681,17 @@ onUnmounted(() => {
           :placeholder="$t('page.cut.materialType')"
           class="w-40"
         />
-        <NInputNumber v-model:value="matLength" placeholder="长度" class="w-40" :min="0.1" />
-        <NInputNumber v-model:value="matQty" placeholder="数量" class="w-32" :min="1" />
+        <NInputNumber v-model:value="matLength" :placeholder="$t('page.cut.length')" class="w-40" :min="0.1" />
+        <NInputNumber v-model:value="matQty" :placeholder="$t('page.cut.quantity')" class="w-32" :min="1" />
         <NButton type="primary" @click="addMaterial">{{ $t('page.cut.addMaterial') }}</NButton>
         <NButton type="info" secondary @click="scrapModalShow = true">{{ $t('page.cut.scrapLibrary') }}</NButton>
       </div>
       <NDataTable :columns="materialColumns" :data="materialsData" />
 
-      <h3 class="mt-6">参数配置</h3>
+      <h3 class="mt-6">{{ $t('page.cut.paramsConfig') }}</h3>
       <div class="mb-4 flex flex-wrap items-start gap-6">
         <div class="flex items-start gap-2">
-          <span class="w-24 pt-1">新材料规格</span>
+          <span class="w-24 pt-1">{{ $t('page.cut.newMaterialSpec') }}</span>
           <div class="flex flex-col gap-2">
             <div v-for="(row, idx) in newMaterialRows" :key="idx" class="flex items-center gap-2">
               <NInput v-model:value="row.label" :placeholder="$t('page.cut.newMaterialLabel')" class="w-32" />
@@ -686,37 +704,37 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="flex items-center gap-2">
-          <span class="w-24">切割损耗</span>
+          <span class="w-24">{{ $t('page.cut.loss') }}</span>
           <NInputNumber v-model:value="loss" class="w-40" :min="0" :step="0.1">
             <template #suffix>cm</template>
           </NInputNumber>
         </div>
         <div class="flex items-center gap-2">
-          <span class="w-24">材料保护</span>
+          <span class="w-24">{{ $t('page.cut.materialProtect') }}</span>
           <NSwitch v-model:value="protectEnabled" />
           <template v-if="protectEnabled">
-            <NInputNumber v-model:value="protectMin" :min="0.1" class="w-36" placeholder="最小长度(cm)" />
+            <NInputNumber v-model:value="protectMin" :min="0.1" class="w-36" :placeholder="$t('page.cut.protectMinPh')" />
             <span class="text-gray-400">-</span>
-            <NInputNumber v-model:value="protectMax" :min="0.1" class="w-36" placeholder="最大长度(cm)" />
+            <NInputNumber v-model:value="protectMax" :min="0.1" class="w-36" :placeholder="$t('page.cut.protectMaxPh')" />
           </template>
         </div>
-        <div class="flex items-center gap-2">
-          <span class="w-24">利用率权重</span>
+        <div v-if="solveMode === 'precise'" class="flex items-center gap-2">
+          <span class="w-24">{{ $t('page.cut.utilizationWeight') }}</span>
           <NSlider v-model:value="utilizationWeight" :min="1" :max="8" :step="0.1" class="w-40" />
         </div>
         <div class="flex items-center gap-2">
-          <span class="w-24">聚合显示</span>
+          <span class="w-24">{{ $t('page.cut.aggregateDisplay') }}</span>
           <NSwitch v-model:value="group" class="w-40" />
         </div>
         <div class="flex items-center gap-2">
-          <span class="w-24">求解模式</span>
+          <span class="w-24">{{ $t('page.cut.solveMode') }}</span>
           <NSelect v-model:value="solveMode" class="w-60" :options="solveModeOptions" />
         </div>
       </div>
 
       <div class="mt-4 flex gap-2">
         <NButton type="primary" :loading="loading" @click="fetchData">{{ $t('page.cut.startCutting') }}</NButton>
-        <BarPrinter v-if="!disabledPrint" :data="cutResult" />
+        <BarPrinter v-if="!disabledPrint" :data="processedResult" />
         <SaveCutRecord :data="saveData" @saved="saveData = null"></SaveCutRecord>
         <NButton type="warning" @click="clearAll">{{ $t('page.cut.clearAll') }}</NButton>
       </div>
@@ -767,16 +785,17 @@ onUnmounted(() => {
     </NCard>
 
     <!-- 裁剪图示 -->
-    <NCard title="裁剪图示" size="large">
+    <NCard :title="$t('page.cut.cutChart')" size="large">
       <div ref="canvasWrapper" class="cursor-grab overflow-x-auto border border-gray-300 rounded-md p-4">
         <div class="origin-top-left" :style="{ transform: `scale(${scaleFactor})` }">
           <div v-for="item in processedResult" :key="item.index" class="mb-6">
             <!-- 标签 -->
             <div class="mb-1 font-bold">
-              材料 #{{ item.index }}
-              <span class="ml-1 font-normal text-gray-500">[{{ item.materialType || '新材料' }}]</span>
-              (总长: {{ item.totalLength }}cm, 已用: {{ item.used }}cm, 剩余:
-              {{ item.remaining }}cm) * {{ item.count || 1 }} 根
+              {{ $t('page.cut.barLabel', { index: item.index }) }}
+              <span class="ml-1 font-normal text-gray-500">[{{ item.materialType || $t('page.cut.summaryNewMaterial') }}]</span>
+              {{
+                $t('page.cut.barStats', { total: item.totalLength, used: item.used, remaining: item.remaining, count: item.count || 1 })
+              }}
             </div>
 
             <!-- 条形图 -->
@@ -800,7 +819,7 @@ onUnmounted(() => {
                   width: item.remaining * (containerWidth / maxTotalLength) + 'px'
                 }"
               >
-                剩余{{ item.remaining }}cm
+                {{ $t('page.cut.tailRemaining', { remaining: item.remaining }) }}
               </div>
             </div>
           </div>
@@ -815,7 +834,7 @@ onUnmounted(() => {
     <ProductPickModal v-model:show="productPickShow" @confirm="handleProductPick" />
 
     <!-- 加载中弹窗: 不可关闭, 防止求解期间重复提交 -->
-    <NModal v-model:show="loading" preset="dialog" title="计算中..." :mask-closable="false" :closable="false">
+    <NModal v-model:show="loading" preset="dialog" :title="$t('page.cut.calculating')" :mask-closable="false" :closable="false">
       <div class="flex flex-col items-center justify-center p-6">
         <NSpin size="large" />
         <div class="mt-3">{{ $t('page.cut.loading') }}</div>

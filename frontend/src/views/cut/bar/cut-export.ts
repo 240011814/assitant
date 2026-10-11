@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { $t } from '@/locales';
 import { canvasToBlob, downloadBlob, formatFileTimestamp } from '@/utils/cut-export';
 
 /**
@@ -118,9 +119,9 @@ function rowLabelText(item: BarRow): string {
   let text = `#${item.index}`;
   const type = item.materialType?.trim();
   if (type) text += ` [${type}]`;
-  text += ` 总长 ${fmt(item.totalLength)}cm`;
+  text += ` ${$t('page.cut.rowTotalLength', { total: fmt(item.totalLength) })}`;
   const count = item.count ?? 1;
-  if (count > 1) text += ` ×${count}根`;
+  if (count > 1) text += ` ${$t('page.cut.rowCount', { count })}`;
   return text;
 }
 
@@ -150,7 +151,7 @@ function layoutBar(item: BarRow, scale: number, measure: (text: string) => numbe
   if (item.remaining > 0) {
     const w = item.remaining * scale;
     if (w < style.minInlineWidth && w >= style.minLeaderWidth) {
-      pushLabel(x + w / 2, `余${fmt(item.remaining)}`);
+      pushLabel(x + w / 2, $t('page.cut.remainShort', { remaining: fmt(item.remaining) }));
     }
   }
 
@@ -177,7 +178,11 @@ function drawBarRow(
   ctx.font = fontCss(style.statSize);
   ctx.fillStyle = '#6b7280';
   ctx.textAlign = 'right';
-  ctx.fillText(`已用 ${fmt(item.used)}cm | 余料 ${fmt(item.remaining)}cm`, style.marginX + barWidth, top + style.statSize);
+  ctx.fillText(
+    $t('page.cut.rowUsedRemaining', { used: fmt(item.used), remaining: fmt(item.remaining) }),
+    style.marginX + barWidth,
+    top + style.statSize
+  );
   ctx.textAlign = 'center';
 
   item.cuts.forEach((cut, idx) => {
@@ -211,7 +216,7 @@ function drawBarRow(
     if (w >= style.minInlineWidth) {
       ctx.fillStyle = '#333';
       ctx.font = fontCss(style.inlineSize);
-      ctx.fillText(`余 ${fmt(item.remaining)}`, x + w / 2, barTop + style.barHeight / 2 + style.inlineSize * 0.35);
+      ctx.fillText($t('page.cut.remainShort', { remaining: fmt(item.remaining) }), x + w / 2, barTop + style.barHeight / 2 + style.inlineSize * 0.35);
     }
   }
 
@@ -240,12 +245,17 @@ function computeScale(results: BarRow[], barWidth: number): number {
 function summaryText(results: BarRow[], summary?: Api.Cut.BarSummary | null): string {
   const pieceCount = results.reduce((sum, r) => sum + r.cuts.length * (r.count ?? 1), 0);
   if (summary) {
-    return (
-      `共 ${summary.materialCount} 根 | 零件 ${pieceCount} 件 | 材料总长 ${fmt(summary.totalMaterialLength)}cm | ` +
-      `零件总长 ${fmt(summary.totalCutLength)}cm | 利用率 ${summary.utilization}% | 余料 ${fmt(summary.totalRemaining)}cm (${summary.scrapCount}根)`
-    );
+    return $t('page.cut.barExportSummary', {
+      bars: summary.materialCount,
+      pieces: pieceCount,
+      materialLength: fmt(summary.totalMaterialLength),
+      cutLength: fmt(summary.totalCutLength),
+      utilization: summary.utilization,
+      remaining: fmt(summary.totalRemaining),
+      scrapCount: summary.scrapCount
+    });
   }
-  return `共 ${results.length} 根 | 零件 ${pieceCount} 件`;
+  return $t('page.cut.barExportSummaryShort', { bars: results.length, pieces: pieceCount });
 }
 
 /** 把一维切割结果画成切割示意图 canvas (单张长图, 用于 PNG 导出) */
@@ -275,7 +285,7 @@ export function drawBarCutChart(results: BarRow[], summary?: Api.Cut.BarSummary 
   ctx.font = fontCss(16, true);
   ctx.fillStyle = '#111827';
   ctx.textAlign = 'left';
-  ctx.fillText(`切割示意图  ${summaryText(results, summary)}`, style.marginX, MARGIN_Y + 22);
+  ctx.fillText(`${$t('page.cut.cutChartExportTitle')}  ${summaryText(results, summary)}`, style.marginX, MARGIN_Y + 22);
 
   let y = MARGIN_Y + TITLE_HEIGHT;
   layouts.forEach(layout => {
@@ -289,7 +299,7 @@ export function drawBarCutChart(results: BarRow[], summary?: Api.Cut.BarSummary 
 export async function exportBarCutPNG(results: BarRow[], summary?: Api.Cut.BarSummary | null): Promise<void> {
   const canvas = drawBarCutChart(results, summary);
   const blob = await canvasToBlob(canvas);
-  downloadBlob(blob, `切割图-${formatFileTimestamp()}.png`);
+  downloadBlob(blob, `${$t('page.cut.exportFileName')}-${formatFileTimestamp()}.png`);
 }
 
 // ---- PDF 打印: 横向 A4 按页独立渲染 ----
@@ -370,11 +380,11 @@ export function buildBarCutPDF(results: BarRow[], summary?: Api.Cut.BarSummary |
     ctx.fillStyle = '#111827';
     ctx.textAlign = 'left';
     ctx.font = fontCss(titlePx, true);
-    ctx.fillText('切割示意图', left, titleY);
+    ctx.fillText($t('page.cut.cutChartExportTitle'), left, titleY);
     ctx.font = fontCss(smallPx);
     ctx.fillStyle = '#6b7280';
     ctx.textAlign = 'right';
-    ctx.fillText(`第 ${pageIndex + 1} / ${pages.length} 页`, right, titleY);
+    ctx.fillText($t('page.cut.pageNum', { current: pageIndex + 1, total: pages.length }), right, titleY);
     ctx.textAlign = 'left';
     ctx.fillText(summaryLine, left, statsY);
     ctx.textAlign = 'right';
@@ -403,5 +413,5 @@ export function buildBarCutPDF(results: BarRow[], summary?: Api.Cut.BarSummary |
 
 /** 导出切割示意图 PDF (横向 A4, 单根料不跨页) */
 export async function exportBarCutPDF(results: BarRow[], summary?: Api.Cut.BarSummary | null): Promise<void> {
-  buildBarCutPDF(results, summary).save(`切割图-${formatFileTimestamp()}.pdf`);
+  buildBarCutPDF(results, summary).save(`${$t('page.cut.exportFileName')}-${formatFileTimestamp()}.pdf`);
 }

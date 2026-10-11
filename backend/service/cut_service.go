@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"sort"
 	"strconv"
@@ -22,6 +21,31 @@ type CutService struct {
 
 func NewCutService(baostockURL string) *CutService {
 	return &CutService{baostockURL: baostockURL}
+}
+
+// InvalidInputError 标记用户输入/业务校验类错误, handler 据此返回 400 而非 500
+type InvalidInputError struct{ err error }
+
+func (e *InvalidInputError) Error() string { return e.err.Error() }
+func (e *InvalidInputError) Unwrap() error { return e.err }
+
+// InvalidInput 包装输入校验类错误
+func InvalidInput(format string, args ...any) error {
+	return &InvalidInputError{err: fmt.Errorf(format, args...)}
+}
+
+// IsInvalidInput 判断是否输入校验类错误
+func IsInvalidInput(err error) bool {
+	var e *InvalidInputError
+	return errors.As(err, &e)
+}
+
+// likeEscape 转义 LIKE 通配符 (MySQL 默认转义符为反斜杠), 防止用户输入 %/_ 干扰模糊匹配
+func likeEscape(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
 }
 
 // ===== 一维切割算法（列生成 + 贪心分配）=====
@@ -46,7 +70,7 @@ type pattern struct {
 // BarCut 一维切割优化算法 (零件可指定归属材料规格: 按规格分组, 各组独立求解)
 func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutResponse, error) {
 	if len(req.Items) == 0 {
-		return nil, errors.New("切割项目不能为空")
+		return nil, InvalidInput("切割项目不能为空")
 	}
 
 	// 材料规格: newMaterials 多规格优先, 为空时回退 newMaterialLength 单一规格 (兼容旧请求)
@@ -55,7 +79,7 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 	specOrder := make([]string, 0, len(req.NewMaterials)+1)
 	registerSpec := func(label string, length float64) error {
 		if length <= 0 {
-			return errors.New("新材料长度必须大于0")
+			return InvalidInput("新材料长度必须大于0")
 		}
 		if _, ok := specLen[label]; !ok {
 			specLen[label] = length
@@ -71,7 +95,7 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 		}
 	} else {
 		if req.NewMaterialLength <= 0 {
-			return nil, errors.New("新材料长度必须大于0")
+			return nil, InvalidInput("新材料长度必须大于0")
 		}
 		if err := registerSpec("", req.NewMaterialLength); err != nil {
 			return nil, err
@@ -84,19 +108,20 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 		minSpecLen = math.Min(minSpecLen, l)
 	}
 	if kerf >= minSpecLen {
-		return nil, fmt.Errorf("切割损耗 %v 必须小于最短的材料规格长度 %v", req.Loss, minSpecLen)
+		return nil, InvalidInput("切割损耗 %v 必须小于最短的材料规格长度 %v", req.Loss, minSpecLen)
 	}
 
 	// 材料保护规则: 开启后余料不允许落在 [min, max] 区间 (余料要么小于 min 要么大于 max)
 	protect := cutProtect{enabled: req.ProtectEnabled, min: req.ProtectMin, max: req.ProtectMax}
 	if protect.enabled && (protect.min <= 0 || protect.max < protect.min) {
-		return nil, errors.New("材料保护区间不合法: 需要 0 < 最小长度 ≤ 最大长度")
+		return nil, InvalidInput("材料保护区间不合法: 需要 0 < 最小长度 ≤ 最大长度")
 	}
 
-	// 旧料展开: 用户输入
+	// 旧料展开: 用户输入 (id = 库存余料条目 id, 随结果行回填供精确扣减)
 	type scrapUnit struct {
 		length float64
 		label  string
+		id     uint
 	}
 	var allScraps []scrapUnit
 	for _, m := range req.Materials {
@@ -104,7 +129,7 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 			continue
 		}
 		// materials 每条即一根 (与旧语义一致)
-		allScraps = append(allScraps, scrapUnit{length: m.Length, label: m.Label})
+		allScraps = append(allScraps, scrapUnit{length: m.Length, label: m.Label, id: m.ID})
 	}
 
 	// 零件按规格分组: spec 非空的零件只从同名规格的材料上切, 空 spec 进通用组
@@ -113,13 +138,13 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 	groupItems := make(map[string][]float64)
 	for _, it := range req.Items {
 		if it.Length <= 0 {
-			return nil, fmt.Errorf("切割项目长度必须大于0, 存在非法项: %v", it.Length)
+			return nil, InvalidInput("切割项目长度必须大于0, 存在非法项: %v", it.Length)
 		}
 		spec := it.Spec
 		if spec == "" {
 			spec = genericSpec
 		} else if _, ok := specLen[spec]; !ok {
-			return nil, fmt.Errorf("尺寸长度 %v 引用了未定义的材料规格: %s", it.Length, spec)
+			return nil, InvalidInput("尺寸长度 %v 引用了未定义的材料规格: %s", it.Length, spec)
 		}
 		if _, ok := groupItems[spec]; !ok {
 			groupOrder = append(groupOrder, spec)
@@ -171,13 +196,14 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 				if spec == genericSpec {
 					specName = "通用"
 				}
-				return nil, fmt.Errorf("切割项目长度 %v 超过材料规格 %s 的最长材料 %v, 无法切割", length, specName, maxLen)
+				return nil, InvalidInput("切割项目长度 %v 超过材料规格 %s 的最长材料 %v, 无法切割", length, specName, maxLen)
 			}
 		}
 
 		// 组内旧料: 非通用组认领同名旧料; 通用组拿全部未被认领的
 		var groupScraps []float64
 		var groupLabels []string
+		var groupIDs []uint
 		for i, sc := range allScraps {
 			if claimed[i] {
 				continue
@@ -192,17 +218,20 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 			claimed[i] = true
 			groupScraps = append(groupScraps, sc.length)
 			groupLabels = append(groupLabels, sc.label)
+			groupIDs = append(groupIDs, sc.id)
 		}
 
 		aggItems := s.aggregateItems(lengths)
-		fixed, restIdxs, remainingDemand := s.preAssignExactScraps(aggItems, groupScraps, groupLabels, kerf)
+		fixed, restIdxs, remainingDemand := s.preAssignExactScraps(aggItems, groupScraps, groupLabels, groupIDs, kerf)
 		for i := range fixed {
 			fixed[i].Index = newIdx
 			newIdx++
 		}
 		restScraps := make([]float64, len(restIdxs))
+		restIDs := make([]uint, len(restIdxs))
 		for i, idx := range restIdxs {
 			restScraps[i] = groupScraps[idx]
+			restIDs[i] = groupIDs[idx]
 		}
 
 		// 精确模式: OR-Tools sidecar 列生成; 未配置地址或求解失败直接报错给前端, 不再静默回退快速算法
@@ -212,7 +241,7 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 				return nil, errors.New("精确模式未配置求解服务地址 (BAOSTOCK_API_URL)")
 			}
 			precise, _, err := s.solvePreciseGroup(client, aggItems, remainingDemand, materialLens, materialLabels,
-				restScraps, restLabelsFrom(groupScraps, groupLabels, restIdxs), kerf,
+				restScraps, restLabelsFrom(groupScraps, groupLabels, restIdxs), restIDs, kerf,
 				math.Max(1, req.UtilizationWeight), protect, newIdx)
 			if err != nil {
 				return nil, fmt.Errorf("精确求解失败: %w", err)
@@ -230,7 +259,7 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 		for _, l := range materialLens {
 			patterns = append(patterns, s.generateInitialPatterns(aggItems, remainingDemand, l, restScraps, kerf)...)
 		}
-		results, _ = s.solveGreedy(patterns, aggItems, remainingDemand, materialLens, materialLabels, restScraps, restLabelsFrom(groupScraps, groupLabels, restIdxs), kerf, protect, newIdx)
+		results, _ = s.solveGreedy(patterns, aggItems, remainingDemand, materialLens, materialLabels, restScraps, restLabelsFrom(groupScraps, groupLabels, restIdxs), restIDs, kerf, protect, newIdx)
 		newIdx += len(results)
 		allResults = append(allResults, fixed...)
 		allResults = append(allResults, results...)
@@ -253,19 +282,18 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 	return resp, nil
 }
 
-// precisePlaneCut 二维精确求解 (OR-Tools sidecar, cut_api/solver_2d): MaxRects 保底 + CP-SAT 优化。
-// 未配置求解地址/规模超限/求解失败/超时一律回退 MaxRects, 结果不劣于启发式。
+// precisePlaneCut 二维精确求解 (OR-Tools sidecar, cut_api/solver_2d): 与一维精确模式同一语义 —
+// 未配置求解地址/规模超限/求解失败/超时直接报错给前端, 不静默回退启发式。
 func (s *CutService) precisePlaneCut(req model.BinRequest) (*model.PlaneCutResponse, error) {
-	fallback, err := s.maxRectsCut(req)
-	if err != nil {
-		return nil, err
-	}
 	client := s.solverClient()
 	if client == nil {
-		log.Printf("[Cut] 精确模式未配置求解地址 (BAOSTOCK_API_URL), 回退 MaxRects")
-		return fallback, nil
+		return nil, errors.New("精确模式未配置求解服务地址 (BAOSTOCK_API_URL)")
 	}
-	return s.solvePlanePrecise(client, req, fallback), nil
+	resp, ok := s.trySolvePlanePrecise(client, req)
+	if !ok {
+		return nil, errors.New("精确求解失败 (求解服务不可用或规模超限), 请改用启发式策略 (刀切法/最大空闲法)")
+	}
+	return resp, nil
 }
 
 // containsSpec 规格名列表包含判断
@@ -365,7 +393,7 @@ func (s *CutService) aggregateItems(items []float64) []aggItem {
 
 // preAssignExactScraps 旧料直配预分配
 // preAssignExactScraps 旧料直配预分配 (返回: 结果 / 剩余旧料的原下标 / 剩余需求)
-func (s *CutService) preAssignExactScraps(items []aggItem, scraps []float64, scrapLabels []string, kerf float64) ([]model.BarResult, []int, []int) {
+func (s *CutService) preAssignExactScraps(items []aggItem, scraps []float64, scrapLabels []string, scrapIDs []uint, kerf float64) ([]model.BarResult, []int, []int) {
 	var results []model.BarResult
 	remainingDemand := make([]int, len(items))
 	for i, item := range items {
@@ -385,6 +413,10 @@ func (s *CutService) preAssignExactScraps(items []aggItem, scraps []float64, scr
 				used[i] = true
 				remainingDemand[t]--
 
+				fixedID := uint(0)
+				if i < len(scrapIDs) {
+					fixedID = scrapIDs[i]
+				}
 				results = append(results, model.BarResult{
 					Index:        i + 1,
 					TotalLength:  scrap,
@@ -392,6 +424,7 @@ func (s *CutService) preAssignExactScraps(items []aggItem, scraps []float64, scr
 					Used:         round2(item.length),
 					Remaining:    0,
 					MaterialType: scrapLabels[i],
+					ScrapID:      fixedID,
 				})
 
 				// 移除已使用的索引
@@ -675,8 +708,8 @@ func formatCm(v float64) string {
 // 求解后再对低利用率的新料做重排优化 (reduceNewBars), 合并尾部零散料降低总根数。
 // protect 为材料保护规则: 余料落在保护区间内的模式不参与排料。
 // startIdx 为结果编号起点 (按规格分组求解时全局连续); 返回: 结果 / 被消费旧料在 scraps 中的下标
-func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []int, materialLens []float64, materialLabels []string, scraps []float64, scrapLabels []string, kerf float64, protect cutProtect, startIdx int) ([]model.BarResult, []int) {
-	results, usedScrapIdxs, isNewBar := s.solveGreedyCore(patterns, items, demand, materialLens, materialLabels, scraps, scrapLabels, kerf, protect, startIdx)
+func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []int, materialLens []float64, materialLabels []string, scraps []float64, scrapLabels []string, scrapIDs []uint, kerf float64, protect cutProtect, startIdx int) ([]model.BarResult, []int) {
+	results, usedScrapIdxs, isNewBar := s.solveGreedyCore(patterns, items, demand, materialLens, materialLabels, scraps, scrapLabels, scrapIDs, kerf, protect, startIdx)
 	results = s.reduceNewBars(results, isNewBar, items, kerf, protect)
 	for i := range results {
 		results[i].Index = startIdx + i
@@ -686,7 +719,7 @@ func (s *CutService) solveGreedy(patterns []pattern, items []aggItem, demand []i
 
 // solveGreedyCore 贪心主体: 按利用率顺序套用模式池 (材料保护: 余料落在保护区间内的模式跳过),
 // 尾部按类型兜底; 返回结果 / 消费的旧料下标 / 各结果是否为新料 (旧料容量不可替换, 重排时排除)
-func (s *CutService) solveGreedyCore(patterns []pattern, items []aggItem, demand []int, materialLens []float64, materialLabels []string, scraps []float64, scrapLabels []string, kerf float64, protect cutProtect, startIdx int) ([]model.BarResult, []int, []bool) {
+func (s *CutService) solveGreedyCore(patterns []pattern, items []aggItem, demand []int, materialLens []float64, materialLabels []string, scraps []float64, scrapLabels []string, scrapIDs []uint, kerf float64, protect cutProtect, startIdx int) ([]model.BarResult, []int, []bool) {
 	types := len(items)
 	remaining := make([]int, len(demand))
 	copy(remaining, demand)
@@ -753,11 +786,15 @@ func (s *CutService) solveGreedyCore(patterns []pattern, items []aggItem, demand
 			// 新料长度来自 pattern 所属材料规格 (capacity), 旧料取旧料原长
 			totalLength := p.capacity
 			materialType := lengthLabel[totalLength]
+			scrapID := uint(0)
 			if !p.isNew && p.scrapIdx >= 0 {
 				totalLength = scraps[p.scrapIdx]
 				materialType = ""
 				if p.scrapIdx < len(scrapLabels) {
 					materialType = scrapLabels[p.scrapIdx]
+				}
+				if p.scrapIdx < len(scrapIDs) {
+					scrapID = scrapIDs[p.scrapIdx]
 				}
 				scrapUsed[p.scrapIdx] = true
 			}
@@ -769,6 +806,7 @@ func (s *CutService) solveGreedyCore(patterns []pattern, items []aggItem, demand
 				Used:         round2(p.used),
 				Remaining:    round2(p.capacity - p.used),
 				MaterialType: materialType,
+				ScrapID:      scrapID,
 			})
 			isNewBar = append(isNewBar, p.isNew)
 			newIdx++
@@ -787,18 +825,42 @@ func (s *CutService) solveGreedyCore(patterns []pattern, items []aggItem, demand
 	// 处理剩余需求 (多材料: 每根新料选用"能容纳本类型零件的最小材料规格", 减少浪费)
 	for t := 0; t < types; t++ {
 		for remaining[t] > 0 {
-			// 选能容纳当前零件的最小材料长度; 从最长规格起步 (BarCut 入口已校验装得下),
-			// 避免 materialLens[0] 装不下时 cuts=0 静默丢件
-			maxLen := materialLens[0]
+			// 候选规格: 装得下当前零件的 (升序去重); 入口已校验最长规格装得下, 候选必非空
+			cands := make([]float64, 0, len(materialLens))
 			for _, l := range materialLens {
-				if l > maxLen {
-					maxLen = l
+				if l >= items[t].length {
+					cands = append(cands, l)
 				}
 			}
-			curLen := maxLen
-			for _, l := range materialLens {
-				if l >= items[t].length && l < curLen {
-					curLen = l
+			sort.Float64s(cands)
+			uniq := cands[:0]
+			for i, l := range cands {
+				if i == 0 || l != cands[i-1] {
+					uniq = append(uniq, l)
+				}
+			}
+			cands = uniq
+
+			// pickRemainder 该规格装满本类型零件后的余料长度
+			pickRemainder := func(L float64) float64 {
+				n := int((L + kerf) / (items[t].length + kerf))
+				if n < 1 {
+					n = 1
+				}
+				if n > remaining[t] {
+					n = remaining[t]
+				}
+				return L - (float64(n)*items[t].length + kerf*float64(n-1))
+			}
+			// 默认取最小可容纳规格; 开启材料保护时优先挑"余料不落保护区间"的最小规格,
+			// 避免尾部开料撞保护区间导致整单后置校验失败 (全部违规时维持原选择, 走报错)
+			curLen := cands[0]
+			if protect.enabled {
+				for _, L := range cands {
+					if !protect.violates(pickRemainder(L)) {
+						curLen = L
+						break
+					}
 				}
 			}
 			L := curLen
@@ -982,7 +1044,7 @@ func demandOfPicked(results []model.BarResult, sel []int, items []aggItem) ([]in
 // repackOnCapacity 把剩余需求在单一容量上重新排料 (同一套模式池+贪心+尾部, 不再递归优化)
 func (s *CutService) repackOnCapacity(items []aggItem, demand []int, L float64, materialType string, kerf float64, protect cutProtect) []model.BarResult {
 	patterns := s.generateInitialPatterns(items, demand, L, nil, kerf)
-	bars, _, _ := s.solveGreedyCore(patterns, items, demand, []float64{L}, []string{materialType}, nil, nil, kerf, protect, 0)
+	bars, _, _ := s.solveGreedyCore(patterns, items, demand, []float64{L}, []string{materialType}, nil, nil, nil, kerf, protect, 0)
 	return bars
 }
 
@@ -1038,10 +1100,10 @@ const planeMaxPieces = 5000
 // PlaneCut 平面切割优化算法
 func (s *CutService) PlaneCut(req model.BinRequest) (*model.PlaneCutResponse, error) {
 	if len(req.Items) == 0 {
-		return nil, errors.New("切割项目不能为空")
+		return nil, InvalidInput("切割项目不能为空")
 	}
 	if req.Width <= 0 || req.Height <= 0 {
-		return nil, errors.New("材料尺寸必须大于0")
+		return nil, InvalidInput("材料尺寸必须大于0")
 	}
 	// 锯缝 (切割损耗 cm): 负值按 0 处理
 	req.Kerf = math.Max(0, req.Kerf)
@@ -1055,14 +1117,14 @@ func (s *CutService) PlaneCut(req model.BinRequest) (*model.PlaneCutResponse, er
 		totalPieces += q
 	}
 	if totalPieces > planeMaxPieces {
-		return nil, fmt.Errorf("展开后零件总数 %d 超过上限 %d, 请拆分订单或减小数量", totalPieces, planeMaxPieces)
+		return nil, InvalidInput("展开后零件总数 %d 超过上限 %d, 请拆分订单或减小数量", totalPieces, planeMaxPieces)
 	}
 
 	// 新板材规格校验 (newMaterials 为空时回退 Width/Height 单一规格, 兼容旧请求)
 	specs := planeSpecRows(req)
 	for _, sp := range specs {
 		if sp.width <= 0 || sp.height <= 0 {
-			return nil, errors.New("新材料规格宽高必须大于0")
+			return nil, InvalidInput("新材料规格宽高必须大于0")
 		}
 	}
 	specNames := make(map[string]bool, len(specs))
@@ -1072,7 +1134,7 @@ func (s *CutService) PlaneCut(req model.BinRequest) (*model.PlaneCutResponse, er
 	// 指定材料类型的零件必须引用已定义的新板材规格 (与一维口径一致)
 	for _, it := range req.Items {
 		if spec := planeItemSpec(it); spec != "" && !specNames[spec] {
-			return nil, fmt.Errorf("切割项目 %s 引用了未定义的材料规格: %s", it.Label, spec)
+			return nil, InvalidInput("切割项目 %s 引用了未定义的材料规格: %s", it.Label, spec)
 		}
 	}
 
@@ -1084,10 +1146,10 @@ func (s *CutService) PlaneCut(req model.BinRequest) (*model.PlaneCutResponse, er
 	case "MaxRects":
 		resp, err = s.maxRectsCut(req)
 	case "Precise":
-		// 精确模式 (OR-Tools sidecar): 内部已含 MaxRects 回退, 任何失败不阻断
+		// 精确模式 (OR-Tools sidecar): 失败直接报错, 不回退启发式 (与一维精确模式口径一致)
 		resp, err = s.precisePlaneCut(req)
 	default:
-		return nil, errors.New("不支持的切割策略: " + req.Strategy)
+		return nil, InvalidInput("不支持的切割策略: %s", req.Strategy)
 	}
 	if err != nil {
 		return nil, err
@@ -1989,7 +2051,7 @@ func (s *CutService) ListCutRecords(userID uint, params model.CutRecordSearchPar
 	query := DB.Model(&model.CutRecord{}).Where("user_id = ?", userID).Omit("request", "response")
 
 	if params.Name != "" {
-		query = query.Where("name LIKE ?", "%"+params.Name+"%")
+		query = query.Where("name LIKE ?", "%"+likeEscape(params.Name)+"%")
 	}
 	if params.Type != "" {
 		query = query.Where("type = ?", params.Type)
@@ -2036,7 +2098,7 @@ func (s *CutService) ListScraps(userID uint, params model.CutScrapSearchParams) 
 		query = query.Where("scrap_type = ?", params.ScrapType)
 	}
 	if params.Name != "" {
-		query = query.Where("label LIKE ?", "%"+params.Name+"%")
+		query = query.Where("label LIKE ?", "%"+likeEscape(params.Name)+"%")
 	}
 	// 长度范围只匹配一维余料 (二维没有长度属性)
 	if params.LengthMin != nil {
@@ -2219,7 +2281,7 @@ func (s *CutService) ListProducts(userID uint) ([]model.CutProduct, error) {
 // SaveProduct 新增/更新产品单 (仅本人); spec 逐件校验后存 JSON
 func (s *CutService) SaveProduct(userID uint, req model.SaveCutProductRequest) (*model.CutProduct, error) {
 	if err := validateProductSpec(req.Spec); err != nil {
-		return nil, err
+		return nil, InvalidInput("%v", err)
 	}
 	name := strings.TrimSpace(req.Name)
 	if len([]rune(name)) > 100 {

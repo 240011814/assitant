@@ -27,6 +27,9 @@ func (CutRecord) TableName() string {
 type BarMaterial struct {
 	Label  string  `json:"label"` // 类型名 (如: 长料 / 45#方管余料), 可空
 	Length float64 `json:"length" binding:"required,min=1"`
+	// ID 库存余料条目 id (从余料库带入时传, 新材料规格/手工行不传);
+	// BarCut 会把它回填到消费该料的结果行 (BarResult.ScrapID), 供精确扣减库存
+	ID uint `json:"id,omitempty"`
 }
 
 // BarMaterialList 兼容两种 JSON 形态: 旧请求的 [6000,4000] (纯长度) 与新的 [{label,length}]
@@ -113,6 +116,8 @@ type BarResult struct {
 	Used         float64   `json:"used"`
 	Remaining    float64   `json:"remaining"`
 	MaterialType string    `json:"materialType"` // 材料类型 (新料规格名/旧料类型名, 空则前端显示"新材料")
+	// ScrapID 消费的库存余料条目 id (请求材料带 id 时回填; 新料为 0/缺省)
+	ScrapID uint `json:"scrapId,omitempty"`
 }
 
 // BarMaterialTypeSummary 一维按材料类型分组统计 (口径同整体汇总)

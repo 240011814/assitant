@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { $t } from '@/locales';
 import { canvasToBlob, downloadBlob, formatFileTimestamp, printBlobUrl } from '@/utils/cut-export';
 
 /**
@@ -29,8 +30,8 @@ function labelHue(label: string): number {
   return hash;
 }
 
-/** 把单块板材排版结果画到离屏 canvas */
-export function drawBinToCanvas(bin: Api.Cut.BinResult): HTMLCanvasElement {
+/** 把单块板材排版结果画到离屏 canvas (count > 1 时标题标注相同排版板数) */
+export function drawBinToCanvas(bin: Api.Cut.BinResult, count = 1): HTMLCanvasElement {
   const scale = MAX_SHEET_PX / Math.max(bin.materialWidth, bin.materialHeight, 1);
   const sheetW = Math.max(bin.materialWidth * scale, 10);
   const sheetH = Math.max(bin.materialHeight * scale, 10);
@@ -50,8 +51,13 @@ export function drawBinToCanvas(bin: Api.Cut.BinResult): HTMLCanvasElement {
   ctx.fillStyle = '#111827';
   ctx.textAlign = 'left';
   ctx.fillText(
-    `${bin.materialType || '材料'}  ${fmt(bin.materialWidth)} × ${fmt(bin.materialHeight)} cm  |  ` +
-      `利用率 ${bin.utilization}%  |  件数 ${bin.pieces.length}`,
+    `${$t('page.cut.binTitle', {
+      type: bin.materialType || $t('page.cut.material'),
+      width: fmt(bin.materialWidth),
+      height: fmt(bin.materialHeight),
+      utilization: bin.utilization,
+      pieces: bin.pieces.length
+    })}${count > 1 ? $t('page.cut.binCountSuffix', { count }) : ''}`,
     MARGIN,
     MARGIN + 16
   );
@@ -105,19 +111,41 @@ export function drawBinToCanvas(bin: Api.Cut.BinResult): HTMLCanvasElement {
       ctx.textAlign = 'left';
       ctx.fillText(piece.label, x + 5, y + 14);
       ctx.font = '10px sans-serif';
-      ctx.fillText(`${fmt(piece.w)}×${fmt(piece.h)}cm${piece.rotated ? ' (转)' : ''}`, x + 5, y + 28);
+      ctx.fillText(`${fmt(piece.w)}×${fmt(piece.h)}cm${piece.rotated ? $t('page.cut.rotatedMark') : ''}`, x + 5, y + 28);
     }
   });
 
   return canvas;
 }
 
-/** 导出全部板材拼接纵向长图 PNG */
-export async function exportPlaneCutPNG(results: Api.Cut.BinResult[]): Promise<void> {
+/** 聚合相同排版结果的板材 (与 PlaneCanvas groupData 同口径): 同类型同尺寸且件布局一致 → 计数合并 */
+function aggregatePlaneResults(results: Api.Cut.BinResult[]): Api.Cut.BinResult[] {
+  const groups = new Map<string, Api.Cut.BinResult & { count?: number }>();
+  const order: string[] = [];
+  results.forEach(bin => {
+    const piecesKey = bin.pieces
+      .map(p => `${p.x},${p.y},${p.w},${p.h}`)
+      .sort()
+      .join('|');
+    const key = `${bin.materialType}-${bin.materialWidth}x${bin.materialHeight}-${piecesKey}`;
+    if (groups.has(key)) {
+      const g = groups.get(key)!;
+      g.count = (g.count ?? 1) + 1;
+    } else {
+      groups.set(key, { ...bin, count: 1 });
+      order.push(key);
+    }
+  });
+  return order.map(key => groups.get(key)!);
+}
+
+/** 导出全部板材拼接纵向长图 PNG (group=true 时聚合相同板材, 与页面聚合显示同口径) */
+export async function exportPlaneCutPNG(results: Api.Cut.BinResult[], group = false): Promise<void> {
   if (results.length === 0) {
     throw new Error('no plane cut results to export');
   }
-  const canvases = results.map(bin => drawBinToCanvas(bin));
+  const rows: Array<Api.Cut.BinResult & { count?: number }> = group ? aggregatePlaneResults(results) : results.map(bin => ({ ...bin }));
+  const canvases = rows.map(bin => drawBinToCanvas(bin, bin.count ?? 1));
   const width = Math.max(...canvases.map(c => c.width));
   const height = canvases.reduce((sum, c) => sum + c.height + GAP, -GAP);
 
@@ -137,11 +165,11 @@ export async function exportPlaneCutPNG(results: Api.Cut.BinResult[]): Promise<v
   });
 
   const blob = await canvasToBlob(canvas);
-  downloadBlob(blob, `切割图-${formatFileTimestamp()}.png`);
+  downloadBlob(blob, `${$t('page.cut.exportFileName')}-${formatFileTimestamp()}.png`);
 }
 
-/** 生成 PDF (竖向 A4, 每块板材一页) */
-export function buildPlaneCutPDF(results: Api.Cut.BinResult[]): jsPDF {
+/** 生成 PDF (竖向 A4, 每块板材一页; group=true 时聚合相同板材) */
+export function buildPlaneCutPDF(results: Api.Cut.BinResult[], group = false): jsPDF {
   if (results.length === 0) {
     throw new Error('no plane cut results to export');
   }
@@ -152,8 +180,11 @@ export function buildPlaneCutPDF(results: Api.Cut.BinResult[]): jsPDF {
   const contentW = pageW - margin * 2;
   const contentH = pageH - margin * 2;
 
-  results.forEach((bin, index) => {
-    const c = drawBinToCanvas(bin);
+  const rows: Array<Api.Cut.BinResult & { count?: number }> = group
+    ? aggregatePlaneResults(results)
+    : results.map(bin => ({ ...bin }));
+  rows.forEach((bin, index) => {
+    const c = drawBinToCanvas(bin, bin.count ?? 1);
     const fit = Math.min(contentW / c.width, contentH / c.height, 1);
     const drawW = c.width * fit;
     const drawH = c.height * fit;
@@ -165,14 +196,14 @@ export function buildPlaneCutPDF(results: Api.Cut.BinResult[]): jsPDF {
   return pdf;
 }
 
-/** 导出 PDF (竖向 A4, 每块板材一页) */
-export async function exportPlaneCutPDF(results: Api.Cut.BinResult[]): Promise<void> {
-  buildPlaneCutPDF(results).save(`切割图-${formatFileTimestamp()}.pdf`);
+/** 导出 PDF (竖向 A4, 每块板材一页; group=true 时聚合相同板材) */
+export async function exportPlaneCutPDF(results: Api.Cut.BinResult[], group = false): Promise<void> {
+  buildPlaneCutPDF(results, group).save(`${$t('page.cut.exportFileName')}-${formatFileTimestamp()}.pdf`);
 }
 
-/** 直接打印切割图 (PDF autoPrint, 新窗口打开后自动弹出打印对话框) */
-export async function printPlaneCut(results: Api.Cut.BinResult[]): Promise<boolean> {
-  const pdf = buildPlaneCutPDF(results);
+/** 直接打印切割图 (PDF autoPrint, 新窗口打开后自动弹出打印对话框; group=true 时聚合相同板材) */
+export async function printPlaneCut(results: Api.Cut.BinResult[], group = false): Promise<boolean> {
+  const pdf = buildPlaneCutPDF(results, group);
   pdf.autoPrint();
   const blobUrl = pdf.output('bloburl');
   return printBlobUrl(String(blobUrl));

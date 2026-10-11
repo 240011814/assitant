@@ -1,13 +1,27 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue';
 import html2canvas from 'html2canvas';
+import { $t } from '@/locales';
 
 const props = defineProps<{
   results: Api.Cut.BinResult[];
   materials: Api.Cut.Item[];
+  /** 聚合相同排版板材 (与页面聚合显示开关同源; 缺省 true 保持旧行为) */
+  groupData?: boolean;
 }>();
 
 const printArea = ref<HTMLDivElement | null>(null);
+
+/** 轮询等待 PlaneCanvas 把当前结果画完 (有非空 canvas 即视为就绪), 上限 3s。
+ *  旧实现固定等 100ms, 大结果画不完会打出空白/半成品。 */
+async function waitCanvasReady() {
+  for (let i = 0; i < 30; i += 1) {
+    const canvases = printArea.value?.querySelectorAll('canvas') ?? [];
+    const ready = Array.from(canvases).filter(c => c.width > 0 && c.height > 0).length;
+    if (canvases.length > 0 && ready === canvases.length) return;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+}
 
 async function printResult() {
   if (!printArea.value || !props.results.length) return;
@@ -23,11 +37,7 @@ async function printResult() {
   el.style.opacity = '1';
 
   await nextTick();
-
-  // 等待 PlaneCanvas 绘制完成
-  await new Promise(resolve => {
-    setTimeout(resolve, 100);
-  });
+  await waitCanvasReady();
 
   try {
     // html2canvas 生成高分辨率图片
@@ -49,7 +59,7 @@ async function printResult() {
     printWindow.document.write(`
       <html>
         <head>
-          <title>打印下料图</title>
+          <title>${$t('page.cut.cutChartExportTitle')}</title>
           <style>
             @page {
               size: A4 portrait;
@@ -87,12 +97,14 @@ async function printResult() {
 
 <template>
   <!-- 打印按钮 -->
-  <NButton type="primary" :disabled="!results || results.length === 0" @click="printResult">打印</NButton>
+  <NButton type="primary" :disabled="!results || results.length === 0" @click="printResult">
+    {{ $t('page.cut.printChart') }}
+  </NButton>
 
   <!-- 打印内容区域 -->
   <div ref="printArea" class="print-area">
     <PlaneStats :results="results" />
-    <PlaneCanvas :group-data="true" :results="results" :materials="materials" />
+    <PlaneCanvas :group-data="groupData !== false" :results="results" :materials="materials" />
   </div>
 </template>
 
