@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"backend/model"
@@ -20,13 +21,17 @@ import (
 // 由调用方直接报错给前端, 不静默回退启发式。
 
 const (
-	cut2dSolverTimeout = 150 * time.Second // HTTP 超时 = 求解预算 (2 分钟) + 组装余量
-	cut2dSolverBudget  = 120000            // 传给 sidecar 的求解预算 ms (限时 2 分钟)
-	cut2dMaxPieces     = 400               // 展开件数上限, 超过直接报错
-	cut2dMaxBoards     = 40                // 候选板材上限 (启发式用板 + 剩余旧料 + 备用新板)
-	cut2dMaxPairs      = 9600              // 件×板 乘积上限 (模型规模防御)
-	cut2dMaxExtraScrap = 12                // 启发式未消费旧料的候选追加上限
-	cut2dNewBoardName  = "新板材"            // 与 buildPlaneMaterials 的新板标注一致
+	// cut2dSolverTimeout HTTP 超时 = 求解预算 (45s) + 组装余量
+	cut2dSolverTimeout = 60 * time.Second
+	// cut2dSolverBudget 传给 sidecar 的求解预算 ms。
+	// 实测 (2026-10): 同规格几十件 ~24s 可证最优; 混合规格无法在预算内证明最优,
+	// 120s 的最优解与 0s 的启发式 hint 相同 (纯烧墙钟) → 预算砍到 45s, 品质不变等待减半再减半
+	cut2dSolverBudget = 45000
+	cut2dMaxPieces    = 400               // 展开件数上限, 超过直接报错
+	cut2dMaxBoards    = 40                // 候选板材上限 (启发式用板 + 剩余旧料 + 备用新板)
+	cut2dMaxPairs     = 9600              // 件×板 乘积上限 (模型规模防御)
+	cut2dMaxExtraScrap = 12               // 启发式未消费旧料的候选追加上限
+	cut2dNewBoardName  = "新板材"           // 与 buildPlaneMaterials 的新板标注一致
 	// cut2dMaxResponseBytes 求解响应体上限 (1MB)
 	cut2dMaxResponseBytes = 1 << 20
 )
@@ -80,6 +85,8 @@ type cut2dSolverResponse struct {
 // trySolvePlanePrecise 二维精确求解; 失败返回 false, 调用方直接报错 (不回退启发式)
 func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.BinRequest) (*model.PlaneCutResponse, bool) {
 	// 展开零件 (顺序与 sidecar 的展开一致: items 顺序 × quantity; label 规则同 expandItems)
+	// sidecar 协议里的 placement.item 是 "类型下标" (聚合数量), 不是展开件下标 —
+	// 组装/hint 都必须按 类型下标+类型内出现序 映射回展开件 (两者仅在全 demand=1 时恰好一致)
 	type expPiece struct {
 		typeIdx int
 		label   string
@@ -87,11 +94,15 @@ func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.Bin
 		w, h    float64
 	}
 	var expanded []expPiece
+	typeStart := make([]int, len(req.Items))
+	typeCount := make([]int, len(req.Items))
 	for ti, it := range req.Items {
 		q := it.Quantity
 		if q < 1 {
 			q = 1
 		}
+		typeStart[ti] = len(expanded)
+		typeCount[ti] = q
 		for i := 0; i < q; i++ {
 			label := it.Label
 			if q > 1 {
@@ -191,8 +202,13 @@ func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.Bin
 		return nil, false
 	}
 
-	// 启发式解 → hint: 按 label+尺寸匹配展开件 (启发式件按板序遍历, 同类型出现序的板下标
-	// 单调不减, 与 sidecar 的对称性破除约束同向, hint 可直接受用)
+	// 启发式解 → hint: 按类型聚合发送 (heuPieces 已按板序收集)。
+	// 绝不能按展开件逐件 1:1 匹配: 同面积件在启发式排序里顺序不稳定, 按标签对齐会让
+	// "同类型件按展开序板下标单调不减" 的对称性破除约束被 hint 踩破 → hint 不可行,
+	// CP-SAT 只剩 fj 一个首解子求解器且完不成它 → 45~120s 颗粒无收 (UNKNOWN)。
+	// 按类型发送后, sidecar 的出现序计数器把几何分配给同类互换件, 板序天然单调。
+	// 类型识别: 基础标签 = 启发式件标签去掉 "_N" 展开后缀 (q=1 时与 item 标签相同);
+	// 同名不同尺寸的 item 用尺寸二次核对, 对不上的件放弃 hint (靠传播补全)。
 	type heuPiece struct {
 		label   string
 		w, h    float64
@@ -206,19 +222,38 @@ func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.Bin
 			heuPieces = append(heuPieces, heuPiece{label: p.Label, w: p.W, h: p.H, rotated: p.Rotated, board: bi, x: p.X, y: p.Y})
 		}
 	}
-	matched := make([]bool, len(heuPieces))
-	initial := make([]cut2dSolverPlacement, 0, len(heuPieces))
-	for ti, ep := range expanded {
-		for hi, hp := range heuPieces {
-			if matched[hi] || hp.label != ep.label {
-				continue
-			}
-			if (nearlyEq(ep.w, hp.w) && nearlyEq(ep.h, hp.h)) || (nearlyEq(ep.w, hp.h) && nearlyEq(ep.h, hp.w)) {
-				matched[hi] = true
-				initial = append(initial, cut2dSolverPlacement{Item: ti, Board: hp.board, X: hp.x, Y: hp.y, Rotated: hp.rotated})
-				break
+	labelTypes := make(map[string][]int, len(req.Items))
+	for ti, it := range req.Items {
+		labelTypes[it.Label] = append(labelTypes[it.Label], ti)
+	}
+	typeOfSize := func(base string, w, h float64) int {
+		for _, ti := range labelTypes[base] {
+			it := req.Items[ti]
+			if (nearlyEq(it.Width, w) && nearlyEq(it.Height, h)) || (nearlyEq(it.Width, h) && nearlyEq(it.Height, w)) {
+				return ti
 			}
 		}
+		return -1
+	}
+	initial := make([]cut2dSolverPlacement, 0, len(heuPieces))
+	for _, hp := range heuPieces {
+		ti := typeOfSize(hp.label, hp.w, hp.h)
+		if ti < 0 {
+			base := hp.label
+			if i := strings.LastIndex(base, "_"); i >= 0 {
+				if _, err := strconv.Atoi(base[i+1:]); err == nil {
+					base = base[:i]
+				}
+			}
+			if base != hp.label {
+				ti = typeOfSize(base, hp.w, hp.h)
+			}
+		}
+		if ti < 0 {
+			log.Printf("[Cut] 精确模式 hint: 启发式件 %s 无法对应到零件类型, 该件不进 hint", hp.label)
+			continue
+		}
+		initial = append(initial, cut2dSolverPlacement{Item: ti, Board: hp.board, X: hp.x, Y: hp.y, Rotated: hp.rotated})
 	}
 
 	reqBody := cut2dSolverRequest{TimeLimitMS: cut2dSolverBudget, InitialSolution: initial, Kerf: req.Kerf}
@@ -293,15 +328,23 @@ func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.Bin
 		oversizedCount += u.Count
 	}
 
-	// 组装结果: 板序保持候选序, 空板跳过; 旋转件宽高互换
+	// 组装结果: 板序保持候选序, 空板跳过; 旋转件宽高互换。
+	// sidecar 的 piece.item 是类型下标, 其输出按展开序生成 → 按 (类型, 类型内出现序) 还原展开件
 	pieceByBoard := make(map[int][]model.Piece)
 	placedTotal := 0
+	typeOcc := make([]int, len(req.Items))
 	for _, p := range out.Pieces {
-		if p.Board < 0 || p.Board >= len(boards) || p.Item < 0 || p.Item >= len(expanded) {
+		if p.Board < 0 || p.Board >= len(boards) || p.Item < 0 || p.Item >= len(req.Items) {
 			log.Printf("[Cut] 精确求解响应非法: placement 越界")
 			return nil, false
 		}
-		ep := expanded[p.Item]
+		occ := typeOcc[p.Item]
+		typeOcc[p.Item]++
+		if occ >= typeCount[p.Item] {
+			log.Printf("[Cut] 精确求解响应非法: 类型 %d 出现次数超过需求数", p.Item)
+			return nil, false
+		}
+		ep := expanded[typeStart[p.Item]+occ]
 		w, h := ep.w, ep.h
 		if p.Rotated {
 			w, h = ep.h, ep.w

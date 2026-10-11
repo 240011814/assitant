@@ -471,3 +471,90 @@ func TestLikeEscape(t *testing.T) {
 		t.Fatalf("likeEscape 结果不符: got %q want %q", got, want)
 	}
 }
+
+// ===== sidecar placement.item 语义 (类型下标, 非展开件下标) =====
+
+// 聚合数量请求 (Item.Quantity > 1): sidecar 按类型下标返回 placement,
+// Go 必须按 (类型, 类型内出现序) 映射回展开件, 否则所有件都会拿到第一种的尺寸
+func TestSolvePlanePreciseAggregatedQuantities(t *testing.T) {
+	// 2 种类型聚合数量: A(60×40)×2 + B(50×50)×3; sidecar 返回类型下标 0/1
+	resp := cut2dSolverResponse{
+		Pieces: []cut2dSolverPlacement{
+			{Item: 0, Board: 0, X: 0, Y: 0},
+			{Item: 0, Board: 0, X: 0, Y: 40},
+			{Item: 1, Board: 0, X: 60, Y: 0},
+			{Item: 1, Board: 0, X: 60, Y: 50},
+			{Item: 1, Board: 1, X: 0, Y: 0},
+		},
+		Unplaced: []cut2dUnplaced{},
+		Status:   "optimal",
+	}
+	srv := newCut2dMockServer(t, func(req *cut2dSolverRequest) any { return resp })
+	defer srv.Close()
+
+	s := NewCutService("")
+	client := &cutSolverClient{baseURL: srv.URL, httpClient: &http.Client{}}
+	req := model.BinRequest{
+		Items: []model.Item{
+			{Label: "A", Width: 60, Height: 40, Quantity: 2},
+			{Label: "B", Width: 50, Height: 50, Quantity: 3},
+		},
+		Width:    200,
+		Height:   200,
+		Strategy: "Precise",
+	}
+	out, ok := s.trySolvePlanePrecise(client, req)
+	if !ok {
+		t.Fatal("聚合数量求解应成功")
+	}
+	// 展开件标签/尺寸必须与各自类型一致 (旧实现全按 expanded[item] 取, 会全变成 A)
+	var aCount, bCount int
+	for _, r := range out.Results {
+		for _, p := range r.Pieces {
+			switch p.Label {
+			case "A_1", "A_2":
+				aCount++
+				if p.W != 60 || p.H != 40 {
+					t.Fatalf("件 %s 尺寸应为 60×40, 实得 %vx%v", p.Label, p.W, p.H)
+				}
+			case "B_1", "B_2", "B_3":
+				bCount++
+				if p.W != 50 || p.H != 50 {
+					t.Fatalf("件 %s 尺寸应为 50×50, 实得 %vx%v", p.Label, p.W, p.H)
+				}
+			default:
+				t.Fatalf("未知件标签: %s", p.Label)
+			}
+		}
+	}
+	if aCount != 2 || bCount != 3 {
+		t.Fatalf("应 A×2 + B×3, 实得 A×%d B×%d", aCount, bCount)
+	}
+}
+
+// sidecar 返回某类型出现次数超过需求数: 视为非法响应
+func TestSolvePlanePreciseRejectsTypeOverflow(t *testing.T) {
+	resp := cut2dSolverResponse{
+		Pieces: []cut2dSolverPlacement{
+			{Item: 0, Board: 0, X: 0, Y: 0},
+			{Item: 0, Board: 0, X: 0, Y: 40},
+			{Item: 0, Board: 0, X: 0, Y: 80}, // demand 只有 2
+		},
+		Unplaced: []cut2dUnplaced{},
+		Status:   "optimal",
+	}
+	srv := newCut2dMockServer(t, func(req *cut2dSolverRequest) any { return resp })
+	defer srv.Close()
+
+	s := NewCutService("")
+	client := &cutSolverClient{baseURL: srv.URL, httpClient: &http.Client{}}
+	req := model.BinRequest{
+		Items:    []model.Item{{Label: "A", Width: 60, Height: 40, Quantity: 2}},
+		Width:    200,
+		Height:   200,
+		Strategy: "Precise",
+	}
+	if out, ok := s.trySolvePlanePrecise(client, req); ok || out != nil {
+		t.Fatal("类型出现次数超需求数应判非法")
+	}
+}

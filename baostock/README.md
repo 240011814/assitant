@@ -54,7 +54,7 @@
 供 assitant Go 后端「精确模式」调用（环境变量 `BAOSTOCK_API_URL` 指向本服务），失败/超时由 Go 侧直接报错给前端，不静默回退启发式算法。
 
 - `POST /cut1d/solve` — 一维列生成（零件/材料/旧料、锯缝 kerf、材料保护区间、利用率偏好权重，预算 `time_limit_ms` ≤ 60s）
-- `POST /cut2d/solve` — 二维 CP-SAT NoOverlap2D 排样（旋转、锯缝 kerf、材料类型 spec、Go 启发式解作 warm start，预算 ≤ 180s）
+- `POST /cut2d/solve` — 二维 CP-SAT NoOverlap2D 排样（旋转、锯缝 kerf、材料类型 spec、Go 启发式解作 warm start；Go 侧默认预算 45s，协议上限 180s）
 - 并发治理：同时求解数上限 2，超限返回 `503`（求解是 CPU 密集任务，该进程还承载行情查询）
 - 响应 `status`: `optimal` / `feasible` = 有解；`timeout` = 限时内返回的可行解（可能次优）；`failed` = 无可行解
 - 规模防御：2D 展开件数 >400 / 板数 >40 / 件×板 >9600 返回 `failed`；1D 旧料分组 >64 组静默丢弃多余组

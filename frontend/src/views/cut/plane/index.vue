@@ -57,7 +57,7 @@ const loss = ref<number | null>(0);
 const strategyOptions = [
   { label: $t('page.cut.strategyGuillotine'), value: 'Guillotine' },
   { label: $t('page.cut.strategyMaxRects'), value: 'MaxRects' },
-  // OR-Tools 精确求解 (限时 2 分钟); 失败/超时直接报错, 不回退启发式 (与一维精确模式口径一致)
+  // OR-Tools 精确求解 (预算 45s); 失败/超时直接报错, 不回退启发式 (与一维精确模式口径一致)
   { label: $t('page.cut.strategyPrecise'), value: 'Precise' }
 ];
 

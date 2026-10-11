@@ -13,8 +13,8 @@ export function cutBin(data: Api.Cut.BinRequest) {
     url: '/api/cut/plane',
     method: 'post',
     data,
-    // 精确模式 (OR-Tools) 服务端限时 2 分钟, 放宽到 3 分钟留出传输余量
-    timeout: 180 * 1000
+    // 精确模式 (OR-Tools) 服务端预算 45s, 放宽到 90s 留出传输余量
+    timeout: 90 * 1000
   });
 }
 

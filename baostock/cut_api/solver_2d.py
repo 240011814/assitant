@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 
 from ortools.sat.python import cp_model
@@ -29,6 +30,11 @@ EPS = 1e-6
 MAX_PIECES = 400   # 展开件数上限 (Go 侧已先挡, 这里兜底)
 MAX_BOARDS = 40    # 候选板数上限
 MAX_PAIRS = 9600   # 件×板 乘积上限 (模型规模防御)
+
+# 平台期早停: 找到首个解后连续 N 秒无更优解即结束搜索。
+# 混合规格 orders 下界极弱 (面积下界 vs 实际板数 gap 可达 20%+), 证明期纯烧墙钟,
+# 实测 120s 的解与 1s 的 hint 解相同; 首解即 hint 品质, 早停不损结果只省等待。
+PLATEAU_STOP_S = 15.0
 
 
 def _scale_for(dims: list[float]) -> int:
@@ -118,6 +124,8 @@ def solve(req: SolveRequest) -> SolveResponse:
     a: dict[tuple[int, int], object] = {}
     px: dict[tuple[int, int], object] = {}
     py: dict[tuple[int, int], object] = {}
+    ex: dict[tuple[int, int], object] = {}
+    ey: dict[tuple[int, int], object] = {}
     by_piece: dict[int, list[int]] = {}
     intervals_x: list[list] = [[] for _ in boards]
     intervals_y: list[list] = [[] for _ in boards]
@@ -145,12 +153,14 @@ def solve(req: SolveRequest) -> SolveResponse:
 
             start_x = m.NewIntVar(0, bw, f"px{pi}_{bi}")
             start_y = m.NewIntVar(0, bh, f"py{pi}_{bi}")
+            end_x = m.NewIntVar(0, bw, f"ex{pi}_{bi}")
+            end_y = m.NewIntVar(0, bh, f"ey{pi}_{bi}")
             px[(pi, bi)] = start_x
             py[(pi, bi)] = start_y
-            intervals_x[bi].append(
-                m.NewOptionalIntervalVar(start_x, sx[pi], m.NewIntVar(0, bw, f"ex{pi}_{bi}"), presence, f"ivx{pi}_{bi}"))
-            intervals_y[bi].append(
-                m.NewOptionalIntervalVar(start_y, sy[pi], m.NewIntVar(0, bh, f"ey{pi}_{bi}"), presence, f"ivy{pi}_{bi}"))
+            ex[(pi, bi)] = end_x
+            ey[(pi, bi)] = end_y
+            intervals_x[bi].append(m.NewOptionalIntervalVar(start_x, sx[pi], end_x, presence, f"ivx{pi}_{bi}"))
+            intervals_y[bi].append(m.NewOptionalIntervalVar(start_y, sy[pi], end_y, presence, f"ivy{pi}_{bi}"))
         m.AddExactlyOne(lits)
 
     for bi in range(len(boards)):
@@ -209,8 +219,15 @@ def solve(req: SolveRequest) -> SolveResponse:
                 m.AddHint(a[(pi, b2)], 0)
         if pi in rot:
             m.AddHint(rot[pi], 1 if hp.rotated else 0)
+            # 尺寸变量跟随旋转 hint (w==h 的件无旋转变量; 不补齐会让 hint 永远不完整)。
+            # ow/oh 已是旋转后的横向/纵向尺寸
+            m.AddHint(sx[pi], ow)
+            m.AddHint(sy[pi], oh)
         m.AddHint(px[(pi, hp.board)], x)
         m.AddHint(py[(pi, hp.board)], y)
+        # 区间终点 = 起点 + 横/纵尺寸 (ow/oh 已是旋转后的尺寸; 不 hint 则 CP-SAT 视 hint 不完整)
+        m.AddHint(ex[(pi, hp.board)], x + ow)
+        m.AddHint(ey[(pi, hp.board)], y + oh)
     hinted_boards = {hp.board for hp in req.initial_solution}
     for bi, u in enumerate(used):
         m.AddHint(u, 1 if bi in hinted_boards else 0)
@@ -218,7 +235,48 @@ def solve(req: SolveRequest) -> SolveResponse:
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max(0.05, (req.time_limit_ms - elapsed_ms()) / 1000)
     solver.parameters.num_search_workers = min(8, os.cpu_count() or 4)
-    status = solver.Solve(m)
+    # 固定种子: 同一请求结果可复现 (多 worker 下仍有轻微非确定性, 但排障时日志可对照)
+    solver.parameters.random_seed = 7
+    # 排查开关: CUT2D_LOG_SEARCH=1 时输出 CP-SAT 搜索日志 (可见 hint 是否被接受/目标界推进情况);
+    # CUT2D_DEBUG_HINT=1 时坏 hint 直接抛错并列出违反的约束
+    if os.getenv("CUT2D_LOG_SEARCH"):
+        solver.parameters.log_search_progress = True
+    if os.getenv("CUT2D_DEBUG_HINT"):
+        solver.parameters.debug_crash_on_bad_hint = True
+
+    # 平台期早停: 找到首个解后, 连续 PLATEAU_STOP_S 秒无更优解由看门狗线程调用 StopSearch()。
+    # 只在已有解之后计时 — 首解未到手前不干预 (避免把还在探索的搜索提前掐死)。
+    improved_at = time.time()
+    first_seen = threading.Event()
+
+    class _PlateauWatch(cp_model.CpSolverSolutionCallback):
+        def __init__(self):
+            super().__init__()
+            self._best = None
+
+        def on_solution_callback(self):
+            nonlocal improved_at
+            obj = self.objective_value
+            if self._best is None or obj < self._best - 1e-6:
+                self._best = obj
+                improved_at = time.time()
+                first_seen.set()
+
+    watcher_stop = threading.Event()
+
+    def _watchdog():
+        first_seen.wait()
+        while not watcher_stop.is_set():
+            if time.time() - improved_at > PLATEAU_STOP_S:
+                solver.StopSearch()
+                return
+            watcher_stop.wait(0.5)
+
+    thread = threading.Thread(target=_watchdog, daemon=True)
+    thread.start()
+    status = solver.Solve(m, _PlateauWatch())
+    watcher_stop.set()
+    elapsed_ms()
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         logger.warning("cut2d CP-SAT 无解: status=%s pieces=%d boards=%d elapsed=%dms",
                        solver.StatusName(status), total, len(boards), elapsed_ms())

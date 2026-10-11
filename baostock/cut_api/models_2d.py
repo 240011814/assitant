@@ -22,7 +22,7 @@ class Board(BaseModel):
 
 
 class Placement(BaseModel):
-    item: int = Field(ge=0)   # items 下标
+    item: int = Field(ge=0)   # items 下标 (类型; 同类型多件通过 demand 展开共用同一下标, 出现序=展开序)
     board: int = Field(ge=0)  # boards 下标
     x: float = Field(ge=0)
     y: float = Field(ge=0)
