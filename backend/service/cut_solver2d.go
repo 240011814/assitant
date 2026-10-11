@@ -58,6 +58,8 @@ type cut2dSolverRequest struct {
 	Boards          []cut2dSolverBoard     `json:"boards"`
 	InitialSolution []cut2dSolverPlacement `json:"initial_solution"`
 	TimeLimitMS     int                    `json:"time_limit_ms"`
+	// Kerf 锯缝 cm: sidecar 内部按 (宽+kerf)×(高+kerf) 排样, 与启发式同口径
+	Kerf float64 `json:"kerf"`
 }
 
 type cut2dUnplaced struct {
@@ -225,7 +227,7 @@ func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.Bin
 		}
 	}
 
-	reqBody := cut2dSolverRequest{TimeLimitMS: cut2dSolverBudget, InitialSolution: initial}
+	reqBody := cut2dSolverRequest{TimeLimitMS: cut2dSolverBudget, InitialSolution: initial, Kerf: req.Kerf}
 	for _, it := range req.Items {
 		q := it.Quantity
 		if q < 1 {

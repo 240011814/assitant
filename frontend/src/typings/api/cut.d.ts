@@ -223,6 +223,8 @@ declare namespace Api {
       materialHeight: number; // 新增：材料高度
       pieces: Piece[];
       utilization: number;
+      /** 该板剩余的最大空矩形 (平面余料入库候选; 无可复用整块余料时缺省) */
+      scrapRect?: { x: number; y: number; w: number; h: number };
     }
 
     interface CutRecord {
@@ -230,9 +232,11 @@ declare namespace Api {
 
       type: string;
 
-      request: string;
+      /** 完整请求 JSON (列表接口不返回, 详情/复用走 GetCutRecord) */
+      request?: string;
 
-      response: string;
+      /** 完整响应 JSON (列表接口不返回, 详情/入库走 GetCutRecord) */
+      response?: string;
 
       createTime: string;
 
@@ -268,6 +272,8 @@ declare namespace Api {
       height: number;
       width: number;
       strategy: string;
+      /** 切割损耗/锯缝 cm: 相邻零件间距, 默认 0 (与一维 loss 同口径) */
+      loss?: number;
     }
 
     interface RecordRequest {

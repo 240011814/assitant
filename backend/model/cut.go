@@ -85,7 +85,7 @@ func IntItems(lengths ...float64) BarItemList {
 // 一维求解模式
 const (
 	BarModeFast    = "fast"    // 内置 DP+贪心 (默认)
-	BarModePrecise = "precise" // OR-Tools sidecar 精确求解 (需服务端配置 BAOSTOCK_API_URL; 失败自动回退 fast)
+	BarModePrecise = "precise" // OR-Tools sidecar 精确求解 (需服务端配置 BAOSTOCK_API_URL; 未配置或求解失败直接报错, 不回退 fast)
 )
 
 // BarRequest 一维切割请求
@@ -319,16 +319,28 @@ type BinRequest struct {
 	Height       float64 `json:"height" binding:"required,min=1"`
 	Width        float64 `json:"width" binding:"required,min=1"`
 	Strategy     string  `json:"strategy" binding:"required"`
+	// Kerf 锯缝/切割损耗 cm: 相邻零件间距与首件端距, 默认 0 (与一维 loss 同口径)
+	Kerf float64 `json:"loss"`
+}
+
+// ScrapRect 板材切割后剩余可复用的最大空矩形 (平面余料入库候选; 坐标/尺寸为板材内实际 cm)
+type ScrapRect struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	W float64 `json:"w"`
+	H float64 `json:"h"`
 }
 
 // BinResult 平面切割结果
 type BinResult struct {
-	BinID          int     `json:"binId"`
-	MaterialType   string  `json:"materialType"`
-	MaterialWidth  float64 `json:"materialWidth"`
-	MaterialHeight float64 `json:"materialHeight"`
-	Pieces         []Piece `json:"pieces"`
-	Utilization    float64 `json:"utilization"`
+	BinID          int        `json:"binId"`
+	MaterialType   string     `json:"materialType"`
+	MaterialWidth  float64    `json:"materialWidth"`
+	MaterialHeight float64    `json:"materialHeight"`
+	Pieces         []Piece    `json:"pieces"`
+	Utilization    float64    `json:"utilization"`
+	// ScrapRect 该板剩余的最大空矩形 (没有可复用整块余料时为空)
+	ScrapRect *ScrapRect `json:"scrapRect,omitempty"`
 }
 
 // RecordRequest 保存切割记录请求

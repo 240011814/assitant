@@ -36,6 +36,9 @@ class SolveRequest(BaseModel):
     # 限时内 CP-SAT 至少返回不劣于启发式的解
     initial_solution: list[Placement] = []
     time_limit_ms: int = Field(default=120000, ge=200, le=180000)
+    # kerf 锯缝 cm: 零件按 (宽+kerf)×(高+kerf) 参与排样, 板按 (宽+kerf)×(高+kerf) 容纳
+    # (等价于件间留 kerf 间隙、端部不额外修切); 输出坐标仍为真实坐标
+    kerf: float = Field(default=0.0, ge=0)
 
 
 class SolveResponse(BaseModel):

@@ -78,6 +78,14 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 		}
 	}
 	kerf := math.Max(0, req.Loss)
+	// 损耗 ≥ 最短材料规格长度时, 每根料最多切 1 件且大件全部不可行, 属于非法输入
+	minSpecLen := math.Inf(1)
+	for _, l := range specLen {
+		minSpecLen = math.Min(minSpecLen, l)
+	}
+	if kerf >= minSpecLen {
+		return nil, fmt.Errorf("切割损耗 %v 必须小于最短的材料规格长度 %v", req.Loss, minSpecLen)
+	}
 
 	// 材料保护规则: 开启后余料不允许落在 [min, max] 区间 (余料要么小于 min 要么大于 max)
 	protect := cutProtect{enabled: req.ProtectEnabled, min: req.ProtectMin, max: req.ProtectMax}
@@ -210,6 +218,9 @@ func (s *CutService) BarCut(userID uint, req model.BarRequest) (*model.BarCutRes
 				return nil, fmt.Errorf("精确求解失败: %w", err)
 			}
 			newIdx += len(precise)
+			// 直配根已从 remainingDemand 扣除, sidecar 不会重排它们, 必须并入结果
+			// (漏 append 会让与旧料等长的零件从切割方案里消失)
+			allResults = append(allResults, fixed...)
 			allResults = append(allResults, precise...)
 			continue
 		}
@@ -1021,6 +1032,9 @@ func (s *CutService) dot(qty []int, items []aggItem) float64 {
 
 // ===== 二维切割算法=====
 
+// planeMaxPieces 展开后零件总数上限 (启发式/精确共用), 超限直接报错防止内存/求解爆炸
+const planeMaxPieces = 5000
+
 // PlaneCut 平面切割优化算法
 func (s *CutService) PlaneCut(req model.BinRequest) (*model.PlaneCutResponse, error) {
 	if len(req.Items) == 0 {
@@ -1028,6 +1042,20 @@ func (s *CutService) PlaneCut(req model.BinRequest) (*model.PlaneCutResponse, er
 	}
 	if req.Width <= 0 || req.Height <= 0 {
 		return nil, errors.New("材料尺寸必须大于0")
+	}
+	// 锯缝 (切割损耗 cm): 负值按 0 处理
+	req.Kerf = math.Max(0, req.Kerf)
+	// 展开件数上限: Quantity 无上限时百万级展开会打爆内存与求解
+	totalPieces := 0
+	for _, it := range req.Items {
+		q := it.Quantity
+		if q < 1 {
+			q = 1
+		}
+		totalPieces += q
+	}
+	if totalPieces > planeMaxPieces {
+		return nil, fmt.Errorf("展开后零件总数 %d 超过上限 %d, 请拆分订单或减小数量", totalPieces, planeMaxPieces)
 	}
 
 	// 新板材规格校验 (newMaterials 为空时回退 Width/Height 单一规格, 兼容旧请求)
@@ -1065,9 +1093,85 @@ func (s *CutService) PlaneCut(req model.BinRequest) (*model.PlaneCutResponse, er
 		return nil, err
 	}
 
+	// 每块板剩余的最大空矩形: 平面余料入库的候选来源
+	for i := range resp.Results {
+		resp.Results[i].ScrapRect = largestEmptyRect(resp.Results[i].MaterialWidth, resp.Results[i].MaterialHeight, resp.Results[i].Pieces)
+	}
+
 	// 汇总统计 + 未排入件数量归并
 	resp.Summary = summarizePlaneResults(resp.Results, resp.Unplaced)
 	return resp, nil
+}
+
+// largestEmptyRect 求板材内零件占据后剩余的最大空矩形 (面积最大; 平局取更靠左上)。
+// 零件互不重叠 (装箱保证); 最大空矩形的左右边必与板边或某零件边重合, 枚举全部 x 边界对
+// 并求 y 向最大空隙即可覆盖所有候选。件数过多时返回 nil (枚举 O(n²) 会膨胀)。
+func largestEmptyRect(bw, bh float64, pieces []model.Piece) *model.ScrapRect {
+	const maxPieces = 150
+	if bw <= 0 || bh <= 0 || len(pieces) == 0 || len(pieces) > maxPieces {
+		return nil
+	}
+	eps := 1e-6
+	xs := []float64{0, bw}
+	for _, p := range pieces {
+		xs = append(xs, p.X, p.X+p.W)
+	}
+	sort.Float64s(xs)
+	uniq := make([]float64, 0, len(xs))
+	for i, x := range xs {
+		if i == 0 || x-uniq[len(uniq)-1] > eps {
+			uniq = append(uniq, x)
+		}
+	}
+
+	best := model.ScrapRect{}
+	bestArea := 0.0
+	for i := 0; i < len(uniq)-1; i++ {
+		for j := i + 1; j < len(uniq); j++ {
+			l, r := uniq[i], uniq[j]
+			// 收集与 (l,r) 横向相交的零件的 y 区间, 合并后求 [0,bh] 内最大空隙
+			type yInterval struct{ a, b float64 }
+			var intervals []yInterval
+			for _, p := range pieces {
+				if p.X < r-eps && p.X+p.W > l+eps {
+					intervals = append(intervals, yInterval{p.Y, p.Y + p.H})
+				}
+			}
+			maxGap, gapY := 0.0, 0.0
+			if len(intervals) == 0 {
+				maxGap = bh
+			} else {
+				sort.Slice(intervals, func(a, b int) bool { return intervals[a].a < intervals[b].a })
+				if intervals[0].a > eps {
+					maxGap, gapY = intervals[0].a, 0
+				}
+				cur := intervals[0].b
+				for _, iv := range intervals[1:] {
+					if iv.a > cur+eps && iv.a-cur > maxGap {
+						maxGap, gapY = iv.a-cur, cur
+					}
+					if iv.b > cur {
+						cur = iv.b
+					}
+				}
+				if bh > cur+eps && bh-cur > maxGap {
+					maxGap, gapY = bh-cur, cur
+				}
+			}
+			if maxGap <= eps {
+				continue
+			}
+			area := (r - l) * maxGap
+			if area > bestArea+eps {
+				bestArea = area
+				best = model.ScrapRect{X: round2(l), Y: round2(gapY), W: round2(r - l), H: round2(maxGap)}
+			}
+		}
+	}
+	if bestArea <= eps {
+		return nil
+	}
+	return &best
 }
 
 // summarizePlaneResults 平面结果汇总 (整体口径 + 按材料类型分组统计)
@@ -1162,20 +1266,24 @@ type Placement struct {
 // GuillotineBin Guillotine切割板材
 type GuillotineBin struct {
 	Width, Height float64
-	FreeRects     []FreeRectangle
+	// kerf 锯缝: 零件按 (宽+kerf)×(高+kerf) 参与装箱与分割, 等价于件间留出 kerf 间隙
+	kerf float64
+	FreeRects []FreeRectangle
 }
 
-func NewGuillotineBin(width, height float64) *GuillotineBin {
+func NewGuillotineBin(width, height, kerf float64) *GuillotineBin {
+	// 初始空闲区按 kerf 膨胀 (等价一维的容量 L+kerf): 件间留锯缝, 端部不额外修切
 	return &GuillotineBin{
 		Width:     width,
 		Height:    height,
-		FreeRects: []FreeRectangle{{X: 0, Y: 0, Width: width, Height: height}},
+		kerf:      kerf,
+		FreeRects: []FreeRectangle{{X: 0, Y: 0, Width: width + kerf, Height: height + kerf}},
 	}
 }
 
 func (b *GuillotineBin) Insert(item model.Item) *Placement {
-	w := item.Width
-	h := item.Height
+	w := item.Width + b.kerf
+	h := item.Height + b.kerf
 	eps := 1e-6
 
 	var bestPlacement *Placement
@@ -1187,11 +1295,11 @@ func (b *GuillotineBin) Insert(item model.Item) *Placement {
 
 		// 不旋转
 		if w <= rect.Width+eps && h <= rect.Height+eps {
-			candidates = append(candidates, Placement{X: rect.X, Y: rect.Y, W: w, H: h, Rotated: false, RectIndex: i})
+			candidates = append(candidates, Placement{X: rect.X, Y: rect.Y, W: item.Width, H: item.Height, Rotated: false, RectIndex: i})
 		}
 		// 旋转
 		if h <= rect.Width+eps && w <= rect.Height+eps {
-			candidates = append(candidates, Placement{X: rect.X, Y: rect.Y, W: h, H: w, Rotated: true, RectIndex: i})
+			candidates = append(candidates, Placement{X: rect.X, Y: rect.Y, W: item.Height, H: item.Width, Rotated: true, RectIndex: i})
 		}
 
 		for _, cand := range candidates {
@@ -1216,8 +1324,9 @@ func (b *GuillotineBin) Insert(item model.Item) *Placement {
 		target := b.FreeRects[bestPlacement.RectIndex]
 		b.FreeRects = append(b.FreeRects[:bestRectIndex], b.FreeRects[bestRectIndex+1:]...)
 
-		placedW := bestPlacement.W
-		placedH := bestPlacement.H
+		// 分割用膨胀尺寸: 相邻空闲区从零件实际占用 + 锯缝处开始
+		placedW := bestPlacement.W + b.kerf
+		placedH := bestPlacement.H + b.kerf
 
 		var cut1, cut2 *FreeRectangle
 
@@ -1480,7 +1589,8 @@ func (s *CutService) guillotineCut(req model.BinRequest) (*model.PlaneCutRespons
 			}
 			materials = rest
 
-			newBin := NewGuillotineBin(selected.Width, selected.Height)
+			// 板尺寸加锯缝: 零件按膨胀尺寸装箱, 等价于件间/端部留出锯缝
+			newBin := NewGuillotineBin(selected.Width, selected.Height, req.Kerf)
 			placement := newBin.Insert(item)
 			if placement != nil {
 				bins = append(bins, newBin)
@@ -1540,21 +1650,27 @@ type MaxRect struct {
 
 // MaxRectsBin MaxRects切割板材
 type MaxRectsBin struct {
-	Width, Height  float64
+	Width, Height float64
+	// kerf 锯缝: 零件按 (宽+kerf)×(高+kerf) 参与装箱, 与 Guillotine 同口径
+	kerf           float64
 	FreeRectangles []MaxRect
 }
 
-func NewMaxRectsBin(width, height float64) *MaxRectsBin {
+func NewMaxRectsBin(width, height, kerf float64) *MaxRectsBin {
 	return &MaxRectsBin{
 		Width:  width,
 		Height: height,
+		kerf:   kerf,
 		FreeRectangles: []MaxRect{
-			{X: 0, Y: 0, Width: width, Height: height, Rotated: false},
+			{X: 0, Y: 0, Width: width + kerf, Height: height + kerf, Rotated: false},
 		},
 	}
 }
 
 func (b *MaxRectsBin) Insert(w, h float64, allowRotate bool) *MaxRect {
+	// 膨胀尺寸参与适配与分割; 产出 Piece 时由调用方还原真实宽高
+	w += b.kerf
+	h += b.kerf
 	var bestRect *MaxRect
 	bestShortSideFit := math.MaxFloat64
 	bestLongSideFit := math.MaxFloat64
@@ -1719,35 +1835,36 @@ func (s *CutService) maxRectsCut(req model.BinRequest) (*model.PlaneCutResponse,
 	for _, item := range allItems {
 		placed := false
 
-		// 尝试放入已有 bin (指定材料类型的零件只能放同名材料的板)
-		for i, bin := range bins {
-			if item.Spec != "" && results[i].MaterialType != item.Spec {
-				continue
-			}
-			rect := bin.Insert(item.Width, item.Height, true)
-			if rect != nil {
-				results[i].Pieces = append(results[i].Pieces, createMaxRectPiece(item, *rect))
-				placed = true
-				break
-			}
+	// 尝试放入已有 bin (指定材料类型的零件只能放同名材料的板)
+	for i, bin := range bins {
+		if item.Spec != "" && results[i].MaterialType != item.Spec {
+			continue
 		}
+		rect := bin.Insert(item.Width, item.Height, true)
+		if rect != nil {
+			results[i].Pieces = append(results[i].Pieces, createMaxRectPiece(item, *rect))
+			placed = true
+			break
+		}
+	}
 
-		// 放不下则选择新的材料开 bin
-		if !placed {
-			selected, rest := takePlaneMaterial(materials, item.Width, item.Height, item.Spec, claimed)
-			if selected == nil {
-				// 所有材料(含备用新板材)都放不下或已耗尽
-				if !planeFitsAnySpec(specs, item) {
-					oversized = append(oversized, item)
-				} else {
-					exhausted = append(exhausted, item)
-				}
-				continue
+	// 放不下则选择新的材料开 bin
+	if !placed {
+		selected, rest := takePlaneMaterial(materials, item.Width, item.Height, item.Spec, claimed)
+		if selected == nil {
+			// 所有材料(含备用新板材)都放不下或已耗尽
+			if !planeFitsAnySpec(specs, item) {
+				oversized = append(oversized, item)
+			} else {
+				exhausted = append(exhausted, item)
 			}
-			materials = rest
+			continue
+		}
+		materials = rest
 
-			newBin := NewMaxRectsBin(selected.Width, selected.Height)
-			rect := newBin.Insert(item.Width, item.Height, true)
+		// 板尺寸加锯缝, 零件按膨胀尺寸放入 (与 Guillotine 同口径)
+		newBin := NewMaxRectsBin(selected.Width, selected.Height, req.Kerf)
+		rect := newBin.Insert(item.Width, item.Height, true)
 			if rect != nil {
 				bins = append(bins, newBin)
 
@@ -1773,13 +1890,18 @@ func (s *CutService) maxRectsCut(req model.BinRequest) (*model.PlaneCutResponse,
 	return &model.PlaneCutResponse{Results: results, Unplaced: unplaced}, nil
 }
 
+// createMaxRectPiece 由放置矩形还原真实零件块 (rect 为含锯缝的膨胀占用区, 宽高取零件原始值)
 func createMaxRectPiece(item model.Item, rect MaxRect) model.Piece {
+	w, h := item.Width, item.Height
+	if rect.Rotated {
+		w, h = item.Height, item.Width
+	}
 	return model.Piece{
 		Label:   item.Label,
 		X:       round2(rect.X),
 		Y:       round2(rect.Y),
-		W:       round2(rect.Width),
-		H:       round2(rect.Height),
+		W:       round2(w),
+		H:       round2(h),
 		Rotated: rect.Rotated,
 	}
 }
@@ -1823,9 +1945,14 @@ func (s *CutService) SaveCutRecord(userID uint, req model.RecordRequest) (*model
 	}
 
 	// 扣减与建记录必须同事务: 只扣减不落记录 = 库存凭空消失
+	// 扣减按记录类型匹配余料库: 一维扣条料 (scrap_type=1), 平面扣板材 (scrap_type=2)
+	scrapType := 1
+	if req.Type == "2" {
+		scrapType = 2
+	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if len(req.DeductScraps) > 0 {
-			if err := deductScrapsTx(tx, userID, req.DeductScraps); err != nil {
+			if err := deductScrapsTx(tx, userID, req.DeductScraps, scrapType); err != nil {
 				return err
 			}
 		}
@@ -1848,9 +1975,18 @@ func (s *CutService) generateCode(typeStr string) string {
 	return prefix + date + random
 }
 
-// ListCutRecords 查询切割记录列表
+// GetCutRecord 单条切割记录 (含完整 request/response; 详情页/复用/余料入库按需取全量)
+func (s *CutService) GetCutRecord(userID uint, id string) (*model.CutRecord, error) {
+	var row model.CutRecord
+	if err := DB.Where("id = ? AND user_id = ?", id, userID).First(&row).Error; err != nil {
+		return nil, errors.New("切割记录不存在")
+	}
+	return &row, nil
+}
+
+// ListCutRecords 查询切割记录列表 (不含 request/response 大字段, 全量内容走 GetCutRecord)
 func (s *CutService) ListCutRecords(userID uint, params model.CutRecordSearchParams) (*model.CutRecordListResponse, error) {
-	query := DB.Model(&model.CutRecord{}).Where("user_id = ?", userID)
+	query := DB.Model(&model.CutRecord{}).Where("user_id = ?", userID).Omit("request", "response")
 
 	if params.Name != "" {
 		query = query.Where("name LIKE ?", "%"+params.Name+"%")
@@ -1943,8 +2079,19 @@ func (s *CutService) AddScraps(userID uint, reqs []model.AddCutScrapRequest) ([]
 	rows := make([]model.CutScrap, 0, len(reqs))
 	recordIDs := make(map[string]struct{})
 	for _, req := range reqs {
+		// 尺寸合法性: 非法条目会被求解静默跳过 (永远用不上), 入库时就拦下
 		if req.Quantity < 1 {
-			req.Quantity = 1
+			return nil, errors.New("入库数量必须大于 0")
+		}
+		switch req.ScrapType {
+		case 1:
+			if req.LengthValue <= 0 {
+				return nil, errors.New("一维余料长度必须大于 0")
+			}
+		case 2:
+			if req.WidthValue <= 0 || req.HeightValue <= 0 {
+				return nil, errors.New("二维余料宽高必须大于 0")
+			}
 		}
 		if req.RecordID != "" {
 			recordIDs[req.RecordID] = struct{}{}
@@ -1967,14 +2114,23 @@ func (s *CutService) AddScraps(userID uint, reqs []model.AddCutScrapRequest) ([]
 			return err
 		}
 		for id := range recordIDs {
+			// 显式带上 scrap_imported = false 条件: 不依赖 MySQL "同值更新计 0 行" 的隐式行为,
+			// 并区分 "记录不存在" 与 "已入库" 两种失败
 			result := tx.Model(&model.CutRecord{}).
-				Where("id = ? AND user_id = ?", id, userID).
+				Where("id = ? AND user_id = ? AND scrap_imported = ?", id, userID, false).
 				Update("scrap_imported", true)
 			if result.Error != nil {
 				return result.Error
 			}
 			if result.RowsAffected == 0 {
-				return errors.New("切割记录不存在, 无法标记入库")
+				var cnt int64
+				if err := tx.Model(&model.CutRecord{}).Where("id = ? AND user_id = ?", id, userID).Count(&cnt).Error; err != nil {
+					return err
+				}
+				if cnt == 0 {
+					return errors.New("切割记录不存在, 无法标记入库")
+				}
+				return errors.New("该记录的余料已入库, 请勿重复操作")
 			}
 		}
 		return nil
@@ -2009,17 +2165,17 @@ func (s *CutService) BatchDeleteScraps(userID uint, ids []uint) (int64, error) {
 // DeductScraps 批量扣减库存余料 (一维, quantity -= count, 归零自动删除); 库存不足报错整体回滚
 func (s *CutService) DeductScraps(userID uint, items []model.DeductScrapItem) error {
 	return DB.Transaction(func(tx *gorm.DB) error {
-		return deductScrapsTx(tx, userID, items)
+		return deductScrapsTx(tx, userID, items, 1)
 	})
 }
 
-func deductScrapsTx(tx *gorm.DB, userID uint, items []model.DeductScrapItem) error {
+func deductScrapsTx(tx *gorm.DB, userID uint, items []model.DeductScrapItem, scrapType int) error {
 	for _, item := range items {
 		if item.ID == 0 || item.Count < 1 {
 			return errors.New("扣减项非法")
 		}
 		result := tx.Model(&model.CutScrap{}).
-			Where("id = ? AND user_id = ? AND scrap_type = ? AND quantity >= ?", item.ID, userID, 1, item.Count).
+			Where("id = ? AND user_id = ? AND scrap_type = ? AND quantity >= ?", item.ID, userID, scrapType, item.Count).
 			Update("quantity", gorm.Expr("quantity - ?", item.Count))
 		if result.Error != nil {
 			return result.Error
@@ -2137,6 +2293,9 @@ func validateProductSpec(spec model.CutProductSpec) error {
 		}
 		if w.Count < 1 {
 			return fmt.Errorf("%s数量至少为 1", at)
+		}
+		if w.Count > 9999 {
+			return fmt.Errorf("%s单件数量过多 (最多 9999)", at)
 		}
 		// 拼装搭接参数范围 (mm): 实际取值以型材/五金厂家下料表为准
 		if w.Fit != nil {

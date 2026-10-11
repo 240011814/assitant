@@ -179,9 +179,18 @@ const form = ref({
 });
 
 const rules: FormRules = {
-  lengthValue: [{ required: true, type: 'number', message: '请输入长度', trigger: ['blur', 'change'] }],
-  widthValue: [{ required: true, type: 'number', message: '请输入宽度', trigger: ['blur', 'change'] }],
-  heightValue: [{ required: true, type: 'number', message: '请输入高度', trigger: ['blur', 'change'] }],
+  lengthValue: [
+    { required: true, type: 'number', message: '请输入长度', trigger: ['blur', 'change'] },
+    { type: 'number', min: 0.1, message: '长度必须大于 0', trigger: ['blur', 'change'] }
+  ],
+  widthValue: [
+    { required: true, type: 'number', message: '请输入宽度', trigger: ['blur', 'change'] },
+    { type: 'number', min: 0.1, message: '宽度必须大于 0', trigger: ['blur', 'change'] }
+  ],
+  heightValue: [
+    { required: true, type: 'number', message: '请输入高度', trigger: ['blur', 'change'] },
+    { type: 'number', min: 0.1, message: '高度必须大于 0', trigger: ['blur', 'change'] }
+  ],
   quantity: [{ required: true, type: 'number', min: 1, message: '数量至少为 1', trigger: ['blur', 'change'] }]
 };
 
@@ -215,36 +224,49 @@ function openEdit(row: Api.Cut.CutScrap) {
   modalShow.value = true;
 }
 
+const saving = ref(false);
+
 async function submitForm() {
-  await formRef.value?.validate();
-  if (editing.value) {
-    const { error } = await updateCutScrap(editing.value.id, {
-      label: form.value.label.trim(),
-      materialType: form.value.materialType.trim(),
-      quantity: form.value.quantity,
-      note: form.value.note
-    });
-    if (error) return;
-    message.success('修改成功');
-  } else {
-    const payload: Api.Cut.AddCutScrapRequest[] = [
-      {
-        scrapType: form.value.scrapType,
-        materialType: form.value.materialType.trim() || undefined,
-        label: form.value.label.trim() || undefined,
-        lengthValue: form.value.scrapType === 1 ? (form.value.lengthValue ?? undefined) : undefined,
-        widthValue: form.value.scrapType === 2 ? (form.value.widthValue ?? undefined) : undefined,
-        heightValue: form.value.scrapType === 2 ? (form.value.heightValue ?? undefined) : undefined,
-        quantity: form.value.quantity,
-        note: form.value.note || undefined
-      }
-    ];
-    const { error } = await addCutScraps(payload);
-    if (error) return;
-    message.success('登记成功');
+  // 校验失败时 validate 会 reject, 捕获避免 unhandled rejection
+  try {
+    await formRef.value?.validate();
+  } catch {
+    return;
   }
-  modalShow.value = false;
-  getData();
+  if (saving.value) return;
+  saving.value = true;
+  try {
+    if (editing.value) {
+      const { error } = await updateCutScrap(editing.value.id, {
+        label: form.value.label.trim(),
+        materialType: form.value.materialType.trim(),
+        quantity: form.value.quantity,
+        note: form.value.note
+      });
+      if (error) return;
+      message.success('修改成功');
+    } else {
+      const payload: Api.Cut.AddCutScrapRequest[] = [
+        {
+          scrapType: form.value.scrapType,
+          materialType: form.value.materialType.trim() || undefined,
+          label: form.value.label.trim() || undefined,
+          lengthValue: form.value.scrapType === 1 ? (form.value.lengthValue ?? undefined) : undefined,
+          widthValue: form.value.scrapType === 2 ? (form.value.widthValue ?? undefined) : undefined,
+          heightValue: form.value.scrapType === 2 ? (form.value.heightValue ?? undefined) : undefined,
+          quantity: form.value.quantity,
+          note: form.value.note || undefined
+        }
+      ];
+      const { error } = await addCutScraps(payload);
+      if (error) return;
+      message.success('登记成功');
+    }
+    modalShow.value = false;
+    getData();
+  } finally {
+    saving.value = false;
+  }
 }
 
 async function removeScrap(row: Api.Cut.CutScrap) {
@@ -349,14 +371,14 @@ onMounted(() => {
           <NInput v-model:value="form.label" placeholder="选填, 如: 长料余料" />
         </NFormItem>
         <NFormItem v-if="form.scrapType === 1" label="长度" path="lengthValue">
-          <NInputNumber v-model:value="form.lengthValue" :min="0" class="w-full" placeholder="mm" />
+          <NInputNumber v-model:value="form.lengthValue" :min="0.1" class="w-full" placeholder="mm" />
         </NFormItem>
         <template v-else>
           <NFormItem label="宽" path="widthValue">
-            <NInputNumber v-model:value="form.widthValue" :min="0" class="w-full" placeholder="mm" />
+            <NInputNumber v-model:value="form.widthValue" :min="0.1" class="w-full" placeholder="mm" />
           </NFormItem>
           <NFormItem label="高" path="heightValue">
-            <NInputNumber v-model:value="form.heightValue" :min="0" class="w-full" placeholder="mm" />
+            <NInputNumber v-model:value="form.heightValue" :min="0.1" class="w-full" placeholder="mm" />
           </NFormItem>
         </template>
         <NFormItem label="数量" path="quantity">
@@ -368,7 +390,7 @@ onMounted(() => {
       </NForm>
       <template #action>
         <NButton @click="modalShow = false">取消</NButton>
-        <NButton type="primary" @click="submitForm">确定</NButton>
+        <NButton type="primary" :loading="saving" @click="submitForm">确定</NButton>
       </template>
     </NModal>
   </div>

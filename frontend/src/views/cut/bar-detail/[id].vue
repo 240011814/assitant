@@ -1,51 +1,62 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { NButton, NCard, NDataTable, NInputNumber, NResult } from 'naive-ui';
+import { NButton, NCard, NDataTable, NInputNumber, NResult, NSpin, useMessage } from 'naive-ui';
+import { fetchCutRecord } from '@/service/api';
+
+const message = useMessage();
 const route = useRoute();
 const router = useRouter();
 
-// 解析失败/无参数时不白屏, 显示错误态
+const loading = ref(false);
 const parseError = ref(false);
-let parsedRequest: Api.Cut.BarRequest & {
-  rowItems: Api.Cut.BarItem[];
-  rowMaterials: Api.Cut.BarItem[];
-} | null = null;
-let parsedResponse: Api.Cut.BarResult[] = [];
-let parsedSummary: Api.Cut.BarSummary | null = null;
-try {
-  const rawRequest = route.query.request;
-  const rawResponse = route.query.response;
-  if (typeof rawRequest !== 'string' || !rawRequest || typeof rawResponse !== 'string' || !rawResponse) {
-    throw new Error('missing query params');
-  }
-  parsedRequest = JSON.parse(rawRequest) as Api.Cut.BarRequest & {
-    rowItems: Api.Cut.BarItem[];
-    rowMaterials: Api.Cut.BarItem[];
-  };
-  // 兼容新旧记录: 旧记录响应为数组, 新记录响应为 { results, summary }
-  const raw = JSON.parse(rawResponse) as Api.Cut.BarResult[] | Api.Cut.BarCutResponse;
-  parsedResponse = Array.isArray(raw) ? raw : raw.results;
-  if (!Array.isArray(raw)) {
-    parsedSummary = raw.summary ?? null;
-  }
-} catch {
-  parseError.value = true;
-}
-const request = parsedRequest;
-const response = parsedResponse;
-const itemsData = ref<Api.Cut.BarItem[]>(request?.rowItems || []);
-const materialsData = ref<Api.Cut.BarItem[]>(request?.rowMaterials || []);
 
-const newMaterialLength = ref(request?.newMaterialLength || 600);
-const loss = ref(request?.loss || 0);
-const utilizationWeight = ref(request?.utilizationWeight || 1);
+// 内容全部在按 id 拉取记录后填充
+const itemsData = ref<Api.Cut.BarItem[]>([]);
+const materialsData = ref<Api.Cut.BarItem[]>([]);
+const newMaterialLength = ref(600);
+const loss = ref(0);
+const utilizationWeight = ref(1);
 const group = ref(false);
-const cutResult = ref<Api.Cut.BarResult[] | null>(response || null);
-const summaryData = ref<Api.Cut.BarSummary | null>(parsedSummary);
+const cutResult = ref<Api.Cut.BarResult[] | null>(null);
+const summaryData = ref<Api.Cut.BarSummary | null>(null);
 const scaleFactor = ref(1);
 const canvasWrapper = ref<HTMLDivElement | null>(null);
 const containerWidth = ref(800); // 动态容器宽度
+
+onMounted(async () => {
+  const id = String(route.params.id ?? '');
+  if (!id) {
+    parseError.value = true;
+    return;
+  }
+  loading.value = true;
+  try {
+    const { data, error } = await fetchCutRecord(id);
+    if (error || !data?.request || !data.response) {
+      parseError.value = true;
+      return;
+    }
+    const req = JSON.parse(data.request) as Api.Cut.BarRequest & {
+      rowItems?: Api.Cut.BarItem[];
+      rowMaterials?: Api.Cut.BarItem[];
+    };
+    // 兼容新旧记录: 旧记录响应为数组, 新记录响应为 { results, summary }
+    const raw = JSON.parse(data.response) as Api.Cut.BarResult[] | Api.Cut.BarCutResponse;
+    itemsData.value = req.rowItems ?? [];
+    materialsData.value = req.rowMaterials ?? [];
+    newMaterialLength.value = req.newMaterialLength || 600;
+    loss.value = req.loss ?? 0;
+    utilizationWeight.value = req.utilizationWeight ?? 1;
+    cutResult.value = Array.isArray(raw) ? raw : raw.results;
+    summaryData.value = Array.isArray(raw) ? null : (raw.summary ?? null);
+  } catch {
+    parseError.value = true;
+    message.error('记录加载失败');
+  } finally {
+    loading.value = false;
+  }
+});
 
 function goBack() {
   router.back();
@@ -218,7 +229,7 @@ onUnmounted(() => {
     v-if="parseError"
     status="error"
     title="数据加载失败"
-    description="裁剪记录参数缺失或格式不正确，无法展示详情"
+    description="裁剪记录不存在或格式不正确，无法展示详情"
     class="mt-16"
   >
     <template #footer>
@@ -226,7 +237,8 @@ onUnmounted(() => {
     </template>
   </NResult>
 
-  <div v-else class="p-4">
+  <NSpin v-else :show="loading">
+    <div class="p-4">
     <!-- 输入区域 -->
     <NCard title="材料裁剪可视化" size="large" class="mb-4">
       <h3>裁剪尺寸</h3>
@@ -314,5 +326,6 @@ onUnmounted(() => {
         </div>
       </div>
     </NCard>
-  </div>
+    </div>
+  </NSpin>
 </template>

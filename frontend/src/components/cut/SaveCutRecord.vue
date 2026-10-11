@@ -13,24 +13,30 @@ const emit = defineEmits<Emits>();
 
 const showModal = ref(false);
 const inputName = ref('');
+const saving = ref(false);
 
 async function saveConfirm() {
-  if (!props.data) {
+  if (!props.data || saving.value) {
     return;
   }
-  // 合并输入的名称
-  const payload = {
-    ...props.data,
-    name: inputName.value
-  };
-  const { data: res } = await addRecord(payload);
-  if (res) {
-    window.$message?.success('保存成功');
-    showModal.value = false;
-    inputName.value = '';
-    emit('saved');
-  } else {
-    window.$message?.error('保存失败');
+  saving.value = true;
+  try {
+    // 合并输入的名称
+    const payload = {
+      ...props.data,
+      name: inputName.value
+    };
+    const { data: res } = await addRecord(payload);
+    if (res) {
+      window.$message?.success('保存成功');
+      showModal.value = false;
+      inputName.value = '';
+      emit('saved');
+    } else {
+      window.$message?.error('保存失败');
+    }
+  } finally {
+    saving.value = false;
   }
 }
 </script>
@@ -45,7 +51,7 @@ async function saveConfirm() {
       </div>
       <template #action>
         <NButton @click="showModal = false">取消</NButton>
-        <NButton type="primary" :disabled="!inputName" @click="saveConfirm">确定</NButton>
+        <NButton type="primary" :disabled="!inputName" :loading="saving" @click="saveConfirm">确定</NButton>
       </template>
     </NModal>
   </div>

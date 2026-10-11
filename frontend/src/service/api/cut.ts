@@ -34,6 +34,14 @@ export function cutList(params?: Api.Cut.CutRecordSearchParams) {
   });
 }
 
+/** 单条切割记录 (含完整 request/response; 详情页/复用/余料入库按需取全量) */
+export function fetchCutRecord(id: string) {
+  return request<Api.Cut.CutRecord>({
+    url: `/api/cutRecord/detail/${id}`,
+    method: 'get'
+  });
+}
+
 export function deleteRecod(id: string) {
   return request<boolean>({
     url: `/api/cutRecord/delete/${id}`,

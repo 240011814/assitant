@@ -537,7 +537,7 @@ async function handleSave() {
   }
 }
 
-// 打开时初始化: 编辑模式载入单据内容, 新建模式清空
+// 打开时初始化: 编辑模式载入单据内容并回填单名 (不回填会被保存逻辑清掉原名), 新建模式清空
 watch(show, opened => {
   if (!opened) return;
   editingIndex.value = -1;
@@ -545,6 +545,7 @@ watch(show, opened => {
   let list: ProductItem[] = [];
   if (props.order) {
     list = parseProductSpec(props.order).items;
+    name.value = props.order.name || '';
   } else {
     name.value = '';
   }

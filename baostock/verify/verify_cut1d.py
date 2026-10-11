@@ -97,6 +97,23 @@ def main() -> int:
     assert resp.unplaced, "[保护不可行] 应返回 unplaced 而非硬切"
     print(f"[保护不可行] PASS unplaced={resp.unplaced}")
 
+    # 7. 小数长度 + 整数 kerf (回归: 旧实现 _scale_for 只看 kerf → scale=1 截断小数长度,
+    #    求解器高估容量, Go 侧浮点防御校验误报 "超出材料容量"): 54.9×11 / L=600
+    #    每根最多 10 件 (kerf=0: 549; kerf=1: 549+9) → 均为 2 根
+    check_invariants(SolveRequest(
+        kerf=0, items=[Item(length=54.9, demand=11)],
+        materials=[Material(label="L600", length=600)]), "小数长度kerf0", expect_new_bars=2)
+    check_invariants(SolveRequest(
+        kerf=1, items=[Item(length=54.9, demand=11)],
+        materials=[Material(label="L600", length=600)]), "小数长度kerf1", expect_new_bars=2)
+
+    # 8. 小数保护区间 (回归: 旧实现 scale=1 时 int(round(0.5)) 银行家舍入为 0, 保护静默失效):
+    #    100×2 / L=210 / 保护 [0.5, 10] — 两件切法余料 10 落入区间被禁 → 每根 1 件, 共 2 根
+    check_invariants(SolveRequest(
+        kerf=0, items=[Item(length=100, demand=2)],
+        materials=[Material(label="L210", length=210)],
+        protect_enabled=True, protect_min=0.5, protect_max=10), "小数保护区间", expect_new_bars=2)
+
     print("ALL CHECKS PASSED")
     return 0
 

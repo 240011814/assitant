@@ -195,6 +195,22 @@ func (h *CutHandler) HandleAddRecord(c *gin.Context) {
 	SendSuccess(c, record)
 }
 
+// HandleGetRecord 查询单条切割记录 (含完整 request/response)
+func (h *CutHandler) HandleGetRecord(c *gin.Context) {
+	userID := GetUserID(c)
+	id := c.Param("id")
+	if id == "" {
+		SendError(c, "400", "记录ID不能为空")
+		return
+	}
+	record, err := h.svc.GetCutRecord(userID, id)
+	if err != nil {
+		SendError(c, "404", err.Error())
+		return
+	}
+	SendSuccess(c, record)
+}
+
 // HandleListRecords 查询切割记录列表
 func (h *CutHandler) HandleListRecords(c *gin.Context) {
 	userID := GetUserID(c)

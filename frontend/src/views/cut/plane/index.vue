@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { NButton, NGi, NGrid, NSelect, NStatistic, NTag, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { $t } from '@/locales';
-import { cutBin, fetchCutProducts, fetchCutScraps } from '@/service/api';
+import { cutBin, fetchCutProducts, fetchCutRecord, fetchCutScraps } from '@/service/api';
 import ScrapLibraryModal from '@/components/cut/ScrapLibraryModal.vue';
 import ProductPickModal from '@/components/cut/ProductPickModal.vue';
 import { parseProductSpec, productPlaneRows } from '@/components/cut/window-template';
@@ -17,6 +17,15 @@ interface NewBoardRow {
   label: string;
   width: number | null;
   height: number | null;
+}
+
+/** 旧料行: 带入库存余料时保留来源条目 id, 保存记录时按此扣减库存 */
+interface MaterialRow {
+  label: string;
+  width: number;
+  height: number;
+  quantity: number;
+  invId?: number;
 }
 
 // 响应式数据
@@ -39,10 +48,12 @@ const materialCount = ref(1);
 const materialTypes = ref<string[]>([]);
 const saveData = ref<Api.Cut.RecordRequest | null>(null);
 const items = ref<Api.Cut.Item[]>([]);
-const materials = ref<Api.Cut.Item[]>([]);
+const materials = ref<MaterialRow[]>([]);
 const results = ref<Api.Cut.BinResult[]>([]);
 const unplaced = ref<Api.Cut.UnplacedItem[]>([]);
 const summaryData = ref<Api.Cut.PlaneSummary | null>(null);
+// 切割损耗 (锯缝 cm): 相邻零件间距, 默认 0 不留缝
+const loss = ref<number | null>(0);
 const strategyOptions = [
   { label: '刀切法', value: 'Guillotine' },
   { label: '最大空闲法', value: 'MaxRects' },
@@ -92,8 +103,65 @@ function glassImportResult(count: number, result: { pieces: number; addedSpecs: 
   }
 }
 
-// keepAlive 页面: 产品管理页"去裁剪"(玻璃类)跳入时消费 query.products 预填
+// 历史记录"重新编辑"跳入: 按 id 取回完整请求并回填表单 (invId 不回填, 重新保存不会重复扣库存)
+async function reuseFromRecord(id: string) {
+  const { data, error } = await fetchCutRecord(id);
+  if (error || !data?.request) {
+    message.error($t('page.cut.reuseLoadFailed'));
+    return;
+  }
+  try {
+    const req = JSON.parse(data.request) as Api.Cut.BinRequest & { rowItems?: Api.Cut.Item[] };
+    items.value = req.rowItems?.length ? req.rowItems : groupExpandedItems(req.items ?? []);
+    materials.value = (req.materials ?? []).map(m => ({
+      label: m.label,
+      width: m.width,
+      height: m.height,
+      quantity: m.quantity ?? 1
+    }));
+    newMaterialRows.value = req.newMaterials?.length
+      ? req.newMaterials.map(m => ({ label: m.label ?? '', width: m.width, height: m.height }))
+      : [{ label: '', width: req.width, height: req.height }];
+    strategy.value = req.strategy || 'Guillotine';
+    loss.value = req.loss ?? 0;
+    results.value = [];
+    unplaced.value = [];
+    summaryData.value = null;
+    saveData.value = null;
+    message.success($t('page.cut.reuseLoaded'));
+  } catch {
+    message.error($t('page.cut.reuseLoadFailed'));
+  }
+}
+
+// 旧记录无 rowItems 时, 把展开件归并回零件行 (去掉 _N 后缀, 同尺寸规格合并数量)
+function groupExpandedItems(list: Api.Cut.Item[]): Api.Cut.Item[] {
+  const map = new Map<string, Api.Cut.Item>();
+  const out: Api.Cut.Item[] = [];
+  for (const it of list) {
+    const base = it.label.replace(/_\d+$/, '');
+    const key = `${base}|${it.width}|${it.height}|${it.spec ?? ''}`;
+    const existing = map.get(key);
+    if (existing) {
+      existing.quantity = (existing.quantity ?? 1) + 1;
+    } else {
+      const row: Api.Cut.Item = { label: base, width: it.width, height: it.height, quantity: 1, spec: it.spec };
+      map.set(key, row);
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+// keepAlive 页面: 产品管理页"去裁剪"(玻璃类)跳入时消费 query.products 预填;
+// 历史记录"重新编辑"跳入时消费 query.reuse 回填表单
 onActivated(async () => {
+  const reuse = route.query.reuse;
+  if (typeof reuse === 'string' && reuse) {
+    router.replace({ query: { ...route.query, reuse: undefined } });
+    await reuseFromRecord(reuse);
+    return;
+  }
   const raw = route.query.products;
   if (typeof raw !== 'string' || !raw) return;
   // 先清掉 query, 避免切回该页时重复导入
@@ -406,16 +474,23 @@ async function runOptimization() {
     width: row.width as number,
     height: row.height as number
   }));
+  const lossValue = Math.max(0, loss.value ?? 0);
 
   loading.value = true;
   try {
     const request = {
       items: expandedItems,
-      materials: materials.value,
+      materials: materials.value.map(row => ({
+        label: row.label?.trim() ?? '',
+        width: row.width,
+        height: row.height,
+        quantity: row.quantity
+      })),
       width: newMaterials[0]!.width,
       height: newMaterials[0]!.height,
       newMaterials,
-      strategy: strategy.value
+      strategy: strategy.value,
+      loss: lossValue
     };
     const { data, error } = await cutBin(request);
     if (error || !data) return;
@@ -431,14 +506,39 @@ async function runOptimization() {
       request: JSON.stringify({ rowItems: items.value, ...request }),
       // 序列化完整响应(results + unplaced + summary), 供详情页展示
       response: JSON.stringify(data),
-      name: ``
+      name: ``,
+      // 从库存带入且被本次排版消耗的旧板材, 保存时扣减库存
+      deductScraps: collectDeductScraps()
     };
   } finally {
     loading.value = false;
   }
 }
 
-// 旧料库带入表单: 库存条目转材料行 (保留类型名)
+// 从库存带入的旧料行 (invId) 的实际消耗板块数 → 保存记录时随请求扣减库存。
+// 消耗口径: 结果里每块 (materialType, materialWidth, materialHeight) 匹配的板即消耗一张;
+// 多行导入同一 (类型,尺寸) 时按行序分摊, 上限为该行数量。
+function collectDeductScraps(): Array<{ id: number; count: number }> {
+  if (!results.value.length) return [];
+  const consumedPool = new Map<string, number>();
+  for (const r of results.value) {
+    const key = `${r.materialType ?? ''}|${r.materialWidth}|${r.materialHeight}`;
+    consumedPool.set(key, (consumedPool.get(key) ?? 0) + 1);
+  }
+  const out = new Map<number, number>();
+  for (const row of materials.value) {
+    if (!row.invId) continue;
+    const key = `${row.label?.trim() ?? ''}|${row.width}|${row.height}`;
+    const pool = consumedPool.get(key) ?? 0;
+    if (pool <= 0) continue;
+    const take = Math.min(pool, row.quantity);
+    out.set(row.invId, (out.get(row.invId) ?? 0) + take);
+    consumedPool.set(key, pool - take);
+  }
+  return Array.from(out.entries()).map(([id, count]) => ({ id, count }));
+}
+
+// 旧料库带入表单: 库存条目转材料行 (保留类型名与库存 id)
 function applyScraps(rows: Api.Cut.CutScrap[]) {
   rows.forEach(row => {
     const type = row.materialType?.trim() || row.label?.trim();
@@ -446,7 +546,8 @@ function applyScraps(rows: Api.Cut.CutScrap[]) {
       label: type ? type : $t('page.cut.scrapMaterialLabel'),
       width: row.widthValue,
       height: row.heightValue,
-      quantity: row.quantity
+      quantity: row.quantity,
+      invId: row.id
     });
   });
   // 库存可能新增了类型, 刷新下拉候选
@@ -520,9 +621,9 @@ async function printChart() {
           class="w-40"
         />
         <NInput v-model:value="label" class="input-width" type="text" placeholder="标签" />
-        <NInputNumber v-model:value="width" type="number" placeholder="宽(cm)" step="0.1" min="0.1" class="w-40" />
-        <NInputNumber v-model:value="height" type="number" placeholder="高(cm)" step="0.1" min="0.1" class="w-40" />
-        <NInputNumber v-model:value="quantity" type="number" placeholder="数量" class="w-40" min="1" />
+        <NInputNumber v-model:value="width" type="number" placeholder="宽(cm)" step="0.1" :min="0.1" class="w-40" />
+        <NInputNumber v-model:value="height" type="number" placeholder="高(cm)" step="0.1" :min="0.1" class="w-40" />
+        <NInputNumber v-model:value="quantity" type="number" placeholder="数量" class="w-40" :min="1" />
         <NButton type="primary" @click="addItem">{{ $t('page.cut.addItem') }}</NButton>
         <NButton type="info" secondary @click="productPickShow = true">{{ $t('page.cut.pdImport') }}</NButton>
       </div>
@@ -549,7 +650,7 @@ async function printChart() {
           type="number"
           placeholder="宽(cm)"
           step="0.1"
-          min="0.1"
+          :min="0.1"
           class="w-40"
         />
         <NInputNumber
@@ -557,10 +658,10 @@ async function printChart() {
           type="number"
           placeholder="高(cm)"
           step="0.1"
-          min="0.1"
+          :min="0.1"
           class="w-40"
         />
-        <NInputNumber v-model:value="materialCount" type="number" placeholder="数量" class="w-40" min="1" />
+        <NInputNumber v-model:value="materialCount" type="number" placeholder="数量" class="w-40" :min="1" />
         <NButton type="primary" @click="addMaterial">{{ $t('page.cut.addMaterial') }}</NButton>
         <NButton type="info" secondary @click="scrapModalShow = true">{{ $t('page.cut.scrapLibrary') }}</NButton>
       </div>
@@ -577,8 +678,8 @@ async function printChart() {
           <div class="flex flex-col gap-2">
             <div v-for="(row, idx) in newMaterialRows" :key="idx" class="flex items-center gap-2">
               <NInput v-model:value="row.label" :placeholder="$t('page.cut.newMaterialLabel')" class="w-32" />
-              <NInputNumber v-model:value="row.width" placeholder="宽(cm)" class="w-40" :min="0" />
-              <NInputNumber v-model:value="row.height" placeholder="高(cm)" class="w-40" :min="0" />
+              <NInputNumber v-model:value="row.width" placeholder="宽(cm)" class="w-40" :min="0.1" />
+              <NInputNumber v-model:value="row.height" placeholder="高(cm)" class="w-40" :min="0.1" />
               <NButton size="small" type="error" quaternary :disabled="newMaterialRows.length <= 1" @click="removeBoardRow(idx)">
                 {{ $t('common.delete') }}
               </NButton>
@@ -591,6 +692,12 @@ async function printChart() {
           <NSelect v-model:value="strategy" :options="strategyOptions" />
         </div>
         <div class="flex items-center gap-2">
+          <span class="w-24">{{ $t('page.cut.loss') }}</span>
+          <NInputNumber v-model:value="loss" class="w-40" :min="0" :step="0.1">
+            <template #suffix>cm</template>
+          </NInputNumber>
+        </div>
+        <div class="flex items-center gap-2">
           <span class="w-24">聚合显示</span>
           <NSwitch v-model:value="group" class="w-40" />
         </div>
@@ -598,7 +705,7 @@ async function printChart() {
 
       <!-- 操作按钮 -->
       <div class="mt-4 flex gap-2">
-        <NButton type="primary" @click="runOptimization">{{ $t('page.cut.startCutting') }}</NButton>
+        <NButton type="primary" :loading="loading" @click="runOptimization">{{ $t('page.cut.startCutting') }}</NButton>
         <PlanePrinter :results="results" :materials="materials"></PlanePrinter>
         <SaveCutRecord :data="saveData" @saved="saveData = null"></SaveCutRecord>
         <NButton type="warning" @click="clearAll">{{ $t('page.cut.clearAll') }}</NButton>
@@ -672,7 +779,8 @@ async function printChart() {
     <!-- 导入产品弹窗: 只列含玻璃产品的单, 预填平面零件 (spec=玻璃厚度) -->
     <ProductPickModal v-model:show="productPickShow" mode="plane" @confirm="handleProductPick" />
 
-    <NModal v-model:show="loading" preset="dialog" title="计算中...">
+    <!-- 加载中弹窗: 不可关闭, 防止求解期间重复提交 -->
+    <NModal v-model:show="loading" preset="dialog" title="计算中..." :mask-closable="false" :closable="false">
       <div class="flex flex-col items-center justify-center p-6">
         <NSpin size="large" />
         <div class="mt-3">{{ $t('page.cut.loading') }}</div>

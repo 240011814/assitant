@@ -1,59 +1,69 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { NButton, NResult } from 'naive-ui';
+import { NButton, NResult, NSpin, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
+import { fetchCutRecord } from '@/service/api';
 
+const message = useMessage();
 const route = useRoute();
 const router = useRouter();
 
-// 解析失败/无参数时不白屏, 显示错误态
+const loading = ref(false);
 const parseError = ref(false);
-let parsedRequest: Api.Cut.BinRequest & {
-  rowItems: Api.Cut.Item[];
-} | null = null;
-let parsedResponse: Api.Cut.BinResult[] = [];
-let parsedSummary: Api.Cut.PlaneSummary | null = null;
-try {
-  const rawRequest = route.query.request;
-  const rawResponse = route.query.response;
-  if (typeof rawRequest !== 'string' || !rawRequest || typeof rawResponse !== 'string' || !rawResponse) {
-    throw new Error('missing query params');
+
+// 内容全部在按 id 拉取记录后填充
+const summaryData = ref<Api.Cut.PlaneSummary | null>(null);
+const newBoards = ref<Api.Cut.Item[]>([]);
+const items = ref<Api.Cut.Item[]>([]);
+const materials = ref<Api.Cut.Item[]>([]);
+const results = ref<Api.Cut.BinResult[]>([]);
+const strategy = ref('Guillotine');
+
+onMounted(async () => {
+  const id = String(route.params.id ?? '');
+  if (!id) {
+    parseError.value = true;
+    return;
   }
-  parsedRequest = JSON.parse(rawRequest) as Api.Cut.BinRequest & {
-    rowItems: Api.Cut.Item[];
-  };
-  // 兼容新旧记录: 旧记录响应为数组, 新记录响应为 { results, unplaced, summary }
-  const raw = JSON.parse(rawResponse) as Api.Cut.BinResult[] | Api.Cut.PlaneCutResponse;
-  parsedResponse = Array.isArray(raw) ? raw : raw.results;
-  parsedSummary = Array.isArray(raw) ? null : (raw.summary ?? null);
-} catch {
-  parseError.value = true;
-}
-const request = parsedRequest;
-const response = parsedResponse;
-const summaryData = ref<Api.Cut.PlaneSummary | null>(parsedSummary);
+  loading.value = true;
+  try {
+    const { data, error } = await fetchCutRecord(id);
+    if (error || !data?.request || !data.response) {
+      parseError.value = true;
+      return;
+    }
+    const req = JSON.parse(data.request) as Api.Cut.BinRequest & {
+      rowItems?: Api.Cut.Item[];
+    };
+    // 兼容新旧记录: 旧记录响应为数组, 新记录响应为 { results, unplaced, summary }
+    const raw = JSON.parse(data.response) as Api.Cut.BinResult[] | Api.Cut.PlaneCutResponse;
+    newBoards.value = req.newMaterials?.length
+      ? req.newMaterials
+      : [{ label: '', width: req.width, height: req.height }];
+    items.value = req.rowItems ?? [];
+    materials.value = req.materials ?? [];
+    strategy.value = req.strategy || 'Guillotine';
+    results.value = Array.isArray(raw) ? raw : raw.results;
+    summaryData.value = Array.isArray(raw) ? null : (raw.summary ?? null);
+  } catch {
+    parseError.value = true;
+    message.error('记录加载失败');
+  } finally {
+    loading.value = false;
+  }
+});
 
 function goBack() {
   router.back();
 }
 
 const group = ref(false);
-const strategy = ref(request?.strategy || 'Guillotine');
-// 新板材规格列表: 新记录取 newMaterials, 旧记录回退单一规格 (兼容)
-const newBoards = ref<Api.Cut.Item[]>(
-  request?.newMaterials?.length
-    ? request.newMaterials
-    : request
-      ? [{ label: '', width: request.width, height: request.height }]
-      : []
-);
-const items = ref<Api.Cut.Item[]>(request?.rowItems || []);
-const materials = ref<Api.Cut.Item[]>(request?.materials || []);
-const results = ref<Api.Cut.BinResult[]>(response || []);
 const strategyOptions = [
   { label: '刀切法', value: 'Guillotine' },
-  { label: '最大空闲法', value: 'MaxRects' }
+  { label: '最大空闲法', value: 'MaxRects' },
+  // 精确模式记录回显 (sidecar 超时/失败时后端自动回退, 结果仍标为 Precise 保存)
+  { label: '精确 (OR-Tools)', value: 'Precise' }
 ];
 
 function fmtNum(n: number): string {
@@ -96,7 +106,7 @@ const typeSummaryColumns: DataTableColumns<Api.Cut.PlaneMaterialTypeSummary> = [
     v-if="parseError"
     status="error"
     title="数据加载失败"
-    description="裁剪记录参数缺失或格式不正确，无法展示详情"
+    description="裁剪记录不存在或格式不正确，无法展示详情"
     class="mt-16"
   >
     <template #footer>
@@ -104,7 +114,8 @@ const typeSummaryColumns: DataTableColumns<Api.Cut.PlaneMaterialTypeSummary> = [
     </template>
   </NResult>
 
-  <div v-else class="p-4">
+  <NSpin v-else :show="loading">
+    <div class="p-4">
     <NCard title="材料裁剪可视化" size="large" class="mb-4">
       <!-- 切割项目列表 -->
 
@@ -153,7 +164,8 @@ const typeSummaryColumns: DataTableColumns<Api.Cut.PlaneMaterialTypeSummary> = [
     </NCard>
 
     <PlaneCanvas :results="results" :group-data="group" :materials="materials"></PlaneCanvas>
-  </div>
+    </div>
+  </NSpin>
 </template>
 
 <style scoped></style>

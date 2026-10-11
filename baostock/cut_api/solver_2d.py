@@ -51,16 +51,20 @@ def solve(req: SolveRequest) -> SolveResponse:
     def failed() -> SolveResponse:
         return SolveResponse(pieces=[], unplaced=[], status="failed", elapsed_ms=elapsed_ms())
 
+    # 倍率必须覆盖 kerf: 使 (尺寸+kerf)×scale 全部整化
     scale = _scale_for([d for it in req.items for d in (it.width, it.height)]
-                       + [d for b in req.boards for d in (b.width, b.height)])
+                       + [d for b in req.boards for d in (b.width, b.height)]
+                       + [req.kerf])
+    kerf = req.kerf
 
     # 展开零件 (展开顺序 = items 顺序×demand, 与 Go 侧一致, hint 按类型内出现序对齐)
-    pieces: list[tuple[int, int, int]] = []  # (type_idx, w, h) 已离散化
+    # 尺寸按锯缝膨胀: 排样在膨胀坐标系进行, 输出 x/y 仍为真实坐标
+    pieces: list[tuple[int, int, int]] = []  # (type_idx, w, h) 已离散化 (含 kerf)
     for ti, it in enumerate(req.items):
         for _ in range(it.demand):
-            pieces.append((ti, round(it.width * scale), round(it.height * scale)))
+            pieces.append((ti, round((it.width + kerf) * scale), round((it.height + kerf) * scale)))
     total = len(pieces)
-    boards = [(round(b.width * scale), round(b.height * scale), b) for b in req.boards]
+    boards = [(round((b.width + kerf) * scale), round((b.height + kerf) * scale), b) for b in req.boards]
 
     if total == 0:
         return SolveResponse(pieces=[], unplaced=[], status="feasible", elapsed_ms=elapsed_ms())

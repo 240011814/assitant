@@ -3,7 +3,7 @@ import { computed, h, onActivated, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NButton, NGi, NGrid, NInput, NInputNumber, NModal, NSelect, NSpin, NStatistic, useMessage } from 'naive-ui';
 import { $t } from '@/locales';
-import { cutBar, fetchCutProducts, fetchCutScraps } from '@/service/api';
+import { cutBar, fetchCutProducts, fetchCutRecord, fetchCutScraps } from '@/service/api';
 import ScrapLibraryModal from '@/components/cut/ScrapLibraryModal.vue';
 import ProductPickModal from '@/components/cut/ProductPickModal.vue';
 import { parseProductSpec, productCutRows } from '@/components/cut/window-template';
@@ -88,8 +88,68 @@ function fillItemsFromProductOrders(records: Api.Cut.CutProduct[]): number {
   }, 0);
 }
 
-// keepAlive 页面: 产品管理页"去裁剪"跳入时消费 query.products 预填 (首次挂载后 onActivated 也会触发)
+// 历史记录"重新编辑"跳入: 按 id 取回完整请求并回填表单 (invId 不回填, 重新保存不会重复扣库存)
+async function reuseFromRecord(id: string) {
+  const { data, error } = await fetchCutRecord(id);
+  if (error || !data?.request) {
+    message.error($t('page.cut.reuseLoadFailed'));
+    return;
+  }
+  try {
+    const req = JSON.parse(data.request) as Api.Cut.BarRequest & {
+      rowItems?: Api.Cut.BarItem[];
+      rowMaterials?: Api.Cut.BarItem[];
+    };
+    itemsData.value = req.rowItems?.length ? req.rowItems : groupExpandedBarItems(req.items ?? []);
+    materialsData.value = (req.rowMaterials ?? []).map(row => ({ label: row.label, length: row.length, quantity: row.quantity }));
+    newMaterialRows.value = req.newMaterials?.length
+      ? req.newMaterials.map(row => ({ label: row.label ?? '', length: row.length }))
+      : [{ label: '', length: req.newMaterialLength || 600 }];
+    loss.value = req.loss ?? 0;
+    utilizationWeight.value = req.utilizationWeight ?? 4;
+    solveMode.value = req.mode === 'precise' ? 'precise' : 'fast';
+    protectEnabled.value = req.protectEnabled ?? false;
+    protectMin.value = req.protectMin ?? null;
+    protectMax.value = req.protectMax ?? null;
+    cutResult.value = null;
+    summaryData.value = null;
+    saveData.value = null;
+    loadMaterialTypes();
+    message.success($t('page.cut.reuseLoaded'));
+  } catch {
+    message.error($t('page.cut.reuseLoadFailed'));
+  }
+}
+
+// 旧记录无 rowItems 时, 把展开件归并回零件行 (同规格+长度合并数量)
+function groupExpandedBarItems(list: Array<number | { length: number; spec?: string }>): Api.Cut.BarItem[] {
+  const map = new Map<string, Api.Cut.BarItem>();
+  const out: Api.Cut.BarItem[] = [];
+  for (const it of list) {
+    const length = typeof it === 'number' ? it : it.length;
+    const spec = typeof it === 'number' ? '' : it.spec ?? '';
+    const key = `${spec}|${length}`;
+    const existing = map.get(key);
+    if (existing) {
+      existing.quantity += 1;
+    } else {
+      const row: Api.Cut.BarItem = { label: spec || undefined, length, quantity: 1 };
+      map.set(key, row);
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+// keepAlive 页面: 产品管理页"去裁剪"跳入时消费 query.products 预填 (首次挂载后 onActivated 也会触发);
+// 历史记录"重新编辑"跳入时消费 query.reuse 回填表单
 onActivated(async () => {
+  const reuse = route.query.reuse;
+  if (typeof reuse === 'string' && reuse) {
+    router.replace({ query: { ...route.query, reuse: undefined } });
+    await reuseFromRecord(reuse);
+    return;
+  }
   const raw = route.query.products;
   if (typeof raw !== 'string' || !raw) return;
   // 先清掉 query, 避免切回该页时重复导入
@@ -260,7 +320,8 @@ const typeSummaryColumns = [
 
 function addItem() {
   const type = itemType.value?.trim();
-  if (type && itemLength.value && itemQty.value && itemQty.value > 0) {
+  // 显式判断 > 0: 真值判断会放行负数长度
+  if (type && itemLength.value !== null && itemLength.value > 0 && itemQty.value !== null && itemQty.value > 0) {
     itemsData.value.push({ label: type, length: itemLength.value, quantity: itemQty.value });
     itemType.value = null;
     itemLength.value = null;
@@ -272,7 +333,7 @@ function addItem() {
 
 function addMaterial() {
   const type = matLabel.value?.trim();
-  if (type && matLength.value && matQty.value && matQty.value > 0) {
+  if (type && matLength.value !== null && matLength.value > 0 && matQty.value !== null && matQty.value > 0) {
     materialsData.value.push({ label: type, length: matLength.value, quantity: matQty.value });
     matLabel.value = null;
     matLength.value = null;
@@ -363,7 +424,7 @@ async function fetchData() {
     materials,
     newMaterialLength: newMaterials[0]!.length,
     newMaterials,
-    loss: loss.value,
+    loss: Math.max(0, loss.value ?? 0),
     utilizationWeight: utilizationWeight.value
   };
   if (solveMode.value === 'precise') {
@@ -585,8 +646,8 @@ onUnmounted(() => {
           :placeholder="$t('page.cut.materialType')"
           class="w-40"
         />
-        <NInputNumber v-model:value="itemLength" placeholder="长度" class="w-40" />
-        <NInputNumber v-model:value="itemQty" placeholder="数量" class="w-32" />
+        <NInputNumber v-model:value="itemLength" placeholder="长度" class="w-40" :min="0.1" />
+        <NInputNumber v-model:value="itemQty" placeholder="数量" class="w-32" :min="1" />
         <NButton type="primary" @click="addItem">{{ $t('page.cut.addItem') }}</NButton>
         <NButton type="info" secondary @click="productPickShow = true">{{ $t('page.cut.pdImport') }}</NButton>
       </div>
@@ -602,8 +663,8 @@ onUnmounted(() => {
           :placeholder="$t('page.cut.materialType')"
           class="w-40"
         />
-        <NInputNumber v-model:value="matLength" placeholder="长度" class="w-40" />
-        <NInputNumber v-model:value="matQty" placeholder="数量" class="w-32" />
+        <NInputNumber v-model:value="matLength" placeholder="长度" class="w-40" :min="0.1" />
+        <NInputNumber v-model:value="matQty" placeholder="数量" class="w-32" :min="1" />
         <NButton type="primary" @click="addMaterial">{{ $t('page.cut.addMaterial') }}</NButton>
         <NButton type="info" secondary @click="scrapModalShow = true">{{ $t('page.cut.scrapLibrary') }}</NButton>
       </div>
@@ -616,7 +677,7 @@ onUnmounted(() => {
           <div class="flex flex-col gap-2">
             <div v-for="(row, idx) in newMaterialRows" :key="idx" class="flex items-center gap-2">
               <NInput v-model:value="row.label" :placeholder="$t('page.cut.newMaterialLabel')" class="w-32" />
-              <NInputNumber v-model:value="row.length" :placeholder="$t('page.cut.newMaterialLength')" class="w-40" :min="0" />
+              <NInputNumber v-model:value="row.length" :placeholder="$t('page.cut.newMaterialLength')" class="w-40" :min="0.1" />
               <NButton size="small" type="error" quaternary :disabled="newMaterialRows.length <= 1" @click="removeMaterialRow(idx)">
                 {{ $t('common.delete') }}
               </NButton>
@@ -626,7 +687,9 @@ onUnmounted(() => {
         </div>
         <div class="flex items-center gap-2">
           <span class="w-24">切割损耗</span>
-          <NInputNumber v-model:value="loss" class="w-40" />
+          <NInputNumber v-model:value="loss" class="w-40" :min="0" :step="0.1">
+            <template #suffix>cm</template>
+          </NInputNumber>
         </div>
         <div class="flex items-center gap-2">
           <span class="w-24">材料保护</span>
@@ -652,7 +715,7 @@ onUnmounted(() => {
       </div>
 
       <div class="mt-4 flex gap-2">
-        <NButton type="primary" @click="fetchData">{{ $t('page.cut.startCutting') }}</NButton>
+        <NButton type="primary" :loading="loading" @click="fetchData">{{ $t('page.cut.startCutting') }}</NButton>
         <BarPrinter v-if="!disabledPrint" :data="cutResult" />
         <SaveCutRecord :data="saveData" @saved="saveData = null"></SaveCutRecord>
         <NButton type="warning" @click="clearAll">{{ $t('page.cut.clearAll') }}</NButton>
@@ -751,8 +814,8 @@ onUnmounted(() => {
     <!-- 导入产品弹窗: 选择已保存的产品单预填切割尺寸 -->
     <ProductPickModal v-model:show="productPickShow" @confirm="handleProductPick" />
 
-    <!-- 加载中弹窗 -->
-    <NModal v-model:show="loading" preset="dialog" title="计算中...">
+    <!-- 加载中弹窗: 不可关闭, 防止求解期间重复提交 -->
+    <NModal v-model:show="loading" preset="dialog" title="计算中..." :mask-closable="false" :closable="false">
       <div class="flex flex-col items-center justify-center p-6">
         <NSpin size="large" />
         <div class="mt-3">{{ $t('page.cut.loading') }}</div>

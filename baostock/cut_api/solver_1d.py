@@ -20,7 +20,7 @@
 from __future__ import annotations
 
 import time
-from typing import Optional
+from typing import Iterable, Optional
 
 from ortools.linear_solver import pywraplp
 from ortools.sat.python import cp_model
@@ -33,10 +33,16 @@ MAX_SCRAP_GROUPS = 64  # 旧料按长度分组定价, 防御异常库存规模
 UNLIMITED = 10**9
 
 
-def _scale_for(kerf: float) -> int:
-    """离散化倍率: 使 kerf×scale 为整数 (精度最高 0.01)"""
+def _scale_for(kerf: float, lengths: Iterable[float] = (), protects: Iterable[float] = ()) -> int:
+    """离散化倍率: 使 (长度+kerf)×scale 与 protect×scale 全部为整数 (精度最高 0.01)。
+    必须覆盖所有参与装箱的尺寸 (零件/材料/保护区间), 否则整数截断会让求解器高估容量,
+    Go 侧浮点防御校验会误报 "超出材料容量" (kerf 为 0/整数时旧实现只看 kerf, 小数长度必现)。"""
+    def integral(v: float) -> bool:
+        return abs(v - round(v)) < 1e-6
+
+    dims = [kerf, *lengths, *protects]
     for s in (1, 10, 100):
-        if kerf * s == float(int(kerf * s)):
+        if all(integral(d * s) for d in dims):
             return s
     return 100
 
@@ -162,8 +168,11 @@ def solve(req: SolveRequest) -> SolveResponse:
 
     n = len(req.items)
     demand = [it.demand for it in req.items]
-    scale = _scale_for(req.kerf)
-    weights = [int((it.length + req.kerf) * scale + 1e-9) for it in req.items]
+    # 倍率覆盖零件长度与保护区间, 保证 (长度+kerf)×scale 全部整化
+    scale = _scale_for(req.kerf, (it.length for it in req.items),
+                       (req.protect_min, req.protect_max) if req.protect_enabled else ())
+    # round 而非截断: scale 选中后应为精确整化, round 只吸收浮点误差; 截断会低估件重导致超容
+    weights = [int(round((it.length + req.kerf) * scale)) for it in req.items]
 
     # 材料保护: 余料长度不允许落在 [protect_min, protect_max] (初始列过滤 + 定价互斥分支双重保证)
     protect_on = req.protect_enabled and 0 < req.protect_min <= req.protect_max
@@ -192,7 +201,7 @@ def solve(req: SolveRequest) -> SolveResponse:
     for mi, mat in enumerate(req.materials):
         sources.append({
             "kind": "material", "material_index": mi, "cost": mat.length,
-            "C": int((mat.length + req.kerf) * scale + 1e-9),
+            "C": int(round((mat.length + req.kerf) * scale)),
             "C_len": mat.length, "ref_len": [it.length for it in req.items],
             "ref_kerf": req.kerf, "cap": UNLIMITED,
         })
@@ -203,7 +212,7 @@ def solve(req: SolveRequest) -> SolveResponse:
         idxs = scrap_groups[length]
         sources.append({
             "kind": "scrap", "scrap_length": length, "scrap_idxs": idxs, "cost": 0.0,
-            "C": int((length + req.kerf) * scale + 1e-9),
+            "C": int(round((length + req.kerf) * scale)),
             "C_len": length, "ref_len": [it.length for it in req.items],
             "ref_kerf": req.kerf, "cap": len(idxs),
         })

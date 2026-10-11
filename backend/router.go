@@ -269,6 +269,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 		{
 			cutRecordGroup.POST("/add", api.RequirePermission("cut:record:create"), cutHandler.HandleAddRecord)
 			cutRecordGroup.GET("/list", api.RequirePermission("cut:record:view"), cutHandler.HandleListRecords)
+			cutRecordGroup.GET("/detail/:id", api.RequirePermission("cut:record:view"), cutHandler.HandleGetRecord)
 			cutRecordGroup.POST("/delete/:id", api.RequirePermission("cut:record:delete"), cutHandler.HandleDeleteRecord)
 		}
 

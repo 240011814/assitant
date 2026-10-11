@@ -121,6 +121,36 @@ def main() -> None:
     assert len(resp.pieces) == 0
     print("[spec oversized] PASS unplaced=1(oversized) pieces=0")
 
+    # 8. kerf 锯缝: 板按 (W+kerf,H+kerf) 容纳, 件按 (w+kerf,h+kerf) 占位 —
+    #    45×45×2 在 90×90 上 kerf=5 时膨胀件 50 一板只容 1 件 → 必须开 2 块板
+    resp = solve(SolveRequest(
+        items=[Item(width=45, height=45, demand=2)],
+        boards=[Board(width=90, height=90), Board(width=90, height=90)],
+        kerf=5,
+    ))
+    assert resp.status in ("optimal", "feasible"), f"[kerf开板] status={resp.status}"
+    assert len({p.board for p in resp.pieces}) == 2, f"kerf=5 时每板只容 1 件, 应 2 块板: {resp.pieces}"
+    print(f"[kerf开板] PASS boards=2 pieces={len(resp.pieces)} status={resp.status} 耗时={resp.elapsed_ms}ms")
+
+    # 9. kerf 间距: 60×60×2 在 200×100 上 kerf=5 — 同板同排时 x 向间隙必须 ≥ kerf (输出仍为真实坐标)
+    pieces = check_solution(SolveRequest(
+        items=[Item(width=60, height=60, demand=2)],
+        boards=[Board(width=200, height=100)],
+        kerf=5,
+    ), "kerf间距", expect_pieces=2)
+    assert len({p.board for p in pieces}) == 1, f"200×100 应单板放下 2 件: {pieces}"
+    a, b = pieces
+    same_row = abs(a.y - b.y) < 1e-6
+    same_col = abs(a.x - b.x) < 1e-6
+    if same_row:
+        gap = max(a.x - (b.x + 60), b.x - (a.x + 60))
+    elif same_col:
+        gap = max(a.y - (b.y + 60), b.y - (a.y + 60))
+    else:
+        gap = 99.0  # 斜向错开, 间距必然合规
+    assert gap >= 5 - 1e-6, f"同排/同列零件间距 {gap} 应 ≥ kerf 5"
+    print(f"[kerf间距] PASS gap={gap}")
+
     print("ALL CHECKS PASSED")
 
 

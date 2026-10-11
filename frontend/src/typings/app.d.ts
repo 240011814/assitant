@@ -1677,6 +1677,11 @@ declare namespace App {
           scrapLibrary: string;
           scrapStockInSuccess: string;
           scrapFromCutting: string;
+          loss: string;
+          reuseLoaded: string;
+          reuseLoadFailed: string;
+          recordLoadFailed: string;
+          noScrapToStockIn: string;
           scrapApplied: string;
           scrapLabelName: string;
           scrapSize: string;
