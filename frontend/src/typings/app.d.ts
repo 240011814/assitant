@@ -781,6 +781,18 @@ declare namespace App {
             ragEnabledMsg: string;
             ragDisabledMsg: string;
             ragSaved: string;
+            mqtt: string;
+            mqttDesc: string;
+            mqttHost: string;
+            mqttHostPlaceholder: string;
+            mqttPort: string;
+            mqttUsername: string;
+            mqttUsernamePlaceholder: string;
+            mqttPassword: string;
+            mqttPasswordPlaceholder: string;
+            saveMqtt: string;
+            mqttSaved: string;
+            mqttHostRequired: string;
             sendTestEmailTitle: string;
             recipient: string;
             recipientPlaceholder: string;
@@ -908,17 +920,6 @@ declare namespace App {
         };
         tool: {
           device: {
-            configTitle: string;
-            host: string;
-            hostPlaceholder: string;
-            port: string;
-            username: string;
-            optional: string;
-            password: string;
-            passwordPlaceholder: string;
-            save: string;
-            saved: string;
-            hostRequired: string;
             connect: string;
             disconnect: string;
             connectSuccess: string;

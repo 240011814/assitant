@@ -6,12 +6,10 @@ import { useAuth } from '@/hooks/business/auth'
 import {
   connectWol,
   disconnectWol,
-  getWolConfig,
   getWolDevices,
   getWolMacList,
   getWolStatus,
   publishWolRaw,
-  updateWolConfig,
   updateWolMac,
   wakeWolDevice
 } from '@/service/api'
@@ -24,10 +22,8 @@ const { hasAuth } = useAuth()
 
 const canManage = computed(() => hasAuth('tool:device:manage'))
 
-const configForm = reactive({ host: '', port: 1883, username: '', password: '' })
 const statusInfo = ref<Api.Wol.Status | null>(null)
 const devices = ref<Api.Wol.Device[]>([])
-const saving = ref(false)
 const connecting = ref(false)
 const discovering = ref(false)
 
@@ -63,15 +59,6 @@ function rssiTag(rssi: number): 'success' | 'warning' | 'error' {
   return 'error'
 }
 
-async function loadConfig() {
-  const { data } = await getWolConfig()
-  if (data) {
-    configForm.host = data.host
-    configForm.port = data.port || 1883
-    configForm.username = data.username
-  }
-}
-
 async function loadStatus() {
   const { data } = await getWolStatus()
   if (data) statusInfo.value = data
@@ -82,20 +69,6 @@ async function loadDevices(discover: boolean) {
   const { data } = await getWolDevices(discover)
   if (data) devices.value = data
   if (discover) discovering.value = false
-}
-
-async function saveConfig() {
-  if (!configForm.host.trim()) {
-    message.warning($t('page.tool.device.hostRequired'))
-    return
-  }
-  saving.value = true
-  const { data } = await updateWolConfig({ ...configForm })
-  saving.value = false
-  if (data) {
-    configForm.password = ''
-    message.success($t('page.tool.device.saved'))
-  }
 }
 
 async function handleConnect() {
@@ -286,7 +259,6 @@ const macColumns = [
 let timer: ReturnType<typeof setInterval> | null = null
 
 onMounted(async () => {
-  await loadConfig()
   await loadStatus()
   if (connected.value) {
     await loadDevices(false)
@@ -306,49 +278,6 @@ onBeforeUnmount(() => {
   <div class="flex h-full gap-4">
     <!-- 左侧: 连接配置 + 状态 -->
     <div class="w-80 flex-shrink-0 overflow-y-auto">
-      <NCard :title="$t('page.tool.device.configTitle')" size="small" class="mb-4">
-        <NForm label-placement="top" :show-feedback="false">
-          <NFormItem :label="$t('page.tool.device.host')">
-            <NInput
-              v-model:value="configForm.host"
-              :placeholder="$t('page.tool.device.hostPlaceholder')"
-              clearable
-            />
-          </NFormItem>
-          <NFormItem :label="$t('page.tool.device.port')">
-            <NInputNumber v-model:value="configForm.port" :min="1" :max="65535" class="w-full" />
-          </NFormItem>
-          <NFormItem :label="`${$t('page.tool.device.username')} (${$t('page.tool.device.optional')})`">
-            <NInput v-model:value="configForm.username" clearable />
-          </NFormItem>
-          <NFormItem :label="$t('page.tool.device.password')">
-            <NInput
-              v-model:value="configForm.password"
-              type="password"
-              show-password-on="click"
-              :placeholder="$t('page.tool.device.passwordPlaceholder')"
-            />
-          </NFormItem>
-        </NForm>
-        <div class="flex gap-2">
-          <NButton v-if="canManage" class="flex-1" :loading="saving" @click="saveConfig">
-            {{ $t('page.tool.device.save') }}
-          </NButton>
-          <NButton
-            v-if="canManage && !connected"
-            class="flex-1"
-            type="primary"
-            :loading="connecting"
-            @click="handleConnect"
-          >
-            {{ $t('page.tool.device.connect') }}
-          </NButton>
-          <NButton v-if="canManage && connected" class="flex-1" type="warning" @click="handleDisconnect">
-            {{ $t('page.tool.device.disconnect') }}
-          </NButton>
-        </div>
-      </NCard>
-
       <NCard :title="$t('page.tool.device.statusTitle')" size="small">
         <div class="flex items-center gap-2 mb-2">
           <NTag :type="connected ? 'success' : 'error'" size="small" :bordered="false">
@@ -364,6 +293,20 @@ onBeforeUnmount(() => {
         <NAlert v-if="statusInfo?.last_error" type="error" class="mt-2" :show-icon="true">
           {{ statusInfo.last_error }}
         </NAlert>
+        <div class="mt-3 flex gap-2">
+          <NButton
+            v-if="canManage && !connected"
+            class="flex-1"
+            type="primary"
+            :loading="connecting"
+            @click="handleConnect"
+          >
+            {{ $t('page.tool.device.connect') }}
+          </NButton>
+          <NButton v-if="canManage && connected" class="flex-1" type="warning" @click="handleDisconnect">
+            {{ $t('page.tool.device.disconnect') }}
+          </NButton>
+        </div>
       </NCard>
     </div>
 
