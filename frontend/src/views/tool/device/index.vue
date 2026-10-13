@@ -275,51 +275,39 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="flex h-full gap-4">
-    <!-- 左侧: 连接配置 + 状态 -->
-    <div class="w-80 flex-shrink-0 overflow-y-auto">
-      <NCard :title="$t('page.tool.device.statusTitle')" size="small">
-        <div class="flex items-center gap-2 mb-2">
-          <NTag :type="connected ? 'success' : 'error'" size="small" :bordered="false">
-            {{ connected ? $t('page.tool.device.connected') : $t('page.tool.device.disconnected') }}
-          </NTag>
-          <span v-if="statusInfo?.host" class="text-sm text-gray-500">
-            {{ statusInfo.host }}:{{ statusInfo.port }}
-          </span>
-        </div>
-        <div class="text-sm text-gray-500">
-          {{ $t('page.tool.device.deviceCount') }}: {{ statusInfo?.device_count ?? 0 }}
-        </div>
-        <NAlert v-if="statusInfo?.last_error" type="error" class="mt-2" :show-icon="true">
-          {{ statusInfo.last_error }}
-        </NAlert>
-        <div class="mt-3 flex gap-2">
-          <NButton
-            v-if="canManage && !connected"
-            class="flex-1"
-            type="primary"
-            :loading="connecting"
-            @click="handleConnect"
-          >
-            {{ $t('page.tool.device.connect') }}
-          </NButton>
-          <NButton v-if="canManage && connected" class="flex-1" type="warning" @click="handleDisconnect">
-            {{ $t('page.tool.device.disconnect') }}
-          </NButton>
-        </div>
-      </NCard>
-    </div>
-
-    <!-- 右侧: 设备卡片 -->
-    <div class="flex flex-1 flex-col overflow-hidden">
-      <div class="flex items-center justify-between border-b border-gray-200 p-3">
-        <span class="text-lg font-bold">{{ $t('page.tool.device.devices') }}</span>
+  <div class="flex h-full flex-col">
+    <!-- 顶部工具栏: 标题 + 连接状态 + 操作 -->
+    <div class="flex flex-wrap items-center gap-3 border-b border-gray-200 px-4 py-3">
+      <span class="text-lg font-bold">{{ $t('page.tool.device.devices') }}</span>
+      <NTag :type="connected ? 'success' : 'error'" size="small" :bordered="false">
+        {{ connected ? $t('page.tool.device.connected') : $t('page.tool.device.disconnected') }}
+      </NTag>
+      <span v-if="statusInfo?.host" class="text-sm text-gray-500">
+        {{ statusInfo.host }}:{{ statusInfo.port }}
+      </span>
+      <span class="text-sm text-gray-500">
+        {{ $t('page.tool.device.deviceCount') }}: {{ statusInfo?.device_count ?? 0 }}
+      </span>
+      <div class="ml-auto flex items-center gap-2">
+        <NButton v-if="canManage && !connected" type="primary" :loading="connecting" @click="handleConnect">
+          {{ $t('page.tool.device.connect') }}
+        </NButton>
+        <NButton v-if="canManage && connected" type="warning" secondary @click="handleDisconnect">
+          {{ $t('page.tool.device.disconnect') }}
+        </NButton>
         <NButton v-if="connected" type="primary" :loading="discovering" @click="loadDevices(true)">
           {{ $t('page.tool.device.refresh') }}
         </NButton>
       </div>
-      <div class="flex-1 overflow-auto p-3">
-        <div v-if="devices.length" class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+    </div>
+
+    <NAlert v-if="statusInfo?.last_error" type="error" class="m-3" :show-icon="true">
+      {{ statusInfo.last_error }}
+    </NAlert>
+
+    <!-- 设备卡片 -->
+    <div class="flex-1 overflow-auto p-4">
+      <div v-if="devices.length" class="grid grid-cols-1 gap-4 xl:grid-cols-2 2xl:grid-cols-3">
           <NCard v-for="device in devices" :key="device.id" class="h-full">
             <template #header>
               <span class="font-mono text-base">{{ device.id }}</span>
@@ -340,7 +328,8 @@ onBeforeUnmount(() => {
                 {{ device.temp_c ? `${device.temp_c.toFixed(2)} °C` : '-' }}
               </div>
               <div>
-                <span class="text-gray-400">{{ $t('page.tool.device.heap') }}: </span>{{ device.heap || '-' }}
+                <span class="text-gray-400">{{ $t('page.tool.device.heap') }}: </span>
+                {{ device.heap ? `${(device.heap / 1024).toFixed(1)} KB` : '-' }}
               </div>
               <div>
                 <span class="text-gray-400">{{ $t('page.tool.device.broadcast') }}: </span>{{ device.broadcast || '-' }}
@@ -367,9 +356,17 @@ onBeforeUnmount(() => {
             </div>
           </NCard>
         </div>
-        <NEmpty v-else class="mt-20" :description="$t('page.tool.device.empty')" />
+        <div v-else class="mt-20 flex flex-col items-center gap-3">
+          <NEmpty
+            :description="
+              connected ? $t('page.tool.device.empty') : $t('page.tool.device.connectFirst')
+            "
+          />
+          <NButton v-if="!connected && canManage" type="primary" :loading="connecting" @click="handleConnect">
+            {{ $t('page.tool.device.connect') }}
+          </NButton>
+        </div>
       </div>
-    </div>
 
     <!-- 地址簿弹窗 -->
     <NModal v-model:show="macModalVisible" preset="card" style="width: 640px" :title="$t('page.tool.device.macTitle')">

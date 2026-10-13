@@ -926,7 +926,7 @@ declare namespace App {
             disconnectSuccess: string;
             connected: string;
             disconnected: string;
-            statusTitle: string;
+            connectFirst: string;
             deviceCount: string;
             devices: string;
             refresh: string;

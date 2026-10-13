@@ -880,7 +880,7 @@ const local: App.I18n.Schema = {
         disconnectSuccess: "Disconnected",
         connected: "Connected",
         disconnected: "Disconnected",
-        statusTitle: "Status",
+        connectFirst: "MQTT is disconnected. Please connect first.",
         deviceCount: "Devices",
         devices: "Devices",
         refresh: "Discover",

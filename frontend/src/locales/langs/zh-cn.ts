@@ -874,7 +874,7 @@ const local: App.I18n.Schema = {
         disconnectSuccess: "已断开连接",
         connected: "已连接",
         disconnected: "未连接",
-        statusTitle: "连接状态",
+        connectFirst: "MQTT 未连接，请先建立连接",
         deviceCount: "设备数",
         devices: "设备列表",
         refresh: "发现设备",
