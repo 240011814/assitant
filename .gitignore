@@ -20,3 +20,9 @@ backend/main
 .env*
 !frontend/.env*
 
+package-lock.json
+yarn.lock
+
+.VSCodeCounter
+src-tauri/target
+.codegraph

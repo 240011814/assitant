@@ -111,12 +111,12 @@ function formatDisplayContent(content: string) {
   let cleaned = content.replace(/<vocabs>[\s\S]*?<\/vocabs>/g, "");
   // 移除不完整的 <vocabs> 标签（流式响应时可能出现）
   cleaned = cleaned.replace(/<vocabs>[\s\S]*$/, "");
-  
+
   // 移除完整的 <expressions>...</expressions> 标签
   cleaned = cleaned.replace(/<expressions>[\s\S]*?<\/expressions>/g, "");
   // 移除不完整的 <expressions> 标签（流式响应时可能出现）
   cleaned = cleaned.replace(/<expressions>[\s\S]*$/, "");
-  
+
   return cleaned.trim();
 }
 

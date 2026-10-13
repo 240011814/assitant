@@ -1,0 +1,18 @@
+name: Render Keep Alive
+
+on:
+  schedule:
+    # 每 10 分钟运行一次 (Cron: 分 时 日 月 周)
+    # 建议设置在 10-14 分钟之间，因为 Render 是 15 分钟不活跃就休眠
+    - cron: "0/10 * * * *"
+  workflow_dispatch: # 允许你在 GitHub 页面上手动触发测试
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Multiple Services
+        run: |
+          curl -I https://english-tools-backend.onrender.com/api/health
+          curl -I https://english-tools-frontend.onrender.com/health
+          echo "All services pinged!"
