@@ -965,6 +965,9 @@ declare namespace App {
             reports: string;
             dirSend: string;
             dirRecv: string;
+            editSend: string;
+            payloadInvalid: string;
+            formatJson: string;
             reportsEmpty: string;
             topic: string;
             topicPlaceholder: string;

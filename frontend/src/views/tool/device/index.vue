@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, h, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { NButton, useMessage } from 'naive-ui'
+import hljs from 'highlight.js/lib/common'
 import { useAuth } from '@/hooks/business/auth'
 import {
   connectWol,
@@ -212,12 +213,51 @@ async function sendDebug() {
     message.warning($t('page.tool.device.topicRequired'))
     return
   }
+  if (payloadError.value) {
+    message.warning($t('page.tool.device.payloadInvalid'))
+    return
+  }
   const { error } = await publishWolRaw({ topic: debugForm.topic.trim(), payload: debugForm.payload })
   if (!error) message.success($t('page.tool.device.sent'))
 }
 
-// 最近报文 (倒序)
-const debugReports = computed(() => [...(statusInfo.value?.messages || [])].reverse())
+// 最近报文 (倒序, JSON 报文格式化 + 高亮)
+function prettyJson(raw: string): string | null {
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2)
+  } catch {
+    return null
+  }
+}
+
+const debugReports = computed(() =>
+  [...(statusInfo.value?.messages || [])].reverse().map(msg => {
+    const pretty = prettyJson(msg.payload)
+    return {
+      ...msg,
+      pretty,
+      html: pretty ? hljs.highlight(pretty, { language: 'json', ignoreIllegals: true }).value : ''
+    }
+  })
+)
+
+// 载入报文到发送区编辑重发
+function editReport(msg: { topic: string; pretty: string | null; payload: string }) {
+  debugForm.topic = msg.topic
+  debugForm.payload = msg.pretty ?? msg.payload
+}
+
+// 发送区 JSON 实时校验
+const payloadError = computed(() => Boolean(debugForm.payload.trim()) && prettyJson(debugForm.payload) === null)
+
+function formatPayload() {
+  const pretty = prettyJson(debugForm.payload)
+  if (pretty === null) {
+    message.warning($t('page.tool.device.payloadInvalid'))
+    return
+  }
+  debugForm.payload = pretty
+}
 
 const macOptions = computed(() => macList.value.map(item => ({ label: item.mac, value: item.mac })))
 
@@ -476,7 +516,7 @@ onBeforeUnmount(() => {
         <div
           v-for="(msg, index) in debugReports"
           :key="index"
-          class="border-b border-gray-100 py-1 text-xs last:border-0"
+          class="border-b border-gray-100 py-1.5 text-xs last:border-0"
         >
           <div class="flex flex-wrap items-center gap-1 text-gray-400">
             <span>{{ formatTime(msg.received_at) }}</span>
@@ -489,8 +529,16 @@ onBeforeUnmount(() => {
             </NTag>
             <span class="break-all text-gray-500">{{ msg.topic || '-' }}</span>
             <span>{{ msg.device_id || '-' }} · {{ msg.cmd || '-' }}</span>
+            <NButton size="tiny" quaternary type="primary" class="ml-auto" @click="editReport(msg)">
+              {{ $t('page.tool.device.editSend') }}
+            </NButton>
           </div>
-          <div class="break-all text-gray-700">{{ msg.payload }}</div>
+          <pre
+            v-if="msg.html"
+            class="hljs mt-1 max-h-40 overflow-auto rounded !p-2 text-xs"
+            v-html="msg.html"
+          ></pre>
+          <div v-else class="mt-1 whitespace-pre-wrap break-all text-gray-700">{{ msg.payload }}</div>
         </div>
       </div>
 
@@ -501,12 +549,24 @@ onBeforeUnmount(() => {
           <NInput v-model:value="debugForm.topic" :placeholder="$t('page.tool.device.topicPlaceholder')" />
         </NFormItem>
         <NFormItem :label="$t('page.tool.device.payload')">
-          <NInput
-            v-model:value="debugForm.payload"
-            type="textarea"
-            :autosize="{ minRows: 2, maxRows: 6 }"
-            :placeholder="$t('page.tool.device.payloadPlaceholder')"
-          />
+          <div class="w-full">
+            <NInput
+              v-model:value="debugForm.payload"
+              type="textarea"
+              :autosize="{ minRows: 3, maxRows: 8 }"
+              :status="payloadError ? 'error' : undefined"
+              :placeholder="$t('page.tool.device.payloadPlaceholder')"
+            />
+            <div class="mt-1 flex items-center justify-between">
+              <span v-if="payloadError" class="text-xs text-red-500">
+                {{ $t('page.tool.device.payloadInvalid') }}
+              </span>
+              <span v-else class="text-xs text-gray-400">JSON</span>
+              <NButton size="tiny" quaternary @click="formatPayload">
+                {{ $t('page.tool.device.formatJson') }}
+              </NButton>
+            </div>
+          </div>
         </NFormItem>
       </NForm>
 
