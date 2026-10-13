@@ -894,6 +894,8 @@ const local: App.I18n.Schema = {
         offline: "Offline",
         lastSeen: "Last Seen",
         bootTime: "Boot Time",
+        dirSend: "Send",
+        dirRecv: "Recv",
         addressBook: "Address Book",
         wake: "Wake",
         debug: "Debug",

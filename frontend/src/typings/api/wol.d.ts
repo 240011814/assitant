@@ -30,9 +30,11 @@ declare namespace Api {
       ip: string
     }
 
-    /** 最近收到的命令结果 / 状态消息 */
+    /** 最近收发的报文 (send=下发 recv=上报) */
     interface Message {
       device_id: string
+      direction: 'send' | 'recv'
+      topic: string
       cmd: string
       payload: string
       received_at: string

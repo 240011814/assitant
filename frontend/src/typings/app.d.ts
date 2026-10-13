@@ -963,6 +963,8 @@ declare namespace App {
             refreshMac: string;
             debugTitle: string;
             reports: string;
+            dirSend: string;
+            dirRecv: string;
             reportsEmpty: string;
             topic: string;
             topicPlaceholder: string;

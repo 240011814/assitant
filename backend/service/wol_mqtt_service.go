@@ -69,12 +69,14 @@ type WolMacEntry struct {
 	IP  string `json:"ip"`
 }
 
-// WolMessage 最近收到的命令结果 / 状态消息 (供页面反馈)
+// WolMessage 最近收发的报文 (供页面反馈)
 type WolMessage struct {
 	DeviceID   string    `json:"device_id"`
+	Direction  string    `json:"direction"` // send=下发 recv=上报
+	Topic      string    `json:"topic"`
 	Cmd        string    `json:"cmd"`
 	Payload    string    `json:"payload"`
-	ReceivedAt time.Time `json:"received_at"`
+	ReceivedAt time.Time `json:"received_at"` // 收到/发出的时刻
 }
 
 // WolStatus 服务运行状态
@@ -406,7 +408,11 @@ func (s *WolMqttService) publishBytes(topic string, data []byte) error {
 	if !token.WaitTimeout(3 * time.Second) {
 		return errors.New("发送命令超时")
 	}
-	return token.Error()
+	if err := token.Error(); err != nil {
+		return err
+	}
+	s.recordMessage("send", topic, wolDeviceIDFromTopic(topic), wolCmdFromPayload(data), string(data))
+	return nil
 }
 
 // handleMessage 处理所有订阅到的消息 (状态主题与温度主题)
@@ -416,7 +422,7 @@ func (s *WolMqttService) handleMessage(_ mqtt.Client, msg mqtt.Message) {
 
 	var in wolInbound
 	if err := json.Unmarshal(payload, &in); err != nil {
-		s.recordMessage("", "", string(payload))
+		s.recordMessage("recv", topic, "", "", string(payload))
 		return
 	}
 
@@ -427,14 +433,14 @@ func (s *WolMqttService) handleMessage(_ mqtt.Client, msg mqtt.Message) {
 			deviceID = strings.TrimPrefix(topic, wolTempTopicPrefix)
 		}
 		s.applyTemp(deviceID, in.TempC)
-		s.recordMessage(deviceID, in.Cmd, string(payload))
+		s.recordMessage("recv", topic, deviceID, in.Cmd, string(payload))
 		return
 	}
 
 	// 地址簿列表应答
 	if in.Cmd == "mac_list" {
 		s.applyMacList(in.ID, in.Macs)
-		s.recordMessage(in.ID, in.Cmd, string(payload))
+		s.recordMessage("recv", topic, in.ID, in.Cmd, string(payload))
 		s.notifyWaiter(in.ID, "mac_list", payload)
 		return
 	}
@@ -442,12 +448,12 @@ func (s *WolMqttService) handleMessage(_ mqtt.Client, msg mqtt.Message) {
 	// 设备状态上报 (含状态字段)
 	if in.ID != "" && isWolDeviceStatus(in) {
 		s.applyDeviceStatus(in)
-		s.recordMessage(in.ID, in.Cmd, string(payload))
+		s.recordMessage("recv", topic, in.ID, in.Cmd, string(payload))
 		return
 	}
 
 	// 其余按命令结果记录并唤醒等待者
-	s.recordMessage(in.ID, in.Cmd, string(payload))
+	s.recordMessage("recv", topic, in.ID, in.Cmd, string(payload))
 	s.notifyWaiter(in.ID, "result", payload)
 }
 
@@ -541,11 +547,13 @@ func (s *WolMqttService) cachedMacList(id string) []WolMacEntry {
 	return out
 }
 
-func (s *WolMqttService) recordMessage(deviceID, cmd, payload string) {
+func (s *WolMqttService) recordMessage(direction, topic, deviceID, cmd, payload string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.messages = append(s.messages, WolMessage{
 		DeviceID:   deviceID,
+		Direction:  direction,
+		Topic:      topic,
 		Cmd:        cmd,
 		Payload:    payload,
 		ReceivedAt: time.Now(),
@@ -553,6 +561,27 @@ func (s *WolMqttService) recordMessage(deviceID, cmd, payload string) {
 	if len(s.messages) > wolMaxResultLog {
 		s.messages = s.messages[len(s.messages)-wolMaxResultLog:]
 	}
+}
+
+// wolDeviceIDFromTopic 从主题推断设备 ID (广播/状态主题无设备 ID, 返回空)
+func wolDeviceIDFromTopic(topic string) string {
+	for _, prefix := range []string{wolCmdTopicPrefix, wolMacTopicPrefix, wolMacGetTopicPrefix, wolTempTopicPrefix} {
+		if strings.HasPrefix(topic, prefix) {
+			return strings.TrimPrefix(topic, prefix)
+		}
+	}
+	return ""
+}
+
+// wolCmdFromPayload 从 JSON 报文里取 cmd 字段 (取不到返回空)
+func wolCmdFromPayload(data []byte) string {
+	var p struct {
+		Cmd string `json:"cmd"`
+	}
+	if err := json.Unmarshal(data, &p); err != nil {
+		return ""
+	}
+	return p.Cmd
 }
 
 func (s *WolMqttService) setConnected(connected bool, lastErr string) {

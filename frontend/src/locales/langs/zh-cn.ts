@@ -911,6 +911,8 @@ const local: App.I18n.Schema = {
         refreshMac: "刷新地址簿",
         debugTitle: "设备调试",
         reports: "最近报文",
+        dirSend: "发送",
+        dirRecv: "接收",
         reportsEmpty: "暂无报文",
         topic: "主题",
         topicPlaceholder: "例如 wakemanager/cmd/A1B2C3D4E5F6",

@@ -478,8 +478,17 @@ onBeforeUnmount(() => {
           :key="index"
           class="border-b border-gray-100 py-1 text-xs last:border-0"
         >
-          <div class="text-gray-400">
-            {{ formatTime(msg.received_at) }} · {{ msg.device_id || '-' }} · {{ msg.cmd || '-' }}
+          <div class="flex flex-wrap items-center gap-1 text-gray-400">
+            <span>{{ formatTime(msg.received_at) }}</span>
+            <NTag
+              size="tiny"
+              :bordered="false"
+              :type="msg.direction === 'send' ? 'warning' : 'info'"
+            >
+              {{ msg.direction === 'send' ? $t('page.tool.device.dirSend') : $t('page.tool.device.dirRecv') }}
+            </NTag>
+            <span class="break-all text-gray-500">{{ msg.topic || '-' }}</span>
+            <span>{{ msg.device_id || '-' }} · {{ msg.cmd || '-' }}</span>
           </div>
           <div class="break-all text-gray-700">{{ msg.payload }}</div>
         </div>
