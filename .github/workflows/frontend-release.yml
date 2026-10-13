@@ -3,7 +3,7 @@ name: Frontend Build & Deploy
 on:
   push:
     branches:
-      - english
+      - release
     paths:
       - 'frontend/**'
   workflow_dispatch:

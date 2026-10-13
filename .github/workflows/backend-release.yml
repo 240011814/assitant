@@ -3,7 +3,7 @@ name: Backend Build & Deploy
 on:
   push:
     branches:
-      - english
+      - release
     paths:
       - 'backend/**'
   workflow_dispatch:

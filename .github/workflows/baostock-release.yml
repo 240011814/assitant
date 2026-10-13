@@ -3,7 +3,7 @@ name: Baostock Build & Deploy
 on:
   push:
     branches:
-      - english
+      - release
     paths:
       - 'baostock/**'
   workflow_dispatch:
