@@ -22,6 +22,7 @@ const (
 	wolMacTopicPrefix    = "wakemanager/mac/"      // 地址簿设置: set/del/clear
 	wolMacGetTopicPrefix = "wakemanager/mac/get/"  // 地址簿获取: {"cmd":"get"}
 	wolTempTopicPrefix   = "wakemanager/temp/"     // 芯片温度 (每设备, 每 60s)
+	wolRelayTopic        = "texthub"               // 中转站: 任意文本, 保留最近 50 条 (FIFO)
 )
 
 // system_config 键
@@ -33,10 +34,11 @@ const (
 )
 
 const (
-	wolDefaultPort  = 1883
-	wolDiscoverWait = 2 * time.Second
-	wolMacListWait  = 3 * time.Second
-	wolMaxResultLog = 50
+	wolDefaultPort   = 1883
+	wolDiscoverWait  = 2 * time.Second
+	wolMacListWait   = 3 * time.Second
+	wolMaxResultLog  = 50
+	wolMaxRelayItems = 50 // 中转站最多保留条数 (先进先出)
 )
 
 // WolMqttConfig MQTT 连接配置 (存 system_config, 密码仅落库不回显)
@@ -79,14 +81,22 @@ type WolMessage struct {
 	ReceivedAt time.Time `json:"received_at"` // 收到/发出的时刻
 }
 
+// WolRelayItem 中转站条目 (订阅 wolRelayTopic 收到的文本, 最多 wolMaxRelayItems 条 FIFO)
+type WolRelayItem struct {
+	ID         uint64    `json:"id"`
+	Text       string    `json:"text"`
+	ReceivedAt time.Time `json:"received_at"`
+}
+
 // WolStatus 服务运行状态
 type WolStatus struct {
-	Connected   bool         `json:"connected"`
-	Host        string       `json:"host"`
-	Port        int          `json:"port"`
-	DeviceCount int          `json:"device_count"`
-	LastError   string       `json:"last_error"`
-	Messages    []WolMessage `json:"messages"`
+	Connected   bool          `json:"connected"`
+	Host        string        `json:"host"`
+	Port        int           `json:"port"`
+	DeviceCount int           `json:"device_count"`
+	LastError   string        `json:"last_error"`
+	Messages    []WolMessage  `json:"messages"`
+	Relay       []WolRelayItem `json:"relay"`
 }
 
 // wolInbound 状态主题/温度主题来包的宽松解析 (用指针区分"字段是否存在")
@@ -117,6 +127,8 @@ type WolMqttService struct {
 	devices   map[string]*WolDeviceInfo
 	macLists  map[string][]WolMacEntry
 	messages  []WolMessage
+	relay     []WolRelayItem
+	relaySeq  uint64
 	waiters   map[string]chan []byte
 }
 
@@ -256,6 +268,8 @@ func (s *WolMqttService) Status() WolStatus {
 	defer s.mu.Unlock()
 	msgs := make([]WolMessage, len(s.messages))
 	copy(msgs, s.messages)
+	relay := make([]WolRelayItem, len(s.relay))
+	copy(relay, s.relay)
 	return WolStatus{
 		Connected:   s.connected && s.client != nil && s.client.IsConnected(),
 		Host:        cfg.Host,
@@ -263,6 +277,7 @@ func (s *WolMqttService) Status() WolStatus {
 		DeviceCount: len(s.devices),
 		LastError:   s.lastError,
 		Messages:    msgs,
+		Relay:       relay,
 	}
 }
 
@@ -369,12 +384,15 @@ func (s *WolMqttService) Wake(deviceID, mac, ip string) error {
 	return s.publish(wolCmdTopicPrefix+deviceID, body)
 }
 
-// subscribeAll 订阅状态主题与温度主题
+// subscribeAll 订阅状态主题、温度主题与中转站主题
 func (s *WolMqttService) subscribeAll(client mqtt.Client) error {
 	if token := client.Subscribe(wolStatusTopic, 1, s.handleMessage); token.WaitTimeout(5*time.Second) && token.Error() != nil {
 		return token.Error()
 	}
 	if token := client.Subscribe(wolTempTopicPrefix+"+", 0, s.handleMessage); token.WaitTimeout(5*time.Second) && token.Error() != nil {
+		return token.Error()
+	}
+	if token := client.Subscribe(wolRelayTopic, 0, s.handleMessage); token.WaitTimeout(5*time.Second) && token.Error() != nil {
 		return token.Error()
 	}
 	return nil
@@ -411,7 +429,10 @@ func (s *WolMqttService) publishBytes(topic string, data []byte) error {
 	if err := token.Error(); err != nil {
 		return err
 	}
-	s.recordMessage("send", topic, wolDeviceIDFromTopic(topic), wolCmdFromPayload(data), string(data))
+	// 中转站主题与设备调试无关, 不进报文列表
+	if topic != wolRelayTopic {
+		s.recordMessage("send", topic, wolDeviceIDFromTopic(topic), wolCmdFromPayload(data), string(data))
+	}
 	return nil
 }
 
@@ -419,6 +440,12 @@ func (s *WolMqttService) publishBytes(topic string, data []byte) error {
 func (s *WolMqttService) handleMessage(_ mqtt.Client, msg mqtt.Message) {
 	payload := append([]byte(nil), msg.Payload()...)
 	topic := msg.Topic()
+
+	// 中转站主题: 原样保留文本 (非 JSON, 不进报文列表)
+	if topic == wolRelayTopic {
+		s.appendRelay(string(payload))
+		return
+	}
 
 	var in wolInbound
 	if err := json.Unmarshal(payload, &in); err != nil {
@@ -582,6 +609,25 @@ func wolCmdFromPayload(data []byte) string {
 		return ""
 	}
 	return p.Cmd
+}
+
+// appendRelay 中转站入队: 空文本忽略, 超出 wolMaxRelayItems 时淘汰最旧的 (FIFO)
+func (s *WolMqttService) appendRelay(text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.relaySeq++
+	s.relay = append(s.relay, WolRelayItem{
+		ID:         s.relaySeq,
+		Text:       text,
+		ReceivedAt: time.Now(),
+	})
+	if len(s.relay) > wolMaxRelayItems {
+		s.relay = s.relay[len(s.relay)-wolMaxRelayItems:]
+	}
 }
 
 func (s *WolMqttService) setConnected(connected bool, lastErr string) {

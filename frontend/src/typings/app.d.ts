@@ -969,6 +969,15 @@ declare namespace App {
             editSend: string;
             payloadInvalid: string;
             formatJson: string;
+            relay: string;
+            relayDesc: string;
+            relayEmpty: string;
+            relayCopy: string;
+            relayCopied: string;
+            relayCopyFailed: string;
+            relayPlaceholder: string;
+            relaySend: string;
+            relaySent: string;
             reportsEmpty: string;
             topic: string;
             topicPlaceholder: string;

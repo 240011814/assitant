@@ -40,6 +40,13 @@ declare namespace Api {
       received_at: string
     }
 
+    /** 中转站条目 (订阅 wakemanager/relay 收到的文本, 最多 50 条 FIFO) */
+    interface RelayItem {
+      id: number
+      text: string
+      received_at: string
+    }
+
     /** 服务运行状态 */
     interface Status {
       connected: boolean
@@ -48,6 +55,7 @@ declare namespace Api {
       device_count: number
       last_error: string
       messages: Message[]
+      relay: RelayItem[]
     }
   }
 }

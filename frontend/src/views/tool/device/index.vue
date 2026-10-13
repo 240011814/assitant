@@ -194,6 +194,36 @@ async function sendDebug() {
   if (!error) message.success($t('page.tool.device.sent'))
 }
 
+// 中转站 (独立 topic, 与设备无关, 最多 50 条 FIFO)
+const relayTopic = 'texthub'
+const relayVisible = ref(false)
+const relayList = computed(() => [...(statusInfo.value?.relay || [])].reverse())
+const relayText = ref('')
+const relaySending = ref(false)
+
+async function sendRelay() {
+  const text = relayText.value.trim()
+  if (!text) return
+  relaySending.value = true
+  const { error } = await publishWolRaw({ topic: relayTopic, payload: text })
+  relaySending.value = false
+  if (!error) {
+    relayText.value = ''
+    message.success($t('page.tool.device.relaySent'))
+    // 消息经订阅回流入库后, 立即拉一次状态刷新列表
+    await loadStatus()
+  }
+}
+
+async function copyRelay(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    message.success($t('page.tool.device.relayCopied'))
+  } catch {
+    message.error($t('page.tool.device.relayCopyFailed'))
+  }
+}
+
 // 最近报文 (倒序, JSON 报文格式化 + 高亮)
 function prettyJson(raw: string): string | null {
   try {
@@ -289,6 +319,9 @@ onBeforeUnmount(() => {
         {{ $t('page.tool.device.deviceCount') }}: {{ statusInfo?.device_count ?? 0 }}
       </span>
       <div class="ml-auto flex items-center gap-2">
+        <NButton size="small" secondary @click="relayVisible = true">
+          {{ $t('page.tool.device.relay') }} ({{ relayList.length }})
+        </NButton>
         <NButton v-if="canManage && !connected" type="primary" :loading="connecting" @click="handleConnect">
           {{ $t('page.tool.device.connect') }}
         </NButton>
@@ -517,5 +550,50 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </NModal>
+
+    <!-- 中转站抽屉 (独立 topic, 与设备无关) -->
+    <NDrawer v-model:show="relayVisible" :width="420" placement="right">
+      <NDrawerContent
+        :title="$t('page.tool.device.relay')"
+        closable
+        :footer-style="{ padding: '12px 16px' }"
+      >
+        <div class="mb-1 text-xs text-gray-400">{{ $t('page.tool.device.relayDesc') }}</div>
+        <div class="mb-3 font-mono text-xs text-gray-500">{{ relayTopic }}</div>
+        <div v-if="relayList.length" class="space-y-2">
+          <div v-for="item in relayList" :key="item.id" class="rounded border border-gray-200 p-2">
+            <div class="mb-1 flex items-center justify-between text-xs text-gray-400">
+              <span>{{ formatTime(item.received_at) }}</span>
+              <NButton size="tiny" quaternary type="primary" @click="copyRelay(item.text)">
+                {{ $t('page.tool.device.relayCopy') }}
+              </NButton>
+            </div>
+            <div class="whitespace-pre-wrap break-all text-sm text-gray-700">{{ item.text }}</div>
+          </div>
+        </div>
+        <NEmpty v-else class="mt-10" :description="$t('page.tool.device.relayEmpty')" />
+        <template v-if="canManage" #footer>
+          <div class="flex w-full flex-col gap-2">
+            <NInput
+              v-model:value="relayText"
+              type="textarea"
+              :rows="5"
+              class="w-full"
+              :placeholder="$t('page.tool.device.relayPlaceholder')"
+            />
+            <div class="flex justify-end">
+              <NButton
+                type="primary"
+                :loading="relaySending"
+                :disabled="!relayText.trim()"
+                @click="sendRelay"
+              >
+                {{ $t('page.tool.device.relaySend') }}
+              </NButton>
+            </div>
+          </div>
+        </template>
+      </NDrawerContent>
+    </NDrawer>
   </div>
 </template>
