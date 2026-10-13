@@ -887,6 +887,7 @@ const local: App.I18n.Schema = {
         online: "在线",
         offline: "离线",
         lastSeen: "最近在线",
+        bootTime: "启动时间",
         addressBook: "地址簿",
         wake: "唤醒",
         debug: "调试",

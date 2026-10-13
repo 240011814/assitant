@@ -20,6 +20,7 @@ declare namespace Api {
       mac_count: number
       temp_c: number
       time: string
+      boot_time: string
       last_seen: string
     }
 

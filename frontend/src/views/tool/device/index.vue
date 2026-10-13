@@ -366,6 +366,9 @@ onBeforeUnmount(() => {
                 <span class="text-gray-400">{{ $t('page.tool.device.macCount') }}: </span>{{ device.mac_count }}
               </div>
               <div>
+                <span class="text-gray-400">{{ $t('page.tool.device.bootTime') }}: </span>{{ device.boot_time || '-' }}
+              </div>
+              <div>
                 <span class="text-gray-400">{{ $t('page.tool.device.lastSeen') }}: </span>
                 {{ formatTime(device.last_seen) }}
               </div>

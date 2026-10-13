@@ -59,6 +59,7 @@ type WolDeviceInfo struct {
 	MacCount      int       `json:"mac_count"`
 	TempC         float64   `json:"temp_c"`
 	Time          string    `json:"time"`
+	BootTime      string    `json:"boot_time"`
 	LastSeen      time.Time `json:"last_seen"`
 }
 
@@ -94,6 +95,7 @@ type wolInbound struct {
 	SSID          string        `json:"ssid"`
 	Broadcast     string        `json:"broadcast"`
 	Time          string        `json:"time"`
+	BootTime      string        `json:"boot_time"`
 	RSSI          *int          `json:"rssi"`
 	Heap          *int          `json:"heap"`
 	MacCount      *int          `json:"mac_count"`
@@ -450,7 +452,7 @@ func (s *WolMqttService) handleMessage(_ mqtt.Client, msg mqtt.Message) {
 }
 
 func isWolDeviceStatus(in wolInbound) bool {
-	return in.IP != "" || in.SSID != "" || in.Broadcast != "" || in.Time != "" ||
+	return in.IP != "" || in.SSID != "" || in.Broadcast != "" || in.Time != "" || in.BootTime != "" ||
 		in.RSSI != nil || in.Heap != nil || in.MacCount != nil || in.MQTTConnected != nil
 }
 
@@ -473,6 +475,9 @@ func (s *WolMqttService) applyDeviceStatus(in wolInbound) {
 	}
 	if in.Time != "" {
 		d.Time = in.Time
+	}
+	if in.BootTime != "" {
+		d.BootTime = in.BootTime
 	}
 	if in.RSSI != nil {
 		d.RSSI = *in.RSSI

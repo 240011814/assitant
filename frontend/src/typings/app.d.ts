@@ -939,6 +939,7 @@ declare namespace App {
             online: string;
             offline: string;
             lastSeen: string;
+            bootTime: string;
             addressBook: string;
             wake: string;
             debug: string;

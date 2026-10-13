@@ -15,3 +15,5 @@ allowBuilds:
   esbuild: true
   simple-git-hooks: true
   vue-demi: true
+minimumReleaseAgeExclude:
+  - dompurify@3.4.17

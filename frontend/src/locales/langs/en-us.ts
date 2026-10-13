@@ -893,6 +893,7 @@ const local: App.I18n.Schema = {
         online: "Online",
         offline: "Offline",
         lastSeen: "Last Seen",
+        bootTime: "Boot Time",
         addressBook: "Address Book",
         wake: "Wake",
         debug: "Debug",
