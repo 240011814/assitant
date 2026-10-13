@@ -4,7 +4,9 @@ import { NButton, useMessage } from 'naive-ui'
 import hljs from 'highlight.js/lib/common'
 import { useAuth } from '@/hooks/business/auth'
 import {
+  clearWolRelay,
   connectWol,
+  deleteWolRelay,
   disconnectWol,
   getWolDevices,
   getWolMacList,
@@ -224,6 +226,19 @@ async function copyRelay(text: string) {
   }
 }
 
+async function deleteRelayItem(id: number) {
+  const { error } = await deleteWolRelay(id)
+  if (!error) await loadStatus()
+}
+
+async function clearRelayAll() {
+  const { error } = await clearWolRelay()
+  if (!error) {
+    message.success($t('page.tool.device.relayCleared'))
+    await loadStatus()
+  }
+}
+
 // 最近报文 (倒序, JSON 报文格式化 + 高亮)
 function prettyJson(raw: string): string | null {
   try {
@@ -341,65 +356,65 @@ onBeforeUnmount(() => {
     <!-- 设备卡片 -->
     <div class="flex-1 overflow-auto p-4">
       <div v-if="devices.length" class="grid grid-cols-1 gap-4 xl:grid-cols-2 2xl:grid-cols-3">
-          <NCard v-for="device in devices" :key="device.id" class="h-full">
-            <template #header>
-              <span class="font-mono text-base">{{ device.id }}</span>
-            </template>
-            <template #header-extra>
-              <NSpace :size="4">
-                <NTag size="small" :type="rssiTag(device.rssi)" :bordered="false">{{ device.rssi }} dBm</NTag>
-                <NTag size="small" :type="device.mqtt_connected ? 'success' : 'error'" :bordered="false">
-                  {{ device.mqtt_connected ? $t('page.tool.device.online') : $t('page.tool.device.offline') }}
-                </NTag>
-              </NSpace>
-            </template>
-            <div class="space-y-1.5 text-sm">
-              <div><span class="text-gray-400">IP: </span>{{ device.ip || '-' }}</div>
-              <div><span class="text-gray-400">WiFi: </span>{{ device.ssid || '-' }}</div>
-              <div>
-                <span class="text-gray-400">{{ $t('page.tool.device.temp') }}: </span>
-                {{ device.temp_c ? `${device.temp_c.toFixed(2)} °C` : '-' }}
-              </div>
-              <div>
-                <span class="text-gray-400">{{ $t('page.tool.device.heap') }}: </span>
-                {{ device.heap ? `${(device.heap / 1024).toFixed(1)} KB` : '-' }}
-              </div>
-              <div>
-                <span class="text-gray-400">{{ $t('page.tool.device.broadcast') }}: </span>{{ device.broadcast || '-' }}
-              </div>
-              <div>
-                <span class="text-gray-400">{{ $t('page.tool.device.macCount') }}: </span>{{ device.mac_count }}
-              </div>
-              <div>
-                <span class="text-gray-400">{{ $t('page.tool.device.bootTime') }}: </span>{{ device.boot_time || '-' }}
-              </div>
-              <div>
-                <span class="text-gray-400">{{ $t('page.tool.device.lastSeen') }}: </span>
-                {{ formatTime(device.last_seen) }}
-              </div>
+        <NCard v-for="device in devices" :key="device.id" class="h-full">
+          <template #header>
+            <span class="font-mono text-base">{{ device.id }}</span>
+          </template>
+          <template #header-extra>
+            <NSpace :size="4">
+              <NTag size="small" :type="rssiTag(device.rssi)" :bordered="false">{{ device.rssi }} dBm</NTag>
+              <NTag size="small" :type="device.mqtt_connected ? 'success' : 'error'" :bordered="false">
+                {{ device.mqtt_connected ? $t('page.tool.device.online') : $t('page.tool.device.offline') }}
+              </NTag>
+            </NSpace>
+          </template>
+          <div class="space-y-1.5 text-sm">
+            <div><span class="text-gray-400">IP: </span>{{ device.ip || '-' }}</div>
+            <div><span class="text-gray-400">WiFi: </span>{{ device.ssid || '-' }}</div>
+            <div>
+              <span class="text-gray-400">{{ $t('page.tool.device.temp') }}: </span>
+              {{ device.temp_c ? `${device.temp_c.toFixed(2)} °C` : '-' }}
             </div>
-            <div class="mt-3 flex gap-2">
-              <NButton size="small" @click="openMacModal(device)">{{ $t('page.tool.device.addressBook') }}</NButton>
-              <NButton v-if="canManage" size="small" type="primary" @click="openWakeModal(device)">
-                {{ $t('page.tool.device.wake') }}
-              </NButton>
-              <NButton size="small" secondary @click="openDebugModal(device)">
-                {{ $t('page.tool.device.debug') }}
-              </NButton>
+            <div>
+              <span class="text-gray-400">{{ $t('page.tool.device.heap') }}: </span>
+              {{ device.heap ? `${(device.heap / 1024).toFixed(1)} KB` : '-' }}
             </div>
-          </NCard>
-        </div>
-        <div v-else class="mt-20 flex flex-col items-center gap-3">
-          <NEmpty
-            :description="
-              connected ? $t('page.tool.device.empty') : $t('page.tool.device.connectFirst')
-            "
-          />
-          <NButton v-if="!connected && canManage" type="primary" :loading="connecting" @click="handleConnect">
-            {{ $t('page.tool.device.connect') }}
-          </NButton>
-        </div>
+            <div>
+              <span class="text-gray-400">{{ $t('page.tool.device.broadcast') }}: </span>{{ device.broadcast || '-' }}
+            </div>
+            <div>
+              <span class="text-gray-400">{{ $t('page.tool.device.macCount') }}: </span>{{ device.mac_count }}
+            </div>
+            <div>
+              <span class="text-gray-400">{{ $t('page.tool.device.bootTime') }}: </span>{{ device.boot_time || '-' }}
+            </div>
+            <div>
+              <span class="text-gray-400">{{ $t('page.tool.device.lastSeen') }}: </span>
+              {{ formatTime(device.last_seen) }}
+            </div>
+          </div>
+          <div class="mt-3 flex gap-2">
+            <NButton size="small" @click="openMacModal(device)">{{ $t('page.tool.device.addressBook') }}</NButton>
+            <NButton v-if="canManage" size="small" type="primary" @click="openWakeModal(device)">
+              {{ $t('page.tool.device.wake') }}
+            </NButton>
+            <NButton size="small" secondary @click="openDebugModal(device)">
+              {{ $t('page.tool.device.debug') }}
+            </NButton>
+          </div>
+        </NCard>
       </div>
+      <div v-else class="mt-20 flex flex-col items-center gap-3">
+        <NEmpty
+          :description="
+            connected ? $t('page.tool.device.empty') : $t('page.tool.device.connectFirst')
+          "
+        />
+        <NButton v-if="!connected && canManage" type="primary" :loading="connecting" @click="handleConnect">
+          {{ $t('page.tool.device.connect') }}
+        </NButton>
+      </div>
+    </div>
 
     <!-- 地址簿弹窗 -->
     <NModal v-model:show="macModalVisible" preset="card" style="width: 640px" :title="$t('page.tool.device.macTitle')">
@@ -558,15 +573,33 @@ onBeforeUnmount(() => {
         closable
         :footer-style="{ padding: '12px 16px' }"
       >
-        <div class="mb-1 text-xs text-gray-400">{{ $t('page.tool.device.relayDesc') }}</div>
-        <div class="mb-3 font-mono text-xs text-gray-500">{{ relayTopic }}</div>
+        <div class="mb-1 flex items-start justify-between gap-2">
+          <div class="text-xs text-gray-400">{{ $t('page.tool.device.relayDesc') }}</div>
+          <NPopconfirm v-if="canManage && relayList.length" @positive-click="clearRelayAll">
+            <template #trigger>
+              <NButton size="tiny" type="error" secondary>{{ $t('page.tool.device.relayClear') }}</NButton>
+            </template>
+            {{ $t('page.tool.device.relayClearConfirm') }}
+          </NPopconfirm>
+        </div>
         <div v-if="relayList.length" class="space-y-2">
           <div v-for="item in relayList" :key="item.id" class="rounded border border-gray-200 p-2">
             <div class="mb-1 flex items-center justify-between text-xs text-gray-400">
               <span>{{ formatTime(item.received_at) }}</span>
-              <NButton size="tiny" quaternary type="primary" @click="copyRelay(item.text)">
-                {{ $t('page.tool.device.relayCopy') }}
-              </NButton>
+              <NSpace :size="4">
+                <NButton size="tiny" quaternary type="primary" @click="copyRelay(item.text)">
+                  {{ $t('page.tool.device.relayCopy') }}
+                </NButton>
+                <NButton
+                  v-if="canManage"
+                  size="tiny"
+                  quaternary
+                  type="error"
+                  @click="deleteRelayItem(item.id)"
+                >
+                  {{ $t('common.delete') }}
+                </NButton>
+              </NSpace>
             </div>
             <div class="whitespace-pre-wrap break-all text-sm text-gray-700">{{ item.text }}</div>
           </div>

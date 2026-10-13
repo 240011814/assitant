@@ -2,6 +2,7 @@ package api
 
 import (
 	"backend/service"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -134,5 +135,25 @@ func (h *WolMqttHandler) Publish(c *gin.Context) {
 		SendError(c, "400", err.Error())
 		return
 	}
+	SendSuccess(c, nil)
+}
+
+// DeleteRelay 删除单条中转文本
+func (h *WolMqttHandler) DeleteRelay(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		SendError(c, "400", "参数错误")
+		return
+	}
+	if !h.svc.DeleteRelay(id) {
+		SendError(c, "404", "条目不存在")
+		return
+	}
+	SendSuccess(c, nil)
+}
+
+// ClearRelay 清空中转站
+func (h *WolMqttHandler) ClearRelay(c *gin.Context) {
+	h.svc.ClearRelay()
 	SendSuccess(c, nil)
 }

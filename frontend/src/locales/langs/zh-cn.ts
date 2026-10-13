@@ -249,7 +249,7 @@ const local: App.I18n.Schema = {
     cut_inventory: "库存管理",
     "cut_bar-detail": "一维切割详情",
     "cut_plane-detail": "平面切割详情",
-    "cut_product": "产品管理",
+    cut_product: "产品管理",
     lottery: "抽奖活动",
     system: "系统管理",
     system_user: "用户管理",
@@ -477,11 +477,13 @@ const local: App.I18n.Schema = {
         on: "开启",
         off: "关闭",
         register: "注册功能",
-        registerDesc: "控制登录页面是否显示注册按钮。关闭后新用户无法自行注册。",
+        registerDesc:
+          "控制登录页面是否显示注册按钮。关闭后新用户无法自行注册。",
         registerEnabledMsg: "注册功能已开启",
         registerDisabledMsg: "注册功能已关闭",
         telegram: "Telegram Bot",
-        telegramDesc: "启用后用户可绑定 Telegram 使用学习助手功能。配置 Webhook URL 后使用回调模式，留空使用 Long Polling 模式。",
+        telegramDesc:
+          "启用后用户可绑定 Telegram 使用学习助手功能。配置 Webhook URL 后使用回调模式，留空使用 Long Polling 模式。",
         botToken: "Bot Token",
         botTokenPlaceholder: "输入 Telegram Bot Token (从 {'@'}BotFather 获取)",
         webhookUrl: "Webhook URL",
@@ -501,7 +503,8 @@ const local: App.I18n.Schema = {
         saveTimeout: "保存超时配置",
         timeoutSaved: "超时配置已保存",
         memory: "用户画像 / 经历抽取",
-        memoryDesc: "从聊天会话中抽取并总结用户画像与个人经历（与 Mem0 并存），修改后立即生效。",
+        memoryDesc:
+          "从聊天会话中抽取并总结用户画像与个人经历（与 Mem0 并存），修改后立即生效。",
         extractionModel: "抽取模型",
         extractionModelPlaceholder: "留空使用默认模型",
         sessionIdle: "会话静默(分钟)",
@@ -530,10 +533,12 @@ const local: App.I18n.Schema = {
         smtpSaved: "SMTP 配置已保存",
         sendTestEmail: "发送测试邮件",
         s3: "用户文档存储 (S3 兼容)",
-        s3Desc: "配置 S3 兼容对象存储 (MinIO / 阿里云 OSS / 腾讯 COS 等)，供用户上传文档供 AI 读取。保存后立即生效。",
+        s3Desc:
+          "配置 S3 兼容对象存储 (MinIO / 阿里云 OSS / 腾讯 COS 等)，供用户上传文档供 AI 读取。保存后立即生效。",
         s3EndpointPlaceholder: "127.0.0.1:9000 或 oss-cn-hangzhou.aliyuncs.com",
         s3RegionPlaceholder: "留空即可 (AWS 等需要时填写)",
-        s3AccessKeyPlaceholder: "MinIO 的 MINIO_ROOT_USER, 或控制台创建的用户/服务账号 Access Key",
+        s3AccessKeyPlaceholder:
+          "MinIO 的 MINIO_ROOT_USER, 或控制台创建的用户/服务账号 Access Key",
         s3SecretKeyPlaceholder: "对应的 MINIO_ROOT_PASSWORD / Secret Key",
         s3MaxUpload: "单文件上限 (MB)",
         virtualHostStyle: "虚拟域名",
@@ -545,7 +550,8 @@ const local: App.I18n.Schema = {
         s3TestSuccess: "S3 连接成功, 存储可用",
         s3TestFailed: "S3 连接失败: {error}",
         rag: "文档 RAG (语义检索)",
-        ragDesc: "解析后的文档切块并向量化存入 ClickHouse, AI 可用文档语义检索工具按相关度召回片段。嵌入走 OpenAI 兼容接口，本地 Ollama 填 http://127.0.0.1:11434/v1 + 模型 bge-m3。保存后立即生效；更换嵌入模型后需在文档管理页重建索引。",
+        ragDesc:
+          "解析后的文档切块并向量化存入 ClickHouse, AI 可用文档语义检索工具按相关度召回片段。嵌入走 OpenAI 兼容接口，本地 Ollama 填 http://127.0.0.1:11434/v1 + 模型 bge-m3。保存后立即生效；更换嵌入模型后需在文档管理页重建索引。",
         ragBaseUrl: "服务地址",
         ragModel: "嵌入模型",
         ragApiKeyPlaceholder: "本地服务可留空",
@@ -558,7 +564,8 @@ const local: App.I18n.Schema = {
         ragDisabledMsg: "文档语义检索已关闭",
         ragSaved: "文档 RAG 配置已保存, 即时生效",
         mqtt: "MQTT 服务器",
-        mqttDesc: "WiFi 唤醒 (WOL) 设备管理的 MQTT Broker 连接信息，保存后到设备管理页点击「连接」生效。",
+        mqttDesc:
+          "WiFi 唤醒 (WOL) 设备管理的 MQTT Broker 连接信息，保存后到设备管理页点击「连接」生效。",
         mqttHost: "服务器地址",
         mqttHostPlaceholder: "如 192.168.1.100 或 broker.emqx.io",
         mqttPort: "端口",
@@ -577,7 +584,8 @@ const local: App.I18n.Schema = {
         testEmailSubject: "测试邮件",
         emailContent: "邮件内容",
         emailContentPlaceholder: "请输入邮件内容",
-        testEmailContent: "这是一封 SMTP 邮件服务的测试邮件。\n\n如果您收到此邮件，说明 SMTP 配置正确。",
+        testEmailContent:
+          "这是一封 SMTP 邮件服务的测试邮件。\n\n如果您收到此邮件，说明 SMTP 配置正确。",
         send: "发送",
         testEmailSent: "测试邮件已发送，请检查收件箱",
         sendFailed: "发送失败: {error}",
@@ -590,7 +598,8 @@ const local: App.I18n.Schema = {
         connectionSuccess: "连接成功",
         remarkRegister: "注册功能开关",
         remarkTelegramEnabled: "Telegram Bot 开关",
-        remarkTelegramWebhook: "Telegram Webhook 回调地址 (留空使用 Long Polling 模式)",
+        remarkTelegramWebhook:
+          "Telegram Webhook 回调地址 (留空使用 Long Polling 模式)",
         remarkAiTimeout: "AI 请求超时时间（分钟）",
         remarkAiTlsHandshake: "AI TLS 握手超时时间（秒）",
         remarkAiResponseHeader: "AI 响应头超时时间（秒）",
@@ -918,7 +927,7 @@ const local: App.I18n.Schema = {
         payloadInvalid: "JSON 格式无效",
         formatJson: "格式化",
         relay: "中转站",
-        relayDesc: "通过 MQTT 发布到该主题的文本，最多保留 50 条（先进先出）。",
+        relayDesc: "通过 MQTT 发布到该主题的文本，最多保留 50 条。",
         relayEmpty: "暂无中转文本",
         relayCopy: "复制",
         relayCopied: "已复制",
@@ -926,6 +935,9 @@ const local: App.I18n.Schema = {
         relayPlaceholder: "输入要发送的文本...",
         relaySend: "发送",
         relaySent: "已发送",
+        relayClear: "清空",
+        relayClearConfirm: "确定清空全部中转文本?",
+        relayCleared: "已清空",
         reportsEmpty: "暂无报文",
         topic: "主题",
         topicPlaceholder: "例如 wakemanager/cmd/A1B2C3D4E5F6",
@@ -1199,7 +1211,8 @@ const local: App.I18n.Schema = {
           executor: "执行者",
           executorPlaceholder: "选择 Agent 或编排",
           taskContent: "任务内容",
-          taskContentPlaceholder: "到点发给 Agent 的指令, 如: 搜索今天 AI 行业的新闻, 总结成 5 条要点",
+          taskContentPlaceholder:
+            "到点发给 Agent 的指令, 如: 搜索今天 AI 行业的新闻, 总结成 5 条要点",
           scheduleType: "执行方式",
           once: "单次",
           cronRadio: "周期 (cron)",
@@ -1328,28 +1341,35 @@ const local: App.I18n.Schema = {
         infoChangePct: "涨跌幅",
         tipChangePct: "公式: (当前价-昨收价)/昨收价×100%",
         infoTurnover: "换手率",
-        tipTurnover: "公式: 成交量/流通股本×100%。<3%冷门，3-7%正常，>10%非常活跃",
+        tipTurnover:
+          "公式: 成交量/流通股本×100%。<3%冷门，3-7%正常，>10%非常活跃",
         infoAmount: "成交额",
         infoMarketCap: "总市值",
-        tipMarketCap: "公式: 股价×总股本。<50亿小盘，50-200亿中盘，>1000亿超大盘",
+        tipMarketCap:
+          "公式: 股价×总股本。<50亿小盘，50-200亿中盘，>1000亿超大盘",
         infoFloatMcap: "流通市值",
         fiRoe: "ROE",
         tipRoe: "公式: 净利润/净资产×100%。>15%优秀，10-15%良好，<10%一般",
-        tipPeTtm: "公式: 股价/最近四个季度每股收益之和。<20低估，20-30合理，>30高估",
+        tipPeTtm:
+          "公式: 股价/最近四个季度每股收益之和。<20低估，20-30合理，>30高估",
         tipPb: "公式: 股价/每股净资产。<1破净，1-2低估，>3高估",
         fiRevenueGrowth: "营收增长",
-        tipRevenueGrowth: "公式: (本期营收-去年同期营收)/去年同期营收×100%。>20%高增长",
+        tipRevenueGrowth:
+          "公式: (本期营收-去年同期营收)/去年同期营收×100%。>20%高增长",
         fiNetProfitGrowth: "净利润增长",
-        tipNetProfitGrowth: "公式: (本期净利润-去年同期净利润)/去年同期净利润×100%",
+        tipNetProfitGrowth:
+          "公式: (本期净利润-去年同期净利润)/去年同期净利润×100%",
         fiGrossMargin: "毛利率",
         tipGrossMargin: "公式: (营业收入-营业成本)/营业收入×100%",
         fiNetMargin: "净利率",
         tipNetMargin: "公式: 净利润/营业收入×100%",
         fiDebtRatio: "资产负债率",
-        tipDebtRatio: "公式: 总负债/总资产×100%。<50%低风险，50-70%正常，>70%高风险",
+        tipDebtRatio:
+          "公式: 总负债/总资产×100%。<50%低风险，50-70%正常，>70%高风险",
         tipCurrentRatio: "公式: 流动资产/流动负债。>2优秀，1-2正常，<1有风险",
         tipQuickRatio: "公式: (流动资产-存货)/流动负债。>1优秀，0.5-1正常",
-        tipCashRatio: "公式: (货币资金+交易性金融资产)/流动负债。>0.5充裕，0.2-0.5正常，<0.2偏紧",
+        tipCashRatio:
+          "公式: (货币资金+交易性金融资产)/流动负债。>0.5充裕，0.2-0.5正常，<0.2偏紧",
         fiNrTurnover: "应收周转率",
         tipNrTurnover: "公式: 营业收入/应收账款。越高回款越快；金融股无此指标",
         fiInvTurnover: "存货周转率",
@@ -1411,7 +1431,7 @@ const local: App.I18n.Schema = {
         values: "价值观",
         risk_preference: "风险偏好",
         decision_style: "决策风格",
-        constraints: "约束"
+        constraints: "约束",
       },
       addExperience: "新增经历",
       editExperience: "编辑经历",
@@ -1454,7 +1474,7 @@ const local: App.I18n.Schema = {
         preference: "偏好/选择倾向",
         achievement: "成就/荣誉",
         challenge: "困难/问题",
-        other: "其他"
+        other: "其他",
       },
       eventType: {
         start: "开始",
@@ -1472,7 +1492,7 @@ const local: App.I18n.Schema = {
         relocate: "迁移",
         recover: "康复",
         experiment: "尝试",
-        maintain: "维持"
+        maintain: "维持",
       },
       status: {
         planned: "计划中",
@@ -1480,13 +1500,13 @@ const local: App.I18n.Schema = {
         completed: "已完成",
         abandoned: "已放弃",
         paused: "已暂停",
-        unknown: "未知"
+        unknown: "未知",
       },
       memoryLevel: {
         core: "核心",
         long_term: "长期",
-        temporary: "临时"
-      }
+        temporary: "临时",
+      },
     },
     userProfile: {
       title: "个人信息",
@@ -1591,7 +1611,8 @@ const local: App.I18n.Schema = {
       pdDimensionLinear: "一维（线性）",
       pdDimensionPlane: "平面（二维）",
       pdDimensionMixed: "混合",
-      pdDimensionConflict: "同一产品单只能保留一种切割维度（{type}）：窗类请并入一维单，玻璃请并入平面单",
+      pdDimensionConflict:
+        "同一产品单只能保留一种切割维度（{type}）：窗类请并入一维单，玻璃请并入平面单",
       pdWidthLabel: "宽×高(cm)",
       pdFrameWidth: "框料宽(cm)",
       pdCols: "列数",
@@ -1604,7 +1625,8 @@ const local: App.I18n.Schema = {
       pdGlassThickness: "玻璃厚度(mm)",
       pdGlassThicknessPh: "选 5/6/8/10/12, 或输入其他厚度 (如 5+9A+5)",
       pdGlassPlain: "整块",
-      pdGlassTip: "玻璃产品: 整块按宽×高切割, 玻璃厚度即材料规格; 去平面切割页导入",
+      pdGlassTip:
+        "玻璃产品: 整块按宽×高切割, 玻璃厚度即材料规格; 去平面切割页导入",
       pdFit: "拼装参数(mm)",
       pdFitGap: "每边缝隙",
       pdFitReach: "轨道搭入",
@@ -1612,7 +1634,8 @@ const local: App.I18n.Schema = {
       pdFitBeadDeduct: "压条扣尺",
       pdBead: "计算玻璃压条",
       pdBeadSeries: "压条规格",
-      pdPreviewTip: "单击面板切换 固定/开启; 右键面板弹出操作菜单 (合并/拆分, 可拼上下不对称窗型)",
+      pdPreviewTip:
+        "单击面板切换 固定/开启; 右键面板弹出操作菜单 (合并/拆分, 可拼上下不对称窗型)",
       pdMenuFixed: "设为固定",
       pdMenuSash: "设为开启",
       pdMenuMergeLeft: "与左侧格合并",
@@ -1624,7 +1647,8 @@ const local: App.I18n.Schema = {
       pdListTitle: "产品清单",
       pdNeedSeries: "请为每件产品设置框料截面宽度",
       pdNeedThickness: "请为每件玻璃产品设置玻璃厚度",
-      pdMixedGoCut: "所选产品同时包含窗类与玻璃: 窗类请导入一维切割, 玻璃请导入平面切割, 请分开操作",
+      pdMixedGoCut:
+        "所选产品同时包含窗类与玻璃: 窗类请导入一维切割, 玻璃请导入平面切割, 请分开操作",
       pdPendingEdit: "编辑区还有未加入清单的产品, 请先加入",
       pdEmptyOrder: "请先加入至少一件产品",
       pdSaved: "产品单已保存",
@@ -1641,7 +1665,8 @@ const local: App.I18n.Schema = {
       pdDeleted: "删除成功",
       pdImported: "已导入 {count} 张产品单, 共 {bars} 件产品",
       pdImportEmpty: "所选产品单内容为空",
-      planeSpecRowsAdded: "已按玻璃厚度自动生成新材料规格行（默认 200×200），请按实际板材调整宽高",
+      planeSpecRowsAdded:
+        "已按玻璃厚度自动生成新材料规格行（默认 200×200），请按实际板材调整宽高",
       unplacedAlert: "有 {count} 件未能排入任何材料",
       unplacedLabel: "标签",
       unplacedReason: "原因",
@@ -1718,9 +1743,11 @@ const local: App.I18n.Schema = {
       scrapType2d: "二维余料",
       /** 一维条形图/统计 */
       barLabel: "材料 #{index}",
-      barStats: "(总长: {total}cm, 已用: {used}cm, 剩余: {remaining}cm) * {count} 根",
+      barStats:
+        "(总长: {total}cm, 已用: {used}cm, 剩余: {remaining}cm) * {count} 根",
       tailRemaining: "剩余{remaining}cm",
-      barSummary: "材料总数: {count} 根 {'|'} 总长度: {total} cm {'|'} 已用长度: {used} cm {'|'} 剩余长度: {remaining} cm {'|'} 使用率: {usage}%",
+      barSummary:
+        "材料总数: {count} 根 {'|'} 总长度: {total} cm {'|'} 已用长度: {used} cm {'|'} 剩余长度: {remaining} cm {'|'} 使用率: {usage}%",
       /** 详情页 */
       loadFailedTitle: "数据加载失败",
       loadFailedDesc: "裁剪记录不存在或格式不正确，无法展示详情",
@@ -1776,15 +1803,20 @@ const local: App.I18n.Schema = {
       piecesTotal: "共 {count} 件",
       glassWholeSize: "整块玻璃 {width}×{height} cm",
       pdSeriesTip1: "框料宽(cm) = 系列 ÷ 10, 选择后自动带入并重算分格。",
-      pdSeriesTip2: "影响: 外框横梃/竖梃(上下横/边封)、横向中梃、竖向中梃的下料长度与各分格净尺寸。",
-      pdFitGapTip1: "平开: 扇横梃、扇竖梃 = 分格净尺寸 − 2×缝隙 (扇比开口每边小缝隙, 保证能开合)。",
+      pdSeriesTip2:
+        "影响: 外框横梃/竖梃(上下横/边封)、横向中梃、竖向中梃的下料长度与各分格净尺寸。",
+      pdFitGapTip1:
+        "平开: 扇横梃、扇竖梃 = 分格净尺寸 − 2×缝隙 (扇比开口每边小缝隙, 保证能开合)。",
       pdFitGapTip2: "推拉: 扇上下横在边封侧/固定侧各 − 缝隙 (留出滑动间隙)。",
       pdFitReachTip1: "仅推拉窗: 扇竖梃(光企/勾企) = 行净高 + 2×搭入,",
       pdFitReachTip2: "扇钩伸入上滑/下滑轨道, 防止脱轨; 取值参考型材轨道深度。",
-      pdFitOverlapTip1: "仅推拉窗: 相邻两扇光企/勾企互搭, 每扇的扇上下横各 + 搭接÷2,",
+      pdFitOverlapTip1:
+        "仅推拉窗: 相邻两扇光企/勾企互搭, 每扇的扇上下横各 + 搭接÷2,",
       pdFitOverlapTip2: "关窗时中间重叠密封; 取值参考光企/勾企搭接配合尺寸。",
-      pdFitBeadTip1: "每根压条(横/竖) = 基准长度 − 扣尺; 基准: 固定格取开口净尺寸, 开启扇取扇外框尺寸。",
-      pdFitBeadTip2: "45° 拼角取 0, 直拼按压条宽度扣除; 影响全部压条件的下料长度。",
+      pdFitBeadTip1:
+        "每根压条(横/竖) = 基准长度 − 扣尺; 基准: 固定格取开口净尺寸, 开启扇取扇外框尺寸。",
+      pdFitBeadTip2:
+        "45° 拼角取 0, 直拼按压条宽度扣除; 影响全部压条件的下料长度。",
       /** 打印 */
       printBlocked: "打印窗口被浏览器拦截, 请允许弹出窗口后重试",
       barPrintTitle: "材料裁剪结果",
@@ -1799,8 +1831,10 @@ const local: App.I18n.Schema = {
       /** 平面统计/画布 */
       planeStatsLine:
         "总项目数: {items} (面积: {itemArea} m²) {'|'} 材料使用面积: {materialArea} m² {'|'} 总体利用率: {utilization}% {'|'} 使用材料数: {materialCount}",
-      planeResultTitle: "优化结果: 使用 {materials} 块材料 , 放置 {pieces} 个项目",
-      binStats: "尺寸: {width}×{height}cm {'|'} 利用率: {utilization}% {'|'} 数量: {count}",
+      planeResultTitle:
+        "优化结果: 使用 {materials} 块材料 , 放置 {pieces} 个项目",
+      binStats:
+        "尺寸: {width}×{height}cm {'|'} 利用率: {utilization}% {'|'} 数量: {count}",
       /** 导出绘制 */
       cutChartExportTitle: "切割示意图",
       exportFileName: "切割图",
@@ -1811,7 +1845,8 @@ const local: App.I18n.Schema = {
       barExportSummary:
         "共 {bars} 根 {'|'} 零件 {pieces} 件 {'|'} 材料总长 {materialLength}cm {'|'} 零件总长 {cutLength}cm {'|'} 利用率 {utilization}% {'|'} 余料 {remaining}cm ({scrapCount}根)",
       barExportSummaryShort: "共 {bars} 根 {'|'} 零件 {pieces} 件",
-      binTitle: "{type}  {width} × {height} cm  {'|'}  利用率 {utilization}%  {'|'}  件数 {pieces}",
+      binTitle:
+        "{type}  {width} × {height} cm  {'|'}  利用率 {utilization}%  {'|'}  件数 {pieces}",
       binCountSuffix: "  × {count} 板",
       rotatedMark: " (转)",
       scrapApplied: "已带入 {count} 条库存",

@@ -630,6 +630,26 @@ func (s *WolMqttService) appendRelay(text string) {
 	}
 }
 
+// DeleteRelay 删除指定中转条目, 不存在返回 false
+func (s *WolMqttService) DeleteRelay(id uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, item := range s.relay {
+		if item.ID == id {
+			s.relay = append(s.relay[:i], s.relay[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// ClearRelay 清空中转站
+func (s *WolMqttService) ClearRelay() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.relay = nil
+}
+
 func (s *WolMqttService) setConnected(connected bool, lastErr string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

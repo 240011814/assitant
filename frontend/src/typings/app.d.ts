@@ -978,6 +978,9 @@ declare namespace App {
             relayPlaceholder: string;
             relaySend: string;
             relaySent: string;
+            relayClear: string;
+            relayClearConfirm: string;
+            relayCleared: string;
             reportsEmpty: string;
             topic: string;
             topicPlaceholder: string;

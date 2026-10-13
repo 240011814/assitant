@@ -410,6 +410,8 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			wolGroup.POST("/devices/:id/mac", api.RequirePermission("tool:device:manage"), wolMqttHandler.UpdateMac)
 			wolGroup.POST("/devices/:id/wake", api.RequirePermission("tool:device:manage"), wolMqttHandler.Wake)
 			wolGroup.POST("/publish", api.RequirePermission("tool:device:manage"), wolMqttHandler.Publish)
+			wolGroup.DELETE("/relay", api.RequirePermission("tool:device:manage"), wolMqttHandler.ClearRelay)
+			wolGroup.DELETE("/relay/:id", api.RequirePermission("tool:device:manage"), wolMqttHandler.DeleteRelay)
 		}
 
 		// Lottery Admin APIs (需要登录+权限)

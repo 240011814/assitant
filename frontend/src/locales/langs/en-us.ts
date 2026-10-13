@@ -253,7 +253,7 @@ const local: App.I18n.Schema = {
     cut_inventory: "Inventory",
     "cut_bar-detail": "1D Cutting Detail",
     "cut_plane-detail": "2D Cutting Detail",
-    "cut_product": "Products",
+    cut_product: "Products",
     lottery: "Lottery",
     system: "System",
     system_user: "User Management",
@@ -263,7 +263,7 @@ const local: App.I18n.Schema = {
     system_config: "System Config",
     system_dashboard: "System Overview",
     system_job: "Job Management",
-    "system_lottery": "Lottery Management",
+    system_lottery: "Lottery Management",
     "system_model-scenario": "Models & Scenarios",
     "system_agent-studio": "Agent Studio",
     system_skill: "Skill Management",
@@ -385,10 +385,12 @@ const local: App.I18n.Schema = {
         resetModeSpecify: "Specify new password",
         newPasswordPlaceholder: "Please enter new password",
         newPasswordRequired: "Please enter new password",
-        passwordStrengthHint: "At least 8 characters, must contain both letters and digits",
+        passwordStrengthHint:
+          "At least 8 characters, must contain both letters and digits",
         resetSuccess: "Password has been reset",
         generatedPasswordLabel: "New Password",
-        generatedPasswordTip: "Copy and save it now. This password is shown only once",
+        generatedPasswordTip:
+          "Copy and save it now. This password is shown only once",
         copyPassword: "Copy Password",
         copySuccess: "Copied to clipboard",
         resetClear2FA: "Also clear this user's two-factor authentication",
@@ -483,21 +485,27 @@ const local: App.I18n.Schema = {
         on: "On",
         off: "Off",
         register: "User Registration",
-        registerDesc: "Controls whether the register button is shown on the login page. When disabled, new users cannot self-register.",
+        registerDesc:
+          "Controls whether the register button is shown on the login page. When disabled, new users cannot self-register.",
         registerEnabledMsg: "Registration enabled",
         registerDisabledMsg: "Registration disabled",
         telegram: "Telegram Bot",
-        telegramDesc: "Users can bind Telegram to use the study assistant. Configure the Webhook URL for callback mode, or leave it empty for Long Polling mode.",
+        telegramDesc:
+          "Users can bind Telegram to use the study assistant. Configure the Webhook URL for callback mode, or leave it empty for Long Polling mode.",
         botToken: "Bot Token",
-        botTokenPlaceholder: "Enter the Telegram Bot Token (get it from {'@'}BotFather)",
+        botTokenPlaceholder:
+          "Enter the Telegram Bot Token (get it from {'@'}BotFather)",
         webhookUrl: "Webhook URL",
-        webhookPlaceholder: "https://your-domain.com (leave empty for Long Polling)",
+        webhookPlaceholder:
+          "https://your-domain.com (leave empty for Long Polling)",
         saveTelegram: "Save Telegram Settings",
         telegramEnabledMsg: "Telegram Bot enabled",
         telegramDisabledMsg: "Telegram Bot disabled",
-        telegramSaved: "Telegram settings saved. The bot will restart automatically",
+        telegramSaved:
+          "Telegram settings saved. The bot will restart automatically",
         timeout: "Timeout Settings",
-        timeoutDesc: "Configure timeouts for each service. Changes take effect immediately.",
+        timeoutDesc:
+          "Configure timeouts for each service. Changes take effect immediately.",
         aiTimeout: "AI Request Timeout",
         aiTlsHandshake: "AI TLS Handshake",
         aiResponseHeader: "AI Response Header Timeout",
@@ -507,7 +515,8 @@ const local: App.I18n.Schema = {
         saveTimeout: "Save Timeout Settings",
         timeoutSaved: "Timeout settings saved",
         memory: "User Profile / Experience Extraction",
-        memoryDesc: "Extracts and summarizes user profiles and personal experiences from chat sessions (alongside Mem0). Changes take effect immediately.",
+        memoryDesc:
+          "Extracts and summarizes user profiles and personal experiences from chat sessions (alongside Mem0). Changes take effect immediately.",
         extractionModel: "Extraction Model",
         extractionModelPlaceholder: "Leave empty for the default model",
         sessionIdle: "Session Idle (min)",
@@ -518,7 +527,8 @@ const local: App.I18n.Schema = {
         memoryDisabledMsg: "Profile/experience extraction disabled",
         memorySaved: "Profile/experience extraction settings saved",
         smtp: "SMTP Email Service",
-        smtpDesc: "Configure the SMTP email server used to send system notification emails.",
+        smtpDesc:
+          "Configure the SMTP email server used to send system notification emails.",
         smtpHost: "SMTP Host",
         smtpPort: "SMTP Port",
         encryption: "Encryption",
@@ -536,22 +546,27 @@ const local: App.I18n.Schema = {
         smtpSaved: "SMTP settings saved",
         sendTestEmail: "Send Test Email",
         s3: "User Document Storage (S3 Compatible)",
-        s3Desc: "Configure S3-compatible object storage (MinIO / Alibaba Cloud OSS / Tencent COS, etc.) for users to upload documents for AI to read. Changes take effect immediately after saving.",
+        s3Desc:
+          "Configure S3-compatible object storage (MinIO / Alibaba Cloud OSS / Tencent COS, etc.) for users to upload documents for AI to read. Changes take effect immediately after saving.",
         s3EndpointPlaceholder: "127.0.0.1:9000 or oss-cn-hangzhou.aliyuncs.com",
         s3RegionPlaceholder: "Leave empty (only fill in if required, e.g. AWS)",
-        s3AccessKeyPlaceholder: "MinIO MINIO_ROOT_USER, or an Access Key created in the console (user/service account)",
+        s3AccessKeyPlaceholder:
+          "MinIO MINIO_ROOT_USER, or an Access Key created in the console (user/service account)",
         s3SecretKeyPlaceholder: "The matching MINIO_ROOT_PASSWORD / Secret Key",
         s3MaxUpload: "Max Upload Size (MB)",
         virtualHostStyle: "Virtual-Host Style",
         saveS3: "Save S3 Settings",
         s3EnabledMsg: "User document storage enabled",
         s3DisabledMsg: "User document storage disabled",
-        s3Saved: "S3 settings saved. User document storage takes effect immediately",
-        s3TestRequired: "Please fill in Endpoint / Bucket / Access Key / Secret Key first",
+        s3Saved:
+          "S3 settings saved. User document storage takes effect immediately",
+        s3TestRequired:
+          "Please fill in Endpoint / Bucket / Access Key / Secret Key first",
         s3TestSuccess: "S3 connection successful, storage is available",
         s3TestFailed: "S3 connection failed: {error}",
         rag: "Document RAG (Semantic Search)",
-        ragDesc: "Parsed documents are chunked, vectorized and stored in ClickHouse. AI can recall relevant chunks by relevance via the semantic search tool. Embeddings use the OpenAI-compatible API; for local Ollama enter http://127.0.0.1:11434/v1 with model bge-m3. Saving takes effect immediately. Rebuild the index in Document Management after changing the embedding model.",
+        ragDesc:
+          "Parsed documents are chunked, vectorized and stored in ClickHouse. AI can recall relevant chunks by relevance via the semantic search tool. Embeddings use the OpenAI-compatible API; for local Ollama enter http://127.0.0.1:11434/v1 with model bge-m3. Saving takes effect immediately. Rebuild the index in Document Management after changing the embedding model.",
         ragBaseUrl: "Service URL",
         ragModel: "Embedding Model",
         ragApiKeyPlaceholder: "Leave empty for local services",
@@ -562,9 +577,11 @@ const local: App.I18n.Schema = {
         testConnection: "Test Connection",
         ragEnabledMsg: "Semantic search enabled",
         ragDisabledMsg: "Semantic search disabled",
-        ragSaved: "Document RAG settings saved. Changes take effect immediately",
+        ragSaved:
+          "Document RAG settings saved. Changes take effect immediately",
         mqtt: "MQTT Server",
-        mqttDesc: "MQTT broker connection for the WiFi wake-up (WOL) device manager. Save, then click Connect on the device page.",
+        mqttDesc:
+          "MQTT broker connection for the WiFi wake-up (WOL) device manager. Save, then click Connect on the device page.",
         mqttHost: "Host",
         mqttHostPlaceholder: "e.g. 192.168.1.100 or broker.emqx.io",
         mqttPort: "Port",
@@ -583,20 +600,23 @@ const local: App.I18n.Schema = {
         testEmailSubject: "Test Email",
         emailContent: "Content",
         emailContentPlaceholder: "Enter email content",
-        testEmailContent: "This is a test email from the SMTP email service.\n\nIf you receive this email, the SMTP configuration is correct.",
+        testEmailContent:
+          "This is a test email from the SMTP email service.\n\nIf you receive this email, the SMTP configuration is correct.",
         send: "Send",
         testEmailSent: "Test email sent. Please check the inbox",
         sendFailed: "Send failed: {error}",
         loadFailed: "Failed to load settings: {error}",
         saveFailed: "Save failed: {error}",
         unknownError: "Unknown error",
-        embeddingConfigRequired: "Fill in the embedding service URL and model name first",
+        embeddingConfigRequired:
+          "Fill in the embedding service URL and model name first",
         embeddingTestFailed: "Embedding test failed",
         embeddingTestFailedWithReason: "Embedding test failed: {error}",
         connectionSuccess: "Connection successful",
         remarkRegister: "User registration toggle",
         remarkTelegramEnabled: "Telegram Bot toggle",
-        remarkTelegramWebhook: "Telegram Webhook callback URL (leave empty for Long Polling mode)",
+        remarkTelegramWebhook:
+          "Telegram Webhook callback URL (leave empty for Long Polling mode)",
         remarkAiTimeout: "AI request timeout (minutes)",
         remarkAiTlsHandshake: "AI TLS handshake timeout (seconds)",
         remarkAiResponseHeader: "AI response header timeout (seconds)",
@@ -613,19 +633,24 @@ const local: App.I18n.Schema = {
         remarkS3Endpoint: "S3-compatible storage endpoint",
         remarkS3Region: "S3 region (optional)",
         remarkS3Secure: "Use HTTPS",
-        remarkS3PathStyle: "Path-Style addressing (enable for self-hosted services like MinIO)",
+        remarkS3PathStyle:
+          "Path-Style addressing (enable for self-hosted services like MinIO)",
         remarkS3MaxUpload: "Max single-file upload size in MB",
         remarkRagEnabled: "Semantic document search toggle",
-        remarkRagBaseUrl: "Embedding service URL (OpenAI compatible, including /v1)",
+        remarkRagBaseUrl:
+          "Embedding service URL (OpenAI compatible, including /v1)",
         remarkRagModel: "Embedding model name",
-        remarkRagApiKey: "Embedding service API key (leave empty for local services)",
+        remarkRagApiKey:
+          "Embedding service API key (leave empty for local services)",
         remarkRagChunkSize: "Characters per vector chunk",
         remarkRagChunkOverlap: "Overlapping characters between adjacent chunks",
         remarkRagTopK: "Number of chunks returned per search",
         remarkMemoryEnabled: "User profile/experience extraction toggle",
-        remarkMemoryModel: "Model code used for profile/experience extraction (empty for default model)",
+        remarkMemoryModel:
+          "Model code used for profile/experience extraction (empty for default model)",
         remarkMemoryIdle: "Session idle minutes before extraction is triggered",
-        remarkMemoryMinMessages: "Minimum user messages to include in extraction (greater than this value)",
+        remarkMemoryMinMessages:
+          "Minimum user messages to include in extraction (greater than this value)",
       },
     },
     ai: {
@@ -901,7 +926,8 @@ const local: App.I18n.Schema = {
         payloadInvalid: "Invalid JSON",
         formatJson: "Format",
         relay: "Relay",
-        relayDesc: "Text published to this topic via MQTT. Keeps the latest 50 entries (FIFO).",
+        relayDesc:
+          "Text published to this topic via MQTT. Keeps the latest 50 entries.",
         relayEmpty: "No relay text yet",
         relayCopy: "Copy",
         relayCopied: "Copied",
@@ -909,6 +935,9 @@ const local: App.I18n.Schema = {
         relayPlaceholder: "Type text to send...",
         relaySend: "Send",
         relaySent: "Sent",
+        relayClear: "Clear",
+        relayClearConfirm: "Clear all relay texts?",
+        relayCleared: "Cleared",
         addressBook: "Address Book",
         wake: "Wake",
         debug: "Debug",
@@ -985,7 +1014,8 @@ const local: App.I18n.Schema = {
         running: "Backtesting, may be slow with large data",
         runFailed: "Backtest failed",
         yearInvalid: "Start year cannot be greater than end year",
-        emptyTip: "Set conditions and params on the left, then run the backtest",
+        emptyTip:
+          "Set conditions and params on the left, then run the backtest",
         periodCount: "Periods",
         meanReturn: "Mean Return",
         medianReturn: "Median Return",
@@ -1032,7 +1062,8 @@ const local: App.I18n.Schema = {
         reset: "Reset Filters",
         totalPrefix: "",
         totalSuffix: "stocks in total",
-        empty: "No stocks in your watchlist yet. Add some from the stock screener",
+        empty:
+          "No stocks in your watchlist yet. Add some from the stock screener",
         defaultGroup: "Default",
         loadFailed: "Failed to load watchlist",
         deleted: "Removed",
@@ -1173,8 +1204,10 @@ const local: App.I18n.Schema = {
         repeatMonthly: "Monthly",
         repeatYearly: "Yearly",
         deleteConfirmTitle: "Confirm Deletion",
-        deleteMemoConfirm: 'Are you sure you want to delete the reminder "{title}"?',
-        deleteRepeatConfirm: '"{title}" is a repeating reminder. Choose what to delete:',
+        deleteMemoConfirm:
+          'Are you sure you want to delete the reminder "{title}"?',
+        deleteRepeatConfirm:
+          '"{title}" is a repeating reminder. Choose what to delete:',
         deleteThisOnly: "Delete This Only",
         deleteAll: "Delete All",
         created: "Reminder created",
@@ -1235,7 +1268,8 @@ const local: App.I18n.Schema = {
           created: "Task created",
           updated: "Task updated",
           runFailed: "Failed to trigger",
-          runTriggered: "Execution triggered. Results will be written to the training history",
+          runTriggered:
+            "Execution triggered. Results will be written to the training history",
           operationFailed: "Operation failed",
           enabledMsg: "Task enabled",
           disabledMsg: "Task disabled",
@@ -1264,7 +1298,8 @@ const local: App.I18n.Schema = {
         tableView: "Table",
         noPeriodData: "No data for this period",
         syncKlineFirst: "Sync the K-line data of this stock first",
-        tableLimit: "Showing the latest 20 records only. Switch to chart view to see all {count} records",
+        tableLimit:
+          "Showing the latest 20 records only. Switch to chart view to see all {count} records",
         financeHistoryTitle: "Historical Financials ({count} periods)",
         recent16: "Last 16",
         all: "All",
@@ -1277,10 +1312,12 @@ const local: App.I18n.Schema = {
         financeLoadFailed: "Failed to load financial data",
         klineLoadFailed: "Failed to load K-line data",
         syncFailedWithReason: "Sync failed: {error}",
-        syncStartFailed: "Failed to start sync. Another sync task may be running",
+        syncStartFailed:
+          "Failed to start sync. Another sync task may be running",
         syncInProgress: "Syncing latest data, please wait...",
         syncDone: "Sync completed",
-        syncRunningDetected: "A sync task is running. Data will refresh automatically once it completes",
+        syncRunningDetected:
+          "A sync task is running. Data will refresh automatically once it completes",
         date: "Date",
         status: "Status",
         suspended: "Suspended",
@@ -1333,40 +1370,55 @@ const local: App.I18n.Schema = {
         infoIndustry: "Industry",
         infoPrice: "Price",
         infoChangePct: "Change %",
-        tipChangePct: "Formula: (current price - prev close) / prev close × 100%",
+        tipChangePct:
+          "Formula: (current price - prev close) / prev close × 100%",
         infoTurnover: "Turnover Rate",
-        tipTurnover: "Formula: volume / float shares × 100%. <3% inactive, 3-7% normal, >10% very active",
+        tipTurnover:
+          "Formula: volume / float shares × 100%. <3% inactive, 3-7% normal, >10% very active",
         infoAmount: "Amount",
         infoMarketCap: "Market Cap",
-        tipMarketCap: "Formula: price × total shares. <5B small-cap, 5-20B mid-cap, >100B mega-cap",
+        tipMarketCap:
+          "Formula: price × total shares. <5B small-cap, 5-20B mid-cap, >100B mega-cap",
         infoFloatMcap: "Float Market Cap",
         fiRoe: "ROE",
-        tipRoe: "Formula: net profit / net assets × 100%. >15% excellent, 10-15% good, <10% average",
-        tipPeTtm: "Formula: price / sum of the last four quarters' EPS. <20 undervalued, 20-30 reasonable, >30 overvalued",
-        tipPb: "Formula: price / net assets per share. <1 below book value, 1-2 undervalued, >3 overvalued",
+        tipRoe:
+          "Formula: net profit / net assets × 100%. >15% excellent, 10-15% good, <10% average",
+        tipPeTtm:
+          "Formula: price / sum of the last four quarters' EPS. <20 undervalued, 20-30 reasonable, >30 overvalued",
+        tipPb:
+          "Formula: price / net assets per share. <1 below book value, 1-2 undervalued, >3 overvalued",
         fiRevenueGrowth: "Revenue Growth",
-        tipRevenueGrowth: "Formula: (current revenue - revenue a year ago) / revenue a year ago × 100%. >20% high growth",
+        tipRevenueGrowth:
+          "Formula: (current revenue - revenue a year ago) / revenue a year ago × 100%. >20% high growth",
         fiNetProfitGrowth: "Net Profit Growth",
-        tipNetProfitGrowth: "Formula: (current net profit - net profit a year ago) / net profit a year ago × 100%",
+        tipNetProfitGrowth:
+          "Formula: (current net profit - net profit a year ago) / net profit a year ago × 100%",
         fiGrossMargin: "Gross Margin",
         tipGrossMargin: "Formula: (revenue - cost of revenue) / revenue × 100%",
         fiNetMargin: "Net Margin",
         tipNetMargin: "Formula: net profit / revenue × 100%",
         fiDebtRatio: "Debt Ratio",
-        tipDebtRatio: "Formula: total liabilities / total assets × 100%. <50% low risk, 50-70% normal, >70% high risk",
-        tipCurrentRatio: "Formula: current assets / current liabilities. >2 excellent, 1-2 normal, <1 risky",
-        tipQuickRatio: "Formula: (current assets - inventory) / current liabilities. >1 excellent, 0.5-1 normal",
+        tipDebtRatio:
+          "Formula: total liabilities / total assets × 100%. <50% low risk, 50-70% normal, >70% high risk",
+        tipCurrentRatio:
+          "Formula: current assets / current liabilities. >2 excellent, 1-2 normal, <1 risky",
+        tipQuickRatio:
+          "Formula: (current assets - inventory) / current liabilities. >1 excellent, 0.5-1 normal",
         tipCashRatio:
           "Formula: (cash + trading financial assets) / current liabilities. >0.5 ample, 0.2-0.5 normal, <0.2 tight",
         fiNrTurnover: "Receivables Turnover",
-        tipNrTurnover: "Formula: revenue / accounts receivable. Higher means faster collection; not applicable to financial stocks",
+        tipNrTurnover:
+          "Formula: revenue / accounts receivable. Higher means faster collection; not applicable to financial stocks",
         fiInvTurnover: "Inventory Turnover",
-        tipInvTurnover: "Formula: cost of revenue / inventory. Higher means faster inventory turnover",
+        tipInvTurnover:
+          "Formula: cost of revenue / inventory. Higher means faster inventory turnover",
         fiEquityYoy: "Equity YoY",
-        tipEquityYoy: "YoY growth of net assets, reflecting internal accumulation",
+        tipEquityYoy:
+          "YoY growth of net assets, reflecting internal accumulation",
         fiAssetYoy: "Asset YoY",
         tipAssetYoy: "YoY growth of total assets, reflecting expansion pace",
-        tipCfoToOr: "Formula: operating cash flow / revenue. >0.2 is good; persistent negatives need attention",
+        tipCfoToOr:
+          "Formula: operating cash flow / revenue. >0.2 is good; persistent negatives need attention",
         dailyKTo: "Daily K up to",
         weeklyKTo: "Weekly K up to",
         monthlyKTo: "Monthly K up to",
@@ -1419,7 +1471,7 @@ const local: App.I18n.Schema = {
         values: "Values",
         risk_preference: "Risk Preference",
         decision_style: "Decision Style",
-        constraints: "Constraints"
+        constraints: "Constraints",
       },
       addExperience: "Add Experience",
       editExperience: "Edit Experience",
@@ -1462,7 +1514,7 @@ const local: App.I18n.Schema = {
         preference: "Preference",
         achievement: "Achievement/Honor",
         challenge: "Challenge/Problem",
-        other: "Other"
+        other: "Other",
       },
       eventType: {
         start: "Start",
@@ -1480,7 +1532,7 @@ const local: App.I18n.Schema = {
         relocate: "Relocate",
         recover: "Recover",
         experiment: "Experiment",
-        maintain: "Maintain"
+        maintain: "Maintain",
       },
       status: {
         planned: "Planned",
@@ -1488,13 +1540,13 @@ const local: App.I18n.Schema = {
         completed: "Completed",
         abandoned: "Abandoned",
         paused: "Paused",
-        unknown: "Unknown"
+        unknown: "Unknown",
       },
       memoryLevel: {
         core: "Core",
         long_term: "Long-term",
-        temporary: "Temporary"
-      }
+        temporary: "Temporary",
+      },
     },
     userProfile: {
       title: "Profile",
@@ -1517,7 +1569,8 @@ const local: App.I18n.Schema = {
       oldPasswordPlaceholder: "Please enter old password",
       oldPasswordRequired: "Please enter old password",
       newPassword: "New Password",
-      newPasswordPlaceholder: "Please enter new password (at least 6 characters)",
+      newPasswordPlaceholder:
+        "Please enter new password (at least 6 characters)",
       newPasswordRequired: "Please enter new password",
       passwordMinLength: "Password must be at least 6 characters",
       confirmPassword: "Confirm Password",
@@ -1530,7 +1583,8 @@ const local: App.I18n.Schema = {
       telegramNotBound: "Not Bound",
       telegramUsername: "Telegram Username",
       telegramBindCode: "Bind Code",
-      telegramBindCodeHint: "Please send the following command to the bot on Telegram:",
+      telegramBindCodeHint:
+        "Please send the following command to the bot on Telegram:",
       telegramBindCodeExpire: "Expires at",
       telegramGenerateCode: "Generate Bind Code",
       telegramUnbind: "Unbind",
@@ -1556,18 +1610,23 @@ const local: App.I18n.Schema = {
       addItem: "Add Size",
       addMaterial: "Add Material",
       materialType: "Material type",
-      itemMaterialTypeRequired: "Please specify a material type for each cutting size",
+      itemMaterialTypeRequired:
+        "Please specify a material type for each cutting size",
       startCutting: "Start Cutting",
       clearAll: "Clear All",
       inputInvalid: "Please enter valid item parameters!",
       inputMaterialInvalid: "Please enter valid material parameters!",
       inputItemsRequired: "Please add at least one cutting item first!",
-      noResultWarning: "Existing materials cannot fit all items, new material will be used.",
+      noResultWarning:
+        "Existing materials cannot fit all items, new material will be used.",
       newMaterialLabel: "Spec name (optional)",
       newMaterialLength: "Length (cm)",
-      newMaterialInvalid: "Each new material spec length must be greater than 0",
-      planeNewMaterialInvalid: "Width and height of each new board spec must be greater than 0",
-      planeSpecUndefined: 'Cutting item "{label}" references an undefined material spec: {spec}',
+      newMaterialInvalid:
+        "Each new material spec length must be greater than 0",
+      planeNewMaterialInvalid:
+        "Width and height of each new board spec must be greater than 0",
+      planeSpecUndefined:
+        'Cutting item "{label}" references an undefined material spec: {spec}',
       loading: "Loading...",
       summaryTitle: "Result Summary",
       summaryMaterialCount: "Bars Used",
@@ -1599,7 +1658,8 @@ const local: App.I18n.Schema = {
       pdDimensionLinear: "1D (Linear)",
       pdDimensionPlane: "2D (Planar)",
       pdDimensionMixed: "Mixed",
-      pdDimensionConflict: "A product order can only keep one cutting dimension ({type}): put windows in 1D orders and glass in 2D orders",
+      pdDimensionConflict:
+        "A product order can only keep one cutting dimension ({type}): put windows in 1D orders and glass in 2D orders",
       pdWidthLabel: "W×H (cm)",
       pdFrameWidth: "Frame (cm)",
       pdCols: "Cols",
@@ -1612,7 +1672,8 @@ const local: App.I18n.Schema = {
       pdGlassThickness: "Glass thickness (mm)",
       pdGlassThicknessPh: "Pick 5/6/8/10/12 or type another (e.g. 5+9A+5)",
       pdGlassPlain: "Plain sheet",
-      pdGlassTip: "Glass product: cut as a whole sheet by width×height; thickness is the material spec. Import via Plane Cutting",
+      pdGlassTip:
+        "Glass product: cut as a whole sheet by width×height; thickness is the material spec. Import via Plane Cutting",
       pdFit: "Fitting (mm)",
       pdFitGap: "Gap/side",
       pdFitReach: "Track reach",
@@ -1620,7 +1681,8 @@ const local: App.I18n.Schema = {
       pdFitBeadDeduct: "Bead deduct",
       pdBead: "Calculate glazing beads",
       pdBeadSeries: "Bead spec",
-      pdPreviewTip: "Click a pane to toggle fixed/sash; right-click a pane for actions (merge/split, for asymmetric layouts)",
+      pdPreviewTip:
+        "Click a pane to toggle fixed/sash; right-click a pane for actions (merge/split, for asymmetric layouts)",
       pdMenuFixed: "Set as fixed",
       pdMenuSash: "Set as sash",
       pdMenuMergeLeft: "Merge with left cell",
@@ -1632,7 +1694,8 @@ const local: App.I18n.Schema = {
       pdListTitle: "Product List",
       pdNeedSeries: "Frame section width is required for every product",
       pdNeedThickness: "Glass thickness is required for every glass product",
-      pdMixedGoCut: "Selection mixes window and glass products: import windows via Bar Cutting and glass via Plane Cutting separately",
+      pdMixedGoCut:
+        "Selection mixes window and glass products: import windows via Bar Cutting and glass via Plane Cutting separately",
       pdPendingEdit: "Finish editing the current product first",
       pdEmptyOrder: "Add at least one product first",
       pdSaved: "Product order saved",
@@ -1649,7 +1712,8 @@ const local: App.I18n.Schema = {
       pdDeleted: "Deleted",
       pdImported: "Imported {count} order(s), {bars} product(s)",
       pdImportEmpty: "Selected orders are empty",
-      planeSpecRowsAdded: "Board specs were auto-created from glass thicknesses (default 200×200); adjust width/height to the actual boards in Parameters",
+      planeSpecRowsAdded:
+        "Board specs were auto-created from glass thicknesses (default 200×200); adjust width/height to the actual boards in Parameters",
       unplacedAlert: "{count} piece(s) could not be placed on any material",
       unplacedLabel: "Label",
       unplacedReason: "Reason",
@@ -1709,7 +1773,8 @@ const local: App.I18n.Schema = {
       materialProtect: "Material Protection",
       protectMinPh: "Min length (cm)",
       protectMaxPh: "Max length (cm)",
-      protectRangeInvalid: "Enter a valid material protection range: 0 < min length ≤ max length",
+      protectRangeInvalid:
+        "Enter a valid material protection range: 0 < min length ≤ max length",
       protectRange: "Scrap must not fall within [{min}, {max}] cm",
       utilizationWeight: "Utilization Weight",
       strategy: "Strategy",
@@ -1726,13 +1791,15 @@ const local: App.I18n.Schema = {
       scrapType2d: "2D Scrap",
       /** 一维条形图/统计 */
       barLabel: "Bar #{index}",
-      barStats: "(Total: {total}cm, Used: {used}cm, Remaining: {remaining}cm) * {count}",
+      barStats:
+        "(Total: {total}cm, Used: {used}cm, Remaining: {remaining}cm) * {count}",
       tailRemaining: "Remain {remaining}cm",
       barSummary:
         "Total bars: {count} {'|'} Total length: {total} cm {'|'} Used: {used} cm {'|'} Remaining: {remaining} cm {'|'} Usage: {usage}%",
       /** 详情页 */
       loadFailedTitle: "Failed to Load",
-      loadFailedDesc: "The cutting record does not exist or is malformed and cannot be displayed",
+      loadFailedDesc:
+        "The cutting record does not exist or is malformed and cannot be displayed",
       goBack: "Back",
       summaryMaterialLengthCm: "Material Total (cm)",
       summaryCutLengthCm: "Parts Total (cm)",
@@ -1784,20 +1851,29 @@ const local: App.I18n.Schema = {
       pdGridSize: "{cols} cols × {rows} rows",
       piecesTotal: "{count} piece(s) in total",
       glassWholeSize: "Whole glass sheet {width}×{height} cm",
-      pdSeriesTip1: "Frame width (cm) = series ÷ 10; auto-filled and the grid recalculated on selection.",
+      pdSeriesTip1:
+        "Frame width (cm) = series ÷ 10; auto-filled and the grid recalculated on selection.",
       pdSeriesTip2:
         "Affects cutting lengths of outer frame rails/stiles (top/bottom, side seals), transoms and mullions, and net pane sizes.",
-      pdFitGapTip1: "Side-hung: sash rails/stiles = pane net size − 2×gap (the sash is one gap smaller per side so it can open).",
-      pdFitGapTip2: "Sliding: sash top/bottom rails reduced by the gap at the seal side/fixed side (sliding clearance).",
-      pdFitReachTip1: "Sliding only: sash stiles (lock/meet stiles) = row net height + 2×reach,",
-      pdFitReachTip2: "the sash hooks reach into the head/sill track to prevent derailment; refer to the profile track depth.",
-      pdFitOverlapTip1: "Sliding only: adjacent sash stiles overlap; each sash's top/bottom rails add overlap ÷ 2,",
-      pdFitOverlapTip2: "so closed sashes seal in the middle; refer to the stile overlap fit dimensions.",
+      pdFitGapTip1:
+        "Side-hung: sash rails/stiles = pane net size − 2×gap (the sash is one gap smaller per side so it can open).",
+      pdFitGapTip2:
+        "Sliding: sash top/bottom rails reduced by the gap at the seal side/fixed side (sliding clearance).",
+      pdFitReachTip1:
+        "Sliding only: sash stiles (lock/meet stiles) = row net height + 2×reach,",
+      pdFitReachTip2:
+        "the sash hooks reach into the head/sill track to prevent derailment; refer to the profile track depth.",
+      pdFitOverlapTip1:
+        "Sliding only: adjacent sash stiles overlap; each sash's top/bottom rails add overlap ÷ 2,",
+      pdFitOverlapTip2:
+        "so closed sashes seal in the middle; refer to the stile overlap fit dimensions.",
       pdFitBeadTip1:
         "Each bead (H/V) = base length − deduction; base: fixed panes use the opening net size, sashes use the sash outer frame size.",
-      pdFitBeadTip2: "45° mitre takes 0, butt joint deducts by bead width; affects the cutting length of all beads.",
+      pdFitBeadTip2:
+        "45° mitre takes 0, butt joint deducts by bead width; affects the cutting length of all beads.",
       /** 打印 */
-      printBlocked: "Print window blocked by the browser; allow pop-ups and retry",
+      printBlocked:
+        "Print window blocked by the browser; allow pop-ups and retry",
       barPrintTitle: "Bar Cutting Result",
       colBarIndex: "Bar No.",
       colTotalLengthCm: "Total Length (cm)",
@@ -1810,8 +1886,10 @@ const local: App.I18n.Schema = {
       /** 平面统计/画布 */
       planeStatsLine:
         "Total items: {items} (area: {itemArea} m²) {'|'} Material area used: {materialArea} m² {'|'} Overall utilization: {utilization}% {'|'} Sheets used: {materialCount}",
-      planeResultTitle: "Optimization result: {materials} sheet(s) used, {pieces} item(s) placed",
-      binStats: "Size: {width}×{height}cm {'|'} Utilization: {utilization}% {'|'} Count: {count}",
+      planeResultTitle:
+        "Optimization result: {materials} sheet(s) used, {pieces} item(s) placed",
+      binStats:
+        "Size: {width}×{height}cm {'|'} Utilization: {utilization}% {'|'} Count: {count}",
       /** 导出绘制 */
       cutChartExportTitle: "Cutting Diagram",
       exportFileName: "CuttingChart",
@@ -1822,7 +1900,8 @@ const local: App.I18n.Schema = {
       barExportSummary:
         "{bars} bar(s) {'|'} {pieces} piece(s) {'|'} Material total {materialLength}cm {'|'} Parts total {cutLength}cm {'|'} Utilization {utilization}% {'|'} Scrap {remaining}cm ({scrapCount} bars)",
       barExportSummaryShort: "{bars} bar(s) {'|'} {pieces} piece(s)",
-      binTitle: "{type}  {width} × {height} cm  {'|'}  Utilization {utilization}%  {'|'}  Pieces {pieces}",
+      binTitle:
+        "{type}  {width} × {height} cm  {'|'}  Utilization {utilization}%  {'|'}  Pieces {pieces}",
       binCountSuffix: "  × {count} sheets",
       rotatedMark: " (R)",
       scrapApplied: "{count} inventory item(s) applied",

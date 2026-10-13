@@ -84,3 +84,19 @@ export function publishWolRaw(data: { topic: string; payload: string }) {
     data
   })
 }
+
+/** 删除单条中转文本 */
+export function deleteWolRelay(id: number) {
+  return request<null>({
+    url: `/api/wol/relay/${id}`,
+    method: 'delete'
+  })
+}
+
+/** 清空中转站 */
+export function clearWolRelay() {
+  return request<null>({
+    url: '/api/wol/relay',
+    method: 'delete'
+  })
+}
