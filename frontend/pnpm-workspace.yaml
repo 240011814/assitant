@@ -1,19 +1,29 @@
 packages:
   - 'packages/*'
 
-# pnpm v10 需显式批准依赖的安装脚本 (postinstall 等)
-onlyBuiltDependencies:
-  - esbuild
-  - '@parcel/watcher'
-  - core-js
-  - vue-demi
-ignoredBuiltDependencies:
-  - simple-git-hooks
+# 对齐 soybean-admin 2.3.0: vite/typescript 走 catalog 别名
+# vite -> vite-plus-core (vite-plus 工具链), typescript -> 原生编译器桥接
+catalog:
+  vite: npm:@voidzero-dev/vite-plus-core@latest
+  vite-plus: latest
+  typescript: npm:typescript-native-bridge@latest
+
+overrides:
+  vite: 'catalog:'
+  typescript: 'catalog:'
+
+# 上游约定: 不执行依赖的构建脚本 (vite-plus 工具链不依赖 esbuild 安装脚本)
 allowBuilds:
-  '@parcel/watcher': true
-  core-js: true
-  esbuild: true
-  simple-git-hooks: true
-  vue-demi: true
+  '@parcel/watcher': false
+  core-js: false
+  esbuild: false
+  simple-git-hooks: false
+  vue-demi: false
+
+shamefullyHoist: true
+ignoreWorkspaceRootCheck: true
+linkWorkspacePackages: true
+
 minimumReleaseAgeExclude:
   - dompurify@3.4.17
+  - '@iconify/json@2.2.541'
