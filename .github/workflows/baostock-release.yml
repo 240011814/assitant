@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - release
+      - develop
     paths:
       - 'baostock/**'
   workflow_dispatch:

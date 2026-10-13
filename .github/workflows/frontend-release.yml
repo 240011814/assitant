@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - release
+      - develop
     paths:
       - 'frontend/**'
   workflow_dispatch:
