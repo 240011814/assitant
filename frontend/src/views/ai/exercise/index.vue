@@ -244,7 +244,7 @@ const playCurrent = async (times = 3) => {
     try {
       await speak(targetSentence.value, { lang: "en-US", rate: 0.9 });
     } catch (err: any) {
-      message.error("语音播放失败 - " + err.message);
+      message.error(`语音播放失败 - ${  err.message}`);
       console.error(err);
       break;
     }
@@ -404,7 +404,7 @@ const validateWord = (index: number, typedValue: string) => {
   }
 
   wordResults.value[index] = {
-    typed: typed,
+    typed,
     status: isCorrect ? "correct" : "error",
   };
 

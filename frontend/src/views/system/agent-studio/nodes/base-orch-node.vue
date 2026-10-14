@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { Handle, Position } from '@vue-flow/core';
-import { NODE_META, nodeDisplayColor, type OrchNodeType } from './registry';
+import { NODE_META, nodeDisplayColor } from './registry';
+import type { OrchNodeType } from './registry';
 
 /**
  * 所有编排节点的共用外观: 连接桩 / 头部(图标+名称+状态配色) / 内容插槽

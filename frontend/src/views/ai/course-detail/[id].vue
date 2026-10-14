@@ -5,11 +5,8 @@ import {
   NCard, NButton, NInput, NSpin, NEmpty, NSpace, NPopconfirm,
   NModal, NForm, NFormItem, NInputNumber, NSelect, useMessage
 } from 'naive-ui'
-import {
-  fetchCourseDetail, fetchCreateCourseItem, fetchUpdateCourseItem,
-  fetchDeleteCourseItem, fetchBatchCreateCourseItems, fetchBatchDeleteCourseItems, fetchUpdateCourse,
-  type CourseItem, type CourseDetail
-} from '@/service/api'
+import { fetchCourseDetail, fetchCreateCourseItem, fetchUpdateCourseItem, fetchDeleteCourseItem, fetchBatchCreateCourseItems, fetchBatchDeleteCourseItems, fetchUpdateCourse } from '@/service/api';
+import type { CourseItem, CourseDetail } from '@/service/api';
 import { speak } from '@/utils/tts'
 
 defineOptions({ name: 'AiCourseDetail' })

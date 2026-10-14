@@ -1,4 +1,5 @@
-import { markRaw, type Component } from 'vue';
+import { markRaw } from 'vue';
+import type { Component } from 'vue';
 import AgentNode from './agent-node.vue';
 import ToolNode from './tool-node.vue';
 import TemplateNode from './template-node.vue';

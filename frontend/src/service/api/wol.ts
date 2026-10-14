@@ -76,6 +76,15 @@ export function wakeWolDevice(deviceId: string, data: { mac: string; ip?: string
   })
 }
 
+/** OTA 升级命令 (cmd: check=检查更新 / upgrade=开始升级 / status=查询状态) */
+export function otaWolDevice(deviceId: string, data: { cmd: 'check' | 'upgrade' | 'status' }) {
+  return request<null>({
+    url: `/api/wol/devices/${deviceId}/ota`,
+    method: 'post',
+    data
+  })
+}
+
 /** 调试: 向任意主题下发原始报文 */
 export function publishWolRaw(data: { topic: string; payload: string }) {
   return request<null>({

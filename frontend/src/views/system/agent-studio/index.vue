@@ -8,17 +8,10 @@ import NodeConfigPanel from './components/node-config-panel.vue';
 import DebugPanel from './components/debug-panel.vue';
 import type { NodeTrace } from './components/debug-panel.vue';
 import { NODE_META, nodeTypeOptions } from './nodes/registry';
-import { ORCHESTRATION_TEMPLATES, type OrchestrationTemplate } from './templates';
-import {
-  fetchOrchestrations,
-  fetchCreateOrchestration,
-  fetchUpdateOrchestration,
-  fetchDeleteOrchestration,
-  fetchOrchestrationResources,
-  fetchValidateOrchestration,
-  type AIOrchestrationItem,
-  type OrchestrationResource
-} from '@/service/api';
+import { ORCHESTRATION_TEMPLATES } from './templates';
+import type { OrchestrationTemplate } from './templates';
+import { fetchOrchestrations, fetchCreateOrchestration, fetchUpdateOrchestration, fetchDeleteOrchestration, fetchOrchestrationResources, fetchValidateOrchestration } from '@/service/api';
+import type { AIOrchestrationItem, OrchestrationResource } from '@/service/api';
 
 const message = useMessage();
 const appStore = useAppStore();

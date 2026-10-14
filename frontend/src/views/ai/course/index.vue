@@ -2,7 +2,8 @@
 import { ref, onMounted, onActivated } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, NCard, NButton, NTag, NEmpty, NSpin, NModal, NForm, NFormItem, NInput, NSwitch, NSpace, NPopconfirm, NPagination, NSelect } from 'naive-ui'
-import { fetchCourseList, fetchCreateCourse, fetchUpdateCourse, fetchDeleteCourse, fetchTrainingStatus, fetchUpdateTrainingStatus, type Course, type UserCourseTraining } from '@/service/api'
+import { fetchCourseList, fetchCreateCourse, fetchUpdateCourse, fetchDeleteCourse, fetchTrainingStatus, fetchUpdateTrainingStatus } from '@/service/api';
+import type { Course, UserCourseTraining } from '@/service/api';
 import { useAuth } from '@/hooks/business/auth'
 
 defineOptions({ name: 'AiCourse' })

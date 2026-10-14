@@ -1,36 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import {
-  NButton,
-  NCard,
-  NDrawer,
-  NDrawerContent,
-  NEmpty,
-  NPagination,
-  NPopconfirm,
-  NSpin,
-  NTag,
-  NTooltip,
-  NUpload,
-  NUploadDragger,
-  useMessage,
-  type UploadCustomRequestOptions,
-  type UploadFileInfo
-} from 'naive-ui';
+import { NButton, NCard, NDrawer, NDrawerContent, NEmpty, NPagination, NPopconfirm, NSpin, NTag, NTooltip, NUpload, NUploadDragger, useMessage } from 'naive-ui';
+import type { UploadCustomRequestOptions, UploadFileInfo } from 'naive-ui';
 import { useAuth } from '@/hooks/business/auth';
 import { useAppStore } from '@/store/modules/app';
-import {
-  fetchDocumentStatus,
-  fetchDocuments,
-  fetchDeleteDocument,
-  fetchDocumentDownloadUrl,
-  fetchDocumentText,
-  fetchReindexDocument,
-  fetchUploadDocument,
-  type DocumentStatus,
-  type UserDocumentItem
-} from '@/service/api';
+import { fetchDocumentStatus, fetchDocuments, fetchDeleteDocument, fetchDocumentDownloadUrl, fetchDocumentText, fetchReindexDocument, fetchUploadDocument } from '@/service/api';
+import type { DocumentStatus, UserDocumentItem } from '@/service/api';
 
 const message = useMessage();
 const router = useRouter();

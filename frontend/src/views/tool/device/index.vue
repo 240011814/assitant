@@ -11,6 +11,7 @@ import {
   getWolDevices,
   getWolMacList,
   getWolStatus,
+  otaWolDevice,
   publishWolRaw,
   updateWolMac,
   wakeWolDevice
@@ -45,6 +46,16 @@ const wakeForm = reactive({ mac: '', ip: '' })
 // 调试弹窗
 const debugModalVisible = ref(false)
 const debugForm = reactive({ topic: '', payload: '' })
+
+// OTA 升级弹窗 (状态/进度来自设备状态快照的 version + ota 字段, 随 5s 轮询刷新)
+const otaModalVisible = ref(false)
+const otaSending = ref(false)
+const otaCmd = ref<'check' | 'upgrade' | 'status'>('status')
+// 优先取轮询里的最新对象, 保证弹窗内的进度/状态是活的
+const otaDevice = computed(() => devices.value.find(d => d.id === activeDevice.value?.id) ?? activeDevice.value)
+const otaInProgress = computed(() =>
+  ['checking', 'downloading', 'rebooting'].includes(otaDevice.value?.ota?.state ?? '')
+)
 
 const macReg = /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i
 
@@ -174,6 +185,72 @@ async function sendWake() {
     message.success($t('page.tool.device.wakeSent'))
     wakeModalVisible.value = false
   }
+}
+
+function openOtaModal(device: Api.Wol.Device) {
+  activeDevice.value = device
+  otaModalVisible.value = true
+}
+
+function otaStateLabel(state?: string) {
+  if (!state) return '-'
+  const map: Record<string, string> = {
+    idle: $t('page.tool.device.otaStateIdle'),
+    checking: $t('page.tool.device.otaStateChecking'),
+    update_available: $t('page.tool.device.otaStateUpdateAvailable'),
+    downloading: $t('page.tool.device.otaStateDownloading'),
+    rebooting: $t('page.tool.device.otaStateRebooting'),
+    failed: $t('page.tool.device.otaStateFailed')
+  }
+  return map[state] ?? state
+}
+
+function otaStateTag(state?: string): 'default' | 'success' | 'warning' | 'info' | 'error' {
+  switch (state) {
+    case 'idle':
+      return 'success'
+    case 'update_available':
+      return 'warning'
+    case 'checking':
+    case 'downloading':
+    case 'rebooting':
+      return 'info'
+    case 'failed':
+      return 'error'
+    default:
+      return 'default'
+  }
+}
+
+async function sendOta(cmd: 'check' | 'upgrade' | 'status') {
+  if (!activeDevice.value) return
+  // 进行中只禁止重复触发 check/upgrade, 查状态随时可发
+  if (cmd !== 'status' && otaInProgress.value) return
+  otaCmd.value = cmd
+  otaSending.value = true
+  const { error } = await otaWolDevice(activeDevice.value.id, { cmd })
+  otaSending.value = false
+  if (!error) {
+    message.success($t('page.tool.device.otaCommandSent'))
+    // 设备异步处理后才会发布新状态快照, 稍等再拉一次设备列表
+    setTimeout(() => loadDevices(false), 1000)
+  }
+}
+
+/** 卡片上的 OTA 徽标: 有新版本/进行中/失败时才显示 (空闲不显示) */
+function otaBadge(device: Api.Wol.Device): { show: boolean; type: 'warning' | 'info' | 'error'; text: string } {
+  const ota = device.ota
+  if (ota?.state === 'update_available') {
+    return { show: true, type: 'warning', text: `${$t('page.tool.device.otaNewVersion')}: ${ota.latest || '-'}` }
+  }
+  if (ota?.state === 'failed') {
+    return { show: true, type: 'error', text: $t('page.tool.device.otaStateFailed') }
+  }
+  if (ota && ['checking', 'downloading', 'rebooting'].includes(ota.state)) {
+    const progress = ota.progress != null ? ` ${ota.progress}%` : ''
+    return { show: true, type: 'info', text: `${otaStateLabel(ota.state)}${progress}` }
+  }
+  return { show: false, type: 'info', text: '' }
 }
 
 function openDebugModal(device: Api.Wol.Device) {
@@ -386,6 +463,19 @@ onBeforeUnmount(() => {
               <span class="text-gray-400">{{ $t('page.tool.device.macCount') }}: </span>{{ device.mac_count }}
             </div>
             <div>
+              <span class="text-gray-400">{{ $t('page.tool.device.version') }}: </span>
+              {{ device.version || '-' }}
+              <NTag
+                v-if="otaBadge(device).show"
+                size="tiny"
+                :bordered="false"
+                :type="otaBadge(device).type"
+                class="ml-1"
+              >
+                {{ otaBadge(device).text }}
+              </NTag>
+            </div>
+            <div>
               <span class="text-gray-400">{{ $t('page.tool.device.bootTime') }}: </span>{{ device.boot_time || '-' }}
             </div>
             <div>
@@ -397,6 +487,9 @@ onBeforeUnmount(() => {
             <NButton size="small" @click="openMacModal(device)">{{ $t('page.tool.device.addressBook') }}</NButton>
             <NButton v-if="canManage" size="small" type="primary" @click="openWakeModal(device)">
               {{ $t('page.tool.device.wake') }}
+            </NButton>
+            <NButton v-if="canManage" size="small" type="warning" secondary @click="openOtaModal(device)">
+              {{ $t('page.tool.device.ota') }}
             </NButton>
             <NButton size="small" secondary @click="openDebugModal(device)">
               {{ $t('page.tool.device.debug') }}
@@ -476,6 +569,65 @@ onBeforeUnmount(() => {
         <div class="flex justify-end gap-2">
           <NButton @click="wakeModalVisible = false">{{ $t('common.cancel') }}</NButton>
           <NButton type="primary" @click="sendWake">{{ $t('page.tool.device.wakeSend') }}</NButton>
+        </div>
+      </template>
+    </NModal>
+
+    <!-- OTA 升级弹窗 (状态来自设备状态快照的 version + ota 字段) -->
+    <NModal v-model:show="otaModalVisible" preset="card" style="width: 520px" :title="$t('page.tool.device.otaTitle')">
+      <div class="space-y-2 text-sm">
+        <div>
+          <span class="text-gray-400">{{ $t('page.tool.device.id') }}: </span>
+          <strong class="font-mono">{{ otaDevice?.id || '-' }}</strong>
+        </div>
+        <div>
+          <span class="text-gray-400">{{ $t('page.tool.device.version') }}: </span>
+          {{ otaDevice?.ota?.current || otaDevice?.version || '-' }}
+        </div>
+        <div>
+          <span class="text-gray-400">{{ $t('page.tool.device.otaLatest') }}: </span>
+          {{ otaDevice?.ota?.latest || '-' }}
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-gray-400">{{ $t('page.tool.device.otaState') }}: </span>
+          <NTag size="small" :bordered="false" :type="otaStateTag(otaDevice?.ota?.state)">
+            {{ otaStateLabel(otaDevice?.ota?.state) }}
+          </NTag>
+        </div>
+        <NProgress
+          v-if="otaDevice?.ota?.progress != null"
+          type="line"
+          :percentage="otaDevice.ota.progress"
+          :status="otaDevice.ota.state === 'failed' ? 'error' : 'default'"
+        />
+        <NAlert v-if="otaDevice?.ota?.error" type="error" :show-icon="true">
+          {{ otaDevice.ota.error }}
+        </NAlert>
+        <div class="text-xs text-gray-400">{{ $t('page.tool.device.otaHint') }}</div>
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <NButton
+            :loading="otaSending && otaCmd === 'status'"
+            @click="sendOta('status')"
+          >
+            {{ $t('page.tool.device.otaRefresh') }}
+          </NButton>
+          <NButton
+            :disabled="otaInProgress"
+            :loading="otaSending && otaCmd === 'check'"
+            @click="sendOta('check')"
+          >
+            {{ $t('page.tool.device.otaCheck') }}
+          </NButton>
+          <NButton
+            type="primary"
+            :disabled="otaInProgress"
+            :loading="otaSending && otaCmd === 'upgrade'"
+            @click="sendOta('upgrade')"
+          >
+            {{ $t('page.tool.device.otaUpgrade') }}
+          </NButton>
         </div>
       </template>
     </NModal>

@@ -989,6 +989,23 @@ declare namespace App {
             send: string;
             sent: string;
             topicRequired: string;
+            version: string;
+            ota: string;
+            otaTitle: string;
+            otaLatest: string;
+            otaState: string;
+            otaNewVersion: string;
+            otaRefresh: string;
+            otaCheck: string;
+            otaUpgrade: string;
+            otaCommandSent: string;
+            otaHint: string;
+            otaStateIdle: string;
+            otaStateChecking: string;
+            otaStateUpdateAvailable: string;
+            otaStateDownloading: string;
+            otaStateRebooting: string;
+            otaStateFailed: string;
           };
           stockAlert: {
             title: string;

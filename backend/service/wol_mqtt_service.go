@@ -21,6 +21,7 @@ const (
 	wolCmdTopicPrefix    = "wakemanager/cmd/"      // 唤醒: {"cmd":"wake","mac":"...","ip":"..."}
 	wolMacTopicPrefix    = "wakemanager/mac/"      // 地址簿设置: set/del/clear
 	wolMacGetTopicPrefix = "wakemanager/mac/get/"  // 地址簿获取: {"cmd":"get"}
+	wolOtaTopicPrefix    = "wakemanager/ota/"      // OTA 升级 (每设备): check/upgrade/status
 	wolTempTopicPrefix   = "wakemanager/temp/"     // 芯片温度 (每设备, 每 60s)
 	wolRelayTopic        = "texthub"               // 中转站: 任意文本, 保留最近 50 条 (FIFO)
 )
@@ -49,20 +50,31 @@ type WolMqttConfig struct {
 	HasPassword bool   `json:"has_password"`
 }
 
+// WolOtaStatus 设备 OTA 状态机 (协议状态快照 ota 字段)
+type WolOtaStatus struct {
+	State    string `json:"state"`              // idle/checking/update_available/downloading/rebooting/failed
+	Current  string `json:"current"`            // 当前固件版本 (短 SHA)
+	Latest   string `json:"latest,omitempty"`   // 最新固件版本 (短 SHA, 检查后有值)
+	Progress *int   `json:"progress,omitempty"` // 下载进度 0-100 (downloading 时有值)
+	Error    string `json:"error,omitempty"`    // 失败原因 (failed 时有值)
+}
+
 // WolDeviceInfo 设备状态 (协议状态主题 JSON)
 type WolDeviceInfo struct {
-	ID            string    `json:"id"`
-	IP            string    `json:"ip"`
-	SSID          string    `json:"ssid"`
-	RSSI          int       `json:"rssi"`
-	Heap          int       `json:"heap"`
-	Broadcast     string    `json:"broadcast"`
-	MQTTConnected bool      `json:"mqtt_connected"`
-	MacCount      int       `json:"mac_count"`
-	TempC         float64   `json:"temp_c"`
-	Time          string    `json:"time"`
-	BootTime      string    `json:"boot_time"`
-	LastSeen      time.Time `json:"last_seen"`
+	ID            string        `json:"id"`
+	IP            string        `json:"ip"`
+	SSID          string        `json:"ssid"`
+	RSSI          int           `json:"rssi"`
+	Heap          int           `json:"heap"`
+	Broadcast     string        `json:"broadcast"`
+	MQTTConnected bool          `json:"mqtt_connected"`
+	MacCount      int           `json:"mac_count"`
+	TempC         float64       `json:"temp_c"`
+	Time          string        `json:"time"`
+	BootTime      string        `json:"boot_time"`
+	Version       string        `json:"version"`
+	Ota           *WolOtaStatus `json:"ota,omitempty"`
+	LastSeen      time.Time     `json:"last_seen"`
 }
 
 // WolMacEntry 地址簿条目
@@ -113,6 +125,8 @@ type wolInbound struct {
 	MacCount      *int          `json:"mac_count"`
 	TempC         *float64      `json:"temp_c"`
 	MQTTConnected *bool         `json:"mqtt_connected"`
+	Version       string        `json:"version"`
+	Ota           *WolOtaStatus `json:"ota"`
 	Macs          []WolMacEntry `json:"macs"`
 }
 
@@ -384,6 +398,23 @@ func (s *WolMqttService) Wake(deviceID, mac, ip string) error {
 	return s.publish(wolCmdTopicPrefix+deviceID, body)
 }
 
+// OtaCommand 下发 OTA 命令 (check=检查更新 / upgrade=开始升级 / status=查询状态),
+// 仅触发设备侧动作, 进度与结果由设备异步上报到状态快照的 ota 字段
+func (s *WolMqttService) OtaCommand(deviceID, cmd string) error {
+	if !s.IsConnected() {
+		return errors.New("MQTT 未连接, 请先连接")
+	}
+	if deviceID == "" {
+		return errors.New("设备 ID 不能为空")
+	}
+	switch cmd {
+	case "check", "upgrade", "status":
+	default:
+		return fmt.Errorf("不支持的 OTA 命令: %s", cmd)
+	}
+	return s.publish(wolOtaTopicPrefix+deviceID, map[string]string{"cmd": cmd})
+}
+
 // subscribeAll 订阅状态主题、温度主题与中转站主题
 func (s *WolMqttService) subscribeAll(client mqtt.Client) error {
 	if token := client.Subscribe(wolStatusTopic, 1, s.handleMessage); token.WaitTimeout(5*time.Second) && token.Error() != nil {
@@ -486,7 +517,8 @@ func (s *WolMqttService) handleMessage(_ mqtt.Client, msg mqtt.Message) {
 
 func isWolDeviceStatus(in wolInbound) bool {
 	return in.IP != "" || in.SSID != "" || in.Broadcast != "" || in.Time != "" || in.BootTime != "" ||
-		in.RSSI != nil || in.Heap != nil || in.MacCount != nil || in.MQTTConnected != nil
+		in.RSSI != nil || in.Heap != nil || in.MacCount != nil || in.MQTTConnected != nil ||
+		in.Version != "" || in.Ota != nil
 }
 
 func (s *WolMqttService) applyDeviceStatus(in wolInbound) {
@@ -526,6 +558,12 @@ func (s *WolMqttService) applyDeviceStatus(in wolInbound) {
 	}
 	if in.MQTTConnected != nil {
 		d.MQTTConnected = *in.MQTTConnected
+	}
+	if in.Version != "" {
+		d.Version = in.Version
+	}
+	if in.Ota != nil {
+		d.Ota = in.Ota
 	}
 	d.LastSeen = time.Now()
 }
@@ -592,7 +630,8 @@ func (s *WolMqttService) recordMessage(direction, topic, deviceID, cmd, payload 
 
 // wolDeviceIDFromTopic 从主题推断设备 ID (广播/状态主题无设备 ID, 返回空)
 func wolDeviceIDFromTopic(topic string) string {
-	for _, prefix := range []string{wolCmdTopicPrefix, wolMacTopicPrefix, wolMacGetTopicPrefix, wolTempTopicPrefix} {
+	// macGet 前缀须排在 mac 前缀之前, 否则 mac/get/<id> 会被截成 get/<id>
+	for _, prefix := range []string{wolCmdTopicPrefix, wolMacGetTopicPrefix, wolMacTopicPrefix, wolOtaTopicPrefix, wolTempTopicPrefix} {
 		if strings.HasPrefix(topic, prefix) {
 			return strings.TrimPrefix(topic, prefix)
 		}

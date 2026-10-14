@@ -5,32 +5,8 @@ import type { DataTableColumns } from 'naive-ui';
 import { $t } from '@/locales';
 import { saveCutProduct } from '@/service/api';
 import WindowGridPreview from './WindowGridPreview.vue';
-import {
-  CELL_FIXED,
-  CELL_SASH,
-  CELL_SPAN,
-  DIMENSION_LINEAR,
-  DIMENSION_PLANE,
-  FIT_DEFAULTS,
-  GLASS_LABEL,
-  GLASS_THICKNESS_OPTIONS,
-  GLASS_TYPE,
-  WINDOW_TEMPLATES,
-  availableColWidth,
-  availableRowHeight,
-  buildPieces,
-  checkGridGeometry,
-  findWindowTemplate,
-  glassItemFromDefaults,
-  isGlassItem,
-  itemDimension,
-  itemsDimension,
-  parseProductSpec,
-  productTypeLabel,
-  round2,
-  type CutDimension,
-  type ProductItem
-} from './window-template';
+import { CELL_FIXED, CELL_SASH, CELL_SPAN, DIMENSION_LINEAR, DIMENSION_PLANE, FIT_DEFAULTS, GLASS_LABEL, GLASS_THICKNESS_OPTIONS, GLASS_TYPE, WINDOW_TEMPLATES, availableColWidth, availableRowHeight, buildPieces, checkGridGeometry, findWindowTemplate, glassItemFromDefaults, isGlassItem, itemDimension, itemsDimension, parseProductSpec, productTypeLabel, round2 } from './window-template';
+import type { CutDimension, ProductItem } from './window-template';
 
 /**
  * 产品单编辑器: 左侧分格预览 (点击格子切换 固定/开启) + 右侧参数, 配好的产品加入清单,

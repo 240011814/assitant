@@ -8,6 +8,20 @@ declare namespace Api {
       has_password: boolean
     }
 
+    /** 设备 OTA 状态机 (状态快照 ota 字段) */
+    interface OtaStatus {
+      /** idle / checking / update_available / downloading / rebooting / failed */
+      state: string
+      /** 当前固件版本 (短 SHA) */
+      current: string
+      /** 最新固件版本 (短 SHA, 检查后有值) */
+      latest?: string
+      /** 下载进度 0-100 (downloading 时有值) */
+      progress?: number
+      /** 失败原因 (failed 时有值) */
+      error?: string
+    }
+
     /** 设备状态 (协议状态主题 JSON) */
     interface Device {
       id: string
@@ -21,6 +35,8 @@ declare namespace Api {
       temp_c: number
       time: string
       boot_time: string
+      version: string
+      ota?: OtaStatus
       last_seen: string
     }
 

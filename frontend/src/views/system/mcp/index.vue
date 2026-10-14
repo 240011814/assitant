@@ -16,15 +16,8 @@ import {
   NTooltip,
   useMessage
 } from 'naive-ui';
-import {
-  fetchConnectMCPServer,
-  fetchCreateMCPServer,
-  fetchDeleteMCPServer,
-  fetchMCPServers,
-  fetchUpdateMCPServer,
-  type MCPServerItem,
-  type MCPServerPayload
-} from '@/service/api';
+import { fetchConnectMCPServer, fetchCreateMCPServer, fetchDeleteMCPServer, fetchMCPServers, fetchUpdateMCPServer } from '@/service/api';
+import type { MCPServerItem, MCPServerPayload } from '@/service/api';
 import { useAuth } from '@/hooks/business/auth';
 import { useAppStore } from '@/store/modules/app';
 

@@ -2,7 +2,8 @@
 import { ref } from "vue";
 import { useMessage } from "naive-ui";
 import { useAppStore } from "@/store/modules/app";
-import { fetchCourseList, fetchCreateCourseItem, type Course } from "@/service/api/course";
+import { fetchCourseList, fetchCreateCourseItem } from "@/service/api/course";
+import type { Course } from "@/service/api/course";
 
 defineOptions({
   name: "CourseItemModal"

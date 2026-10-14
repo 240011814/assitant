@@ -121,6 +121,22 @@ func (h *WolMqttHandler) Wake(c *gin.Context) {
 	SendSuccess(c, nil)
 }
 
+// Ota 下发 OTA 升级命令 (cmd: check=检查更新 / upgrade=开始升级 / status=查询状态)
+func (h *WolMqttHandler) Ota(c *gin.Context) {
+	var req struct {
+		Cmd string `json:"cmd" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请求参数错误")
+		return
+	}
+	if err := h.svc.OtaCommand(c.Param("id"), req.Cmd); err != nil {
+		SendError(c, "400", err.Error())
+		return
+	}
+	SendSuccess(c, nil)
+}
+
 // Publish 调试用: 向任意主题下发原始报文
 func (h *WolMqttHandler) Publish(c *gin.Context) {
 	var req struct {

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useMessage } from 'naive-ui';
-import { useVueFlow, VueFlow, type Connection, type Edge as FlowEdge, type EdgeMouseEvent, type Node as FlowNode, type NodeMouseEvent } from '@vue-flow/core';
+import { useVueFlow, VueFlow } from '@vue-flow/core';
+import type { Connection, Edge as FlowEdge, EdgeMouseEvent, Node as FlowNode, NodeMouseEvent } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import { MiniMap } from '@vue-flow/minimap';
 import '@vue-flow/core/dist/style.css';

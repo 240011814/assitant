@@ -3,7 +3,8 @@ import { computed, ref, watch } from 'vue';
 import { NButton, NDynamicInput, NFormItem, NInput, NInputNumber, NSelect, useMessage } from 'naive-ui';
 import type { Node as FlowNode } from '@vue-flow/core';
 import type { OrchestrationResource } from '@/service/api';
-import { NODE_META, type OrchNodeType } from '../nodes/registry';
+import { NODE_META } from '../nodes/registry';
+import type { OrchNodeType } from '../nodes/registry';
 import {
   fetchGetUserPrompt,
   fetchSaveUserPrompt,

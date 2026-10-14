@@ -3,14 +3,7 @@ import { nextTick, ref, shallowRef, computed, onBeforeUnmount, onMounted, onActi
 import { useFullscreen } from "@vueuse/core";
 import { useMessage, NDrawer, NDrawerContent, NModal, NInput } from "naive-ui";
 import { useAppStore } from "@/store/modules/app";
-import {
-  fetchHistoryDetail,
-  fetchUpdateFavorite,
-  fetchUpdateHistoryTitle,
-  fetchGenerateShareToken,
-} from "@/service/api";
-import { fetchGetAIModels, fetchGetUserPrompt, fetchChatStream, fetchToolApproval } from "@/service/api";
-import { fetchOrchestrationChatRun, fetchResolveOrchestrationApproval } from "@/service/api";
+import { fetchHistoryDetail, fetchUpdateFavorite, fetchUpdateHistoryTitle, fetchGenerateShareToken, fetchGetAIModels, fetchGetUserPrompt, fetchChatStream, fetchToolApproval, fetchOrchestrationChatRun, fetchResolveOrchestrationApproval } from "@/service/api";
 import { useAuth } from "@/hooks/business/auth";
 import { renderMarkdown as renderMarkdownRaw } from "@/utils/markdown";
 import { useRoute } from "vue-router";

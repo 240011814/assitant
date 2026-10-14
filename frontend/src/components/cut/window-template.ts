@@ -244,7 +244,7 @@ export function buildPieces(
   item: Pick<ProductItem, 'width' | 'height' | 'frameWidth' | 'grid' | 'fit' | 'bead'>
 ): PieceDraft[] {
   const { width: w, height: h, frameWidth: c, grid } = item;
-  const fit = { ...FIT_DEFAULTS, ...(item.fit ?? {}) };
+  const fit = { ...FIT_DEFAULTS, ...item.fit };
   const gap = fit.gap / 10;
   const reach = fit.reach / 10;
   const overlap = fit.overlap / 10;

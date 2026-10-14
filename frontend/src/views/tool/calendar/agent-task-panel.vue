@@ -17,15 +17,8 @@ import {
   NTooltip,
   useMessage
 } from 'naive-ui';
-import {
-  fetchAgentTasks,
-  fetchCreateAgentTask,
-  fetchDeleteAgentTask,
-  fetchRunAgentTask,
-  fetchUpdateAgentTask,
-  type AgentTaskItem
-} from '@/service/api';
-import { fetchAIAgentList, fetchOrchestrationChatList } from '@/service/api';
+import { fetchAgentTasks, fetchCreateAgentTask, fetchDeleteAgentTask, fetchRunAgentTask, fetchUpdateAgentTask, fetchAIAgentList, fetchOrchestrationChatList } from '@/service/api';
+import type { AgentTaskItem } from '@/service/api';
 import { $t } from '@/locales';
 
 defineOptions({ name: 'AgentTaskPanel' });

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { $t } from '@/locales';
-import { CELL_FIXED, CELL_SASH, CELL_SPAN, type ProductItem } from './window-template';
+import { CELL_FIXED, CELL_SASH, CELL_SPAN } from './window-template';
+import type { ProductItem } from './window-template';
 
 /**
  * 窗户分格 SVG 预览: 按真实比例绘制外框/中梃/分格, 格内标注类型与净尺寸。
