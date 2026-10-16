@@ -971,6 +971,9 @@ declare namespace App {
             formatJson: string;
             relay: string;
             relayDesc: string;
+            relaySender: string;
+            relaySenderPlaceholder: string;
+            relaySenderInvalid: string;
             relayEmpty: string;
             relayCopy: string;
             relayCopied: string;

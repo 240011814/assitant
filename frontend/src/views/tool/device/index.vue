@@ -273,21 +273,29 @@ async function sendDebug() {
   if (!error) message.success($t('page.tool.device.sent'))
 }
 
-// 中转站 (订阅 texthub/+, 报文 {"deviceId","text"}, 最多 50 条 FIFO; 网页端以 web 身份发送)
-const relaySender = 'web'
-const relayTopic = `texthub/${relaySender}`
+// 中转站 (订阅 texthub/+, 报文 {"deviceId","text"}, 最多 50 条 FIFO; 发送方 ID 即主题最后一级 texthub/<ID>)
+const relaySender = ref('web')
+const relaySenderValid = computed(() => {
+  const id = relaySender.value.trim()
+  return id.length > 0 && !/[+/#\s]/.test(id)
+})
 const relayVisible = ref(false)
 const relayList = computed(() => [...(statusInfo.value?.relay || [])].reverse())
 const relayText = ref('')
 const relaySending = ref(false)
 
 async function sendRelay() {
+  const sender = relaySender.value.trim()
   const text = relayText.value.trim()
-  if (!text) return
+  if (!sender || !text) return
+  if (!relaySenderValid.value) {
+    message.warning($t('page.tool.device.relaySenderInvalid'))
+    return
+  }
   relaySending.value = true
   const { error } = await publishWolRaw({
-    topic: relayTopic,
-    payload: JSON.stringify({ deviceId: relaySender, text })
+    topic: `texthub/${sender}`,
+    payload: JSON.stringify({ deviceId: sender, text })
   })
   relaySending.value = false
   if (!error) {
@@ -763,6 +771,20 @@ onBeforeUnmount(() => {
         <NEmpty v-else class="mt-10" :description="$t('page.tool.device.relayEmpty')" />
         <template v-if="canManage" #footer>
           <div class="flex w-full flex-col gap-2">
+            <div class="flex items-center gap-2">
+              <span class="whitespace-nowrap text-sm text-gray-500">
+                {{ $t('page.tool.device.relaySender') }}
+              </span>
+              <NInput
+                v-model:value="relaySender"
+                size="small"
+                :status="relaySenderValid ? undefined : 'error'"
+                :placeholder="$t('page.tool.device.relaySenderPlaceholder')"
+              />
+            </div>
+            <div v-if="!relaySenderValid" class="text-xs text-red-500">
+              {{ $t('page.tool.device.relaySenderInvalid') }}
+            </div>
             <NInput
               v-model:value="relayText"
               type="textarea"
@@ -774,7 +796,7 @@ onBeforeUnmount(() => {
               <NButton
                 type="primary"
                 :loading="relaySending"
-                :disabled="!relayText.trim()"
+                :disabled="!relayText.trim() || !relaySenderValid"
                 @click="sendRelay"
               >
                 {{ $t('page.tool.device.relaySend') }}
