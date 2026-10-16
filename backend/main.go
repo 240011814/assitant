@@ -178,6 +178,13 @@ func main() {
 	wolMqttService := service.NewWolMqttService(systemConfigService)
 	wolMqttHandler := api.NewWolMqttHandler(wolMqttService)
 
+	// 启动自动连接 MQTT (只尝试一次, 失败不重试; 可到设备管理页手动连接)
+	go func() {
+		if err := wolMqttService.Connect(); err != nil {
+			log.Printf("Warning: 自动连接 MQTT 失败(不重试): %v", err)
+		}
+	}()
+
 	// Job Handler + 注册后台可调度的定时任务
 	jobHandler := api.NewJobHandler(jobScheduler)
 	if jobScheduler != nil {

@@ -273,8 +273,9 @@ async function sendDebug() {
   if (!error) message.success($t('page.tool.device.sent'))
 }
 
-// 中转站 (独立 topic, 与设备无关, 最多 50 条 FIFO)
-const relayTopic = 'texthub'
+// 中转站 (订阅 texthub/+, 报文 {"deviceId","text"}, 最多 50 条 FIFO; 网页端以 web 身份发送)
+const relaySender = 'web'
+const relayTopic = `texthub/${relaySender}`
 const relayVisible = ref(false)
 const relayList = computed(() => [...(statusInfo.value?.relay || [])].reverse())
 const relayText = ref('')
@@ -284,7 +285,10 @@ async function sendRelay() {
   const text = relayText.value.trim()
   if (!text) return
   relaySending.value = true
-  const { error } = await publishWolRaw({ topic: relayTopic, payload: text })
+  const { error } = await publishWolRaw({
+    topic: relayTopic,
+    payload: JSON.stringify({ deviceId: relaySender, text })
+  })
   relaySending.value = false
   if (!error) {
     relayText.value = ''
@@ -718,7 +722,7 @@ onBeforeUnmount(() => {
       </template>
     </NModal>
 
-    <!-- 中转站抽屉 (独立 topic, 与设备无关) -->
+    <!-- 中转站抽屉 (texthub/+, 与设备无关) -->
     <NDrawer v-model:show="relayVisible" :width="420" placement="right">
       <NDrawerContent
         :title="$t('page.tool.device.relay')"
@@ -737,7 +741,7 @@ onBeforeUnmount(() => {
         <div v-if="relayList.length" class="space-y-2">
           <div v-for="item in relayList" :key="item.id" class="rounded border border-gray-200 p-2">
             <div class="mb-1 flex items-center justify-between text-xs text-gray-400">
-              <span>{{ formatTime(item.received_at) }}</span>
+              <span>{{ item.device_id || '-' }} · {{ formatTime(item.received_at) }}</span>
               <NSpace :size="4">
                 <NButton size="tiny" quaternary type="primary" @click="copyRelay(item.text)">
                   {{ $t('page.tool.device.relayCopy') }}

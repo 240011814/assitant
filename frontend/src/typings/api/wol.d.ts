@@ -56,9 +56,11 @@ declare namespace Api {
       received_at: string
     }
 
-    /** 中转站条目 (订阅 wakemanager/relay 收到的文本, 最多 50 条 FIFO) */
+    /** 中转站条目 (订阅 texthub/+ 收到的 {"deviceId","text"} 报文, 最多 50 条 FIFO) */
     interface RelayItem {
       id: number
+      /** 发送方 (设备 ID; 网页端发送为 web) */
+      device_id: string
       text: string
       received_at: string
     }

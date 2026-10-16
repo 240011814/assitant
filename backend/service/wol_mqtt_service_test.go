@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 )
 
@@ -17,7 +18,7 @@ func TestWolDeviceIDFromTopic(t *testing.T) {
 		{"wakemanager/ota/A1B2C3D4E5F6", "A1B2C3D4E5F6"},
 		{"wakemanager/temp/A1B2C3D4E5F6", "A1B2C3D4E5F6"},
 		{"wakemanager/status", ""},
-		{"texthub", ""},
+		{"texthub/web", ""},
 	}
 	for _, tt := range tests {
 		if got := wolDeviceIDFromTopic(tt.topic); got != tt.want {
@@ -56,5 +57,42 @@ func TestWolInboundParsesVersionAndOta(t *testing.T) {
 	}
 	if failed.Ota == nil || failed.Ota.Error != "download failed" || failed.Ota.Progress != nil {
 		t.Errorf("failed ota = %+v, want error=download failed 且 progress 为空", failed.Ota)
+	}
+}
+
+// 中转站报文仅收 {"deviceId","text"}: 文本去除首尾空白, 非法 JSON 与空文本忽略
+func TestWolAppendRelayParsesJSON(t *testing.T) {
+	s := &WolMqttService{}
+	s.appendRelay([]byte(`{"deviceId":"A1B2C3D4E5F6","text":" hello "}`))
+	s.appendRelay([]byte(`{"text":"缺 deviceId 也保留"}`))
+	s.appendRelay([]byte(`not-json`))
+	s.appendRelay([]byte(`{"deviceId":"A1B2C3D4E5F6","text":"   "}`))
+
+	if len(s.relay) != 2 {
+		t.Fatalf("relay 条数 = %d, want 2 (非法 JSON 与空文本应被忽略)", len(s.relay))
+	}
+	if s.relay[0].DeviceID != "A1B2C3D4E5F6" || s.relay[0].Text != "hello" {
+		t.Errorf("首条 = %+v, want deviceId=A1B2C3D4E5F6 text=hello", s.relay[0])
+	}
+	if s.relay[1].DeviceID != "" || s.relay[1].Text != "缺 deviceId 也保留" {
+		t.Errorf("次条 = %+v, want deviceId 为空且保留文本", s.relay[1])
+	}
+}
+
+// 中转站 FIFO: 超出 wolMaxRelayItems 时淘汰最旧的, ID 单调递增
+func TestWolAppendRelayFIFO(t *testing.T) {
+	s := &WolMqttService{}
+	total := wolMaxRelayItems + 5
+	for i := 0; i < total; i++ {
+		s.appendRelay([]byte(fmt.Sprintf(`{"deviceId":"web","text":"m%d"}`, i)))
+	}
+	if len(s.relay) != wolMaxRelayItems {
+		t.Fatalf("relay 条数 = %d, want %d", len(s.relay), wolMaxRelayItems)
+	}
+	if s.relay[0].Text != "m5" || s.relay[0].ID != 6 {
+		t.Errorf("淘汰后首条 = %+v, want m5 (ID=6)", s.relay[0])
+	}
+	if s.relay[len(s.relay)-1].ID != uint64(total) {
+		t.Errorf("末条 ID = %d, want %d", s.relay[len(s.relay)-1].ID, total)
 	}
 }

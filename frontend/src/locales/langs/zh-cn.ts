@@ -927,7 +927,7 @@ const local: App.I18n.Schema = {
         payloadInvalid: "JSON 格式无效",
         formatJson: "格式化",
         relay: "中转站",
-        relayDesc: "通过 MQTT 发布到该主题的文本，最多保留 50 条。",
+        relayDesc: "订阅 texthub/+ 的中转消息（deviceId + 文本），最多保留 50 条。",
         relayEmpty: "暂无中转文本",
         relayCopy: "复制",
         relayCopied: "已复制",

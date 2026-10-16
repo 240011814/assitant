@@ -926,8 +926,7 @@ const local: App.I18n.Schema = {
         payloadInvalid: "Invalid JSON",
         formatJson: "Format",
         relay: "Relay",
-        relayDesc:
-          "Text published to this topic via MQTT. Keeps the latest 50 entries.",
+        relayDesc: "Relay messages from texthub/+ (deviceId + text). Keeps the latest 50 entries.",
         relayEmpty: "No relay text yet",
         relayCopy: "Copy",
         relayCopied: "Copied",
