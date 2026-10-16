@@ -1,0 +1,36 @@
+# baostock 数据源代理 (Python FastAPI, 含一维/二维切割精确求解, 端口 3002)
+# 独立 compose; 与 frontend/backend 共用外部网络 assitant-net (先创建一次, 见下)
+#   docker network create assitant-net
+#
+# 说明:
+#   1. 镜像由 CI (baostock-release.yml) 构建并推送到 ghcr.io, 这里只拉取运行;
+#   2. 需要外网访问 baostock 数据服务器;
+#   3. usage.json 每日用量计数持久化在命名卷: 镜像内 /app/data 属主 10001:10001,
+#      命名卷首次创建会自动继承该属主; 若改用宿主目录挂载, 需先 chown -R 10001:10001 <宿主目录>;
+#   4. 健康检查 (HEALTHCHECK, /health) 已内置在镜像里, 此处无需重复声明
+#
+# 用法 (环境变量直接写在本文件, 按需修改):
+#   docker network create assitant-net   # 首次部署只执行一次
+#   docker compose pull && docker compose up -d
+
+services:
+  baostock:
+    image: ghcr.io/240011814/baostock-api:latest
+    container_name: assitant-baostock
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      # 每日调用上限 (镜像内默认 45000); 监听地址由镜像固定为 0.0.0.0
+      BAOSTOCK_API_DAILY_LIMIT: "45000"
+    volumes:
+      - baostock-data:/app/data
+    networks:
+      - assitant-net
+
+volumes:
+  baostock-data:
+
+networks:
+  assitant-net:
+    external: true

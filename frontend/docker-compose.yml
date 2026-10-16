@@ -1,0 +1,36 @@
+# 前端服务 (nginx 静态站, /api、/auth 反代到 backend)
+# 独立 compose; 与 backend/baostock 共用外部网络 assitant-net (先创建一次, 见下)
+#   docker network create assitant-net
+#
+# 说明:
+#   1. 镜像由 CI (frontend-release.yml) 构建并推送到 ghcr.io, 这里只拉取运行;
+#   2. 启动顺序: 先启动 backend 再启动 frontend —— nginx 启动时即解析 upstream 主机名,
+#      后端容器不在线会导致 "host not found in upstream" 启动失败
+#
+# 用法 (环境变量直接写在本文件, 按需修改):
+#   docker network create assitant-net   # 首次部署只执行一次
+#   docker compose pull && docker compose up -d
+
+services:
+  frontend:
+    image: ghcr.io/240011814/english_tools_frontend:latest
+    container_name: assitant-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      # nginx 反代目标 (容器网络内地址): 指向 backend compose 中的服务名
+      BACKEND_URL: http://backend:8080
+    healthcheck:
+      # nginx.conf 内置 /health 端点
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - assitant-net
+
+networks:
+  assitant-net:
+    external: true

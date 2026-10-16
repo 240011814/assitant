@@ -1,0 +1,56 @@
+# 后端服务 (Go + Gin, 端口 8080)
+# 独立 compose; 与 frontend/baostock 共用外部网络 assitant-net (先创建一次, 见下)
+#   docker network create assitant-net
+#
+# 说明:
+#   1. 镜像由 CI (backend-release.yml) 构建并推送到 ghcr.io, 这里只拉取运行;
+#      镜像内不含 config.yaml, 全部配置经环境变量注入 (见 config/config.go, 环境变量优先级最高),
+#      环境变量直接写在本文件, 按需修改;
+#   2. 启动时会自动执行数据库迁移 (Goose), 要求外部 MySQL 可达且已建库 (默认 thor_mocking);
+#   3. baostock 通过容器网络内的服务名访问 (http://baostock:3002),
+#      baostock 未启动时仅股票同步类任务报错, 不影响后端启动;
+#   4. MySQL / ClickHouse 均为外部实例, 本文件不编排中间件;
+#   5. JWT_SECRET 不能为空或默认值 (soybean-admin-secret), 否则拒绝启动
+#
+# 用法:
+#   docker network create assitant-net   # 首次部署只执行一次
+#   docker compose pull && docker compose up -d
+
+services:
+  backend:
+    image: ghcr.io/240011814/english_tools_backend:latest
+    container_name: assitant-backend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # ===== MySQL (外部实例) =====
+      DB_HOST: 10.1.6.156
+      DB_PORT: "3306"
+      DB_USER: root
+      DB_PASSWORD: Wiseman9527
+      DB_NAME: thor_mocking
+      # ===== Auth =====
+      JWT_SECRET: 447f9e3c79ed484a960008df43a33ba7cb05cd0983ec001d040460e1a57fe612
+      # ===== baostock 数据源 (容器网络内地址, 指向 baostock compose 中的服务名) =====
+      BAOSTOCK_API_URL: http://baostock:3002
+      # ===== ClickHouse (可选分析库, 默认停用; 启用时同时设置 CH_ENABLED=true 与连接信息) =====
+      # CH_ENABLED: "true"
+      # CH_HOST: 127.0.0.1
+      # CH_PORT: "9000"
+      # CH_USER: default
+      # CH_PASSWORD: ""
+      # CH_DATABASE: default
+    healthcheck:
+      # 公开健康检查端点 (router.go: GET /api/health)
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - assitant-net
+
+networks:
+  assitant-net:
+    external: true
