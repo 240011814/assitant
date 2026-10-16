@@ -22,18 +22,19 @@ services:
     container_name: assitant-backend
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "21000:8080"
     environment:
       # ===== MySQL (外部实例) =====
-      DB_HOST: 10.1.6.156
+      DB_HOST: 10.0.0.144
       DB_PORT: "3306"
-      DB_USER: root
-      DB_PASSWORD: Wiseman9527
-      DB_NAME: thor_mocking
+      DB_USER: admin
+      DB_PASSWORD: xxxxx
+      DB_NAME: coach
       # ===== Auth =====
-      JWT_SECRET: 447f9e3c79ed484a960008df43a33ba7cb05cd0983ec001d040460e1a57fe612
+      JWT_SECRET: xxxxx
       # ===== baostock 数据源 (容器网络内地址, 指向 baostock compose 中的服务名) =====
       BAOSTOCK_API_URL: http://baostock:3002
+      TZ: Asia/Shanghai
       # ===== ClickHouse (可选分析库, 默认停用; 启用时同时设置 CH_ENABLED=true 与连接信息) =====
       # CH_ENABLED: "true"
       # CH_HOST: 127.0.0.1
