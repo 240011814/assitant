@@ -394,8 +394,9 @@ let timer: ReturnType<typeof setInterval> | null = null
 
 onMounted(async () => {
   await loadStatus()
+  // MQTT 已连接时打开页面自动发现设备一次 (广播 status 后等设备上报)
   if (connected.value) {
-    await loadDevices(false)
+    await loadDevices(true)
   }
   timer = setInterval(async () => {
     await loadStatus()
