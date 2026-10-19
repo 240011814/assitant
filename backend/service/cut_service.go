@@ -1392,7 +1392,7 @@ func (b *GuillotineBin) Insert(item model.Item) *Placement {
 
 		var cut1, cut2 *FreeRectangle
 
-		// 方案1：竖切（按宽度切）
+		// 方案1：竖切（按宽度切）— c2 与 target 同宽, 保留"通宽横条"
 		if target.Width > placedW+1e-9 {
 			c1 := FreeRectangle{X: target.X + placedW, Y: target.Y, Width: target.Width - placedW, Height: placedH}
 			c2 := FreeRectangle{X: target.X, Y: target.Y + placedH, Width: target.Width, Height: target.Height - placedH}
@@ -1400,11 +1400,11 @@ func (b *GuillotineBin) Insert(item model.Item) *Placement {
 			cut2 = &c2
 		}
 
-		// 方案2：横切（按高度切）
+		// 方案2：横切（按高度切）— alt2 与 target 同高, 保留"通高竖条"
 		if target.Height > placedH+1e-9 {
 			alt1 := FreeRectangle{X: target.X, Y: target.Y + placedH, Width: placedW, Height: target.Height - placedH}
 			alt2 := FreeRectangle{X: target.X + placedW, Y: target.Y, Width: target.Width - placedW, Height: target.Height}
-			if cut1 == nil || b.isMoreSquare(alt1, alt2, *cut1, *cut2) {
+			if cut1 == nil || b.preferHorizontalCut(target, *cut1, *cut2, alt1, alt2) {
 				cut1 = &alt1
 				cut2 = &alt2
 			}
@@ -1454,6 +1454,22 @@ func compareScore(a, b [4]float64, eps float64) int {
 		return 1
 	}
 	return 0
+}
+
+// preferHorizontalCut 在横切/竖切两种 L 形余料切法间选择。
+// 竖切的 c2 与 target 同宽 (通宽横条), 横切的 alt2 与 target 同高 (通高竖条)。
+// 目标矩形较长的那条边通常还要沿长向继续排件: 若沿另一方向先切一刀, 长向余量会被截成
+// 只有 placedH/placedW 宽高的短条, 常成为对任何剩余件都不可用的死条 (看似方正, 实则浪费,
+// 例如 60 宽整列被切成两条 60×50 后, 50×70 的件横竖都放不进)。因此优先保留较长边对应的通长条;
+// 两边等长时退回方正度口径 (isMoreSquare), 保持原有行为。
+func (b *GuillotineBin) preferHorizontalCut(target FreeRectangle, c1, c2, alt1, alt2 FreeRectangle) bool {
+	switch {
+	case target.Height > target.Width+1e-9:
+		return true
+	case target.Width > target.Height+1e-9:
+		return false
+	}
+	return b.isMoreSquare(alt1, alt2, c1, c2)
 }
 
 func (b *GuillotineBin) isMoreSquare(a1, a2, b1, b2 FreeRectangle) bool {

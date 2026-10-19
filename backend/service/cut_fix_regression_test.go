@@ -588,3 +588,33 @@ func TestPlaneCutOpensBoardForRotatedFit(t *testing.T) {
 		}
 	}
 }
+
+// ===== Guillotine 分割启发式: 通长方向保条 =====
+
+// 200×200 板装 10 件 50×70 (87.5%): 旋转件 (70×50) 放置后的分割必须留下 60 宽整列。
+// 旧启发式只看"分出的两块更方正", 会把 60 宽整列切成两段 60×50 死条 (50×70 横竖都放不进),
+// 第 10 件被逼开新板; 修复: 优先保留较长边对应的通长条。
+func TestGuillotineSplitKeepsLongRunStrip(t *testing.T) {
+	s := NewCutService("")
+	resp, err := s.PlaneCut(model.BinRequest{
+		Items:    []model.Item{{Label: "A", Width: 50, Height: 70, Quantity: 10}},
+		Width:    200,
+		Height:   200,
+		Strategy: "Guillotine",
+	})
+	if err != nil {
+		t.Fatalf("求解失败: %v", err)
+	}
+	pieces := 0
+	for _, r := range resp.Results {
+		pieces += len(r.Pieces)
+	}
+	if len(resp.Results) != 1 || pieces != 10 {
+		t.Fatalf("200×200 应一板排入 10 件 50×70, 实得 %d 板 %d 件 (unplaced=%+v)",
+			len(resp.Results), pieces, resp.Unplaced)
+	}
+	if resp.Results[0].Utilization < 87.5-1e-6 {
+		t.Fatalf("单板利用率应 87.5%%, 实得 %v%%", resp.Results[0].Utilization)
+	}
+	checkPlaneLayout(t, resp.Results, 0)
+}
