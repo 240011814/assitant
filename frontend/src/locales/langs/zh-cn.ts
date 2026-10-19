@@ -1687,6 +1687,8 @@ const local: App.I18n.Schema = {
       pdImportEmpty: "所选产品单内容为空",
       planeSpecRowsAdded:
         "已按玻璃厚度自动生成新材料规格行（默认 200×200），请按实际板材调整宽高",
+      planeSpecAutoAdded:
+        "已按裁剪尺寸的材料类型自动补入新材料规格行（沿用现有规格尺寸），请按实际板材调整",
       unplacedAlert: "有 {count} 件未能排入任何材料",
       unplacedLabel: "标签",
       unplacedReason: "原因",

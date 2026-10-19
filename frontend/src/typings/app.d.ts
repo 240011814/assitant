@@ -1707,6 +1707,8 @@ declare namespace App {
           pdImported: string;
           pdImportEmpty: string;
           planeSpecRowsAdded: string;
+          /** 按裁剪尺寸的材料类型自动补入新材料规格行 */
+          planeSpecAutoAdded: string;
           /** 未排入件警示 */
           unplacedAlert: string;
           unplacedLabel: string;

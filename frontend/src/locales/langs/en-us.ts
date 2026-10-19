@@ -1734,6 +1734,8 @@ const local: App.I18n.Schema = {
       pdImportEmpty: "Selected orders are empty",
       planeSpecRowsAdded:
         "Board specs were auto-created from glass thicknesses (default 200×200); adjust width/height to the actual boards in Parameters",
+      planeSpecAutoAdded:
+        "Board spec rows were auto-added for material types referenced by cut items (defaulting to the existing spec size); adjust width/height to the actual boards",
       unplacedAlert: "{count} piece(s) could not be placed on any material",
       unplacedLabel: "Label",
       unplacedReason: "Reason",

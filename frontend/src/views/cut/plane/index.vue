@@ -442,6 +442,27 @@ function removeBoardRow(index: number) {
   }
 }
 
+// 裁剪尺寸(零件)引用的材料类型若没有同名新板材规格, 自动补一行 (参照一维页 ensureSpecsForItemTypes, 不再拦截报错);
+// 尺寸沿用现有规格行中第一个有效尺寸, 全部无效时退回默认板材尺寸, 补完后按实际板材调整
+function ensureSpecsForItemTypes() {
+  const firstValid = newMaterialRows.value.find(row => row.width && row.width > 0 && row.height && row.height > 0);
+  const defaultWidth = firstValid?.width as number ?? DEFAULT_BOARD_SIZE;
+  const defaultHeight = firstValid?.height as number ?? DEFAULT_BOARD_SIZE;
+  const existing = new Set(newMaterialRows.value.map(row => row.label.trim()).filter(Boolean));
+  let added = 0;
+  items.value.forEach(row => {
+    const spec = row.spec?.trim();
+    if (spec && !existing.has(spec)) {
+      newMaterialRows.value.push({ label: spec, width: defaultWidth, height: defaultHeight });
+      existing.add(spec);
+      added++;
+    }
+  });
+  if (added > 0) {
+    message.warning($t('page.cut.planeSpecAutoAdded'));
+  }
+}
+
 // 优化主逻辑
 async function runOptimization() {
   if (items.value.length === 0) {
@@ -454,14 +475,8 @@ async function runOptimization() {
     message.error($t('page.cut.planeNewMaterialInvalid'));
     return;
   }
-  // 零件引用的材料类型必须已定义为新板材规格 (与一维口径一致)
-  for (const row of items.value) {
-    const spec = row.spec?.trim();
-    if (spec && !newMaterialRows.value.some(board => board.label.trim() === spec)) {
-      message.error($t('page.cut.planeSpecUndefined', { label: row.label, spec }));
-      return;
-    }
-  }
+  // 零件引用的材料类型没有同名新板材规格时自动补一行 (参照一维口径, 不再拦截报错)
+  ensureSpecsForItemTypes();
 
   const expandedItems: Api.Cut.Item[] = items.value.flatMap((item: Api.Cut.Item) => {
     const count = item.quantity ?? 0;
