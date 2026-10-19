@@ -19,7 +19,7 @@ services:
     container_name: assitant-baostock
     restart: unless-stopped
     ports:
-      - "21012:3002"
+      - "3002:3002"
     environment:
       # 每日调用上限 (镜像内默认 45000); 监听地址由镜像固定为 0.0.0.0
       BAOSTOCK_API_DAILY_LIMIT: "45000"

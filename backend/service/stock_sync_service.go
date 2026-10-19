@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1193,6 +1195,171 @@ var financeEndpoints = []struct {
 	{"B", "query_balance_data", []string{"current_ratio", "quick_ratio", "debt_ratio", "cash_ratio"}},
 }
 
+// === 财务同步空报告期区段缓存 helpers (修复每轮重扫"上市前/未公布"空季度) ===
+
+// financeScanRetain 空报告期的披露保留窗: 季度末起150天 (最晚法定披露期限为+120天: 年报4/30),
+// 超窗后该来源的空报告期视为终结, 永不再扫
+const financeScanRetain = 150 * 24 * time.Hour
+
+// financeQuarter 季度引用
+type financeQuarter struct{ y, q int }
+
+// financeQuarterIdx 季度单调索引 (相邻季度索引差1), 便于排序与成段
+func financeQuarterIdx(y, q int) int { return y*4 + q }
+
+// quarterEndDate (y,q) 季度末日期 (与 baostock statDate 口径一致)
+func quarterEndDate(y, q int) time.Time {
+	return time.Date(y, time.Month(q*3), 1, 0, 0, 0, 0, time.Local).AddDate(0, 1, -1)
+}
+
+// quarterPairOfDate 由季度末日期反推 (y,q); 区段边界的日期只能由本模块写入, 只看年月
+func quarterPairOfDate(t time.Time) (int, int) {
+	month := int(t.Month())
+	return t.Year(), month / 3
+}
+
+// prevQuarterPair (y,q) 的上一季度
+func prevQuarterPair(y, q int) (int, int) {
+	if q <= 1 {
+		return y - 1, 4
+	}
+	return y, q - 1
+}
+
+// financeProbeBucketHit 空区段复扫轮询桶: (fnv(code/ep)+UnixDay)%7==0,
+// 每来源约每7轮命中一次, 把"报告随时可能公布"的未终结空段复扫开销摊平到约1/7
+func financeProbeBucketHit(code, ep string, now time.Time) bool {
+	h := fnv.New32a()
+	h.Write([]byte(code))
+	h.Write([]byte{0})
+	h.Write([]byte(ep))
+	return (int(now.Unix()/86400)+int(h.Sum32()))%7 == 0
+}
+
+// spanCovering 返回覆盖报告期(季度末日期, 含双边界)的空区段, 未覆盖返回 nil
+func spanCovering(spans []model.StockFinanceScan, qEnd time.Time) *model.StockFinanceScan {
+	for i := range spans {
+		if !spans[i].EmptyTop.Before(qEnd) && !spans[i].EmptyBottom.After(qEnd) {
+			return &spans[i]
+		}
+	}
+	return nil
+}
+
+// financeScanPending 计算各来源待扫描的报告期列表(每来源从新到旧):
+//  1. 已标记(有数据)的报告期直接跳过;
+//  2. 空区段覆盖的报告期: 已终结(底界季度末超披露保留窗)的永不再扫; 未终结的按轮询桶低频复扫
+//     区段内仍在披露保留窗内的报告期(报告随时可能发布), 复扫后有数据则区段"打洞"收缩;
+//  3. 命中已终结空区段即停止向下回溯 (下界之下的季度已预设为空): 每轮回溯范围从
+//     "全量回溯到2007Q1"收敛为"最新报表与空区段之间", 区段上方的标记缺口仍会继续向下修复
+func financeScanPending(currentY, currentQ, startY int, spansByEp map[string][]model.StockFinanceScan,
+	marked func([2]int, string) bool, probeOK map[string]bool, now time.Time) map[string][]financeQuarter {
+	pendingByEp := make(map[string][]financeQuarter, len(financeEndpoints))
+	for _, ep := range financeEndpoints {
+		spans := spansByEp[ep.Code]
+		probe := probeOK[ep.Code]
+		for y, q := currentY, currentQ; y >= startY; {
+			pair := [2]int{y, q}
+			if marked(pair, ep.Code) {
+				y, q = prevQuarterPair(y, q)
+				continue
+			}
+			sp := spanCovering(spans, quarterEndDate(y, q))
+			if sp != nil {
+				if probe {
+					// 区段内仍在披露保留窗的报告期低频复扫 (从区段顶扫到底, 超窗的跳过)
+					ty, tq := quarterPairOfDate(sp.EmptyTop)
+					by, bq := quarterPairOfDate(sp.EmptyBottom)
+					for yy, qq := ty, tq; financeQuarterIdx(yy, qq) >= financeQuarterIdx(by, bq); yy, qq = prevQuarterPair(yy, qq) {
+						if !now.After(quarterEndDate(yy, qq).Add(financeScanRetain)) {
+							pendingByEp[ep.Code] = append(pendingByEp[ep.Code], financeQuarter{y: yy, q: qq})
+						}
+					}
+				}
+				by, bq := quarterPairOfDate(sp.EmptyBottom)
+				if now.After(quarterEndDate(by, bq).Add(financeScanRetain)) {
+					// 已终结区段: 底界之下已预设延伸到尽头, 停止向下回溯
+					break
+				}
+				// 未终结区段: 复扫完内部后继续向下 (下界之下可能还有数据段/更老空段)
+				y, q = prevQuarterPair(y, q)
+				continue
+			}
+			pendingByEp[ep.Code] = append(pendingByEp[ep.Code], financeQuarter{y: y, q: q})
+			y, q = prevQuarterPair(y, q)
+		}
+	}
+	return pendingByEp
+}
+
+// rebuildFinanceScans 财务空区段缓存重建: 原库区段+本次扫空区段 合并展开为报告期集合,
+// 剔除已补上数据的报告期(报告发布后区段"打洞"收缩), 相邻报告期重新成段;
+// 返回 (按 empty_top 降序排列的区段, 与库中是否有变化); 无变化时调用方无需写库
+func rebuildFinanceScans(code, ep string, spans, freshSpans []model.StockFinanceScan, marked func([2]int) bool) ([]model.StockFinanceScan, bool) {
+	idxSet := make(map[int]struct{}, 128)
+	addSpan := func(top, bottom time.Time) {
+		ty, tq := quarterPairOfDate(top)
+		by, bq := quarterPairOfDate(bottom)
+		for yy, qq := ty, tq; financeQuarterIdx(yy, qq) >= financeQuarterIdx(by, bq); yy, qq = prevQuarterPair(yy, qq) {
+			if marked([2]int{yy, qq}) {
+				continue
+			}
+			idxSet[financeQuarterIdx(yy, qq)] = struct{}{}
+		}
+	}
+	for _, sp := range spans {
+		addSpan(sp.EmptyTop, sp.EmptyBottom)
+	}
+	for _, sp := range freshSpans {
+		addSpan(sp.EmptyTop, sp.EmptyBottom)
+	}
+	// 报告期索引降序成段 (相邻 = 至多一个自然季度)
+	idxs := make([]int, 0, len(idxSet))
+	for idx := range idxSet {
+		idxs = append(idxs, idx)
+	}
+	sort.Slice(idxs, func(i, j int) bool { return idxs[i] > idxs[j] })
+	rows := make([]model.StockFinanceScan, 0, len(idxs))
+	for i, idx := range idxs {
+		qEnd := quarterEndDate(idx/4, idx%4)
+		if i == 0 || idxs[i-1] != idx+1 {
+			rows = append(rows, model.StockFinanceScan{Code: code, Ep: ep, EmptyTop: qEnd, EmptyBottom: qEnd})
+		} else {
+			rows[len(rows)-1].EmptyBottom = qEnd
+		}
+	}
+	// 与原库区段集合一致则跳过写库(常规再扫轮次无变化)
+	if len(rows) == len(spans) {
+		sig := func(sp model.StockFinanceScan) string {
+			return sp.EmptyTop.Format("2006-01-02") + "|" + sp.EmptyBottom.Format("2006-01-02")
+		}
+		same := true
+		oldSet := make(map[string]struct{}, len(spans))
+		newSet := make(map[string]struct{}, len(rows))
+		for _, sp := range spans {
+			oldSet[sig(sp)] = struct{}{}
+		}
+		for _, sp := range rows {
+			newSet[sig(sp)] = struct{}{}
+		}
+		if len(oldSet) != len(newSet) {
+			same = false
+		} else {
+			for k := range newSet {
+				if _, ok := oldSet[k]; !ok {
+					same = false
+					break
+				}
+			}
+		}
+		if same {
+			return rows, false
+		}
+	}
+	return rows, true
+}
+
+
 // SyncFinanceData 同步单只股票财务数据(2007Q1起全部历史)
 // 先批量查本地(finance_sources 标记各报告期已同步的来源), 只对缺失的报告期和来源调用接口(单季度调用)
 func (s *StockSyncService) SyncFinanceData(code, market string) (int, error) {
@@ -1259,34 +1426,42 @@ func (s *StockSyncService) SyncFinanceData(code, market string) (int, error) {
 		}
 	}
 
+	// 1.5 读取空报告期区段缓存: (来源, [empty_top, empty_bottom]) 表示该来源在这些报告期
+	// 曾扫到空, 区段内(含边界)不再每轮重扫; "连续8空=自然尽头"断点会把 empty_bottom 预设
+	// 延伸到 2007Q1, 其下方视为上市前/无数据永远为空 (迁移强制重拉时需同时清掉对应来源的区段)
+	var scanRows []model.StockFinanceScan
+	if err := DB.Where("code = ?", code).Find(&scanRows).Error; err != nil {
+		return 0, fmt.Errorf("查询 %s 财务空区段缓存失败: %v", code, err)
+	}
+	regionsByEp := make(map[string][]model.StockFinanceScan, len(financeEndpoints))
+	for _, r := range scanRows {
+		regionsByEp[r.Ep] = append(regionsByEp[r.Ep], r)
+	}
+
 	currentYear := time.Now().Year()
 	currentQuarter := (int(time.Now().Month()) + 2) / 3
 	const financeStartYear = 2007
 	const maxConsecutiveEmpty = 8
 	const maxConsecutiveErrors = 5
 
-	// 2. 计算各季度缺失的数据来源(从新到旧排列)
-	type quarterRef struct{ y, q int }
-	missing := make(map[string][]quarterRef, len(financeEndpoints))
-	for y, q := currentYear, currentQuarter; y >= financeStartYear; {
-		pair := [2]int{y, q}
-		have := storedSources[pair]
-		for _, ep := range financeEndpoints {
-			if !strings.Contains(have, ep.Code) {
-				missing[ep.Code] = append(missing[ep.Code], quarterRef{y, q})
-			}
-		}
-		if q == 1 {
-			y--
-			q = 4
-		} else {
-			q--
-		}
+	// 2. 计算各来源待扫描的报告期列表(每来源从新到旧):
+	//    已标记的报告期跳过不再重扫; 空区段内已终结的报告期永不再扫,
+	//    未终结的按轮询桶(每来源约每7轮命中一次)低频复扫, 报告发布后即可补上数据;
+	//    修复2: 命中已终结空区段(下界已预设延伸到尽头)即停止向下回溯, 每轮回溯范围
+	//    从"每次全量回溯到2007Q1"收敛为"最新报表与空区段之间"(区段上方的标记缺口仍会继续向下修复)
+	nowTick := time.Now()
+	probeOK := make(map[string]bool, len(financeEndpoints))
+	for _, ep := range financeEndpoints {
+		probeOK[ep.Code] = financeProbeBucketHit(code, ep.Code, nowTick)
 	}
+	pendingByEp := financeScanPending(currentYear, currentQuarter, financeStartYear, regionsByEp,
+		func(pair [2]int, epCode string) bool { return strings.Contains(storedSources[pair], epCode) },
+		probeOK, nowTick)
 
 	financeData := make(map[string]*model.StockFinance)
 	touchedSources := make(map[string]string) // statDate -> 本次已同步来源
 	touchedDates := make(map[string]time.Time)
+	touchedByQuarter := make(map[[2]int]string) // 报告期 -> 本次已同步来源 (空区段打洞判断用)
 	var totalShareVal, floatShareVal float64
 	var shareDate time.Time
 	var abortErr error
@@ -1301,18 +1476,37 @@ func (s *StockSyncService) SyncFinanceData(code, market string) (int, error) {
 	}
 
 	// 3. 逐来源补缺, 每个来源只请求缺失的报告期
-	// 注意区分: 连续空季度=数据自然终点(正常结束), 连续请求失败=服务异常(报错中止)
+	// 注意区分: 连续空季度=数据自然终点(记录到空区段缓存, 正常结束), 连续请求失败=服务异常(报错中止);
+	// 本次扫到空的报告期会累计进空区段缓存, 下轮(乃至之后每轮)不再重扫(修复1)
 	for _, ep := range financeEndpoints {
 		if abortErr != nil {
 			break
 		}
-		pending := missing[ep.Code]
+		pending := pendingByEp[ep.Code]
 		if len(pending) == 0 {
 			continue
 		}
 		emptyStreak := 0
 		errStreak := 0
 		var epStatDates []string
+		// 本次运行的连续空报告段追踪: 响应为空推进 active 区段; 响应有数据/出错则收口
+		// (出错的报告期不收进区段: 它可能只是瞬时失败, 下轮仍应重试)
+		var closedSpans []model.StockFinanceScan
+		var activeTop, activeBottom time.Time
+		closeActive := func(preset bool) {
+			if activeTop.IsZero() {
+				return
+			}
+			b := activeBottom
+			if preset {
+				// 连续8空=自然尽头: 下界预设延伸到 2007Q1(含), 其下方视为上市前/无数据永远为空
+				b = quarterEndDate(financeStartYear, 1)
+			}
+			closedSpans = append(closedSpans, model.StockFinanceScan{
+				Code: code, Ep: ep.Code, EmptyTop: activeTop, EmptyBottom: b,
+			})
+			activeTop, activeBottom = time.Time{}, time.Time{}
+		}
 		for _, qr := range pending {
 			if emptyStreak >= maxConsecutiveEmpty || errStreak >= maxConsecutiveErrors {
 				break
@@ -1322,6 +1516,7 @@ func (s *StockSyncService) SyncFinanceData(code, market string) (int, error) {
 			body, err := s.httpGetWithDelay(url)
 			if err != nil {
 				log.Printf("[StockSync] 获取 %s %d年Q%d %s数据失败: %v", code, qr.y, qr.q, ep.Code, err)
+				closeActive(false)
 				errStreak++
 				if errStreak >= maxConsecutiveErrors {
 					abortErr = fmt.Errorf("baostock 服务连续异常, 财务同步中止")
@@ -1339,8 +1534,14 @@ func (s *StockSyncService) SyncFinanceData(code, market string) (int, error) {
 			}
 			if err := json.Unmarshal(body, &resp); err != nil || !resp.Ok || len(resp.Data.Items) == 0 {
 				emptyStreak++
+				if qEnd := quarterEndDate(qr.y, qr.q); activeTop.IsZero() {
+					activeTop, activeBottom = qEnd, qEnd
+				} else {
+					activeBottom = qEnd
+				}
 				continue
 			}
+			closeActive(false)
 			emptyStreak = 0
 
 			for _, item := range resp.Data.Items {
@@ -1426,11 +1627,31 @@ func (s *StockSyncService) SyncFinanceData(code, market string) (int, error) {
 				}
 				touchedSources[statDate] += ep.Code
 				touchedDates[statDate] = reportDate
+				touchedByQuarter[quarterOf(reportDate)] += ep.Code
 				dateByQuarter[quarterOf(reportDate)] = reportDate
 				if f.Revenue != nil {
 					revenueByQuarter[quarterOf(reportDate)] = *f.Revenue
 				}
 				epStatDates = append(epStatDates, statDate)
+			}
+		}
+
+		// 内层循环收口: 因"连续8空"自然尽头 break 的, 空段下界预设延伸到 2007Q1(含),
+		// 下轮起整段跳过; 自然走到头/连续出错中止的按实际扫描范围收口
+		closeActive(emptyStreak >= maxConsecutiveEmpty)
+
+		// 空区段缓存写回: 原库区段+本次空段 剔除已补上数据的报告期(打洞)后重新成段;
+		// 与库中一致时不写(常规轮次无变化), 不一致则整组重建
+		rows, changed := rebuildFinanceScans(code, ep.Code, regionsByEp[ep.Code], closedSpans, func(pair [2]int) bool {
+			return strings.Contains(storedSources[pair], ep.Code) || strings.Contains(touchedByQuarter[pair], ep.Code)
+		})
+		if changed {
+			if err := DB.Where("code = ? AND ep = ?", code, ep.Code).Delete(&model.StockFinanceScan{}).Error; err != nil {
+				log.Printf("[StockSync] 清理 %s %s 空区段缓存失败: %v", code, ep.Code, err)
+			} else if len(rows) > 0 {
+				if err := DB.Create(&rows).Error; err != nil {
+					log.Printf("[StockSync] 写入 %s %s 空区段缓存失败: %v", code, ep.Code, err)
+				}
 			}
 		}
 

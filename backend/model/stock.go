@@ -139,6 +139,22 @@ func (StockFinance) TableName() string {
 	return "stock_finance"
 }
 
+// StockFinanceScan 财务同步空报告期区段缓存 (每股票每来源若干行)
+// 记录各来源曾扫到空的连续报告期区间 [empty_bottom, empty_top] (季度末日期, 双边界内含);
+// 与 stock_finance 数据表解耦, 不产生占位数据行, 历史数据/前端展示均不受影响;
+// empty_bottom 在"连续8空=自然尽头"断点处预设延伸到 2007Q1, 其下方视为上市前/无数据永远为空
+type StockFinanceScan struct {
+	Code        string    `gorm:"size:10;not null;primaryKey" json:"code"`
+	Ep          string    `gorm:"size:1;not null;primaryKey" json:"ep"`
+	EmptyTop    time.Time `gorm:"not null;primaryKey" json:"emptyTop"`
+	EmptyBottom time.Time `gorm:"not null" json:"emptyBottom"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+func (StockFinanceScan) TableName() string {
+	return "stock_finance_scan"
+}
+
 // StockConcept 股票概念关联
 type StockConcept struct {
 	ID          uint      `gorm:"primaryKey;autoIncrement" json:"id"`
