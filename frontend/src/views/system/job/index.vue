@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, h } from "vue";
 import { NButton, NSwitch, NSpace, NTag, NPopconfirm, useMessage } from "naive-ui";
+import { useAppStore } from "@/store/modules/app";
 import { useAuth } from "@/hooks/business/auth";
 import {
   fetchJobs,
@@ -16,6 +17,8 @@ defineOptions({ name: "SystemJob" });
 
 const message = useMessage();
 const { hasAuth } = useAuth();
+const appStore = useAppStore();
+const isMobile = computed(() => appStore.isMobile);
 const canEdit = computed(() => hasAuth("job:edit"));
 
 const loading = ref(false);
@@ -99,6 +102,7 @@ const columns = [
     title: "操作",
     key: "actions",
     width: 300,
+    fixed: "right" as const,
     render: (row: Api.Job.JobDefinition) =>
       h(
         NSpace,
@@ -340,8 +344,8 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="h-full overflow-auto p-6">
-    <NCard :bordered="false" shadow="sm" title="定时任务管理">
+  <div class="h-full flex-col flex gap-4 overflow-auto" :class="isMobile ? 'p-2' : 'p-6'">
+    <NCard :bordered="false" :shadow="isMobile ? false : 'sm'" title="定时任务管理">
       <template #header-extra>
         <NButton v-if="canEdit" type="primary" @click="openCreate">新增任务</NButton>
       </template>
@@ -350,6 +354,7 @@ onMounted(async () => {
         :data="jobs"
         :loading="loading"
         :row-key="jobRowKey"
+        :scroll-x="1140"
         size="small"
         striped
       />
@@ -360,9 +365,9 @@ onMounted(async () => {
       v-model:show="showEditModal"
       preset="card"
       :title="editingId === null ? '新增定时任务' : '编辑定时任务'"
-      style="width: 640px"
+      :style="{ width: isMobile ? '95vw' : '640px' }"
     >
-      <NForm label-placement="left" label-width="100">
+      <NForm label-placement="left" :label-width="isMobile ? '80' : '100'">
         <NFormItem label="任务名称" required>
           <NInput v-model:value="form.name" placeholder="例如: 行情数据每日同步" />
         </NFormItem>
@@ -426,16 +431,17 @@ onMounted(async () => {
       v-model:show="showRunsModal"
       preset="card"
       :title="`执行历史 - ${runsJobName}`"
-      style="width: 900px"
+      :style="{ width: isMobile ? '95vw' : '900px' }"
     >
       <NDataTable
         :columns="runColumns"
         :data="runs"
         :loading="runsLoading"
         :row-key="runRowKey"
+        :scroll-x="700"
         size="small"
         striped
-        :max-height="420"
+        :max-height="isMobile ? 320 : 420"
       />
     </NModal>
   </div>
