@@ -349,7 +349,9 @@ onMounted(async () => {
       <template #header-extra>
         <NButton v-if="canEdit" type="primary" @click="openCreate">新增任务</NButton>
       </template>
+      <!-- PC: 表格 -->
       <NDataTable
+        v-if="!isMobile"
         :columns="columns"
         :data="jobs"
         :loading="loading"
@@ -358,6 +360,45 @@ onMounted(async () => {
         size="small"
         striped
       />
+      <!-- Mobile: 卡片列表 -->
+      <template v-else>
+        <NSpin v-if="loading" class="flex justify-center py-8" />
+        <NEmpty v-else-if="!jobs.length" description="暂无定时任务" class="py-8" />
+        <div v-else class="flex flex-col gap-3">
+          <NCard v-for="row in jobs" :key="row.id" size="small" :bordered="true">
+            <div class="flex flex-col gap-2">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-16px">{{ row.name }}</span>
+                <NSwitch
+                  :value="row.enabled"
+                  size="small"
+                  :disabled="!canEdit"
+                  @update:value="(val: boolean) => handleToggle(row, val)"
+                />
+              </div>
+              <div class="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                <span>任务方法: {{ row.taskName }}</span>
+                <span>cron: {{ row.cronExpr }}</span>
+              </div>
+              <div class="flex items-center justify-between text-xs text-gray-400">
+                <span>下次执行: {{ formatTime(row.enabled ? row.nextRunAt : null) }}</span>
+                <span v-if="row.remark" class="truncate max-w-40" :title="row.remark">{{ row.remark }}</span>
+              </div>
+              <div class="flex flex-wrap justify-end gap-1 pt-1">
+                <NButton v-if="canEdit" size="tiny" type="primary" ghost @click="handleRun(row)">立即执行</NButton>
+                <NButton v-if="canEdit" size="tiny" @click="openEdit(row)">编辑</NButton>
+                <NButton size="tiny" type="info" ghost @click="openRuns(row)">历史</NButton>
+                <NPopconfirm v-if="canEdit" @positive-click="handleDelete(row)">
+                  <template #trigger>
+                    <NButton size="tiny" type="error" ghost>删除</NButton>
+                  </template>
+                  确定删除任务「{{ row.name }}」？
+                </NPopconfirm>
+              </div>
+            </div>
+          </NCard>
+        </div>
+      </template>
     </NCard>
 
     <!-- 新增/编辑任务 -->
