@@ -730,7 +730,7 @@ loadNotificationPreference();
     </NSpin>
 
     <!-- 两步验证: 开启弹窗 (扫码 + 验证码确认) -->
-    <NModal v-model:show="twoFASetupShow" preset="card" title="开启两步验证" :style="{ width: '420px' }">
+    <NModal v-model:show="twoFASetupShow" preset="card" title="开启两步验证" :style="{ width: '420px' }" class="max-w-[96vw]">
       <div class="space-y-4">
         <div class="text-sm text-gray-500 text-center">
           使用 TOTP 应用扫描二维码，或手动输入密钥
@@ -762,7 +762,7 @@ loadNotificationPreference();
     </NModal>
 
     <!-- 两步验证: 关闭弹窗 (验证码确认) -->
-    <NModal v-model:show="twoFADisableShow" preset="card" title="关闭两步验证" :style="{ width: '420px' }">
+    <NModal v-model:show="twoFADisableShow" preset="card" title="关闭两步验证" :style="{ width: '420px' }" class="max-w-[96vw]">
       <div class="space-y-4">
         <NAlert type="warning">关闭后登录将不再要求验证码，请输入身份验证器应用中的当前验证码确认。</NAlert>
         <NInput

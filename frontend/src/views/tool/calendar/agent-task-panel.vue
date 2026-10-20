@@ -300,6 +300,7 @@ onMounted(() => {
       preset="card"
       :title="editingId === null ? $t('page.tool.calendar.agentTask.createModal') : $t('page.tool.calendar.agentTask.editModal')"
       style="width: 560px"
+      class="max-w-[96vw]"
     >
       <NForm label-placement="left" label-width="100">
         <NFormItem :label="$t('page.tool.calendar.agentTask.executor')" required>

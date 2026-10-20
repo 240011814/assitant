@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, h, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { NButton, useMessage } from 'naive-ui'
+import { useAppStore } from '@/store/modules/app'
 import hljs from 'highlight.js/lib/common'
 import { useAuth } from '@/hooks/business/auth'
 import {
@@ -21,6 +22,7 @@ import { $t } from '@/locales'
 defineOptions({ name: 'ToolDevice' })
 
 const message = useMessage()
+const appStore = useAppStore()
 const { hasAuth } = useAuth()
 
 const canManage = computed(() => hasAuth('tool:device:manage'))
@@ -523,7 +525,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 地址簿弹窗 -->
-    <NModal v-model:show="macModalVisible" preset="card" style="width: 640px" :title="$t('page.tool.device.macTitle')">
+    <NModal v-model:show="macModalVisible" preset="card" style="width: 640px" class="max-w-[96vw]" :title="$t('page.tool.device.macTitle')">
       <div class="mb-3 text-sm text-gray-500">
         {{ $t('page.tool.device.id') }}: <strong>{{ activeDevice?.id }}</strong>
       </div>
@@ -542,6 +544,7 @@ onBeforeUnmount(() => {
         :data="macList"
         :loading="macLoading"
         :row-key="macRowKey"
+        :scroll-x="400"
         size="small"
       >
         <template #empty>
@@ -562,7 +565,7 @@ onBeforeUnmount(() => {
     </NModal>
 
     <!-- 唤醒弹窗 -->
-    <NModal v-model:show="wakeModalVisible" preset="card" style="width: 480px" :title="$t('page.tool.device.wakeTitle')">
+    <NModal v-model:show="wakeModalVisible" preset="card" style="width: 480px" class="max-w-[96vw]" :title="$t('page.tool.device.wakeTitle')">
       <NForm label-placement="top">
         <NFormItem :label="$t('page.tool.device.mac')">
           <NSelect
@@ -587,7 +590,7 @@ onBeforeUnmount(() => {
     </NModal>
 
     <!-- OTA 升级弹窗 (状态来自设备状态快照的 version + ota 字段) -->
-    <NModal v-model:show="otaModalVisible" preset="card" style="width: 520px" :title="$t('page.tool.device.otaTitle')">
+    <NModal v-model:show="otaModalVisible" preset="card" style="width: 520px" class="max-w-[96vw]" :title="$t('page.tool.device.otaTitle')">
       <div class="space-y-2 text-sm">
         <div>
           <span class="text-gray-400">{{ $t('page.tool.device.id') }}: </span>
@@ -650,6 +653,7 @@ onBeforeUnmount(() => {
       v-model:show="debugModalVisible"
       preset="card"
       style="width: 760px"
+      class="max-w-[96vw]"
       :title="$t('page.tool.device.debugTitle')"
     >
       <div class="mb-2 text-sm text-gray-500">
@@ -732,7 +736,7 @@ onBeforeUnmount(() => {
     </NModal>
 
     <!-- 中转站抽屉 (texthub/+, 与设备无关) -->
-    <NDrawer v-model:show="relayVisible" :width="420" placement="right">
+    <NDrawer v-model:show="relayVisible" :width="appStore.isMobile ? '100%' : 420" placement="right">
       <NDrawerContent
         :title="$t('page.tool.device.relay')"
         closable

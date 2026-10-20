@@ -193,6 +193,7 @@ function handleApply() {
       :loading="loading"
       :row-key="rowKey"
       :max-height="320"
+      :scroll-x="580"
       size="small"
     />
 

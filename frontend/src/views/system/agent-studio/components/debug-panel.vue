@@ -541,7 +541,7 @@ onBeforeUnmount(() => {
 
     <!-- 节点摘要表 -->
     <div v-if="summary" class="shrink-0">
-      <NDataTable :columns="traceColumns" :data="summary.nodes" :row-key="(r: NodeTrace) => r.key" size="small" :max-height="120" />
+      <NDataTable :columns="traceColumns" :data="summary.nodes" :row-key="(r: NodeTrace) => r.key" :scroll-x="560" size="small" :max-height="120" />
     </div>
 
     <!-- 工具审批弹窗: confirm_required 工具在编排运行时需人工批准 -->

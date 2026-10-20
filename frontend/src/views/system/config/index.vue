@@ -1171,6 +1171,7 @@ onMounted(() => {
       preset="card"
       :title="$t('page.system.config.sendTestEmailTitle')"
       style="width: 500px"
+      class="max-w-[96vw]"
     >
       <NForm label-placement="left" label-width="80">
         <NFormItem :label="$t('page.system.config.recipient')" required>

@@ -348,6 +348,7 @@ onMounted(() => {
           :data="data"
           :loading="loading"
           :pagination="pagination"
+          :scroll-x="640"
           remote
           :row-key="(row) => row.id"
           flex-height

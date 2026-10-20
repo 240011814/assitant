@@ -67,7 +67,7 @@ async function handleConfirm() {
 </script>
 
 <template>
-  <NModal v-model:show="showModel" preset="card" title="添加到自选" style="width: 420px">
+  <NModal v-model:show="showModel" preset="card" title="添加到自选" style="width: 420px" class="max-w-[96vw]">
     <div class="space-y-3">
       <div>
         <label class="block text-sm text-gray-600 mb-1">股票</label>

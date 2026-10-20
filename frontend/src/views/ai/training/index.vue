@@ -418,6 +418,7 @@ onMounted(() => {
           : $t('page.ai.training.createTraining')
       "
       style="width: 600px"
+      class="max-w-[96vw]"
       :segmented="{ content: true, footer: true }"
     >
       <NForm :model="form" label-placement="left" label-width="80">

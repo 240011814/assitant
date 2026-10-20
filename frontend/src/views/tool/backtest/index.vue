@@ -245,6 +245,7 @@ const periodColumns = computed<DataTableColumns<Api.Stock.BacktestPeriod>>(() =>
             :columns="periodColumns"
             :data="result.periods"
             :row-key="(row: Api.Stock.BacktestPeriod) => row.rebalanceDate"
+            :scroll-x="440"
             :pagination="{ pageSize: 20 }"
             size="small"
             striped

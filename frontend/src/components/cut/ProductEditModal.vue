@@ -763,7 +763,7 @@ watch(show, opened => {
       <!-- 产品清单 -->
       <div>
         <div class="mb-1 font-bold">{{ $t('page.cut.pdListTitle') }} ({{ items.length }})</div>
-        <NDataTable :columns="listColumns" :data="items" size="small" :bordered="false" />
+        <NDataTable :columns="listColumns" :data="items" size="small" :bordered="false" :scroll-x="900" />
       </div>
     </div>
 

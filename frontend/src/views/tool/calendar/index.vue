@@ -373,7 +373,7 @@ onMounted(() => {
       </NTabPane>
     </NTabs>
 
-    <NModal v-model:show="showModal" preset="card" :title="editingId ? $t('page.tool.calendar.edit') : $t('page.tool.calendar.create')" style="width: 520px">
+    <NModal v-model:show="showModal" preset="card" :title="editingId ? $t('page.tool.calendar.edit') : $t('page.tool.calendar.create')" style="width: 520px" class="max-w-[96vw]">
       <NForm ref="formRef" :model="form" :rules="rules" label-placement="left" label-width="80">
         <NFormItem :label="$t('page.tool.calendar.titleField')" path="title">
           <NInput v-model:value="form.title" :placeholder="$t('page.tool.calendar.titlePlaceholder')" />

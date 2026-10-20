@@ -501,6 +501,7 @@ onMounted(loadCourse)
       positive-text="导入"
       negative-text="取消"
       style="width: 700px"
+      class="max-w-[96vw]"
       :loading="saving"
       @positive-click="handleBatchImport"
     >

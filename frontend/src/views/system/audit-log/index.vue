@@ -210,7 +210,7 @@ onMounted(() => {
       />
     </NCard>
 
-    <NModal v-model:show="showDetail" preset="card" title="操作详情" style="width: 720px">
+    <NModal v-model:show="showDetail" preset="card" title="操作详情" style="width: 720px" class="max-w-[96vw]">
       <template v-if="detail">
         <NDescriptions :column="2" size="small" bordered label-placement="left">
           <NDescriptionsItem label="时间">{{ formatTime(detail.createdAt) }}</NDescriptionsItem>

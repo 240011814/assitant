@@ -579,6 +579,7 @@ onMounted(() => {
               :columns="toolColumns"
               :data="tools"
               :pagination="false"
+              :scroll-x="560"
             />
           </div>
         </NTabPane>

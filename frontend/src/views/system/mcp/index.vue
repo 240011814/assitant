@@ -235,7 +235,7 @@ onMounted(() => {
     </NCard>
 
     <!-- 新增/编辑弹窗 -->
-    <NModal v-model:show="showModal" preset="card" :title="editingId === null ? '新增 MCP 服务' : '编辑 MCP 服务'" style="width: 640px">
+    <NModal v-model:show="showModal" preset="card" :title="editingId === null ? '新增 MCP 服务' : '编辑 MCP 服务'" style="width: 640px" class="max-w-[96vw]">
       <NForm label-placement="left" label-width="110">
         <NFormItem label="服务名称" required>
           <NInput v-model:value="form.name" placeholder="唯一标识, 如 filesystem (工具前缀 mcp_filesystem_)" />
