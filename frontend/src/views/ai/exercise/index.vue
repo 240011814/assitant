@@ -10,7 +10,7 @@ import {
   fetchIncrementTrainingCount,
 } from "@/service/api";
 import { fetchAddErrorBook, fetchUpdateErrorBook } from "@/service/api/error-book";
-import { speak } from "@/utils/tts";
+import { speak, stopSpeak } from "@/utils/tts";
 
 import typingSound from "@/assets/sound/typing.mp3";
 import errorSound from "@/assets/sound/error.mp3";
@@ -465,7 +465,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  window.speechSynthesis.cancel();
+  stopSpeak();
   window.removeEventListener("keydown", handleGlobalKeydown);
   stopTimer();
   if (sentenceAdvanceTimer) {

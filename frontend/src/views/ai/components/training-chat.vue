@@ -6,6 +6,7 @@ import { useAppStore } from "@/store/modules/app";
 import { fetchHistoryDetail, fetchUpdateFavorite, fetchUpdateHistoryTitle, fetchGenerateShareToken, fetchGetAIModels, fetchGetUserPrompt, fetchChatStream, fetchToolApproval, fetchOrchestrationChatRun, fetchResolveOrchestrationApproval } from "@/service/api";
 import { useAuth } from "@/hooks/business/auth";
 import { renderMarkdown as renderMarkdownRaw } from "@/utils/markdown";
+import { speak } from "@/utils/tts";
 import { useRoute } from "vue-router";
 import PromptEditor from "./prompt-editor.vue";
 import VocabModal from "./vocab-modal.vue";
@@ -774,17 +775,18 @@ const handleAddExpression = (expr: ExpressionSuggestion) => {
   });
 };
 
-const handlePlay = (text: string) => {
+const handlePlay = async (text: string) => {
   if (!window.speechSynthesis) {
     message.error("您的浏览器不支持语音播放");
     return;
   }
 
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = props.speechLang;
-  utterance.rate = props.speechRate;
-  window.speechSynthesis.speak(utterance);
+  try {
+    await speak(text, { lang: props.speechLang, rate: props.speechRate });
+  } catch (err) {
+    message.error("语音播放失败");
+    console.error(err);
+  }
 };
 
 const handleToolApproval = async (approved: boolean, reason?: string) => {

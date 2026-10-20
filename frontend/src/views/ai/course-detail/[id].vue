@@ -7,7 +7,7 @@ import {
 } from 'naive-ui'
 import { fetchCourseDetail, fetchCreateCourseItem, fetchUpdateCourseItem, fetchDeleteCourseItem, fetchBatchCreateCourseItems, fetchBatchDeleteCourseItems, fetchUpdateCourse } from '@/service/api';
 import type { CourseItem, CourseDetail } from '@/service/api';
-import { speak } from '@/utils/tts'
+import { stopSpeak, speak } from '@/utils/tts'
 
 defineOptions({ name: 'AiCourseDetail' })
 
@@ -218,7 +218,7 @@ const handleBatchImport = async () => {
 
 const handlePlay = async (item: CourseItem) => {
   if (playingItemId.value === item.id) {
-    window.speechSynthesis.cancel()
+    stopSpeak()
     playingItemId.value = null
     return
   }
