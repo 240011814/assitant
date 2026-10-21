@@ -329,16 +329,69 @@ onMounted(loadData);
         </NSpace>
       </div>
 
-      <NDataTable
-        v-if="filtered.length > 0"
-        :columns="columns"
-        :data="filtered"
-        :loading="loading"
-        :scroll-x="1000"
-        :row-key="row => row.id"
-        size="small"
-      />
-      <NEmpty v-else description="暂无 Skill, 点击右上角新增" class="py-12" />
+      <!-- PC: 表格 -->
+      <template v-if="!appStore.isMobile">
+        <NDataTable
+          v-if="filtered.length > 0"
+          :columns="columns"
+          :data="filtered"
+          :loading="loading"
+          :scroll-x="1000"
+          :row-key="row => row.id"
+          size="small"
+        />
+        <NEmpty v-else description="暂无 Skill, 点击右上角新增" class="py-12" />
+      </template>
+      <!-- Mobile: 卡片列表 -->
+      <template v-else>
+        <NSpin v-if="loading" class="flex justify-center py-8" />
+        <NEmpty v-else-if="filtered.length === 0" description="暂无 Skill, 点击右上角新增" class="py-12" />
+        <div v-else class="flex flex-col gap-3">
+          <NCard v-for="row in filtered" :key="row.id" size="small" :bordered="true">
+            <div class="flex flex-col gap-2">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-16px">{{ row.name }}</span>
+                <NSwitch
+                  :value="row.enabled"
+                  size="small"
+                  :disabled="!hasAuth('system:skill:update')"
+                  @update:value="(val: boolean) => handleToggle(row, val)"
+                />
+              </div>
+              <div v-if="row.description" class="text-sm text-gray-600 dark:text-gray-400">
+                {{ row.description }}
+              </div>
+              <div class="flex flex-wrap items-center gap-2 text-xs">
+                <NTag :type="contextTypeMap[row.context] || 'default'" size="small" :bordered="false">
+                  {{ contextLabelMap[row.context] || row.context || 'inline' }}
+                </NTag>
+                <span v-if="row.model" class="text-gray-400">{{ row.model }}</span>
+                <span v-else class="text-gray-400">默认模型</span>
+              </div>
+              <div class="flex items-center justify-between mt-1">
+                <span class="text-xs text-gray-400">{{ formatTime(row.updated_at) }}</span>
+                <div class="flex gap-1">
+                  <NButton
+                    v-if="hasAuth('system:skill:update')"
+                    size="tiny"
+                    quaternary
+                    type="primary"
+                    @click="openEdit(row)"
+                  >
+                    编辑
+                  </NButton>
+                  <NPopconfirm v-if="hasAuth('system:skill:delete')" @positive-click="handleDelete(row.id)">
+                    <template #trigger>
+                      <NButton size="tiny" quaternary type="error">删除</NButton>
+                    </template>
+                    确认删除 Skill「{{ row.name }}」？
+                  </NPopconfirm>
+                </div>
+              </div>
+            </div>
+          </NCard>
+        </div>
+      </template>
     </NCard>
 
     <!-- ====== 编辑弹窗 ====== -->

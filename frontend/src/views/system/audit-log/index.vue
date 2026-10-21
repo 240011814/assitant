@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { ref, reactive, computed, h, onMounted } from 'vue';
 import { NButton, NTag } from 'naive-ui';
+import { useAppStore } from '@/store/modules/app';
 import { fetchAuditLogs } from '@/service/api';
 
 defineOptions({ name: 'SystemAuditLog' });
+
+const appStore = useAppStore();
+const isMobile = computed(() => appStore.isMobile);
 
 const loading = ref(false);
 const logs = ref<Api.AuditLog.OperationAuditLog[]>([]);
@@ -141,6 +145,12 @@ async function loadLogs() {
   }
 }
 
+/** 移动端卡片列表的内部分页回调 */
+function handleMobilePage(page: number) {
+  pagination.page = page;
+  loadLogs();
+}
+
 function handleSearch() {
   pagination.page = 1;
   loadLogs();
@@ -167,8 +177,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full overflow-auto p-6">
-    <NCard :bordered="false" shadow="sm" title="操作审计日志">
+  <div class="h-full overflow-auto" :class="isMobile ? 'p-2' : 'p-6'">
+    <NCard :bordered="false" :shadow="isMobile ? false : 'sm'" title="操作审计日志">
       <NSpace class="mb-4" align="center" wrap>
         <NSelect
           v-model:value="filters.method"
@@ -198,6 +208,7 @@ onMounted(() => {
       </NSpace>
 
       <NDataTable
+        v-if="!isMobile"
         :columns="columns"
         :data="logs"
         :loading="loading"
@@ -208,6 +219,47 @@ onMounted(() => {
         striped
         :scroll-x="1200"
       />
+
+      <!-- Mobile: 卡片列表 (时间线形态) -->
+      <template v-else>
+        <NSpin v-if="loading" class="flex justify-center py-8" />
+        <NEmpty v-else-if="!logs.length" description="暂无日志" class="py-8" />
+        <template v-else>
+          <div class="flex flex-col gap-3">
+            <NCard v-for="row in logs" :key="row.id" size="small" :bordered="true">
+              <div class="flex flex-col gap-2">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <NTag size="small" :type="methodTagType[row.method] || 'default'" :bordered="false">{{ row.method }}</NTag>
+                    <NTag size="small" :type="row.success ? 'success' : 'error'" :bordered="false">
+                      {{ row.success ? '成功' : '失败' }}
+                    </NTag>
+                  </div>
+                  <span class="text-xs text-gray-400">{{ formatTime(row.createdAt) }}</span>
+                </div>
+                <div class="break-all text-xs text-gray-600 dark:text-gray-400">{{ row.path }}</div>
+                <div class="flex items-center justify-between text-xs text-gray-400">
+                  <span class="truncate" style="max-width: 60%;">{{ row.userName || (row.userId ? `#${row.userId}` : '-') }} · {{ row.ip || '-' }}</span>
+                  <NButton size="tiny" type="primary" quaternary @click="openDetail(row)">详情</NButton>
+                </div>
+                <div v-if="row.statusCode != null || row.latencyMs" class="text-xs text-gray-400">
+                  <span v-if="row.latencyMs">{{ row.latencyMs }}ms</span>
+                  <span v-if="row.statusCode"> · 业务码 {{ row.statusCode }}</span>
+                </div>
+              </div>
+            </NCard>
+          </div>
+          <NPagination
+            v-if="pagination.itemCount > pagination.pageSize"
+            class="mt-4 justify-center"
+            :page="pagination.page"
+            :item-count="pagination.itemCount"
+            :page-size="pagination.pageSize"
+            :page-slot="5"
+            @update:page="handleMobilePage"
+          />
+        </template>
+      </template>
     </NCard>
 
     <NModal v-model:show="showDetail" preset="card" title="操作详情" style="width: 720px" class="max-w-[96vw]">

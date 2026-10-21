@@ -3,11 +3,14 @@ import { computed, h, onMounted, reactive, ref } from 'vue'
 import { NButton, NPopconfirm, NSwitch, NTag, useMessage } from 'naive-ui'
 import type { DataTableColumns, FormInst, FormRules } from 'naive-ui'
 import { createStockAlert, deleteStockAlert, getStockAlerts, updateStockAlert } from '@/service/api'
+import { useAppStore } from '@/store/modules/app'
 import { $t } from '@/locales'
 
 defineOptions({ name: 'ToolStockAlert' })
 
 const message = useMessage()
+const appStore = useAppStore()
+const isMobile = computed(() => appStore.isMobile)
 
 const loading = ref(false)
 const list = ref<Api.Stock.StockAlert[]>([])
@@ -199,8 +202,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex-col flex gap-4 p-4">
-    <NCard :bordered="false" :shadow="'sm'" class="flex-1">
+  <div class="h-full flex-col flex gap-4" :class="isMobile ? 'p-2' : 'p-4'">
+    <NCard :bordered="false" :shadow="isMobile ? false : 'sm'" class="flex-1">
       <template #header>
         <div class="flex items-center justify-between">
           <span class="font-bold text-16px">{{ $t('page.tool.stockAlert.title') }}</span>
@@ -216,8 +219,9 @@ onMounted(() => {
         </div>
       </template>
 
+      <NSpin v-if="isMobile && loading" class="flex justify-center py-8" />
       <NEmpty
-        v-if="!loading && list.length === 0"
+        v-else-if="!loading && list.length === 0"
         class="py-16"
         :description="$t('page.tool.stockAlert.emptyTip')"
       >
@@ -226,8 +230,9 @@ onMounted(() => {
         </template>
       </NEmpty>
 
+      <!-- PC: 表格 -->
       <NDataTable
-        v-else
+        v-else-if="!isMobile"
         :columns="columns"
         :data="list"
         :loading="loading"
@@ -235,13 +240,45 @@ onMounted(() => {
         size="small"
         striped
       />
+      <!-- Mobile: 卡片列表 -->
+      <div v-else class="flex flex-col gap-3">
+        <NCard v-for="row in list" :key="row.id" size="small" :bordered="true">
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-16px">{{ row.code }}</span>
+                <span class="text-sm text-gray-500">{{ row.name }}</span>
+              </div>
+              <NSwitch
+                size="small"
+                :value="row.enabled"
+                :loading="togglingId === row.id"
+                @update:value="(value: boolean) => handleToggleEnabled(row, value)"
+              />
+            </div>
+            <div class="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+              <NTag size="small" :bordered="false">{{ ruleTypeText(row.rule_type) }}</NTag>
+              <span>{{ row.rule_type.startsWith('price_') ? row.threshold.toFixed(2) : `${row.threshold}%` }}</span>
+            </div>
+            <div class="flex items-center justify-between text-xs text-gray-400">
+              <span>{{ $t('page.tool.stockAlert.lastTriggeredAt') }}: {{ row.last_triggered_at ? formatTime(row.last_triggered_at) : '-' }}</span>
+              <NPopconfirm @positive-click="handleDelete(row)">
+                <template #trigger>
+                  <NButton size="tiny" type="error" quaternary>{{ $t('common.delete') }}</NButton>
+                </template>
+                {{ $t('common.confirmDelete') }}
+              </NPopconfirm>
+            </div>
+          </div>
+        </NCard>
+      </div>
     </NCard>
 
     <NModal
       v-model:show="showAddDialog"
       preset="card"
       :title="$t('page.tool.stockAlert.addRule')"
-      class="w-460px"
+      class="w-460px max-w-[96vw]"
     >
       <NForm ref="formRef" :model="addForm" :rules="rules" label-placement="left" :label-width="90">
         <NFormItem :label="$t('page.tool.stockAlert.code')" path="code">

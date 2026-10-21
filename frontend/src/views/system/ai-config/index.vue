@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from "vue";
+import { useAppStore } from "@/store/modules/app";
 import {
   NButton,
   NCard,
@@ -37,6 +38,8 @@ import { $t } from "@/locales";
 const message = useMessage();
 const loading = ref(false);
 const activeTab = ref("providers");
+const appStore = useAppStore();
+const isMobile = computed(() => appStore.isMobile);
 const providers = ref<Api.Admin.AIProvider[]>([]);
 const tools = ref<Api.Admin.AITool[]>([]);
 const toolMetas = ref<Api.Admin.AIToolMeta[]>([]);
@@ -548,7 +551,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full p-4">
+  <div class="h-full" :class="isMobile ? 'p-2' : 'p-4'">
     <NCard
       :bordered="false"
       class="h-full rounded-16px shadow-sm"
@@ -563,25 +566,99 @@ onMounted(() => {
           </NButton>
         </template>
         <NTabPane name="providers" :tab="$t('page.system.aiConfig.title')">
-          <div class="mt-4">
-            <NDataTable
-              :columns="columns"
-              :data="providers"
-              :loading="loading"
-              :pagination="false"
-            />
-          </div>
+          <!-- PC: 表格 -->
+          <NDataTable
+            v-if="!isMobile"
+            class="mt-4"
+            :columns="columns"
+            :data="providers"
+            :loading="loading"
+            :pagination="false"
+          />
+          <!-- Mobile: 卡片列表 -->
+          <template v-else>
+            <NSpin v-if="loading" class="mt-4 flex justify-center py-8" />
+            <NEmpty v-else-if="!providers.length" class="mt-4 py-8" />
+            <div v-else class="mt-4 flex flex-col gap-3">
+              <NCard v-for="row in providers" :key="row.id" size="small" :bordered="true">
+                <div class="flex flex-col gap-2">
+                  <div class="flex items-center justify-between">
+                    <span class="font-bold text-16px">{{ row.name }}</span>
+                    <NSwitch
+                      :value="row.is_active"
+                      size="small"
+                      @update:value="(val: boolean) => handleToggleProviderStatus(row, val)"
+                    />
+                  </div>
+                  <div class="break-all text-xs text-gray-500 dark:text-gray-400">
+                    Base URL: {{ row.base_url || "-" }}
+                  </div>
+                  <div class="text-xs text-gray-400">API Key: {{ row.masked_api_key || "-" }}</div>
+                  <div class="flex flex-wrap justify-end gap-1 pt-1">
+                    <NButton size="tiny" @click="handleEditProvider(row)">{{ $t("common.edit") }}</NButton>
+                    <NButton size="tiny" type="primary" ghost @click="handleManageModels(row)">
+                      {{ $t("page.system.aiConfig.manageModel") }}
+                    </NButton>
+                    <NPopconfirm @positive-click="handleDeleteProvider(row.id)">
+                      <template #trigger>
+                        <NButton size="tiny" type="error" ghost>{{ $t("common.delete") }}</NButton>
+                      </template>
+                      {{ $t("page.system.aiConfig.deleteProviderConfirm") }}
+                    </NPopconfirm>
+                  </div>
+                </div>
+              </NCard>
+            </div>
+          </template>
         </NTabPane>
 
         <NTabPane name="tools" :tab="$t('page.system.aiConfig.toolManagement')">
-          <div class="mt-4">
-            <NDataTable
-              :columns="toolColumns"
-              :data="tools"
-              :pagination="false"
-              :scroll-x="560"
-            />
-          </div>
+          <!-- PC: 表格 -->
+          <NDataTable
+            v-if="!isMobile"
+            class="mt-4"
+            :columns="toolColumns"
+            :data="tools"
+            :pagination="false"
+            :scroll-x="560"
+          />
+          <!-- Mobile: 卡片列表 -->
+          <template v-else>
+            <NSpin v-if="loading" class="mt-4 flex justify-center py-8" />
+            <NEmpty v-else-if="!tools.length" class="mt-4 py-8" />
+            <div v-else class="mt-4 flex flex-col gap-3">
+              <NCard v-for="row in tools" :key="row.id" size="small" :bordered="true">
+                <div class="flex flex-col gap-2">
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <span class="font-bold text-16px">{{ row.display_name || row.name }}</span>
+                      <span class="text-xs text-gray-400">{{ row.name }}</span>
+                    </div>
+                    <NSwitch
+                      :value="row.enabled"
+                      size="small"
+                      @update:value="(val: boolean) => handleToggleToolStatus(row, val)"
+                    />
+                  </div>
+                  <div v-if="row.description" class="text-sm text-gray-600 dark:text-gray-400">{{ row.description }}</div>
+                  <div class="flex items-center justify-between">
+                    <NTag size="small" :bordered="false" :type="row.confirm_required ? 'warning' : 'default'">
+                      {{ $t('page.system.aiConfig.toolConfirmRequired') }}: {{ row.confirm_required ? $t('common.yesOrNo.yes') : $t('common.yesOrNo.no') }}
+                    </NTag>
+                    <div class="flex gap-1">
+                      <NButton size="tiny" @click="handleEditTool(row)">{{ $t("common.edit") }}</NButton>
+                      <NPopconfirm @positive-click="handleDeleteTool(row.id)">
+                        <template #trigger>
+                          <NButton size="tiny" type="error" ghost>{{ $t("common.delete") }}</NButton>
+                        </template>
+                        {{ $t("page.system.aiConfig.deleteToolConfirm") }}
+                      </NPopconfirm>
+                    </div>
+                  </div>
+                </div>
+              </NCard>
+            </div>
+          </template>
         </NTabPane>
       </NTabs>
     </NCard>
@@ -591,7 +668,7 @@ onMounted(() => {
       v-model:show="showProviderModal"
       :title="providerModalTitle"
       preset="card"
-      class="w-500px"
+      class="w-500px max-w-[96vw]"
     >
       <NForm :model="providerForm" label-placement="left" :label-width="100">
         <NFormItem :label="$t('page.system.aiConfig.providerName')" path="name">
@@ -631,7 +708,7 @@ onMounted(() => {
       v-model:show="showModelModal"
       :title="modelDialogTitle"
       preset="card"
-      :class="modelModalMode === 'list' ? 'w-800px' : 'w-500px'"
+      :class="modelModalMode === 'list' ? 'w-800px max-w-[96vw]' : 'w-500px max-w-[96vw]'"
     >
       <div v-if="modelModalMode === 'list'">
         <div class="mb-4 flex justify-end">
@@ -639,7 +716,7 @@ onMounted(() => {
             {{ $t("page.system.aiConfig.addModel") }}
           </NButton>
         </div>
-        <NDataTable :columns="modelColumns" :data="activeModels" />
+        <NDataTable :columns="modelColumns" :data="activeModels" :scroll-x="600" />
       </div>
 
       <NForm v-else :model="modelForm" label-placement="left" :label-width="100">
