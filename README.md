@@ -18,7 +18,7 @@
 - **股票工具**: 自选股、选股筛选、自选股预警、策略回测（ClickHouse 只读副本）、宏观经济数据、行情增量同步（baostock）
 - **切割优化**: 一维型材切割（DP 背包 + OR-Tools 列生成精确求解）、二维排样（Guillotine/MaxRects）、余料库存与切割记录
 - **系统管理**: 用户/角色/权限 (RBAC)、AI Provider/模型/工具配置、MCP 服务动态注册、Skill 管理、定时任务、操作审计、系统配置热刷新
-- **其他**: 备忘提醒（日历）、定时 Agent 任务、彩票活动、Telegram/邮件通知
+- **其他**: 备忘提醒（日历）、定时 Agent 任务、彩票活动、Telegram/邮件通知、米游社扫码登录 + 原神每日签到（绑定在个人中心「原神签到」Tab，API `/api/mihoyo/*`，凭据表 `mihoyo_credentials`，定时任务 `mihoyo.genshin_checkin`）
 
 ## 技术栈
 

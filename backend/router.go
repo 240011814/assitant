@@ -42,6 +42,7 @@ type appDeps struct {
 	telegramHandler      *api.TelegramHandler
 	userPrefHandler      *api.UserPreferenceHandler
 	wolMqttHandler       *api.WolMqttHandler
+	mihoyoHandler        *api.MihoyoHandler
 }
 
 // setupRouter 把全部 HTTP 路由挂载到 engine (与原 main.go 逐行等价, 仅依赖来源改为 appDeps)
@@ -77,6 +78,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 	mcpHandler := d.mcpHandler
 	jobHandler := d.jobHandler
 	wolMqttHandler := d.wolMqttHandler
+	mihoyoHandler := d.mihoyoHandler
 
 	r.GET("/api/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -413,6 +415,16 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			wolGroup.POST("/publish", api.RequirePermission("tool:device:manage"), wolMqttHandler.Publish)
 			wolGroup.DELETE("/relay", api.RequirePermission("tool:device:manage"), wolMqttHandler.ClearRelay)
 			wolGroup.DELETE("/relay/:id", api.RequirePermission("tool:device:manage"), wolMqttHandler.DeleteRelay)
+		}
+
+		// 米哈游 (原神每日签到): 扫码登录绑定 + 签到/状态/解绑, 仅要求登录
+		mihoyoGroup := apiGroup.Group("/mihoyo")
+		{
+			mihoyoGroup.POST("/qr/start", mihoyoHandler.StartQR)
+			mihoyoGroup.GET("/qr/status", mihoyoHandler.QRStatus)
+			mihoyoGroup.GET("/status", mihoyoHandler.GetStatus)
+			mihoyoGroup.POST("/checkin", mihoyoHandler.CheckinNow)
+			mihoyoGroup.DELETE("/bind", mihoyoHandler.Unbind)
 		}
 
 		// Lottery Admin APIs (需要登录+权限)

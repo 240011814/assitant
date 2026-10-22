@@ -20,6 +20,7 @@ export * from './stock';
 export * from './stock-alert';
 export * from './backtest';
 export * from './macro';
+export * from './mihoyo';
 export * from './job';
 export * from './audit-log';
 export * from './agent-studio';

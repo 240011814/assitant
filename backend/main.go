@@ -185,6 +185,10 @@ func main() {
 		}
 	}()
 
+	// 米哈游原神签到 (扫码登录绑定 + 每日定时签到)
+	mihoyoService := service.NewMihoyoService()
+	mihoyoHandler := api.NewMihoyoHandler(mihoyoService)
+
 	// Job Handler + 注册后台可调度的定时任务
 	jobHandler := api.NewJobHandler(jobScheduler)
 	if jobScheduler != nil {
@@ -198,6 +202,7 @@ func main() {
 		jobScheduler.RegisterTask("audit.cleanup", "清理过期的操作审计日志 (参数 retentionDays 为保留天数)", json.RawMessage(`{"retentionDays":90}`), func(_ *model.JobDefinition, params json.RawMessage) error {
 			return service.CleanupAuditLogs(params)
 		})
+		mihoyoService.RegisterCronTasks(jobScheduler)
 	}
 
 	// 全部 HTTP 路由 (router.go)
@@ -235,6 +240,7 @@ func main() {
 		telegramHandler:      telegramHandler,
 		userPrefHandler:      userPrefHandler,
 		wolMqttHandler:       wolMqttHandler,
+		mihoyoHandler:        mihoyoHandler,
 	})
 
 	// Start Telegram Bot

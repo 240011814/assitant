@@ -10,6 +10,7 @@ import LayoutSettings from '@/layouts/modules/theme-drawer/modules/layout/index.
 import GeneralSettings from '@/layouts/modules/theme-drawer/modules/general/index.vue';
 import PresetSettings from '@/layouts/modules/theme-drawer/modules/preset/index.vue';
 import ConfigOperation from '@/layouts/modules/theme-drawer/modules/config-operation.vue';
+import MihoyoCheckinPane from './modules/mihoyo-checkin.vue';
 import { useClipboard } from '@vueuse/core';
 import { useEcharts } from '@/hooks/common/echarts';
 import { fetchMyTokenUsage } from '@/service/api';
@@ -722,6 +723,12 @@ loadNotificationPreference();
                     </div>
                   </NSpin>
                 </NCard>
+              </div>
+            </NTabPane>
+
+            <NTabPane name="mihoyo" tab="原神签到">
+              <div class="py-4 max-w-640px">
+                <MihoyoCheckinPane />
               </div>
             </NTabPane>
           </NTabs>
