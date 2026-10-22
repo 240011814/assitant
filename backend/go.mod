@@ -4,11 +4,11 @@ go 1.26.0
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.49.0
-	github.com/cloudwego/eino v0.9.21
-	github.com/cloudwego/eino-ext/components/document/parser/docx v0.0.0-20260924074145-3603a39473c3
-	github.com/cloudwego/eino-ext/components/document/parser/html v0.0.0-20260924074145-3603a39473c3
-	github.com/cloudwego/eino-ext/components/document/parser/pdf v0.0.0-20260924074145-3603a39473c3
-	github.com/cloudwego/eino-ext/components/document/parser/xlsx v0.0.0-20260924074145-3603a39473c3
+	github.com/cloudwego/eino v0.9.22
+	github.com/cloudwego/eino-ext/components/document/parser/docx v0.0.0-20261019121619-eee37f63ff95
+	github.com/cloudwego/eino-ext/components/document/parser/html v0.0.0-20261019121619-eee37f63ff95
+	github.com/cloudwego/eino-ext/components/document/parser/pdf v0.0.0-20261019121619-eee37f63ff95
+	github.com/cloudwego/eino-ext/components/document/parser/xlsx v0.0.0-20261019121619-eee37f63ff95
 	github.com/cloudwego/eino-ext/components/model/ark v0.1.71
 	github.com/cloudwego/eino-ext/components/tool/mcp v0.0.9
 	github.com/eclipse/paho.mqtt.golang v1.5.1
@@ -17,7 +17,7 @@ require (
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
-	github.com/mark3labs/mcp-go v1.2.1
+	github.com/mark3labs/mcp-go v1.3.0
 	github.com/minio/minio-go/v7 v7.4.1
 	github.com/pquerna/otp v1.5.0
 	github.com/pressly/goose/v3 v3.29.0
