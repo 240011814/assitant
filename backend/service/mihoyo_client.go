@@ -225,6 +225,10 @@ type passportQRQueryData struct {
 		AID      string `json:"aid"`
 		MID      string `json:"mid"`
 		Nickname string `json:"nickname"`
+		Links    []struct {
+			Thirdparty string `json:"thirdparty"`
+			Nickname   string `json:"nickname"`
+		} `json:"links"`
 	} `json:"user_info"`
 	Tokens []passportQRToken `json:"tokens"`
 	Ext    string            `json:"ext"`

@@ -152,13 +152,24 @@ func (s *MihoyoService) completeLogin(sess *mihoyoQRSession, data *passportQRQue
 			jarCookieSummary(sess.jar), tokenTypesSummary(data.Tokens))
 	}
 
-	if err := upsertMihoyoCredential(sess.userID, aid, mid, data.UserInfo.Nickname, stoken, cookieToken, ltoken); err != nil {
+	// 昵称取确认回执里的 links 第三方昵称 (不额外拉角色列表, 绑定瞬间不多发米游社请求)
+	nickname := data.UserInfo.Nickname
+	if nickname == "" {
+		for _, l := range data.UserInfo.Links {
+			if l.Nickname != "" {
+				nickname = l.Nickname
+				break
+			}
+		}
+	}
+
+	if err := upsertMihoyoCredential(sess.userID, aid, mid, nickname, stoken, cookieToken, ltoken); err != nil {
 		return nil, err
 	}
 
 	return &model.MihoyoQRStatusData{
 		Status:   "Confirmed",
-		Nickname: data.UserInfo.Nickname,
+		Nickname: nickname,
 		UID:      aid,
 		Bound:    true,
 	}, nil
