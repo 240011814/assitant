@@ -50,6 +50,12 @@ async function loadBindStatus() {
 // ---------- 签到信息查询 (不触发签到) ----------
 const checkinStatusInfo = ref<Api.Mihoyo.CheckinStatus | null>(null);
 
+// 全部角色今日已签 → 隐藏「立即签到」按钮
+const allSignedToday = computed(() => {
+  const roles = checkinStatusInfo.value?.roles ?? [];
+  return roles.length > 0 && roles.every((r) => r.signed);
+});
+
 async function loadCheckinStatus() {
   if (!bindStatus.value?.bound) return;
   const { data } = await getMihoyoCheckinStatus();
@@ -243,11 +249,10 @@ loadBindStatus();
     </NCard>
 
     <NCard size="small" :bordered="false" embedded title="签到">
-      <NSpace align="center">
+      <NSpace v-if="bindStatus?.bound && !allSignedToday" align="center">
         <NButton type="primary" size="small" :loading="checking" :disabled="!bindStatus?.bound" @click="handleCheckin">
           立即签到
         </NButton>
-        <NButton v-if="bindStatus?.bound" size="small" quaternary @click="loadCheckinStatus">刷新状态</NButton>
       </NSpace>
 
       <div v-if="checkinStatusInfo?.roles?.length" class="mt-12px flex flex-col gap-6px">
