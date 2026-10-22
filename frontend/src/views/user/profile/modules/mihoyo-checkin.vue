@@ -24,16 +24,22 @@ import {
   startMihoyoQrLogin,
   unbindMihoyo
 } from '@/service/api';
+import { useAuth } from '@/hooks/business/auth';
 
 defineOptions({ name: 'MihoyoCheckinPane' });
 
 const message = useMessage();
+const { hasAuth } = useAuth();
+// 与后端 tool:mihoyo:view/manage 对齐; Tab 本身已按 view 权限渲染, 这里再管 manage 动作
+const canManage = computed(() => hasAuth('tool:mihoyo:manage'));
+const canView = computed(() => hasAuth('tool:mihoyo:view'));
 
 // ---------- 绑定状态 ----------
 const loading = ref(false);
 const bindStatus = ref<Api.Mihoyo.BindStatus | null>(null);
 
 async function loadBindStatus() {
+  if (!canView.value) return;
   loading.value = true;
   const { data, error } = await getMihoyoBindStatus();
   if (!error && data) {
@@ -57,7 +63,7 @@ const allSignedToday = computed(() => {
 });
 
 async function loadCheckinStatus() {
-  if (!bindStatus.value?.bound) return;
+  if (!canView.value || !bindStatus.value?.bound) return;
   const { data } = await getMihoyoCheckinStatus();
   if (data) {
     checkinStatusInfo.value = data;
@@ -235,7 +241,7 @@ loadBindStatus();
         </NAlert>
       </NSpin>
 
-      <NSpace class="mt-16px">
+      <NSpace v-if="canManage" class="mt-16px">
         <NButton size="small" :disabled="qrLoading" @click="openQrModal">
           {{ bindStatus?.bound ? '重新扫码绑定' : '扫码绑定' }}
         </NButton>
@@ -249,8 +255,8 @@ loadBindStatus();
     </NCard>
 
     <NCard size="small" :bordered="false" embedded title="签到">
-      <NSpace v-if="bindStatus?.bound && !allSignedToday" align="center">
-        <NButton type="primary" size="small" :loading="checking" :disabled="!bindStatus?.bound" @click="handleCheckin">
+      <NSpace v-if="canManage && bindStatus?.bound && !allSignedToday" align="center">
+        <NButton type="primary" size="small" :loading="checking" @click="handleCheckin">
           立即签到
         </NButton>
       </NSpace>

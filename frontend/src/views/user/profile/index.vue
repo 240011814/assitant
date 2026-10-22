@@ -4,6 +4,7 @@ import { useMessage } from 'naive-ui';
 import type { FormInst, FormRules } from 'naive-ui';
 import { fetchChangePassword, fetchGetUserProfile, fetchUpdateProfile, fetchGetTelegramConfig, fetchGetTelegramStatus, fetchGenerateTelegramBindCode, fetchUnbindTelegram, fetchGetNotificationPreference, fetchSaveNotificationPreference, fetchUser2FASetup, fetchUser2FAEnable, fetchUser2FADisable } from '@/service/api';
 import { useAuthStore } from '@/store/modules/auth';
+import { useAuth } from '@/hooks/business/auth';
 import { $t } from '@/locales';
 import AppearanceSettings from '@/layouts/modules/theme-drawer/modules/appearance/index.vue';
 import LayoutSettings from '@/layouts/modules/theme-drawer/modules/layout/index.vue';
@@ -20,6 +21,9 @@ defineOptions({ name: 'UserProfile' });
 
 const message = useMessage();
 const authStore = useAuthStore();
+const { hasAuth } = useAuth();
+/** tool:mihoyo:view → 「原神签到」Tab; 无此权限后台接口同样 403, Tab 直接不渲染 */
+const canViewMihoyo = computed(() => hasAuth('tool:mihoyo:view'));
 const loading = ref(false);
 const profile = ref<Api.Admin.UserProfile | null>(null);
 const activeTab = ref('profile');
@@ -726,7 +730,7 @@ loadNotificationPreference();
               </div>
             </NTabPane>
 
-            <NTabPane name="mihoyo" tab="原神签到">
+            <NTabPane v-if="canViewMihoyo" name="mihoyo" tab="原神签到">
               <div class="py-4 max-w-640px">
                 <MihoyoCheckinPane />
               </div>

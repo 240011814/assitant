@@ -301,7 +301,8 @@ func (s *MihoyoService) CheckinStatus(userID uint) (*model.MihoyoCheckinStatusDa
 		// 登录态失效: stoken 续期后重试一次 (与签到共用同一条续期链路)
 		if newCookie, rerr := s.refreshCredential(cred, client); rerr == nil {
 			cookie = newCookie
-			roles, mr, err = fetchGameRoles(client, cookie)
+			// 续期后 mr 在后续分支里不再使用, 忽略避免静态检查报未使用赋值
+			roles, _, err = fetchGameRoles(client, cookie)
 		}
 	}
 	if err != nil {
@@ -369,7 +370,8 @@ func (s *MihoyoService) checkinCredential(cred *model.MihoyoCredential) []model.
 		if mr != nil && mihoyoAuthRetcodes[mr.RetCode] && cred.Stoken != "" {
 			if newCookie, rerr := s.refreshCredential(cred, client); rerr == nil {
 				cookie = newCookie
-				roles, mr, err = fetchGameRoles(client, cookie)
+				// 续期后 mr 在后续分支里不再使用, 忽略避免静态检查报未使用赋值
+				roles, _, err = fetchGameRoles(client, cookie)
 			}
 		}
 	}

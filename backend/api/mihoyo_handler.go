@@ -5,7 +5,8 @@ package api
 // 流程: POST /api/mihoyo/qr/start 生成二维码 → 米游社 App 扫码确认 →
 //       GET /api/mihoyo/qr/status 轮询至 Confirmed (服务端已自动绑定凭据) →
 //       每天定时任务自动签到, 或 POST /api/mihoyo/checkin 手动签到。
-// 这些接口仅要求登录 (与 Telegram 绑定一致), 不一级一级挂权限。
+// 权限: tool:mihoyo:view 查询绑定/签到状态; tool:mihoyo:manage 扫码绑定/签到/解绑
+// (见迁移 20261022000003, R_ADMIN 默认授予, 后台可调)。
 
 import (
 	"time"

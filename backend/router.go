@@ -417,15 +417,16 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			wolGroup.DELETE("/relay/:id", api.RequirePermission("tool:device:manage"), wolMqttHandler.DeleteRelay)
 		}
 
-		// 米哈游 (原神每日签到): 扫码登录绑定 + 签到/状态/解绑, 仅要求登录
+		// 米哈游 (原神每日签到): 扫码登录绑定 + 签到/状态/解绑
+		// view = 查询绑定与签到状态; manage = 扫码绑定/手动签到/解绑 (R_ADMIN 默认授予, 权限后台可调)
 		mihoyoGroup := apiGroup.Group("/mihoyo")
 		{
-			mihoyoGroup.POST("/qr/start", mihoyoHandler.StartQR)
-			mihoyoGroup.GET("/qr/status", mihoyoHandler.QRStatus)
-			mihoyoGroup.GET("/status", mihoyoHandler.GetStatus)
-			mihoyoGroup.GET("/checkin/status", mihoyoHandler.CheckinStatus)
-			mihoyoGroup.POST("/checkin", mihoyoHandler.CheckinNow)
-			mihoyoGroup.DELETE("/bind", mihoyoHandler.Unbind)
+			mihoyoGroup.POST("/qr/start", api.RequirePermission("tool:mihoyo:manage"), mihoyoHandler.StartQR)
+			mihoyoGroup.GET("/qr/status", api.RequirePermission("tool:mihoyo:view"), mihoyoHandler.QRStatus)
+			mihoyoGroup.GET("/status", api.RequirePermission("tool:mihoyo:view"), mihoyoHandler.GetStatus)
+			mihoyoGroup.GET("/checkin/status", api.RequirePermission("tool:mihoyo:view"), mihoyoHandler.CheckinStatus)
+			mihoyoGroup.POST("/checkin", api.RequirePermission("tool:mihoyo:manage"), mihoyoHandler.CheckinNow)
+			mihoyoGroup.DELETE("/bind", api.RequirePermission("tool:mihoyo:manage"), mihoyoHandler.Unbind)
 		}
 
 		// Lottery Admin APIs (需要登录+权限)
