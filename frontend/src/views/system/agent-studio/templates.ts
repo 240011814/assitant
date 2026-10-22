@@ -477,10 +477,10 @@ export const ORCHESTRATION_TEMPLATES: OrchestrationTemplate[] = [
   },
   {
     key: 'training-platform-pilot',
-    label: '训练平台·社交试点',
+    label: '训练平台·编排试点',
     icon: 'mdi:sitemap',
-    description: '按对话「完整架构总览」七分层落地: 01 用户入口 → 02 主控 Agent(只调度) → 03 目标解析+条件路由 → 04 场景工程层(子编排·质检循环·降级) → 05 专业训练层·六个子 Agent(英语/决策/社交/应变/认知/思辨, 读取同一份场景事实卡, 遵循统一训练接口) → 06 独立评估+达标判断(复盘结束/针对性复练) → 07 状态管理与统一输出',
-    hint: '先加载「训练·场景工程层」建好并保存, 再加载本模板并在「场景工程层」节点选择该编排; 评估层须内联在主画布 (子编排不注入对话历史); 六个训练 Agent 的模块规则可按需精简, 或用提示词版本管理按节点覆盖',
+    description: '按对话「完整架构总览」七分层落地: 01 用户入口 → 02 主控 Agent(只调度) → 03 目标解析+条件路由 → 04 场景工程层(子编排·质检循环·降级) → 05 专业训练层·六个子 Agent(英语/决策/社交/应变/认知/思辨, 读取同一份场景事实卡, 遵循统一训练接口) → 06 独立评估+达标判断(复盘结束/针对性复练) → 07 状态管理与统一输出; 类型无法识别时转回主控 Agent 向用户澄清, 下一轮重新进入流水线',
+    hint: '先加载「训练·场景工程层」建好并保存, 再加载本模板并在「场景工程层」节点选择该编排; 评估层须内联在主画布 (子编排不注入对话历史); 六个训练 Agent 的模块规则可按需精简, 或用提示词版本管理按节点覆盖; 类型无法识别走主控澄清: 本轮只问清需求, 用户回复后聊天模式每轮重跑会重新解析入链路',
     definition: {
       nodes: [
         { id: 'tpl', type: 'template', name: '01·用户入口', config: tplConfig('{{.Input}}'), position: { x: 40, y: 300 } },
@@ -489,7 +489,7 @@ export const ORCHESTRATION_TEMPLATES: OrchestrationTemplate[] = [
           type: 'agent',
           name: '02·主控 Agent',
           config: agentConfig(
-            '# 角色\n你是 AI 训练平台的主控 Agent，负责理解用户意图和调度训练流程。\n\n# 职责\n1. 判断用户是普通问答、明确训练请求，还是需要进一步澄清的模糊任务。\n2. 明确训练类型、用户目标和必要的约束条件。\n3. 将训练任务交给统一训练流程，不直接自行编写未经审核的训练场景。\n4. 不替代专业训练 Agent，不替代独立评估 Agent。\n5. 需要外部事实或最新信息时才调用搜索工具，普通情景训练不默认调用搜索。\n6. 用户主动结束训练时，转入阶段性总结流程。\n\n# 约束\n- 不自行制造用户没有提供的个人经历。\n- 不把所有请求都转成训练任务。\n- 不要求六个专业 Agent 同时参与普通训练。\n- 不绕过场景质量检查。\n- 不将模型生成的分数直接视为已经验证的事实。\n\n# 输出\n输出任务类型、训练目标、必要约束和下一步流程动作，供下游节点使用。\n\n# 引擎适配\n本画布从用户输入直接下接训练目标解析器, 你只输出调度结论 (训练类型/目标/约束/下一步), 不复述请求全文; 属普通问答或需澄清时, 输出说明并注明训练类型未知, 交由条件路由走通用出口, 不虚构训练任务。'
+            '# 角色\n你是 AI 训练平台的主控 Agent，负责理解用户意图和调度训练流程。\n\n# 职责\n1. 判断用户是普通问答、明确训练请求，还是需要进一步澄清的模糊任务。\n2. 明确训练类型、用户目标和必要的约束条件。\n3. 将训练任务交给统一训练流程，不直接自行编写未经审核的训练场景。\n4. 不替代专业训练 Agent，不替代独立评估 Agent。\n5. 需要外部事实或最新信息时才调用搜索工具，普通情景训练不默认调用搜索。\n6. 用户主动结束训练时，转入阶段性总结流程。\n\n# 约束\n- 不自行制造用户没有提供的个人经历。\n- 不把所有请求都转成训练任务。\n- 不要求六个专业 Agent 同时参与普通训练。\n- 不绕过场景质量检查。\n- 不将模型生成的分数直接视为已经验证的事实。\n\n# 输出\n输出任务类型、训练目标、必要约束和下一步流程动作，供下游节点使用。\n\n# 引擎适配\n本画布从用户输入直接下接训练目标解析器, 你只输出调度结论 (训练类型/目标/约束/下一步), 不复述请求全文; 属普通问答或需澄清时, 输出说明并注明训练类型未知, 交由条件路由转主控澄清, 不虚构训练任务。'
           ),
           position: { x: 240, y: 300 }
         },
@@ -516,15 +516,17 @@ export const ORCHESTRATION_TEMPLATES: OrchestrationTemplate[] = [
               { type: 'contains', value: 'cognitive', target: 'scene' },
               { type: 'contains', value: 'debate', target: 'scene' }
             ],
-            default_target: 'offramp'
+            default_target: 'clarify'
           },
           position: { x: 680, y: 300 }
         },
         {
-          id: 'offramp',
-          type: 'template',
-          name: '通用出口',
-          config: tplConfig('训练类型无法识别, 本次未进入训练流水线。\n\n上游结论：\n{{.Input}}\n\n处理方式：请改述训练需求; 首轮对话说明过于模糊时, 由主控 Agent 先请求澄清。'),
+          id: 'clarify',
+          type: 'agent',
+          name: '02·主控澄清',
+          config: agentConfig(
+            '# 角色\n你是 AI 训练平台的主控 Agent (澄清模式)。上游解析器没有得出明确的训练类型, 本轮请求的需求还不够清晰。\n\n# 任务\n向用户提出 2-4 个澄清问题, 帮助下一轮解析出明确的训练目标:\n1. 想训练哪一类? (英语情景对话 / 决策训练 / 社交训练 / 突发应变训练 / 认知教练 / 思辨训练)\n2. 想练的具体能力或行为是什么? (越具体越好, 例如"礼貌拒绝同事的代班请求")\n3. 期望的难度或场景约束 (可选)。\n\n# 约束\n- 本轮只提问, 不开始训练, 不生成场景。\n- 问题用中文, 简短直接, 不输出 JSON。\n- 结合上下文历史, 用户已说明过的内容不再重复问。\n\n# 运转说明\n用户回复后, 会话下一轮会重新走主控 → 解析器 → 条件路由, 届时按回答进入对应链路。'
+          ),
           position: { x: 680, y: 560 }
         },
         { id: 'scene', type: 'suborch', name: '04·场景工程层', config: { orchestration_id: 0 }, position: { x: 900, y: 300 } },
@@ -678,7 +680,7 @@ export const ORCHESTRATION_TEMPLATES: OrchestrationTemplate[] = [
           id: 'state',
           type: 'template',
           name: '07·状态管理与统一输出',
-          config: tplConfig('【统一输出·状态存档】(对应总览第 07 层; 训练记录/能力档案/历史记录的持久化由应用层在第 2 期接入)\n\n{{.Input}}\n\n按链路不同, 上游为: 训练结束后=评估与复盘/复练安排; 训练进行中=本轮训练 Agent 回复; 类型无法识别=路由说明。待保存字段：训练报告(评估结果)、能力档案变更(各维度评分与时间)、历史记录、下次训练建议(next_exercise)。'),
+          config: tplConfig('【统一输出·状态存档】(对应总览第 07 层; 训练记录/能力档案/历史记录的持久化由应用层在第 2 期接入)\n\n{{.Input}}\n\n按链路不同, 上游为: 训练结束后=评估与复盘/复练安排; 训练进行中=本轮训练 Agent 回复; 类型无法识别=主控澄清提问 (用户回复后下一轮重新进入流水线)。待保存字段：训练报告(评估结果)、能力档案变更(各维度评分与时间)、历史记录、下次训练建议(next_exercise)。'),
           position: { x: 3640, y: 300 }
         },
         { id: 'out', type: 'end', name: '结束', config: {}, position: { x: 3860, y: 300 } }
@@ -688,7 +690,7 @@ export const ORCHESTRATION_TEMPLATES: OrchestrationTemplate[] = [
         { source: 'master', target: 'parser' },
         { source: 'parser', target: 'type_route' },
         { source: 'type_route', target: 'scene', label: '六类训练' },
-        { source: 'type_route', target: 'offramp', label: '无法识别' },
+        { source: 'type_route', target: 'clarify', label: '无法识别' },
         { source: 'scene', target: 'scene_gate' },
         { source: 'scene_gate', target: 'init' },
         { source: 'scene_gate', target: 'fallback' },
@@ -715,7 +717,7 @@ export const ORCHESTRATION_TEMPLATES: OrchestrationTemplate[] = [
         { source: 'verdict_gate', target: 'practice', label: '尚未达标' },
         { source: 'review', target: 'merge_end' },
         { source: 'practice', target: 'merge_end' },
-        { source: 'offramp', target: 'merge_end' },
+        { source: 'clarify', target: 'merge_end' },
         { source: 'merge_end', target: 'state' },
         { source: 'state', target: 'out' }
       ]
