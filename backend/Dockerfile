@@ -1,5 +1,5 @@
 # Build stage：固定在 runner 原生平台编译，用 GOOS/GOARCH 交叉出目标平台二进制，避免 arm64 走 QEMU 模拟
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
