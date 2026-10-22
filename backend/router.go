@@ -423,6 +423,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			mihoyoGroup.POST("/qr/start", mihoyoHandler.StartQR)
 			mihoyoGroup.GET("/qr/status", mihoyoHandler.QRStatus)
 			mihoyoGroup.GET("/status", mihoyoHandler.GetStatus)
+			mihoyoGroup.GET("/checkin/status", mihoyoHandler.CheckinStatus)
 			mihoyoGroup.POST("/checkin", mihoyoHandler.CheckinNow)
 			mihoyoGroup.DELETE("/bind", mihoyoHandler.Unbind)
 		}

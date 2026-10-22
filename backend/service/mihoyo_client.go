@@ -254,9 +254,19 @@ type gameRolesData struct {
 	List []gameRole `json:"list"`
 }
 
+// lunaAward 签到奖励条目 (cnt 类型回执不固定, 不判死)
+type lunaAward struct {
+	Icon string `json:"icon"`
+	Name string `json:"name"`
+	Cnt  any    `json:"cnt"`
+}
+
 type lunaInfoData struct {
-	IsSign       bool `json:"is_sign"`
-	TotalSignDay int  `json:"total_sign_day"`
+	IsSign       bool      `json:"is_sign"`
+	TotalSignDay int       `json:"total_sign_day"`
+	TodaySignDay int       `json:"today_sign_day"`
+	FirstBind    bool      `json:"first_bind"`
+	Award        lunaAward `json:"award"`
 }
 
 type lunaSignData struct {

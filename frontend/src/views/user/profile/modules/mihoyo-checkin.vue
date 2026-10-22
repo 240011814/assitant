@@ -18,6 +18,7 @@ import {
 } from 'naive-ui';
 import {
   getMihoyoBindStatus,
+  getMihoyoCheckinStatus,
   getMihoyoQrStatus,
   runMihoyoCheckin,
   startMihoyoQrLogin,
@@ -37,8 +38,24 @@ async function loadBindStatus() {
   const { data, error } = await getMihoyoBindStatus();
   if (!error && data) {
     bindStatus.value = data;
+    if (data.bound) {
+      await loadCheckinStatus();
+    } else {
+      checkinStatusInfo.value = null;
+    }
   }
   loading.value = false;
+}
+
+// ---------- 签到信息查询 (不触发签到) ----------
+const checkinStatusInfo = ref<Api.Mihoyo.CheckinStatus | null>(null);
+
+async function loadCheckinStatus() {
+  if (!bindStatus.value?.bound) return;
+  const { data } = await getMihoyoCheckinStatus();
+  if (data) {
+    checkinStatusInfo.value = data;
+  }
 }
 
 async function handleUnbind() {
@@ -80,6 +97,7 @@ async function handleCheckin() {
     lastResults.value = data;
     const ok = data.every((r) => r.status === 'success' || r.status === 'already' || r.status === 'no_role');
     message.success(ok ? '签到完成' : '签到完成, 部分角色未签上 (见详情)');
+    await loadCheckinStatus();
   } finally {
     checking.value = false;
   }
@@ -225,9 +243,25 @@ loadBindStatus();
     </NCard>
 
     <NCard size="small" :bordered="false" embedded title="签到">
-      <NButton type="primary" size="small" :loading="checking" :disabled="!bindStatus?.bound" @click="handleCheckin">
-        立即签到
-      </NButton>
+      <NSpace align="center">
+        <NButton type="primary" size="small" :loading="checking" :disabled="!bindStatus?.bound" @click="handleCheckin">
+          立即签到
+        </NButton>
+        <NButton v-if="bindStatus?.bound" size="small" quaternary @click="loadCheckinStatus">刷新状态</NButton>
+      </NSpace>
+
+      <div v-if="checkinStatusInfo?.roles?.length" class="mt-12px flex flex-col gap-6px">
+        <div v-for="r in checkinStatusInfo.roles" :key="r.gameUid" class="flex items-center gap-8px text-13px">
+          <NTag size="small" :type="r.signed ? 'success' : 'warning'">{{ r.signed ? '今日已签' : '未签' }}</NTag>
+          <span>{{ r.nickname }} ({{ r.gameUid }})</span>
+          <span v-if="r.totalSignDay" class="text-gray-400">累计 {{ r.totalSignDay }} 天</span>
+          <span v-if="r.awardName" class="text-gray-400">
+            今日奖励:
+            <img v-if="r.awardIcon" :src="r.awardIcon" class="inline-block w-20px h-20px align-middle" alt="" />
+            {{ r.awardName }}
+          </span>
+        </div>
+      </div>
 
       <NList v-if="lastResults.length" class="mt-12px">
         <NListItem v-for="res in lastResults" :key="res.gameUid || res.message">

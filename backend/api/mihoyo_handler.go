@@ -68,6 +68,16 @@ func (h *MihoyoHandler) CheckinNow(c *gin.Context) {
 	SendSuccess(c, results)
 }
 
+// CheckinStatus 签到信息查询 (不触发签到)
+func (h *MihoyoHandler) CheckinStatus(c *gin.Context) {
+	data, err := h.svc.CheckinStatus(GetUserID(c))
+	if err != nil {
+		SendError(c, "500", err.Error())
+		return
+	}
+	SendSuccess(c, data)
+}
+
 // Unbind 解绑米游社账号 (删除凭据, 签到记录保留)
 func (h *MihoyoHandler) Unbind(c *gin.Context) {
 	if err := h.svc.Unbind(GetUserID(c)); err != nil {

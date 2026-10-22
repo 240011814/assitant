@@ -73,3 +73,20 @@ type MihoyoCheckinResult struct {
 	Status   string `json:"status"`
 	Message  string `json:"message"`
 }
+
+// MihoyoCheckinStatusRole 签到信息查询单角色状态 (查询不触发签到)
+type MihoyoCheckinStatusRole struct {
+	GameUID      string `json:"gameUid"`
+	Nickname     string `json:"nickname"`
+	Signed       bool   `json:"signed"` // 今日已签
+	TotalSignDay int    `json:"totalSignDay"`
+	AwardName    string `json:"awardName"` // 今日奖励
+	AwardCnt     string `json:"awardCnt"`
+	AwardIcon    string `json:"awardIcon"`
+}
+
+// MihoyoCheckinStatusData 签到信息查询结果
+type MihoyoCheckinStatusData struct {
+	Bound bool                      `json:"bound"`
+	Roles []MihoyoCheckinStatusRole `json:"roles"`
+}

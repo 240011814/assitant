@@ -25,6 +25,14 @@ export function getMihoyoBindStatus() {
   })
 }
 
+/** 签到信息查询 (今日已签/累计天数/今日奖励, 不触发签到) */
+export function getMihoyoCheckinStatus() {
+  return request<Api.Mihoyo.CheckinStatus>({
+    url: '/api/mihoyo/checkin/status',
+    method: 'get'
+  })
+}
+
 /** 立即签到一次 (返回每个角色的结果) */
 export function runMihoyoCheckin() {
   return request<Api.Mihoyo.CheckinResult[]>({

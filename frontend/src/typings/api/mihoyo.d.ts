@@ -31,5 +31,22 @@ declare namespace Api {
       status: 'success' | 'already' | 'blocked' | 'failed' | 'no_role' | string
       message: string
     }
+
+    /** 签到信息查询单角色状态 */
+    interface CheckinRoleInfo {
+      gameUid: string
+      nickname: string
+      signed: boolean
+      totalSignDay: number
+      awardName: string
+      awardCnt: string
+      awardIcon: string
+    }
+
+    /** 签到信息查询 (不触发签到) */
+    interface CheckinStatus {
+      bound: boolean
+      roles: CheckinRoleInfo[]
+    }
   }
 }

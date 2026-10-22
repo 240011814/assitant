@@ -284,6 +284,49 @@ func (s *MihoyoService) CheckinUser(userID uint) ([]model.MihoyoCheckinResult, e
 	return s.checkinCredential(cred), nil
 }
 
+// CheckinStatus 签到信息查询: 查每个原神角色的今日已签/累计天数/今日奖励, 不触发签到
+func (s *MihoyoService) CheckinStatus(userID uint) (*model.MihoyoCheckinStatusData, error) {
+	cred, err := getMihoyoCredential(userID)
+	if err != nil {
+		return nil, err
+	}
+	if cred == nil {
+		return &model.MihoyoCheckinStatusData{Bound: false, Roles: []model.MihoyoCheckinStatusRole{}}, nil
+	}
+
+	client := newHTTPClient(20 * time.Second)
+	cookie := buildCookie(cred)
+	roles, mr, err := fetchGameRoles(client, cookie)
+	if err != nil && mr != nil && mihoyoAuthRetcodes[mr.RetCode] && cred.Stoken != "" {
+		// 登录态失效: stoken 续期后重试一次 (与签到共用同一条续期链路)
+		if newCookie, rerr := s.refreshCredential(cred, client); rerr == nil {
+			cookie = newCookie
+			roles, mr, err = fetchGameRoles(client, cookie)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	out := &model.MihoyoCheckinStatusData{Bound: true, Roles: make([]model.MihoyoCheckinStatusRole, 0, len(roles))}
+	for _, role := range roles {
+		item := model.MihoyoCheckinStatusRole{
+			GameUID:  role.GameUID,
+			Nickname: role.Nickname,
+		}
+		// 单角色信息查询失败不阻塞整页: 字段留空由前端显示 '-'
+		if info, ierr := lunaInfo(client, cookie, role.Region, role.GameUID); ierr == nil {
+			item.Signed = info.IsSign
+			item.TotalSignDay = info.TotalSignDay
+			item.AwardName = info.Award.Name
+			item.AwardCnt = fmt.Sprintf("%v", info.Award.Cnt)
+			item.AwardIcon = info.Award.Icon
+		}
+		out.Roles = append(out.Roles, item)
+	}
+	return out, nil
+}
+
 // CheckinAll 定时任务入口: 遍历全部绑定账号签到 (有失败返回 error 触发告警)
 func (s *MihoyoService) CheckinAll() error {
 	var creds []model.MihoyoCredential
