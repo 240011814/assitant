@@ -13,9 +13,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -165,6 +167,12 @@ func doMihoyoJSON(client *http.Client, method, urlStr, body string, header http.
 	if err := json.Unmarshal(raw, &mr); err != nil {
 		return nil, fmt.Errorf("接口返回非 JSON: %s", mihoyoSnippet(raw))
 	}
+	// 请求全链路响应日志: body/set-cookie 经过掩码 (敏感 token 只留前 10 字符), 便于直接看回执原貌
+	log.Printf("[mihoyo] %s %s -> HTTP %d retcode=%d message=%q body=%s",
+		method, urlStr, resp.StatusCode, mr.RetCode, mr.Message, maskTokens(mihoyoLogSnippet(raw)))
+	for _, sc := range resp.Header.Values("Set-Cookie") {
+		log.Printf("[mihoyo]   set-cookie: %s", maskTokens(sc))
+	}
 	if out != nil && len(mr.Data) > 0 {
 		if err := json.Unmarshal(mr.Data, out); err != nil {
 			return nil, fmt.Errorf("接口 data 解析失败: %v", err)
@@ -179,6 +187,24 @@ func mihoyoSnippet(raw []byte) string {
 		s = s[:200] + "..."
 	}
 	return s
+}
+
+// mihoyoLogSnippet 日志用片段截断 (确认回执带 user_info+tokens, 200 放不下)
+func mihoyoLogSnippet(raw []byte) string {
+	s := strings.TrimSpace(string(raw))
+	if len(s) > 1500 {
+		s = s[:1500] + "..."
+	}
+	return s
+}
+
+// mihoyoTokenMaskRe 敏感字段值只保留前 10 字符 (日志里不落完整凭据)
+var mihoyoTokenMaskRe = regexp.MustCompile(
+	`(?i)((?:stoken|ltoken|cookie_token|token_value|game_token|account_id|ltuid|mid)[^A-Za-z0-9]*[A-Za-z0-9_+/=.%+-]{10})[A-Za-z0-9_+/=.%+-]*`)
+
+// maskTokens 日志掩码
+func maskTokens(s string) string {
+	return mihoyoTokenMaskRe.ReplaceAllString(s, "$1...")
 }
 
 // ===== 协议载荷 =====
@@ -201,6 +227,7 @@ type passportQRQueryData struct {
 		Nickname string `json:"nickname"`
 	} `json:"user_info"`
 	Tokens []passportQRToken `json:"tokens"`
+	Ext    string            `json:"ext"`
 }
 
 type passportCookieTokenData struct {
@@ -365,6 +392,49 @@ func lunaSign(client *http.Client, cookie, region, uid string) (*lunaSignData, *
 	return &out, mr, nil
 }
 
+// mihoyoCookieHosts 会话 Cookie 的落点域 (jar 序列化/读取/摘要共用)
+var mihoyoCookieHosts = []struct{ label, url string }{
+	{"passport", "https://passport-api.mihoyo.com/"},
+	{"takumi", "https://api-takumi.mihoyo.com/"},
+}
+
+// tokenTypesSummary 诊断摘要 (不输出值): token_type + 长度/v2_ 标记
+func tokenTypesSummary(tokens []passportQRToken) string {
+	if len(tokens) == 0 {
+		return "no-tokens"
+	}
+	parts := make([]string, 0, len(tokens))
+	for _, t := range tokens {
+		switch {
+		case strings.HasPrefix(t.TokenValue, "v2_"):
+			parts = append(parts, fmt.Sprintf("type=%d(v2_)", t.TokenType))
+		case t.TokenValue != "":
+			parts = append(parts, fmt.Sprintf("type=%d(len:%d)", t.TokenType, len(t.TokenValue)))
+		default:
+			parts = append(parts, fmt.Sprintf("type=%d(empty)", t.TokenType))
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// jarCookieSummary 诊断摘要 (不输出值): 会话里的 Cookie 名
+func jarCookieSummary(jar *cookiejar.Jar) string {
+	var parts []string
+	if jar != nil {
+		for _, h := range mihoyoCookieHosts {
+			if u, err := url.Parse(h.url); err == nil {
+				for _, ck := range jar.Cookies(u) {
+					parts = append(parts, fmt.Sprintf("%s@%s", ck.Name, h.label))
+				}
+			}
+		}
+	}
+	if len(parts) == 0 {
+		return "no-cookies"
+	}
+	return strings.Join(parts, ", ")
+}
+
 // ===== Cookie 工具 =====
 
 // buildCookie 由凭据拼签到用 Cookie (与 qr_login.py 方案二一致)
@@ -385,39 +455,23 @@ func buildCookie(cred *model.MihoyoCredential) string {
 	return strings.Join(parts, "; ")
 }
 
-// extractStoken 从确认回调的 tokens 数组里取 stoken (token_type=2); 没有再看会话 Cookie 兜底
-func extractStoken(jar *cookiejar.Jar, tokens []passportQRToken) string {
-	for _, t := range tokens {
-		if t.TokenType == 2 && t.TokenValue != "" {
-			return t.TokenValue
-		}
-	}
+// jarCookieValue 会话 Cookie 取值; names 优先级从高到低 (v2 优先于旧名), 在任一落点域命即返回
+func jarCookieValue(jar *cookiejar.Jar, names ...string) string {
 	if jar == nil {
 		return ""
 	}
-	for _, host := range []string{"https://passport-api.mihoyo.com/", "https://api-takumi.mihoyo.com/"} {
-		if u, err := url.Parse(host); err == nil {
-			for _, ck := range jar.Cookies(u) {
-				if (ck.Name == "stoken" || ck.Name == "stoken_v2") && ck.Value != "" {
-					return ck.Value
-				}
-			}
+	for _, h := range mihoyoCookieHosts {
+		u, err := url.Parse(h.url)
+		if err != nil {
+			continue
 		}
-	}
-	return ""
-}
-
-// jarCookieValue 会话 Cookie 兜底取值 (两个域名都翻一遍)
-func jarCookieValue(jar *cookiejar.Jar, name string) string {
-	if jar == nil {
-		return ""
-	}
-	for _, host := range []string{"https://passport-api.mihoyo.com/", "https://api-takumi.mihoyo.com/"} {
-		if u, err := url.Parse(host); err == nil {
-			for _, ck := range jar.Cookies(u) {
-				if ck.Name == name && ck.Value != "" {
-					return ck.Value
-				}
+		byName := make(map[string]string, 8)
+		for _, ck := range jar.Cookies(u) {
+			byName[ck.Name] = ck.Value
+		}
+		for _, name := range names {
+			if v, ok := byName[name]; ok && v != "" {
+				return v
 			}
 		}
 	}

@@ -89,7 +89,7 @@ async function handleCheckin() {
 const qrModalShow = ref(false);
 const qrDataUrl = ref('');
 const qrTicket = ref('');
-const qrStatus = ref<'idle' | 'creating' | 'waiting' | 'scanned' | 'confirmed' | 'expired'>('idle');
+const qrStatus = ref<'idle' | 'creating' | 'waiting' | 'scanned' | 'confirmed' | 'expired' | 'error'>('idle');
 const qrLoading = ref(false);
 let qrPollTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -105,6 +105,8 @@ const qrStatusTip = computed(() => {
       return '绑定成功 ✅';
     case 'expired':
       return '二维码已过期, 请重新获取';
+    case 'error':
+      return '会话已异常, 请重新获取';
     default:
       return '';
   }
@@ -158,8 +160,9 @@ function scheduleQrPoll() {
     if (!qrTicket.value || !qrModalShow.value) return;
     const { data, error } = await getMihoyoQrStatus(qrTicket.value);
     if (error || !data) {
-      // 网络抖动继续轮询
-      scheduleQrPoll();
+      // 会话异常 (如后端进程重启后丢失内存会话): 停止轮询, 蒙层提供重新获取
+      qrStatus.value = 'error';
+      stopQrPolling();
       return;
     }
     switch (data.status) {
@@ -241,10 +244,10 @@ loadBindStatus();
         <div v-if="qrDataUrl" class="relative">
           <img :src="qrDataUrl" alt="米游社扫码登录" class="w-260px h-260px" />
           <div
-            v-if="qrStatus === 'expired'"
+            v-if="qrStatus === 'expired' || qrStatus === 'error'"
             class="absolute inset-0 flex flex-col items-center justify-center bg-white/90 gap-8px"
           >
-            <span class="text-14px">二维码已过期</span>
+            <span class="text-14px">{{ qrStatusTip }}</span>
             <NButton size="small" type="primary" @click="handleCreateQr">重新获取</NButton>
           </div>
         </div>

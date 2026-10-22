@@ -27,7 +27,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// mihoyoQRSessionTTL 二维码有效期 (passport 实际 1~2 分钟, 轮询入口自会报过期)
+// mihoyoQRSessionTTL 扫码会话有效期 (passport 二维码实际 1~2 分钟, 轮询入口自会报过期)
 const mihoyoQRSessionTTL = 10 * time.Minute
 
 // mihoyoQRSession 一次扫码登录会话 (同一 client/jar 贯穿 create → query)
@@ -62,7 +62,7 @@ func (s *MihoyoService) CreateQRLogin(userID uint) (*model.MihoyoQRStartData, er
 	}
 	s.mu.Unlock()
 
-	sess, err := s.newQRSession()
+	sess, err := newQRSession(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -104,11 +104,10 @@ func (s *MihoyoService) QRLoginStatus(userID uint, ticket string) (*model.Mihoyo
 	switch data.Status {
 	case "Confirmed":
 		res, err := s.completeLogin(sess, data)
+		s.removeSession(ticket) // ticket 一次性: 无论登录兑换成败都结束会话
 		if err != nil {
-			s.removeSession(ticket)
 			return nil, err
 		}
-		s.removeSession(ticket)
 		return res, nil
 	case "Created", "Scanned", "":
 		status := data.Status
@@ -130,20 +129,27 @@ func (s *MihoyoService) completeLogin(sess *mihoyoQRSession, data *passportQRQue
 		return nil, fmt.Errorf("确认成功但未返回账号信息 (aid=%q mid=%q), 请重试", aid, mid)
 	}
 
-	stoken := extractStoken(sess.jar, data.Tokens)
-	if stoken == "" {
-		return nil, fmt.Errorf("确认成功但未返回 stoken, 无法绑定, 请重试")
+	// 官方文档 (米游社扫码登录): Confirmed 后登录态全在响应 Set-Cookie 里, tokens 恒为空;
+	// 可获取 account_id(_v2)/mid(_v2)/ltoken(_v2)/cookie_token(_v2), 老版本流程才含 stoken。
+	cookieToken := jarCookieValue(sess.jar, "cookie_token_v2", "cookie_token")
+	ltoken := jarCookieValue(sess.jar, "ltoken_v2", "ltoken")
+	accountID := jarCookieValue(sess.jar, "account_id_v2", "account_id")
+	stoken := jarCookieValue(sess.jar, "stoken_v2", "stoken")
+	if accountID != "" {
+		aid = accountID // user_info aid 与 Set-Cookie 冲突时以登录 Cookie 为准
 	}
-
-	cookieToken, errCT := exchangeCookieToken(sess.client, stoken, aid, mid)
-	ltoken, errLT := exchangeLtoken(sess.client, stoken, aid, mid)
-	if cookieToken == "" && ltoken == "" {
-		// stoken 没能换到任何下级凭据, 兜底看会话 Cookie 里是否直接带着
-		cookieToken = jarCookieValue(sess.jar, "cookie_token")
-		ltoken = jarCookieValue(sess.jar, "ltoken")
-		if cookieToken == "" && ltoken == "" {
-			return nil, fmt.Errorf("stoken 兑换失败: %s / %s", errCT, errLT)
+	if stoken != "" && (cookieToken == "" || ltoken == "") {
+		// 只有 stoken 的旧流程: 兑换补齐下级凭据
+		if c, err := exchangeCookieToken(sess.client, stoken, aid, mid); err == nil && c != "" {
+			cookieToken = c
 		}
+		if l, err := exchangeLtoken(sess.client, stoken, aid, mid); err == nil && l != "" {
+			ltoken = l
+		}
+	}
+	if cookieToken == "" && ltoken == "" && stoken == "" {
+		return nil, fmt.Errorf("确认成功但响应未带登录 Cookie, 无法绑定, 请重试 (cookies=[%s], tokens=%s)",
+			jarCookieSummary(sess.jar), tokenTypesSummary(data.Tokens))
 	}
 
 	if err := upsertMihoyoCredential(sess.userID, aid, mid, data.UserInfo.Nickname, stoken, cookieToken, ltoken); err != nil {
@@ -158,12 +164,14 @@ func (s *MihoyoService) completeLogin(sess *mihoyoQRSession, data *passportQRQue
 	}, nil
 }
 
-func (s *MihoyoService) newQRSession() (*mihoyoQRSession, error) {
+// newQRSession userID 从入口贯穿进来: 会话归属判定靠它, 不落值归属校验永远不过
+func newQRSession(userID uint) (*mihoyoQRSession, error) {
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, err
 	}
 	return &mihoyoQRSession{
+		userID:    userID,
 		deviceID:  mihoyoRandomHex(32),
 		jar:       jar,
 		client:    &http.Client{Timeout: 20 * time.Second, Jar: jar},
@@ -191,7 +199,10 @@ func upsertMihoyoCredential(userID uint, aid, mid, nickname, stoken, cookieToken
 	if nickname != "" {
 		cred.Nickname = nickname
 	}
-	cred.Stoken = stoken
+	if stoken != "" {
+		// 扫码 web 流程可能不带 stoken, 只有无值时才允许覆盖 (避免洗掉已存的续期凭据)
+		cred.Stoken = stoken
+	}
 	if cookieToken != "" {
 		cred.CookieToken = cookieToken
 	}
