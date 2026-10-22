@@ -234,7 +234,6 @@ loadBindStatus();
           </NDescriptionsItem>
           <NDescriptionsItem label="昵称">{{ bindStatus?.nickname || '-' }}</NDescriptionsItem>
           <NDescriptionsItem label="UID">{{ bindStatus?.uid || '-' }}</NDescriptionsItem>
-          <NDescriptionsItem label="说明">每天 8:23 自动签到原神</NDescriptionsItem>
         </NDescriptions>
         <NAlert v-else type="info" title="米游社未绑定">
           扫码登录米游社 App 后, 后台每天定时自动签到原神, 无需保存游戏密码。
