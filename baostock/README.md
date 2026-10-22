@@ -83,6 +83,29 @@
 
 ## 安装
 
+macOS / Linux 一键完成 (创建 venv + 装依赖 + 激活):
+
+```bash
+cd baostock && source activate.sh
+```
+
+Windows 对应脚本为 `activate.ps1`。两种用法：
+
+```bash
+source activate.sh     # 推荐: 在当前终端激活, 提示符显示 (.venv) 前缀
+./activate.sh          # 完成环境准备后自动进入已激活的交互子 shell (退出 exit)
+```
+
+可选环境变量与参数：
+
+```bash
+BAOSTOCK_PYTHON=python3.12 source activate.sh          # 指定建 venv 的解释器
+BAOSTOCK_PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple source activate.sh  # 国内 pip 镜像
+./activate.sh --reinstall                              # 忽略缓存标记, 强制重装依赖
+```
+
+或手动安装：
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
