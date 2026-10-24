@@ -730,7 +730,8 @@ func (c *orchestrationCompiler) validateIssues() []orchValidateIssue {
 		case OrchNodeSubOrch:
 			var cfg OrchSubOrchConfig
 			if len(n.Config) == 0 || json.Unmarshal(n.Config, &cfg) != nil || cfg.OrchestrationID <= 0 {
-				add(id, "子编排节点 %s 缺少引用的编排", id)
+				// 模板加载后 suborch 均为占位 0, 必须手选: 报错带操作指引避免无从下手
+				add(id, "子编排节点 %s 未选择引用的编排: 先把被引用的编排单独保存并启用, 再在本节点配置的「引用编排」下拉中选择它", id)
 			}
 		}
 	}

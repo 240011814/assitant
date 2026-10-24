@@ -391,22 +391,14 @@ func (js *JobScheduler) runDefinition(defID uint, triggerType string, attempt in
 		if errors.Is(err, ErrSyncBusy) {
 			run.Status = model.JobRunStatusSkipped
 			run.Error = err.Error()
-			DB.Model(&model.JobRun{}).Where("id = ?", run.ID).Updates(map[string]interface{}{
-				"status":      run.Status,
-				"finished_at": finishAt,
-				"error":       run.Error,
-			})
+			updateJobRun(&run, run.Status, finishAt, run.Error)
 			log.Printf("[JobScheduler] 定时任务 %s 跳过: %v", def.Name, err)
 			return
 		}
 
 		run.Status = model.JobRunStatusFailed
 		run.Error = err.Error()
-		DB.Model(&model.JobRun{}).Where("id = ?", run.ID).Updates(map[string]interface{}{
-			"status":      run.Status,
-			"finished_at": finishAt,
-			"error":       run.Error,
-		})
+		updateJobRun(&run, run.Status, finishAt, run.Error)
 		log.Printf("[JobScheduler] 定时任务 %s 执行失败: %v", def.Name, err)
 
 		// 失败重试: 延迟 attempt 分钟后单次调度
@@ -437,10 +429,7 @@ func (js *JobScheduler) runDefinition(defID uint, triggerType string, attempt in
 	}
 
 	run.Status = model.JobRunStatusSuccess
-	DB.Model(&model.JobRun{}).Where("id = ?", run.ID).Updates(map[string]interface{}{
-		"status":      run.Status,
-		"finished_at": finishAt,
-	})
+	updateJobRun(&run, run.Status, finishAt, "")
 	log.Printf("[JobScheduler] 定时任务 %s 执行成功", def.Name)
 
 	if attempt == 1 {
