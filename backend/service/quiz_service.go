@@ -139,7 +139,7 @@ func (s *QuizService) CreateSession(userID uint, req model.CreateQuizSessionRequ
 			}
 		}
 	default:
-		err = DB.Where("user_id = ?").Order("RAND()").Limit(size * 3).Find(&pool).Error
+		err = DB.Where("user_id = ?", userID).Order("RAND()").Limit(size * 3).Find(&pool).Error
 	}
 	if err != nil {
 		return nil, nil, err
@@ -150,7 +150,7 @@ func (s *QuizService) CreateSession(userID uint, req model.CreateQuizSessionRequ
 
 	// 干扰项池: 随机其他词
 	var distractors []model.Vocabulary
-	if err := DB.Where("user_id = ?").Order("RAND()").Limit(size*2 + 10).Find(&distractors).Error; err != nil {
+	if err := DB.Where("user_id = ?", userID).Order("RAND()").Limit(size*2 + 10).Find(&distractors).Error; err != nil {
 		return nil, nil, err
 	}
 

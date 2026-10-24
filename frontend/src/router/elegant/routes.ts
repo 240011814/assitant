@@ -163,8 +163,9 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'ai_quiz',
           i18nKey: 'route.ai_quiz',
+          icon: 'mdi:card-multiple-outline',
           permissions: ['ai:vocabulary:view'],
-          hideInMenu: true,
+          order: 9,
           keepAlive: true
         }
       },
@@ -175,8 +176,9 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'ai_reading',
           i18nKey: 'route.ai_reading',
+          icon: 'mdi:book-open-page-variant',
           permissions: ['ai:vocabulary:view'],
-          hideInMenu: true,
+          order: 10,
           keepAlive: true
         }
       },

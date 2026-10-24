@@ -502,8 +502,6 @@ onMounted(() => {
                 </NButton>
               </NBadge>
               <ButtonIcon icon="mdi:upload" tooltip-content="导入词书" @click="showImportModal = true" />
-              <ButtonIcon icon="mdi:head-cog-outline" tooltip-content="智能练习" @click="routerPushByKey('ai_quiz')" />
-              <ButtonIcon icon="mdi:bookshelf" tooltip-content="分级阅读" @click="routerPushByKey('ai_reading')" />
             </div>
             <ButtonIcon
               icon="mdi:refresh"
@@ -567,8 +565,6 @@ onMounted(() => {
                 </NButton>
               </NBadge>
               <ButtonIcon icon="mdi:upload" tooltip-content="导入词书" @click="showImportModal = true" />
-              <ButtonIcon icon="mdi:head-cog-outline" tooltip-content="智能练习" @click="routerPushByKey('ai_quiz')" />
-              <ButtonIcon icon="mdi:bookshelf" tooltip-content="分级阅读" @click="routerPushByKey('ai_reading')" />
               <ButtonIcon
                 icon="mdi:refresh"
                 :tooltip-content="$t('common.refresh')"
