@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,10 +21,11 @@ import (
 type ReadingService struct {
 	agentSvc  *AIAgentService
 	courseSvc *CourseService
+	systemCfg *SystemConfigService
 }
 
-func NewReadingService(agentSvc *AIAgentService, courseSvc *CourseService) *ReadingService {
-	return &ReadingService{agentSvc: agentSvc, courseSvc: courseSvc}
+func NewReadingService(agentSvc *AIAgentService, courseSvc *CourseService, systemCfg *SystemConfigService) *ReadingService {
+	return &ReadingService{agentSvc: agentSvc, courseSvc: courseSvc, systemCfg: systemCfg}
 }
 
 var wordTokenRe = regexp.MustCompile(`[A-Za-z]+(?:'[a-zA-Z]+)?`)
@@ -44,7 +46,7 @@ func (s *ReadingService) ImportDoc(userID uint, req model.ReadingImportRequest) 
 		if req.SourceURL == "" {
 			return nil, errors.New("缺少 URL")
 		}
-		text, pageTitle, err := fetchURLText(req.SourceURL)
+		text, pageTitle, err := s.fetchArticleText(req.SourceURL)
 		if err != nil {
 			return nil, fmt.Errorf("抓取网页失败: %w", err)
 		}
@@ -77,6 +79,11 @@ func (s *ReadingService) ImportDoc(userID uint, req model.ReadingImportRequest) 
 	return doc, nil
 }
 
+// httpStatusError 非成功响应 (供上层识别 403/429 等触发绕盾回退)
+type httpStatusError struct{ Code int }
+
+func (e *httpStatusError) Error() string { return fmt.Sprintf("HTTP %d", e.Code) }
+
 // fetchURLText 抓取网页并提取正文纯文本
 func fetchURLText(rawURL string) (string, string, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
@@ -92,14 +99,18 @@ func fetchURLText(rawURL string) (string, string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("HTTP %d", resp.StatusCode)
+		return "", "", &httpStatusError{Code: resp.StatusCode}
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFetchBytes))
 	if err != nil {
 		return "", "", err
 	}
+	return htmlToText(string(body))
+}
 
-	root, err := html.Parse(strings.NewReader(string(body)))
+// htmlToText HTML → 纯文本 (段落以空行分隔), 附带 <title>
+func htmlToText(body string) (string, string, error) {
+	root, err := html.Parse(strings.NewReader(body))
 	if err != nil {
 		return "", "", err
 	}
@@ -142,6 +153,69 @@ func fetchURLText(rawURL string) (string, string, error) {
 	text = regexp.MustCompile(`[ \t]+`).ReplaceAllString(text, " ")
 	text = regexp.MustCompile(`\n{3,}`).ReplaceAllString(text, "\n\n")
 	return strings.TrimSpace(text), title, nil
+}
+
+// fetchArticleText 抓文章正文: 直抓优先; 被盾 (403/429) 且配置了 flaresolverr_url 时,
+// 走 FlareSolverr 无头浏览器回退 (仅用于订阅自己有权访问的公开内容)
+func (s *ReadingService) fetchArticleText(pageURL string) (string, string, error) {
+	text, title, err := fetchURLText(pageURL)
+	if err == nil {
+		return text, title, nil
+	}
+	var statusErr *httpStatusError
+	if !errors.As(err, &statusErr) || (statusErr.Code != http.StatusForbidden && statusErr.Code != http.StatusTooManyRequests) {
+		return "", "", err
+	}
+	if s.systemCfg == nil {
+		return "", "", err
+	}
+	fsURL := ""
+	if v, e := s.systemCfg.GetValue("flaresolverr_url"); e == nil {
+		fsURL = strings.TrimSpace(v)
+	}
+	if fsURL == "" {
+		return "", "", err
+	}
+	fsText, fsTitle, fsErr := fetchViaFlareSolverr(fsURL, pageURL)
+	if fsErr != nil {
+		return "", "", fmt.Errorf("直抓 %v; FlareSolverr 回退失败: %w", err, fsErr)
+	}
+	if title == "" {
+		title = fsTitle
+	}
+	return fsText, title, nil
+}
+
+// fetchViaFlareSolverr 通过 FlareSolverr 服务 (无头浏览器) 抓取被盾页面
+func fetchViaFlareSolverr(fsURL, pageURL string) (string, string, error) {
+	client := &http.Client{Timeout: 90 * time.Second}
+	payload, err := json.Marshal(map[string]interface{}{
+		"cmd":        "request.get",
+		"url":        pageURL,
+		"maxTimeout": 60000,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	resp, err := client.Post(strings.TrimRight(fsURL, "/")+"/v1", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+		Solution struct {
+			Response string `json:"response"`
+		} `json:"solution"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(&out); err != nil {
+		return "", "", err
+	}
+	if out.Status != "ok" || out.Solution.Response == "" {
+		return "", "", fmt.Errorf("%s: %s", out.Status, out.Message)
+	}
+	return htmlToText(out.Solution.Response)
 }
 
 // ListDocs 文档列表 (不含正文, keyword 模糊匹配标题与正文)

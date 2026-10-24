@@ -236,7 +236,11 @@ onMounted(() => {
                     <NTag v-else size="tiny" :bordered="false" class="shrink-0 mt-0.5">无 RSS</NTag>
                   </div>
                 </div>
-                <div class="text-xs text-gray-300">点名称打开网站; 带 RSS 标记的可点击复制 feed 地址。</div>
+                <div class="text-xs text-gray-300">
+                  点名称打开网站; 带 RSS 标记的可点击复制 feed 地址。
+                  无 RSS 的站点可自部署 RSSHub (docker run diygod/rsshub) 生成 feed;
+                  rsshub.app 公共实例有反爬盾, 程序抓取会 403, 别直接用。
+                </div>
               </div>
             </NPopover>
             <NButton type="primary" @click="showImportModal = true">导入文章</NButton>

@@ -21,10 +21,11 @@ const message = useMessage();
 const { routerPushByKey } = useRouterPush();
 
 const loading = ref(false);
-const sources = ref<RSSSource[]>([]);
+const sources = ref<(RSSSource & { unread?: number })[]>([]);
 const items = ref<RSSItem[]>([]);
 const filterSourceId = ref<number | null>(null);
 const unreadOnly = ref(false);
+const refreshingId = ref<number | null>(null);
 
 const pagination = ref({
   page: 1,
@@ -43,6 +44,7 @@ const pagination = ref({
   }
 });
 
+const totalUnread = computed(() => sources.value.reduce((sum, s) => sum + (s.unread || 0), 0));
 const sourceTitle = (sourceId: number) => sources.value.find((s) => s.id === sourceId)?.title || `源 #${sourceId}`;
 
 const statusTag = (status: string) => {
@@ -125,7 +127,6 @@ const loadSources = async () => {
   const { data: resp, error } = await fetchRSSListSources();
   if (error) return;
   sources.value = resp || [];
-  // 过滤的源被删掉时重置
   if (filterSourceId.value && !sources.value.some((s) => s.id === filterSourceId.value)) {
     filterSourceId.value = null;
   }
@@ -152,6 +153,12 @@ async function reloadAll() {
   await Promise.all([loadSources(), loadItems()]);
 }
 
+const selectSource = (id: number | null) => {
+  filterSourceId.value = id;
+  pagination.value.page = 1;
+  loadItems();
+};
+
 // ===================== 订阅管理 =====================
 const showAddModal = ref(false);
 const addForm = ref({ title: "", url: "" });
@@ -167,12 +174,13 @@ const handleAdd = async () => {
   const { data: resp, error } = await fetchRSSAddSource({ title: addForm.value.title, url: addForm.value.url.trim() });
   adding.value = false;
   if (error || !resp) {
-    message.error("添加订阅失败 (请确认地址是可解析的 RSS/Atom feed)");
+    message.error(`添加订阅失败: ${(error as any)?.message || "请确认地址是可解析的 RSS/Atom feed"}`);
     return;
   }
   message.success(`已添加「${resp.title}」并抓取首批文章`);
   showAddModal.value = false;
   addForm.value = { title: "", url: "" };
+  filterSourceId.value = resp.id;
   reloadAll();
 };
 
@@ -186,12 +194,15 @@ const handleDeleteSource = async (id: number) => {
 };
 
 const handleFetchOne = async (source: RSSSource) => {
+  refreshingId.value = source.id;
   const { data: resp, error } = await fetchRSSFetchSource(source.id);
+  refreshingId.value = null;
   if (error) {
     message.error(`「${source.title}」抓取失败`);
     return;
   }
   message.success(`「${source.title}」新增 ${resp?.inserted ?? 0} 篇`);
+  loadSources();
   loadItems();
 };
 
@@ -229,6 +240,9 @@ const openItem = async (item: RSSItem) => {
   showViewer.value = true;
   if (item.status === "unread") {
     item.status = "read";
+    // 同步侧栏未读数
+    const src = sources.value.find((s) => s.id === item.sourceId);
+    if (src && src.unread) src.unread -= 1;
     fetchRSSMarkRead(item.id);
   }
   viewLoading.value = true;
@@ -263,7 +277,7 @@ async function handleImport(item: RSSItem) {
   if (viewItem.value?.id === item.id) {
     viewItem.value = { ...viewItem.value, status: "imported", importedDocId: resp.id };
   }
-};
+}
 
 onMounted(() => {
   reloadAll();
@@ -281,45 +295,101 @@ onActivated(() => {
 </script>
 
 <template>
-  <div class="h-full flex-col flex gap-4 overflow-auto" :class="appStore.isMobile ? 'p-2' : 'p-4'">
-    <NCard :bordered="false" :shadow="appStore.isMobile ? false : 'sm'" class="flex-1">
+  <div class="h-full flex gap-4" :class="appStore.isMobile ? 'flex-col overflow-auto p-2' : 'p-4'">
+    <!-- 左侧: 订阅源列表 (桌面) -->
+    <NCard
+      v-if="!appStore.isMobile"
+      size="small"
+      :bordered="false"
+      shadow="sm"
+      class="w-60 shrink-0 self-start"
+      :title="`订阅源 (${sources.length})`"
+    >
+      <template #header-extra>
+        <NButton size="tiny" quaternary type="primary" @click="showAddModal = true">添加</NButton>
+      </template>
+      <div class="flex flex-col gap-1">
+        <div
+          class="flex items-center justify-between rounded px-2 py-1.5 cursor-pointer"
+          :class="filterSourceId === null ? 'bg-primary/10' : 'hover:bg-gray-100 dark:hover:bg-gray-800'"
+          @click="selectSource(null)"
+        >
+          <span class="text-sm font-bold">全部</span>
+          <NTag v-if="totalUnread > 0" size="tiny" type="warning" :bordered="false">{{ totalUnread }}</NTag>
+        </div>
+        <div
+          v-for="src in sources"
+          :key="src.id"
+          class="group flex items-center justify-between rounded px-2 py-1.5 cursor-pointer"
+          :class="filterSourceId === src.id ? 'bg-primary/10' : 'hover:bg-gray-100 dark:hover:bg-gray-800'"
+          @click="selectSource(src.id)"
+        >
+          <span class="text-sm truncate flex-1" :title="src.title">{{ src.title }}</span>
+          <div class="flex items-center gap-1 shrink-0">
+            <NTag v-if="(src.unread || 0) > 0" size="tiny" type="warning" :bordered="false">{{ src.unread }}</NTag>
+            <SvgIcon
+              icon="mdi:refresh"
+              class="text-14px cursor-pointer text-gray-300 group-hover:text-primary"
+              :class="{ 'animate-spin text-primary': refreshingId === src.id }"
+              @click.stop="handleFetchOne(src)"
+            />
+            <NPopconfirm @positive-click="handleDeleteSource(src.id)">
+              <template #trigger>
+                <SvgIcon
+                  icon="mdi:delete-outline"
+                  class="text-14px cursor-pointer text-gray-300 group-hover:text-error"
+                  @click.stop
+                />
+              </template>
+              删除「{{ src.title }}」及其全部文章?
+            </NPopconfirm>
+          </div>
+        </div>
+        <NEmpty v-if="sources.length === 0" size="small" description="暂无订阅" class="py-4" />
+      </div>
+    </NCard>
+
+    <!-- 主区: 工具栏 + 文章列表 -->
+    <NCard :bordered="false" :shadow="appStore.isMobile ? false : 'sm'" class="flex-1 min-w-0">
       <template #header>
         <div class="flex flex-wrap items-center justify-between gap-2 w-full">
-          <span class="font-bold text-18px">RSS 阅读</span>
-          <div class="flex gap-2">
-            <NButton type="primary" :loading="fetchingAll" @click="handleFetchAll">全部刷新</NButton>
-            <NButton @click="showAddModal = true">添加订阅</NButton>
+          <span class="font-bold text-18px">{{ filterSourceId ? sourceTitle(filterSourceId) : "全部文章" }}</span>
+          <div class="flex flex-wrap gap-2">
+            <div class="flex items-center gap-2 mr-2">
+              <span class="text-xs text-gray-400">仅未读</span>
+              <NSwitch
+                v-model:value="unreadOnly"
+                size="small"
+                @update:value="() => { pagination.page = 1; loadItems(); }"
+              />
+            </div>
+            <NButton size="small" :loading="fetchingAll" @click="handleFetchAll">全部刷新</NButton>
+            <NButton size="small" @click="showAddModal = true">添加订阅</NButton>
           </div>
         </div>
       </template>
 
-      <!-- 源标签行: 点击过滤, 标签内提供刷新/删除 -->
-      <div v-if="sources.length" class="flex flex-wrap items-center gap-2 mb-3">
+      <!-- Mobile: 源横向标签条 -->
+      <div v-if="appStore.isMobile && sources.length" class="flex gap-2 overflow-x-auto mb-3 pb-1">
+        <NTag
+          checkable
+          :checked="filterSourceId === null"
+          size="small"
+          @update:checked="() => selectSource(null)"
+        >
+          全部
+        </NTag>
         <NTag
           v-for="src in sources"
           :key="src.id"
           checkable
           :checked="filterSourceId === src.id"
           size="small"
-          @update:checked="(checked: boolean) => { filterSourceId = checked ? src.id : null; pagination.page = 1; loadItems(); }"
+          @update:checked="(checked: boolean) => selectSource(checked ? src.id : null)"
         >
-          <span class="cursor-pointer">{{ src.title }}</span>
-          <SvgIcon
-            icon="mdi:refresh"
-            class="text-14px ml-1 cursor-pointer text-gray-400 hover:text-primary"
-            @click="handleFetchOne(src)"
-          />
-          <NPopconfirm @positive-click="handleDeleteSource(src.id)">
-            <template #trigger>
-              <SvgIcon icon="mdi:delete-outline" class="text-14px ml-1 cursor-pointer text-gray-400 hover:text-error" />
-            </template>
-            删除「{{ src.title }}」及其全部文章?
-          </NPopconfirm>
+          {{ src.title }}
+          <span v-if="(src.unread || 0) > 0" class="ml-1 text-warning">{{ src.unread }}</span>
         </NTag>
-        <div class="flex items-center gap-2 ml-auto">
-          <span class="text-xs text-gray-400">仅未读</span>
-          <NSwitch v-model:value="unreadOnly" size="small" @update:value="() => { pagination.page = 1; loadItems(); }" />
-        </div>
       </div>
 
       <!-- PC: DataTable -->
@@ -364,20 +434,23 @@ onActivated(() => {
           :item-count="pagination.itemCount"
           :page-size="pagination.pageSize"
           :page-slot="5"
-          @update:page="(p: number) => { pagination.onChange(p); }"
+          @update:page="(p: number) => pagination.onChange(p)"
         />
       </div>
 
-      <NEmpty v-if="!appStore.isMobile && items.length === 0 && !loading" class="py-10" description="暂无文章, 点右上角「添加订阅」开始" />
+      <NEmpty v-if="!appStore.isMobile && items.length === 0 && !loading" class="py-10" description="暂无文章, 从左侧添加订阅开始" />
     </NCard>
 
     <!-- 添加订阅 -->
     <NModal v-model:show="showAddModal" preset="card" title="添加订阅" :style="{ width: appStore.isMobile ? '92%' : '460px' }">
       <div class="flex flex-col gap-4 py-2">
-        <NInput v-model:value="addForm.url" placeholder="RSS/Atom feed 地址 (如 https://www.newsinlevels.com/feed/)" @keyup.enter="handleAdd" />
+        <NInput v-model:value="addForm.url" placeholder="RSS/Atom feed 地址 (如自部署 RSSHub 的路由)" @keyup.enter="handleAdd" />
         <NInput v-model:value="addForm.title" placeholder="自定义名称 (可选, 默认取 feed 标题)" />
         <NButton type="primary" block :loading="adding" @click="handleAdd">添加</NButton>
-        <div class="text-xs text-gray-400">添加时会先验证 feed 可解析, 成功后自动抓取最近的文章。</div>
+        <div class="text-xs text-gray-400">
+          添加时会先验证 feed 可解析, 成功后自动抓取最近的文章。
+          抓正文遇反爬盾时, 可在系统配置里设置 flaresolverr_url 走无头浏览器回退。
+        </div>
       </div>
     </NModal>
 

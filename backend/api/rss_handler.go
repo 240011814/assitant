@@ -32,10 +32,10 @@ func (h *RSSHandler) HandleAddRSSSource(c *gin.Context) {
 	SendSuccess(c, source)
 }
 
-// HandleListRSSSources 订阅源列表
+// HandleListRSSSources 订阅源列表 (含未读数)
 func (h *RSSHandler) HandleListRSSSources(c *gin.Context) {
 	userId := GetUserID(c)
-	list, err := h.svc.ListSources(userId)
+	list, err := h.svc.ListSourcesWithUnread(userId)
 	if err != nil {
 		SendError(c, "500", "获取订阅列表失败: "+err.Error())
 		return

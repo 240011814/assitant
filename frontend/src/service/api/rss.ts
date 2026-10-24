@@ -9,6 +9,8 @@ export interface RSSSource {
   lastFetchedAt: string | null;
   lastError: string;
   createdAt: string;
+  /** 未读数 (列表接口附带) */
+  unread?: number;
 }
 
 /** RSS 文章条目 (正文按需拉取) */

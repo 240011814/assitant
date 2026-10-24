@@ -78,6 +78,8 @@ func fetchRSSFeed(feedURL string) (*gofeed.Feed, error) {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("Accept", "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html, */*")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -85,6 +87,14 @@ func fetchRSSFeed(feedURL string) (*gofeed.Feed, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		// 403/429 多为反爬盾 (典型: rsshub.app 公共实例拦程序抓取), 单改请求头无解
+		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
+			return nil, fmt.Errorf("HTTP %d: 站点有反爬盾拦截程序抓取; rsshub.app 等公共实例会这样, 请自部署 RSSHub (docker run diygod/rsshub) 后用其内网地址, 或改用带 RSS 的源", resp.StatusCode)
+		}
+		// 5xx: 自部署 RSSHub 常见于路由的上游站抓取失败, 去看 RSSHub 容器日志
+		if resp.StatusCode >= 500 {
+			return nil, fmt.Errorf("HTTP %d: 源服务器内部错误; 若是自部署 RSSHub, 多为该路由的上游站抓取失败, 查看 RSSHub 容器日志定位", resp.StatusCode)
+		}
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, rssFetchMaxBytes))
@@ -153,6 +163,40 @@ func (s *RSSService) ListSources(userID uint) ([]model.RSSSource, error) {
 	var list []model.RSSSource
 	err := DB.Where("user_id = ?", userID).Order("created_at ASC").Find(&list).Error
 	return list, err
+}
+
+// RSSSourceWithUnread 订阅源 + 未读数 (侧栏展示)
+type RSSSourceWithUnread struct {
+	model.RSSSource
+	Unread int64 `json:"unread"`
+}
+
+// ListSourcesWithUnread 订阅源列表, 附各源未读数
+func (s *RSSService) ListSourcesWithUnread(userID uint) ([]RSSSourceWithUnread, error) {
+	sources, err := s.ListSources(userID)
+	if err != nil {
+		return nil, err
+	}
+	type cntRow struct {
+		SourceID uint `gorm:"column:source_id"`
+		Cnt      int64 `gorm:"column:cnt"`
+	}
+	var rows []cntRow
+	if err := DB.Model(&model.RSSItem{}).
+		Select("source_id, COUNT(*) as cnt").
+		Where("user_id = ? AND status = 'unread'", userID).
+		Group("source_id").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	unread := make(map[uint]int64, len(rows))
+	for _, r := range rows {
+		unread[r.SourceID] = r.Cnt
+	}
+	out := make([]RSSSourceWithUnread, 0, len(sources))
+	for _, src := range sources {
+		out = append(out, RSSSourceWithUnread{RSSSource: src, Unread: unread[src.ID]})
+	}
+	return out, nil
 }
 
 // DeleteSource 删除订阅源及其条目
@@ -238,7 +282,8 @@ func (s *RSSService) GetItemContent(userID, id uint) (*model.RSSItem, error) {
 		return &item, nil
 	}
 
-	text, _, err := fetchURLText(item.Link)
+	// 直抓被盾且配置了 FlareSolverr 时自动回退 (readingSvc 在 main 中始终注入)
+	text, _, err := s.readingSvc.fetchArticleText(item.Link)
 	if err != nil {
 		return nil, fmt.Errorf("抓取原文失败: %w", err)
 	}

@@ -166,7 +166,7 @@ func main() {
 	vocabHandler := api.NewVocabularyHandler(vocabService)
 	quizService := service.NewQuizService(aiAgentService)
 	quizHandler := api.NewQuizHandler(quizService)
-	readingService := service.NewReadingService(aiAgentService, courseService)
+	readingService := service.NewReadingService(aiAgentService, courseService, systemConfigService)
 	readingHandler := api.NewReadingHandler(readingService)
 	rssService := service.NewRSSService(readingService)
 	rssHandler := api.NewRSSHandler(rssService)
