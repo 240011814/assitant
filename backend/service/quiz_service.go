@@ -389,6 +389,9 @@ func (s *QuizService) GetSession(userID, sessionID uint) (*model.QuizSession, []
 	if err != nil {
 		return nil, nil, err
 	}
+	for i := range questions {
+		questions[i].Answer = ""
+	}
 	return session, questions, nil
 }
 

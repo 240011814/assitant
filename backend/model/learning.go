@@ -37,7 +37,7 @@ type QuizQuestion struct {
 	Prompt   string   `json:"prompt"`
 	Hint     string   `json:"hint,omitempty"` // 听写 TTS 文本 / 中文提示等
 	Options  []string `json:"options,omitempty"`
-	Answer   string   `json:"-"` // 正确答案, 服务端判分用
+	Answer   string   `json:"answer,omitempty"` // 正确答案: 随会话 JSON 落库, 返回前端前必须剥离
 	Word     string   `json:"word,omitempty"`
 	Done     bool     `json:"done"` // 已作答
 }
