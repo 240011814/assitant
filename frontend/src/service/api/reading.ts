@@ -1,5 +1,8 @@
 import { request } from '../request';
 
+/** 慢 LLM 请求 (全文标注/课文生成) 的超时: 后端专用超时 4 分钟, 前端放宽到 250s 取后端结构化错误而非本地超时 */
+const SLOW_LLM_TIMEOUT = 250 * 1000;
+
 /** 阅读文档 (列表项) */
 export interface ReadingDoc {
   id: number;
@@ -70,7 +73,8 @@ export function fetchDeleteReadingDoc(id: number) {
 export function fetchAnnotateReadingDoc(id: number) {
   return request<ReadingDocDetail>({
     url: `/api/reading/docs/${id}/annotate`,
-    method: 'post'
+    method: 'post',
+    timeout: SLOW_LLM_TIMEOUT
   });
 }
 
@@ -88,6 +92,7 @@ export function fetchGeneratePassage(data: { wordIds?: number[]; sentenceCount?:
   return request<{ course: { id: number; title: string }; usedWords: string[] }>({
     url: '/api/reading/generate-passage',
     method: 'post',
-    data
+    data,
+    timeout: SLOW_LLM_TIMEOUT
   });
 }

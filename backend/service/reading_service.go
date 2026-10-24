@@ -30,6 +30,10 @@ var wordTokenRe = regexp.MustCompile(`[A-Za-z]+(?:'[a-zA-Z]+)?`)
 // maxFetchBytes URL 抓取大小上限
 const maxFetchBytes = 2 << 20
 
+// slowGenTimeout 课文生成/全文标注等慢 LLM 任务的专用超时, 不随全局 AI 超时收紧;
+// 留 60s 余量给 nginx /api/ 的 proxy_read_timeout (300s)
+const slowGenTimeout = 4 * time.Minute
+
 // ImportDoc 导入阅读材料 (URL 自动抓取正文, 或直接用文本)
 func (s *ReadingService) ImportDoc(userID uint, req model.ReadingImportRequest) (*model.ReadingDoc, error) {
 	content := strings.TrimSpace(req.Content)
@@ -186,7 +190,7 @@ func (s *ReadingService) AnnotateDoc(userID, id uint) (*model.ReadingDoc, []mode
 	system := `你是英语分级阅读标注助手。找出文中对学习者构成障碍的超纲生词 (低频词、习语、专有表达; 排除最常用 3000 词和普通专有名词), 给出中文释义。只输出 JSON 数组:
 [{"word": "<原文中的词或短语>", "meaning": "<中文释义>", "reason": "<低频/习语/术语>"}]`
 	user := fmt.Sprintf("文章:\n%s\n\n最多标注 40 个。", text)
-	raw, err := s.agentSvc.GenerateText(userID, "", system, user)
+	raw, err := s.agentSvc.GenerateTextWithTimeout(userID, "", system, user, slowGenTimeout)
 	if err != nil {
 		DB.Model(&doc).Update("status", "failed")
 		return nil, nil, fmt.Errorf("标注失败: %w", err)
@@ -304,7 +308,7 @@ func (s *ReadingService) GeneratePassage(userID uint, req model.GeneratePassageR
 	system := `你是英语课文编写助手。写一篇短文, 把指定的每个单词都自然地用到至少一个句子里 (不要生硬堆砌), 难度约 CEFR B1。只输出 JSON:
 {"title": "<英文标题>", "sentences": [{"en": "<英文句子>", "zh": "<中文翻译>"}]}`
 	user := fmt.Sprintf("必须使用的单词: %s\n句子数量: %d 句左右。", strings.Join(wordList, ", "), count)
-	raw, err := s.agentSvc.GenerateText(userID, "", system, user)
+	raw, err := s.agentSvc.GenerateTextWithTimeout(userID, "", system, user, slowGenTimeout)
 	if err != nil {
 		return nil, nil, fmt.Errorf("生成课文失败: %w", err)
 	}

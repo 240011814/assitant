@@ -647,11 +647,17 @@ func (s *AIAgentService) getTimeout() time.Duration {
 // GenerateText 非流式生成, 供画像/经历抽取等后台任务复用当前模型配置。
 // userID>0 时把本次调用的 token 用量记账到该用户 (此前抽取链路漏记, 限额统计偏低)
 func (s *AIAgentService) GenerateText(userID uint, modelOverride, systemPrompt, userPrompt string) (string, error) {
+	return s.GenerateTextWithTimeout(userID, modelOverride, systemPrompt, userPrompt, s.getTimeout())
+}
+
+// GenerateTextWithTimeout 自定义超时版非流式生成: 课文生成/全文标注等慢任务用,
+// 不随全局 AI 超时收紧 (上限另受 nginx /api/ 的 proxy_read_timeout 约束)
+func (s *AIAgentService) GenerateTextWithTimeout(userID uint, modelOverride, systemPrompt, userPrompt string, timeout time.Duration) (string, error) {
 	chatModel, err := s.getModel(modelOverride)
 	if err != nil {
 		return "", err
 	}
-	ctx, cancel := context.WithTimeout(s.ctx, s.getTimeout())
+	ctx, cancel := context.WithTimeout(s.ctx, timeout)
 	defer cancel()
 	resp, err := chatModel.Generate(ctx, []*schema.Message{
 		{Role: schema.System, Content: systemPrompt},
