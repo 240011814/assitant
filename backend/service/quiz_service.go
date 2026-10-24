@@ -521,8 +521,8 @@ func (s *QuizService) SentencePractice(userID uint, req model.SentencePracticeRe
 	}
 
 	var result model.SentencePracticeResult
-	if err := json.Unmarshal([]byte(extractJSON(raw)), &result); err != nil {
-		return nil, errors.New("AI 返回格式异常")
+	if err := decodeLLMObject(raw, &result); err != nil {
+		return nil, errors.New("AI 返回格式异常 (详见后端日志)")
 	}
 	result.Word = word.Word
 	// 答得差的句子进错题本

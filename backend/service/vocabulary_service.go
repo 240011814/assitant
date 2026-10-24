@@ -506,8 +506,8 @@ func (s *VocabularyService) AssistForgetfulWord(userID, id uint) (*model.Vocabul
 		Example  string `json:"example"`
 		Mnemonic string `json:"mnemonic"`
 	}
-	if err := json.Unmarshal([]byte(extractJSON(raw)), &assist); err != nil || assist.Example == "" {
-		return nil, errors.New("AI 返回格式异常")
+	if err := decodeLLMObject(raw, &assist); err != nil || assist.Example == "" {
+		return nil, errors.New("AI 返回格式异常 (详见后端日志)")
 	}
 	if err := DB.Model(&model.Vocabulary{}).Where("id = ?", word.ID).Updates(map[string]interface{}{
 		"assist_example":  assist.Example,

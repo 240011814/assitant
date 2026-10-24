@@ -216,9 +216,13 @@ func (s *ReadingService) annotateDocSync(userID, id uint) error {
 	}
 
 	var flagged []model.DifficultWord
-	if err := json.Unmarshal([]byte(extractJSON(raw)), &flagged); err != nil || len(flagged) == 0 {
+	if err := decodeLLMArray(raw, &flagged); err != nil {
 		DB.Model(&doc).Update("status", "failed")
-		return errors.New("AI 返回格式异常")
+		return errors.New("标注失败: AI 返回格式异常 (详见后端日志)")
+	}
+	// 解析成功但 0 个生词是合法结果 (文章全在掌握范围内), 正常落 annotated
+	if len(flagged) == 0 {
+		log.Printf("reading annotate #%d 标注结果为空 (模型未找出超纲词)", id)
 	}
 
 	// 标记已在生词本中的词
@@ -273,8 +277,8 @@ func (s *ReadingService) LookupWord(userID uint, word string) (*model.Dictionary
 	}
 
 	var entry model.DictionaryCache
-	if err := json.Unmarshal([]byte(extractJSON(raw)), &entry); err != nil {
-		return nil, errors.New("AI 返回格式异常")
+	if err := decodeLLMObject(raw, &entry); err != nil {
+		return nil, errors.New("查词失败: AI 返回格式异常 (详见后端日志)")
 	}
 	entry.Word = word
 	if err := DB.Where("word = ?", word).FirstOrCreate(&entry).Error; err != nil {
@@ -364,8 +368,8 @@ func (s *ReadingService) generatePassageSync(userID uint, req model.GeneratePass
 			Zh string `json:"zh"`
 		} `json:"sentences"`
 	}
-	if err := json.Unmarshal([]byte(extractJSON(raw)), &passage); err != nil || len(passage.Sentences) == 0 {
-		return nil, nil, errors.New("AI 返回格式异常")
+	if err := decodeLLMObject(raw, &passage); err != nil || len(passage.Sentences) == 0 {
+		return nil, nil, errors.New("AI 返回格式异常 (详见后端日志)")
 	}
 
 	items := make([]model.CreateCourseItemRequest, 0, len(passage.Sentences))
