@@ -29,7 +29,8 @@ http {
     index index.html index.htm;
 
     # CSP 只写一次, 各 location 经变量引用 (location 内出现任何 add_header 都不再继承 server 级头, 需重复声明)
-    set $csp "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-src https://quote.eastmoney.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
+    # connect-src 放行 api.iconify.design: SvgIcon 的 iconify 图标运行时从该 API 拉取数据
+    set $csp "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://api.iconify.design; worker-src 'self' blob:; frame-src https://quote.eastmoney.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
 
     # ---- 安全响应头 ----
     add_header X-Content-Type-Options "nosniff" always;
@@ -66,8 +67,13 @@ http {
     }
 
     # 后端 API (含 SSE 流式对话: HTTP/1.1 长连接 + 关闭响应缓冲, 否则事件会被 nginx 攒批导致卡顿)
+    # upstream 用变量 + resolver: proxy_pass 静态主机名只在启动时解析一次 Docker DNS,
+    # backend 容器重建后 IP 变化会导致 nginx 持续打到旧地址 (间歇性 502/前端超时);
+    # 127.0.0.11 是 Docker 内置 DNS, valid=10s 每 10 秒重新解析
     location ^~/api/ {
-      proxy_pass ${BACKEND_URL};
+      resolver 127.0.0.11 valid=10s ipv6=off;
+      set $backend_upstream ${BACKEND_URL};
+      proxy_pass $backend_upstream;
       proxy_http_version 1.1;
       proxy_set_header Host $host;
       proxy_set_header X-Real-IP $remote_addr;
@@ -81,7 +87,9 @@ http {
     }
 
     location ^~/auth/ {
-      proxy_pass ${BACKEND_URL};
+      resolver 127.0.0.11 valid=10s ipv6=off;
+      set $backend_upstream ${BACKEND_URL};
+      proxy_pass $backend_upstream;
       proxy_http_version 1.1;
       proxy_set_header Host $host;
       proxy_set_header X-Real-IP $remote_addr;
