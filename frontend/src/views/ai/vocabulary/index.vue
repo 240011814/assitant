@@ -8,9 +8,11 @@ import {
   fetchGetVocabularyList,
   fetchUpdateVocabulary,
   fetchGetRandomVocabulary,
-  fetchGetDueVocabulary,
+  fetchGetReviewSession,
   fetchGetVocabularyReviewStats,
-  fetchSubmitVocabularyReview,
+  fetchSubmitReviewFSRS,
+  fetchAssistVocabulary,
+  fetchImportVocabularyFile,
 } from "@/service/api";
 import { onKeyStroke } from "@vueuse/core";
 import { speak } from "@/utils/tts";
@@ -85,6 +87,24 @@ const columns = computed<DataTableColumns<any>>(() => {
       fixed: "right",
       render(row) {
         const actions = [
+          h(
+            NButton,
+            {
+              size: "small",
+              type: "info",
+              quaternary: true,
+              title: "AI 助记",
+              // eslint-disable-next-line @typescript-eslint/no-use-before-define
+              onClick: () => handleAssist(row),
+            },
+            {
+              icon: () =>
+                h(resolveComponent("SvgIcon"), {
+                  icon: "mdi:lightbulb-on-outline",
+                  class: "text-18px text-info",
+                }),
+            }
+          ),
           h(
             NButton,
             {
@@ -260,20 +280,32 @@ const handleRandomPractice = async () => {
   }
 };
 
-// ===================== SRS 今日复习 =====================
+// ===================== FSRS 今日复习 (双向卡 + 四级评分) =====================
 const reviewStats = ref<Api.Vocabulary.ReviewStats | null>(null);
 const showReviewModal = ref(false);
 const reviewLoading = ref(false);
 const reviewSubmitting = ref(false);
-const reviewList = ref<Api.Vocabulary.Item[]>([]);
+const reviewCards = ref<Api.Vocabulary.ReviewCard[]>([]);
 const reviewIndex = ref(0);
 const reviewFlipped = ref(false);
 const reviewDone = ref(false);
-const reviewKnownCount = ref(0);
-const reviewForgottenCount = ref(0);
-const lastReviewBox = ref<{ word: string; srsBox: number } | null>(null);
+const reviewGradeCounts = ref([0, 0, 0, 0]); // Again/Hard/Good/Easy
+const lastGraded = ref<{ word: string; next: string } | null>(null);
+const cardShownAt = ref(0);
 
-const currentReviewWord = computed(() => reviewList.value[reviewIndex.value] || null);
+const currentCard = computed(() => reviewCards.value[reviewIndex.value] || null);
+// 正面显示英文的卡: en2zh (再认) 与 listen (听音辨词); zh2en 正面显示中文释义 (主动回忆)
+const isFrontEnglish = computed(() => currentCard.value?.direction !== "zh2en");
+const directionLabel = computed(() => {
+  switch (currentCard.value?.direction) {
+    case "zh2en":
+      return "中 → 英";
+    case "listen":
+      return "听音辨词";
+    default:
+      return "英 → 中";
+  }
+});
 
 const loadReviewStats = async () => {
   const { data: resp, error } = await fetchGetVocabularyReviewStats();
@@ -289,46 +321,95 @@ const startReview = async () => {
   reviewDone.value = false;
   reviewIndex.value = 0;
   reviewFlipped.value = false;
-  reviewKnownCount.value = 0;
-  reviewForgottenCount.value = 0;
-  lastReviewBox.value = null;
+  reviewGradeCounts.value = [0, 0, 0, 0];
+  lastGraded.value = null;
   reviewLoading.value = true;
-  const { data: resp, error } = await fetchGetDueVocabulary({ limit: 20 });
+  const { data: resp, error } = await fetchGetReviewSession({ limit: 20 });
   reviewLoading.value = false;
   if (error) {
     message.error($t("page.ai.vocabulary.reviewLoadFailed"));
     return;
   }
-  reviewList.value = resp || [];
+  reviewCards.value = [...(resp?.reviews || []), ...(resp?.newWords || [])];
+  cardShownAt.value = Date.now();
+  // 听音辨词卡正面自动朗读
+  if (reviewCards.value[0]?.direction === "listen") {
+    handlePlay(reviewCards.value[0].word.word);
+  }
 };
 
-const handleReview = async (known: boolean) => {
-  const current = currentReviewWord.value;
+const handleReviewGrade = async (rating: 1 | 2 | 3 | 4) => {
+  const current = currentCard.value;
   if (!current || reviewSubmitting.value) return;
   reviewSubmitting.value = true;
-  const { data: resp, error } = await fetchSubmitVocabularyReview(current.id, known);
+  const durationMs = Date.now() - cardShownAt.value;
+  const { data: resp, error } = await fetchSubmitReviewFSRS(current.word.id, rating, current.direction, durationMs);
   reviewSubmitting.value = false;
   if (error) {
     message.error($t("page.ai.vocabulary.reviewSubmitFailed"));
     return;
   }
-  if (known) {
-    reviewKnownCount.value += 1;
-  } else {
-    reviewForgottenCount.value += 1;
-  }
-  // 展示提交后的新盒子
+  reviewGradeCounts.value[rating - 1] += 1;
   if (resp) {
-    lastReviewBox.value = { word: resp.word, srsBox: resp.srsBox };
+    lastGraded.value = {
+      word: resp.word,
+      next: resp.nextReviewAt ? new Date(resp.nextReviewAt).toLocaleString() : "已毕业",
+    };
   }
-  if (reviewIndex.value + 1 >= reviewList.value.length) {
+  if (reviewIndex.value + 1 >= reviewCards.value.length) {
     reviewDone.value = true;
     loadReviewStats();
     loadData();
   } else {
     reviewIndex.value += 1;
     reviewFlipped.value = false;
+    cardShownAt.value = Date.now();
+    if (reviewCards.value[reviewIndex.value]?.direction === "listen") {
+      handlePlay(reviewCards.value[reviewIndex.value].word.word);
+    }
   }
+};
+
+// ===================== 遗忘干预 (AI 助记) =====================
+const showAssistModal = ref(false);
+const assistLoading = ref(false);
+const assistWord = ref<Api.Vocabulary.Item | null>(null);
+
+const handleAssist = async (row: any) => {
+  showAssistModal.value = true;
+  assistLoading.value = true;
+  assistWord.value = null;
+  const { data: resp, error } = await fetchAssistVocabulary(row.id);
+  assistLoading.value = false;
+  if (error || !resp) {
+    message.error("生成记忆辅助失败");
+    showAssistModal.value = false;
+    return;
+  }
+  assistWord.value = resp;
+};
+
+// ===================== 词书批量导入 =====================
+const showImportModal = ref(false);
+const importLoading = ref(false);
+const importSourceTag = ref("词书导入");
+const importFileRef = ref<HTMLInputElement | null>(null);
+
+const handleImportFile = async (e: Event) => {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  importLoading.value = true;
+  const { data: resp, error } = await fetchImportVocabularyFile(file, importSourceTag.value);
+  importLoading.value = false;
+  input.value = "";
+  if (error || !resp) {
+    message.error("导入失败");
+    return;
+  }
+  message.success(`导入完成: 新增 ${resp.added}, 跳过(已存在) ${resp.skipped}, 失败 ${resp.failed.length}`);
+  loadData();
+  loadReviewStats();
 };
 
 onMounted(() => {
@@ -482,6 +563,30 @@ onMounted(() => {
                   {{ $t("page.ai.vocabulary.todayReview") }}
                 </NButton>
               </NBadge>
+              <NButton @click="showImportModal = true">
+                <template #icon>
+                  <IconMdiUploadOutline class="text-icon" />
+                </template>
+                导入词书
+              </NButton>
+              <NButton type="info" @click="routerPushByKey('ai_quiz')">
+                <template #icon>
+                  <IconMdiHeadCogOutline class="text-icon" />
+                </template>
+                智能练习
+              </NButton>
+              <NButton type="info" @click="routerPushByKey('ai_reading')">
+                <template #icon>
+                  <IconMdiBookshelf class="text-icon" />
+                </template>
+                分级阅读
+              </NButton>
+              <NButton type="info" @click="routerPushByKey('ai_learning-stats')">
+                <template #icon>
+                  <IconMdiChartAreaspline class="text-icon" />
+                </template>
+                学习看板
+              </NButton>
               <ButtonIcon
                 icon="mdi:refresh"
                 :tooltip-content="$t('common.refresh')"
@@ -581,79 +686,176 @@ onMounted(() => {
       </template>
     </NModal>
 
-    <!-- SRS Daily Review Dialog -->
+    <!-- FSRS Daily Review Dialog -->
     <NModal
       v-model:show="showReviewModal"
       preset="card"
       :title="$t('page.ai.vocabulary.reviewTitle')"
-      :style="{ width: appStore.isMobile ? '92%' : '480px' }"
+      :style="{ width: appStore.isMobile ? '92%' : '520px' }"
     >
       <NSpin :show="reviewLoading">
         <!-- 全部完成: 本次统计 -->
         <div v-if="reviewDone" class="flex flex-col items-center gap-6 py-10">
           <span class="text-lg font-bold">{{ $t('page.ai.vocabulary.reviewComplete') }}</span>
-          <div class="flex gap-10">
-            <div class="flex flex-col items-center gap-1">
-              <span class="text-2xl font-bold text-primary">{{ reviewKnownCount + reviewForgottenCount }}</span>
-              <span class="text-xs text-gray-400">{{ $t('page.ai.vocabulary.reviewedCount') }}</span>
+          <div class="flex gap-8">
+            <div v-for="(label, idx) in ['忘记', '困难', '良好', '简单']" :key="label" class="flex flex-col items-center gap-1">
+              <span
+                class="text-2xl font-bold"
+                :class="['text-error', 'text-warning', 'text-success', 'text-info'][idx]"
+              >
+                {{ reviewGradeCounts[idx] }}
+              </span>
+              <span class="text-xs text-gray-400">{{ label }}</span>
             </div>
-            <div class="flex flex-col items-center gap-1">
-              <span class="text-2xl font-bold text-success">{{ reviewKnownCount }}</span>
-              <span class="text-xs text-gray-400">{{ $t('page.ai.vocabulary.knownCount') }}</span>
-            </div>
-            <div class="flex flex-col items-center gap-1">
-              <span class="text-2xl font-bold text-error">{{ reviewForgottenCount }}</span>
-              <span class="text-xs text-gray-400">{{ $t('page.ai.vocabulary.forgottenCount') }}</span>
-            </div>
+          </div>
+          <div v-if="lastGraded" class="text-xs text-gray-400">
+            {{ lastGraded.word }} → 下次复习: {{ lastGraded.next }}
           </div>
         </div>
 
-        <!-- 无到期词汇 -->
-        <NEmpty v-else-if="!currentReviewWord" class="py-10" :description="$t('page.ai.vocabulary.reviewNoDue')" />
+        <!-- 无卡片 -->
+        <NEmpty v-else-if="!currentCard" class="py-10" :description="$t('page.ai.vocabulary.reviewNoDue')" />
 
         <!-- 复习卡片 -->
         <div v-else class="flex flex-col gap-4">
-          <div class="text-center text-xs text-gray-400">
-            {{ reviewIndex + 1 }} / {{ reviewList.length }}
+          <div class="flex items-center justify-between text-xs text-gray-400">
+            <span>{{ reviewIndex + 1 }} / {{ reviewCards.length }}</span>
+            <div class="flex items-center gap-2">
+              <NTag size="small" :bordered="false" type="info">{{ directionLabel }}</NTag>
+              <NTag
+                v-if="currentCard.word.fsrsState === 0"
+                size="small"
+                :bordered="false"
+                type="success"
+              >
+                新词
+              </NTag>
+              <NTag
+                v-else-if="currentCard.word.fsrsLapses >= 3"
+                size="small"
+                :bordered="false"
+                type="error"
+              >
+                易忘 ×{{ currentCard.word.fsrsLapses }}
+              </NTag>
+            </div>
           </div>
-          <div
-            v-if="lastReviewBox"
-            class="text-center text-12px text-success"
-          >
-            {{ lastReviewBox.word }} → {{ $t('page.ai.vocabulary.nextBox') }} {{ lastReviewBox.srsBox }}
+          <div v-if="lastGraded" class="text-center text-12px text-success">
+            {{ lastGraded.word }} → 下次复习: {{ lastGraded.next }}
           </div>
           <div
             class="min-h-200px rounded-lg border border-gray-200 p-6 flex flex-col items-center justify-center cursor-pointer select-none dark:border-gray-700"
             @click="reviewFlipped = !reviewFlipped"
           >
+            <!-- 正面 -->
             <template v-if="!reviewFlipped">
+              <template v-if="isFrontEnglish">
+                <div class="flex items-center gap-2">
+                  <span v-if="currentCard.direction !== 'listen'" class="text-3xl font-bold text-primary">
+                    {{ currentCard.word.word }}
+                  </span>
+                  <span v-else class="text-xl text-gray-400">🔊 点击喇叭听音辨词</span>
+                  <NButton circle size="small" quaternary type="primary" @click.stop="handlePlay(currentCard.word.word)">
+                    <template #icon>
+                      <SvgIcon icon="mdi:volume-high" class="text-20px" />
+                    </template>
+                  </NButton>
+                </div>
+                <div v-if="currentCard.direction !== 'listen'" class="mt-2 text-sm text-gray-400">
+                  {{ currentCard.word.phonetic }}
+                </div>
+              </template>
+              <template v-else>
+                <div class="text-lg text-gray-700 dark:text-gray-200">{{ currentCard.word.definition }}</div>
+                <div class="mt-2 text-xs text-gray-400">回想英文单词</div>
+              </template>
+            </template>
+            <!-- 背面 -->
+            <template v-else>
               <div class="flex items-center gap-2">
-                <span class="text-3xl font-bold text-primary">{{ currentReviewWord.word }}</span>
-                <NButton circle size="small" quaternary type="primary" @click.stop="handlePlay(currentReviewWord.word)">
+                <span class="text-3xl font-bold text-primary">{{ currentCard.word.word }}</span>
+                <NButton circle size="small" quaternary type="primary" @click.stop="handlePlay(currentCard.word.word)">
                   <template #icon>
                     <SvgIcon icon="mdi:volume-high" class="text-20px" />
                   </template>
                 </NButton>
               </div>
-              <div class="mt-2 text-sm text-gray-400">{{ currentReviewWord.phonetic }}</div>
-            </template>
-            <template v-else>
-              <div class="text-lg text-gray-700 dark:text-gray-200">{{ currentReviewWord.definition }}</div>
-              <div v-if="currentReviewWord.example" class="mt-3 text-sm text-gray-500 italic">
-                {{ currentReviewWord.example }}
+              <div class="mt-1 text-sm text-gray-400">{{ currentCard.word.phonetic }}</div>
+              <div class="mt-3 text-lg text-gray-700 dark:text-gray-200">{{ currentCard.word.definition }}</div>
+              <div v-if="currentCard.word.example" class="mt-3 text-sm text-gray-500 italic">
+                {{ currentCard.word.example }}
               </div>
-              <div v-if="currentReviewWord.confusingWords" class="mt-2 text-xs text-gray-400">
-                {{ $t('page.ai.vocabulary.confusing') }}: {{ currentReviewWord.confusingWords }}
+              <div v-if="currentCard.word.assistMnemonic" class="mt-2 text-xs text-warning">
+                💡 {{ currentCard.word.assistMnemonic }}
               </div>
             </template>
             <div class="mt-4 text-xs text-gray-300">{{ $t('page.ai.vocabulary.reviewFlipHint') }}</div>
           </div>
-          <div class="flex justify-center gap-6">
-            <NButton type="error" size="large" :loading="reviewSubmitting" @click="handleReview(false)">
-              {{ $t('page.ai.vocabulary.reviewForgot') }}
+          <div class="flex justify-center gap-3">
+            <NButton type="error" size="large" :loading="reviewSubmitting" @click="handleReviewGrade(1)">
+              忘记
             </NButton>
-            <NButton type="success" size="large" :loading="reviewSubmitting" @click="handleReview(true)">
-              {{ $t('page.ai.vocabulary.reviewKnow') }}
+            <NButton type="warning" size="large" :loading="reviewSubmitting" @click="handleReviewGrade(2)">
+              困难
+            </NButton>
+            <NButton type="success" size="large" :loading="reviewSubmitting" @click="handleReviewGrade(3)">
+              良好
+            </NButton>
+            <NButton type="info" size="large" :loading="reviewSubmitting" @click="handleReviewGrade(4)">
+              简单
+            </NButton>
+          </div>
+        </div>
+      </NSpin>
+    </NModal>
+
+    <!-- 词书批量导入 -->
+    <NModal
+      v-model:show="showImportModal"
+      preset="card"
+      title="导入词书"
+      :style="{ width: appStore.isMobile ? '92%' : '460px' }"
+    >
+      <div class="flex flex-col gap-4 py-2">
+        <div class="text-sm text-gray-500">
+          支持 txt / csv 词书文件: 每行一个词, 制表符或逗号分隔 <code>word, 音标, 释义, 例句</code>。已存在的词自动跳过。
+        </div>
+        <NInput v-model:value="importSourceTag" placeholder="来源标签" />
+        <input ref="importFileRef" type="file" accept=".txt,.csv,.tsv" class="hidden" @change="handleImportFile" />
+        <NButton
+          type="primary"
+          block
+          :loading="importLoading"
+          @click="importFileRef?.click()"
+        >
+          选择文件并导入
+        </NButton>
+      </div>
+    </NModal>
+
+    <!-- 遗忘干预: AI 助记 -->
+    <NModal
+      v-model:show="showAssistModal"
+      preset="card"
+      title="AI 记忆辅助"
+      :style="{ width: appStore.isMobile ? '92%' : '480px' }"
+    >
+      <NSpin :show="assistLoading">
+        <div v-if="assistWord" class="flex flex-col gap-4 py-2">
+          <div class="flex items-center gap-2">
+            <span class="text-2xl font-bold text-primary">{{ assistWord.word }}</span>
+            <span class="text-sm text-gray-400">{{ assistWord.phonetic }}</span>
+            <NTag size="small" type="error" :bordered="false">已遗忘 {{ assistWord.fsrsLapses }} 次</NTag>
+          </div>
+          <div class="text-sm text-gray-600 dark:text-gray-300">{{ assistWord.definition }}</div>
+          <NAlert type="info" :bordered="false">
+            <div class="font-bold mb-1">💡 助记</div>
+            {{ assistWord.assistMnemonic || '生成中...' }}
+          </NAlert>
+          <div v-if="assistWord.assistExample" class="rounded-lg bg-gray-50 dark:bg-gray-800 p-3">
+            <div class="text-sm italic">{{ assistWord.assistExample }}</div>
+            <NButton size="tiny" quaternary type="primary" class="mt-1" @click="handlePlay(assistWord.assistExample)">
+              朗读例句
             </NButton>
           </div>
         </div>

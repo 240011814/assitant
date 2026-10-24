@@ -55,9 +55,6 @@ func main() {
 	authService := service.NewAuthService(cfg)
 	adminService := service.NewAdminService()
 
-	vocabService := service.NewVocabularyService()
-	vocabHandler := api.NewVocabularyHandler(vocabService)
-
 	noteService := service.NewNoteService()
 	noteHandler := api.NewNoteHandler(noteService)
 
@@ -164,6 +161,14 @@ func main() {
 	errorBookService := service.NewErrorBookService()
 	errorBookHandler := api.NewErrorBookHandler(errorBookService)
 
+	// 词汇 FSRS 复习 / 出题练习 / 分级阅读 (依赖 AI 服务、文档服务与课程服务, 故在三者之后装配)
+	vocabService := service.NewVocabularyService(aiAgentService, userDocumentService, userPrefService)
+	vocabHandler := api.NewVocabularyHandler(vocabService)
+	quizService := service.NewQuizService(aiAgentService)
+	quizHandler := api.NewQuizHandler(quizService)
+	readingService := service.NewReadingService(aiAgentService, courseService)
+	readingHandler := api.NewReadingHandler(readingService)
+
 	stockService := service.NewStockService()
 	stockHandler := api.NewStockHandler(stockService, cfg.Baostock.URL)
 
@@ -234,6 +239,8 @@ func main() {
 		dashboardHandler:     dashboardHandler,
 		promptHandler:        promptHandler,
 		vocabHandler:         vocabHandler,
+		quizHandler:          quizHandler,
+		readingHandler:       readingHandler,
 		noteHandler:          noteHandler,
 		reminderHandler:      reminderHandler,
 		systemConfigHandler:  systemConfigHandler,

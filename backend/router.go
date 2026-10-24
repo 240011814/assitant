@@ -36,6 +36,8 @@ type appDeps struct {
 	dashboardHandler     *api.DashboardHandler
 	promptHandler        *api.PromptHandler
 	vocabHandler         *api.VocabularyHandler
+	quizHandler          *api.QuizHandler
+	readingHandler       *api.ReadingHandler
 	noteHandler          *api.NoteHandler
 	reminderHandler      *api.ReminderHandler
 	systemConfigHandler  *api.SystemConfigHandler
@@ -59,6 +61,8 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 	historyHandler := d.historyHandler
 	promptHandler := d.promptHandler
 	vocabHandler := d.vocabHandler
+	quizHandler := d.quizHandler
+	readingHandler := d.readingHandler
 	noteHandler := d.noteHandler
 	aiAgentHandler := d.aiAgentHandler
 	orchestrationHandler := d.orchestrationHandler
@@ -167,10 +171,40 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			vocabGroup.GET("", vocabHandler.HandleListWords)
 			vocabGroup.GET("/random", vocabHandler.HandleGetRandomWords)
 			vocabGroup.GET("/review/due", vocabHandler.HandleGetDueWords)
+			vocabGroup.GET("/review/session", vocabHandler.HandleGetReviewSession)
 			vocabGroup.GET("/review/stats", vocabHandler.HandleGetReviewStats)
+			vocabGroup.GET("/review/forecast", vocabHandler.HandleGetReviewForecast)
+			vocabGroup.GET("/quick-session", vocabHandler.HandleGetQuickSession)
+			vocabGroup.GET("/learning-stats", vocabHandler.HandleGetLearningStats)
 			vocabGroup.POST("/review/:id", api.RequirePermission("ai:vocabulary:edit"), vocabHandler.HandleSubmitReview)
+			vocabGroup.GET("/:id/assist", vocabHandler.HandleAssistWord)
+			vocabGroup.POST("/import", api.RequirePermission("ai:vocabulary:add"), vocabHandler.HandleImportWords)
+			vocabGroup.POST("/import/document", api.RequirePermission("ai:vocabulary:add"), vocabHandler.HandleExtractFromDocument)
 			vocabGroup.PUT("/:id", api.RequirePermission("ai:vocabulary:edit"), vocabHandler.HandleUpdateWord)
 			vocabGroup.DELETE("/:id", api.RequirePermission("ai:vocabulary:delete"), vocabHandler.HandleDeleteWord)
+		}
+
+		// 出题练习 (挂 vocabulary 权限域)
+		quizGroup := apiGroup.Group("/vocabulary/quiz")
+		quizGroup.Use(api.RequirePermission("ai:vocabulary:view"))
+		{
+			quizGroup.POST("/sessions", quizHandler.HandleCreateQuizSession)
+			quizGroup.GET("/sessions/:id", quizHandler.HandleGetQuizSession)
+			quizGroup.POST("/sessions/:id/answer", api.RequirePermission("ai:vocabulary:edit"), quizHandler.HandleSubmitQuizAnswer)
+			quizGroup.POST("/sentence-practice", quizHandler.HandleSentencePractice)
+		}
+
+		// 分级阅读 (挂 vocabulary 权限域)
+		readingGroup := apiGroup.Group("/reading")
+		readingGroup.Use(api.RequirePermission("ai:vocabulary:view"))
+		{
+			readingGroup.POST("/import", api.RequirePermission("ai:vocabulary:add"), readingHandler.HandleImportReading)
+			readingGroup.GET("/docs", readingHandler.HandleListReadingDocs)
+			readingGroup.GET("/docs/:id", readingHandler.HandleGetReadingDoc)
+			readingGroup.DELETE("/docs/:id", api.RequirePermission("ai:vocabulary:delete"), readingHandler.HandleDeleteReadingDoc)
+			readingGroup.POST("/docs/:id/annotate", readingHandler.HandleAnnotateReadingDoc)
+			readingGroup.GET("/lookup", readingHandler.HandleLookupWord)
+			readingGroup.POST("/generate-passage", readingHandler.HandleGeneratePassage)
 		}
 
 		noteGroup := apiGroup.Group("/notes")

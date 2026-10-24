@@ -27,8 +27,12 @@ declare module "@elegant-router/types" {
     "ai_error-book": "/ai/error-book";
     "ai_exercise": "/ai/exercise";
     "ai_history": "/ai/history";
+    "ai_learning-stats": "/ai/learning-stats";
     "ai_note": "/ai/note";
     "ai_orchestration": "/ai/orchestration/:id";
+    "ai_quiz": "/ai/quiz";
+    "ai_reading": "/ai/reading";
+    "ai_reading-detail": "/ai/reading-detail/:id";
     "ai_training": "/ai/training";
     "ai_vocabulary": "/ai/vocabulary";
     "cut": "/cut";
@@ -141,8 +145,12 @@ declare module "@elegant-router/types" {
     | "ai_error-book"
     | "ai_exercise"
     | "ai_history"
+    | "ai_learning-stats"
     | "ai_note"
     | "ai_orchestration"
+    | "ai_quiz"
+    | "ai_reading-detail"
+    | "ai_reading"
     | "ai_training"
     | "ai_vocabulary"
     | "cut_bar-detail"

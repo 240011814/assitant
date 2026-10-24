@@ -1,6 +1,7 @@
 package api
 
 import (
+	"io"
 	"strconv"
 	"strings"
 
@@ -113,7 +114,7 @@ func (h *VocabularyHandler) HandleGetReviewStats(c *gin.Context) {
 	SendSuccess(c, stats)
 }
 
-// HandleSubmitReview 提交复习结果 {known: bool}
+// HandleSubmitReview 提交复习结果: 兼容 {known: bool}, 推荐 {rating: 1~4, direction, durationMs} (FSRS)
 func (h *VocabularyHandler) HandleSubmitReview(c *gin.Context) {
 	userId := GetUserID(c)
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
@@ -122,13 +123,25 @@ func (h *VocabularyHandler) HandleSubmitReview(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Known bool `json:"known"`
+		Known      *bool  `json:"known"`
+		Rating     int    `json:"rating"`
+		Direction  string `json:"direction"`
+		DurationMs int    `json:"durationMs"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		SendError(c, "400", "请求参数错误")
 		return
 	}
-	word, err := h.svc.SubmitReview(userId, uint(id), req.Known)
+
+	var word *model.Vocabulary
+	if req.Rating >= 1 && req.Rating <= 4 {
+		word, err = h.svc.SubmitReviewFSRS(userId, uint(id), req.Rating, req.Direction, req.DurationMs)
+	} else if req.Known != nil {
+		word, err = h.svc.SubmitReview(userId, uint(id), *req.Known)
+	} else {
+		SendError(c, "400", "请求参数错误")
+		return
+	}
 	if err != nil {
 		SendError(c, "500", "提交复习结果失败: "+err.Error())
 		return
@@ -184,4 +197,172 @@ func (h *VocabularyHandler) HandleUpdateWord(c *gin.Context) {
 	}
 
 	SendSuccess(c, nil)
+}
+
+// HandleGetReviewSession 复习会话: 到期复习 + 新词 (每日限额)
+func (h *VocabularyHandler) HandleGetReviewSession(c *gin.Context) {
+	userId := GetUserID(c)
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	res, err := h.svc.GetReviewSession(userId, limit)
+	if err != nil {
+		SendError(c, "500", "获取复习会话失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, res)
+}
+
+// HandleGetQuickSession 碎片时间模式 (?minutes=10)
+func (h *VocabularyHandler) HandleGetQuickSession(c *gin.Context) {
+	userId := GetUserID(c)
+	minutes, _ := strconv.Atoi(c.DefaultQuery("minutes", "5"))
+	res, err := h.svc.GetQuickSession(userId, minutes)
+	if err != nil {
+		SendError(c, "500", "获取碎片复习失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, res)
+}
+
+// HandleGetReviewForecast 未来 N 天到期预测
+func (h *VocabularyHandler) HandleGetReviewForecast(c *gin.Context) {
+	userId := GetUserID(c)
+	days, _ := strconv.Atoi(c.DefaultQuery("days", "30"))
+	res, err := h.svc.GetDueForecast(userId, days)
+	if err != nil {
+		SendError(c, "500", "获取到期预测失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, res)
+}
+
+// HandleGetLearningStats 学习看板
+func (h *VocabularyHandler) HandleGetLearningStats(c *gin.Context) {
+	userId := GetUserID(c)
+	res, err := h.svc.GetLearningStats(userId)
+	if err != nil {
+		SendError(c, "500", "获取学习统计失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, res)
+}
+
+// HandleAssistWord 遗忘干预: 生成新例句与助记提示
+func (h *VocabularyHandler) HandleAssistWord(c *gin.Context) {
+	userId := GetUserID(c)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		SendError(c, "400", "生词 ID 不合法")
+		return
+	}
+	word, err := h.svc.AssistForgetfulWord(userId, uint(id))
+	if err != nil {
+		SendError(c, "500", "生成记忆辅助失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, word)
+}
+
+// HandleImportWords 词书批量导入: JSON {words:[...]} 或 multipart 文件 (txt/csv)
+func (h *VocabularyHandler) HandleImportWords(c *gin.Context) {
+	userId := GetUserID(c)
+
+	var items []model.ImportWordItem
+	sourceTag := "词书导入"
+
+	if file, err := c.FormFile("file"); err == nil {
+		f, err := file.Open()
+		if err != nil {
+			SendError(c, "400", "读取文件失败")
+			return
+		}
+		defer f.Close()
+		data, err := io.ReadAll(io.LimitReader(f, 5<<20))
+		if err != nil {
+			SendError(c, "400", "读取文件失败")
+			return
+		}
+		if tag := c.PostForm("sourceTag"); tag != "" {
+			sourceTag = tag
+		}
+		items = parseWordbookFile(data)
+	} else {
+		var req struct {
+			Words     []model.ImportWordItem `json:"words" binding:"required,min=1"`
+			SourceTag string                 `json:"sourceTag"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			SendError(c, "400", "请求参数错误")
+			return
+		}
+		items = req.Words
+		if req.SourceTag != "" {
+			sourceTag = req.SourceTag
+		}
+	}
+
+	res, err := h.svc.ImportWords(userId, items, sourceTag)
+	if err != nil {
+		SendError(c, "500", "导入失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, res)
+}
+
+// parseWordbookFile 解析词书文件: 每行一词, 制表符或逗号分隔 [word, phonetic, definition, example]
+func parseWordbookFile(data []byte) []model.ImportWordItem {
+	text := strings.TrimPrefix(string(data), "\xEF\xBB\xBF")
+	lines := strings.Split(text, "\n")
+	items := make([]model.ImportWordItem, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var parts []string
+		if strings.Contains(line, "\t") {
+			parts = strings.Split(line, "\t")
+		} else {
+			parts = strings.SplitN(line, ",", 4)
+		}
+		for i := range parts {
+			parts[i] = strings.TrimSpace(strings.Trim(parts[i], `"`))
+		}
+		if len(parts) == 0 || parts[0] == "" {
+			continue
+		}
+		if strings.EqualFold(parts[0], "word") { // 表头
+			continue
+		}
+		item := model.ImportWordItem{Word: parts[0]}
+		if len(parts) > 1 {
+			item.Phonetic = parts[1]
+		}
+		if len(parts) > 2 {
+			item.Definition = parts[2]
+		}
+		if len(parts) > 3 {
+			item.Example = parts[3]
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+// HandleExtractFromDocument 知识库文档提词入库
+func (h *VocabularyHandler) HandleExtractFromDocument(c *gin.Context) {
+	userId := GetUserID(c)
+	var req struct {
+		DocumentID uint `json:"documentId" binding:"required"`
+		Limit      int  `json:"limit"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请求参数错误")
+		return
+	}
+	res, err := h.svc.ExtractWordsFromDocument(userId, req.DocumentID, req.Limit)
+	if err != nil {
+		SendError(c, "500", "提取生词失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, res)
 }

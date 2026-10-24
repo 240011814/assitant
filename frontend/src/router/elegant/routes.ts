@@ -123,6 +123,17 @@ export const generatedRoutes: GeneratedRoute[] = [
         }
       },
       {
+        name: 'ai_learning-stats',
+        path: '/ai/learning-stats',
+        component: 'view.ai_learning-stats',
+        meta: {
+          title: 'ai_learning-stats',
+          i18nKey: 'route.ai_learning-stats',
+          permissions: ['ai:vocabulary:view'],
+          hideInMenu: true
+        }
+      },
+      {
         name: 'ai_note',
         path: '/ai/note',
         component: 'view.ai_note',
@@ -143,6 +154,41 @@ export const generatedRoutes: GeneratedRoute[] = [
           i18nKey: 'route.ai_orchestration',
           hideInMenu: true,
           keepAlive: true
+        }
+      },
+      {
+        name: 'ai_quiz',
+        path: '/ai/quiz',
+        component: 'view.ai_quiz',
+        meta: {
+          title: 'ai_quiz',
+          i18nKey: 'route.ai_quiz',
+          permissions: ['ai:vocabulary:view'],
+          hideInMenu: true,
+          keepAlive: true
+        }
+      },
+      {
+        name: 'ai_reading',
+        path: '/ai/reading',
+        component: 'view.ai_reading',
+        meta: {
+          title: 'ai_reading',
+          i18nKey: 'route.ai_reading',
+          permissions: ['ai:vocabulary:view'],
+          hideInMenu: true,
+          keepAlive: true
+        }
+      },
+      {
+        name: 'ai_reading-detail',
+        path: '/ai/reading-detail/:id',
+        component: 'view.ai_reading-detail',
+        meta: {
+          title: 'ai_reading-detail',
+          i18nKey: 'route.ai_reading-detail',
+          permissions: ['ai:vocabulary:view'],
+          hideInMenu: true
         }
       },
       {
