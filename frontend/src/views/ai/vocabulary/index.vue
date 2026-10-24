@@ -501,6 +501,9 @@ onMounted(() => {
                   </template>
                 </NButton>
               </NBadge>
+              <ButtonIcon icon="mdi:upload" tooltip-content="导入词书" @click="showImportModal = true" />
+              <ButtonIcon icon="mdi:head-cog-outline" tooltip-content="智能练习" @click="routerPushByKey('ai_quiz')" />
+              <ButtonIcon icon="mdi:bookshelf" tooltip-content="分级阅读" @click="routerPushByKey('ai_reading')" />
             </div>
             <ButtonIcon
               icon="mdi:refresh"
@@ -563,30 +566,9 @@ onMounted(() => {
                   {{ $t("page.ai.vocabulary.todayReview") }}
                 </NButton>
               </NBadge>
-              <NButton @click="showImportModal = true">
-                <template #icon>
-                  <IconMdiUploadOutline class="text-icon" />
-                </template>
-                导入词书
-              </NButton>
-              <NButton type="info" @click="routerPushByKey('ai_quiz')">
-                <template #icon>
-                  <IconMdiHeadCogOutline class="text-icon" />
-                </template>
-                智能练习
-              </NButton>
-              <NButton type="info" @click="routerPushByKey('ai_reading')">
-                <template #icon>
-                  <IconMdiBookshelf class="text-icon" />
-                </template>
-                分级阅读
-              </NButton>
-              <NButton type="info" @click="routerPushByKey('ai_learning-stats')">
-                <template #icon>
-                  <IconMdiChartAreaspline class="text-icon" />
-                </template>
-                学习看板
-              </NButton>
+              <ButtonIcon icon="mdi:upload" tooltip-content="导入词书" @click="showImportModal = true" />
+              <ButtonIcon icon="mdi:head-cog-outline" tooltip-content="智能练习" @click="routerPushByKey('ai_quiz')" />
+              <ButtonIcon icon="mdi:bookshelf" tooltip-content="分级阅读" @click="routerPushByKey('ai_reading')" />
               <ButtonIcon
                 icon="mdi:refresh"
                 :tooltip-content="$t('common.refresh')"
