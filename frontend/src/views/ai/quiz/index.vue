@@ -38,6 +38,7 @@ const creating = ref(false);
 const session = ref<QuizSession | null>(null);
 const questions = ref<QuizQuestion[]>([]);
 const qIndex = ref(0);
+const showSummary = ref(false);
 const selectedOption = ref("");
 const typedAnswer = ref("");
 const submitting = ref(false);
@@ -85,6 +86,7 @@ const startQuiz = async () => {
   session.value = resp.session;
   questions.value = resp.questions;
   qIndex.value = 0;
+  showSummary.value = false;
   lastResult.value = null;
   selectedOption.value = "";
   typedAnswer.value = "";
@@ -121,7 +123,10 @@ const submitAnswer = async () => {
 };
 
 const nextQuestion = () => {
-  if (qIndex.value + 1 >= questions.value.length) return;
+  if (qIndex.value + 1 >= questions.value.length) {
+    showSummary.value = true;
+    return;
+  }
   qIndex.value += 1;
   onQuestionShown();
 };
@@ -130,6 +135,7 @@ const restart = () => {
   session.value = null;
   questions.value = [];
   qIndex.value = 0;
+  showSummary.value = false;
 };
 
 // ===================== 造句批改 =====================
@@ -197,7 +203,7 @@ onMounted(() => {
     </NCard>
 
     <!-- 答题 -->
-    <NCard v-else-if="currentQuestion" :bordered="false" :shadow="appStore.isMobile ? false : 'sm'">
+    <NCard v-else-if="currentQuestion && !showSummary" :bordered="false" :shadow="appStore.isMobile ? false : 'sm'">
       <template #header>
         <div class="flex items-center gap-4">
           <span>第 {{ qIndex + 1 }} / {{ questions.length }} 题</span>
@@ -266,7 +272,9 @@ onMounted(() => {
           <NButton v-if="!lastResult" type="primary" size="large" :loading="submitting" @click="submitAnswer">
             提交答案
           </NButton>
-          <NButton v-else type="primary" size="large" @click="nextQuestion">下一题</NButton>
+          <NButton v-else type="primary" size="large" @click="nextQuestion">
+            {{ qIndex + 1 >= questions.length ? "完成" : "下一题" }}
+          </NButton>
         </div>
       </div>
     </NCard>
