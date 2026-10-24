@@ -85,6 +85,8 @@ func (c *orchestrationCompiler) buildNodeLambda(ctx context.Context, n *Orchestr
 		return c.buildExtractLambda(n)
 	case OrchNodeSubOrch:
 		return c.buildSubOrchLambda(ctx, n)
+	case OrchNodeForeach:
+		return c.buildForeachLambda(ctx, n)
 	default: // end/branch/router 及其他: 直通
 		return orchPassthroughLambda(), nil
 	}
@@ -99,6 +101,131 @@ func orchPassthroughLambda() *compose.Lambda {
 		nil, nil,
 	)
 	return lambda
+}
+
+// ---------- 运行变量与失败隔离 ----------
+
+// nodeLambda 节点 lambda 统一出口: 在用户函数外包裹
+//  1. 输出捕获 —— output_var 写运行变量 (下游 {{vars.*}}), save_state 记会话存档 (跑后落库)
+//  2. 失败隔离 —— 该节点是并行分支 on_error=skip 的目标时, 失败转占位说明继续参与汇总
+//
+// 注意捕获发生在"流式透传之外": 流式时经 Copy 复制一路在后台收集全文再捕获, 原流直通下游。
+func (c *orchestrationCompiler) nodeLambda(n *OrchestrationNode, gen func(context.Context, *schema.Message) (*schema.Message, error), stream func(context.Context, *schema.Message) (*schema.StreamReader[*schema.Message], error)) *compose.Lambda {
+	skip := c.parallelSkipTargets[n.ID]
+	capture := n.OutputVar != "" || n.SaveState != ""
+	placeholder := func(err error) *schema.Message {
+		return &schema.Message{Role: schema.User, Content: "【该分支执行失败】" + n.Name + ": " + err.Error()}
+	}
+	wGen := func(ctx context.Context, in *schema.Message, _ ...any) (*schema.Message, error) {
+		out, err := gen(ctx, in)
+		if err != nil {
+			if skip {
+				return placeholder(err), nil
+			}
+			return nil, err
+		}
+		if capture {
+			c.captureNodeOutput(n, out)
+		}
+		return out, nil
+	}
+	wStream := func(ctx context.Context, in *schema.Message, _ ...any) (*schema.StreamReader[*schema.Message], error) {
+		stream, err := stream(ctx, in)
+		if err != nil {
+			if skip {
+				return schema.StreamReaderFromArray([]*schema.Message{placeholder(err)}), nil
+			}
+			return nil, err
+		}
+		if !capture {
+			return stream, nil
+		}
+		// 同步缓冲后捕获: output_var/save_state 的正确性 (下游/后续必须读到值) 优先于
+		// 该流的实时性 —— 用户可见的增量走回调通道 (trace handler), 不经此流;
+		// 且顺序图下游本就要等本节点结束, 缓冲不改变可见时序
+		var msgs []*schema.Message
+		for {
+			msg, err := stream.Recv()
+			if err != nil {
+				break
+			}
+			msgs = append(msgs, msg)
+		}
+		var sb strings.Builder
+		for _, msg := range msgs {
+			sb.WriteString(msg.Content)
+		}
+		c.captureNodeOutput(n, &schema.Message{Content: sb.String()})
+		return schema.StreamReaderFromArray(msgs), nil
+	}
+	lambda, _ := compose.AnyLambda(wGen, wStream, nil, nil)
+	return lambda
+}
+
+// captureNodeOutput 节点输出落运行变量/会话存档
+func (c *orchestrationCompiler) captureNodeOutput(n *OrchestrationNode, out *schema.Message) {
+	if out == nil {
+		return
+	}
+	if n.OutputVar != "" {
+		c.setRunVar(n.OutputVar, out.Content)
+	}
+	if n.SaveState != "" {
+		c.runMu.Lock()
+		c.stateArtifacts[n.SaveState] = out.Content
+		c.runMu.Unlock()
+	}
+}
+
+// setRunVar 写运行变量 (节点 output_var 捕获; 模板/迭代经 snapshotRunVars 读取)
+func (c *orchestrationCompiler) setRunVar(name, content string) {
+	c.runMu.Lock()
+	defer c.runMu.Unlock()
+	c.runVars[name] = content
+}
+
+// snapshotRunVars 运行变量快照 (模板/迭代运行时渲染并入 data, 以 vars.<名> 引用)
+func (c *orchestrationCompiler) snapshotRunVars() map[string]any {
+	c.runMu.Lock()
+	defer c.runMu.Unlock()
+	out := make(map[string]any, len(c.runVars))
+	for k, v := range c.runVars {
+		out[k] = v
+	}
+	return out
+}
+
+// jsonPathAny 输入内容按 JSON 解析后沿点路径取原始值 (路径不存在或中途类型不符返回 false)
+func jsonPathAny(content, path string) (any, bool) {
+	if strings.TrimSpace(content) == "" || path == "" {
+		return nil, false
+	}
+	var root any
+	if err := json.Unmarshal([]byte(content), &root); err != nil {
+		return nil, false
+	}
+	cur := any(root)
+	for _, seg := range strings.Split(path, ".") {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		next, ok := m[seg]
+		if !ok {
+			return nil, false
+		}
+		cur = next
+	}
+	return cur, true
+}
+
+// jsonPathValue 点路径取值并字符串化 (json 条件比较用)
+func jsonPathValue(content, path string) (string, bool) {
+	v, ok := jsonPathAny(content, path)
+	if !ok {
+		return "", false
+	}
+	return fmt.Sprintf("%v", v), true
 }
 
 // orchNewReactAgent 主 Agent 与子Agent 共用的 ReAct 构建入口
@@ -227,15 +354,13 @@ func (c *orchestrationCompiler) buildAgentLambda(ctx context.Context, n *Orchest
 	if err != nil {
 		return nil, fmt.Errorf("Agent 节点 %s 构建失败: %w", n.ID, err)
 	}
-	return compose.AnyLambda(
-		func(ctx context.Context, in *schema.Message, _ ...any) (*schema.Message, error) {
-			return agent.Generate(ctx, []*schema.Message{in})
-		},
-		func(ctx context.Context, in *schema.Message, _ ...any) (*schema.StreamReader[*schema.Message], error) {
-			return agent.Stream(ctx, []*schema.Message{in})
-		},
-		nil, nil,
-	)
+	tmpAgentGen := func(ctx context.Context, in *schema.Message) (*schema.Message, error) {
+		return agent.Generate(ctx, []*schema.Message{in})
+	}
+	tmpAgentStream := func(ctx context.Context, in *schema.Message) (*schema.StreamReader[*schema.Message], error) {
+		return agent.Stream(ctx, []*schema.Message{in})
+	}
+	return c.nodeLambda(n, tmpAgentGen, tmpAgentStream), nil
 }
 
 func (c *orchestrationCompiler) buildToolLambda(n *OrchestrationNode) (*compose.Lambda, error) {
@@ -269,17 +394,15 @@ func (c *orchestrationCompiler) buildToolLambda(n *OrchestrationNode) (*compose.
 		}
 		return &schema.Message{Role: schema.Tool, Content: result, ToolName: toolName}, nil
 	}
-	return compose.AnyLambda(
-		func(ctx context.Context, in *schema.Message, _ ...any) (*schema.Message, error) { return run(ctx, in) },
-		func(ctx context.Context, in *schema.Message, _ ...any) (*schema.StreamReader[*schema.Message], error) {
+	return c.nodeLambda(n,
+		func(ctx context.Context, in *schema.Message) (*schema.Message, error) { return run(ctx, in) },
+		func(ctx context.Context, in *schema.Message) (*schema.StreamReader[*schema.Message], error) {
 			out, err := run(ctx, in)
 			if err != nil {
 				return nil, err
 			}
 			return schema.StreamReaderFromArray([]*schema.Message{out}), nil
-		},
-		nil, nil,
-	)
+		}), nil
 }
 
 func (c *orchestrationCompiler) buildTemplateLambda(n *OrchestrationNode) (*compose.Lambda, error) {
@@ -305,6 +428,12 @@ func (c *orchestrationCompiler) buildTemplateLambda(n *OrchestrationNode) (*comp
 		for k, v := range vars {
 			data[k] = v
 		}
+		// 运行变量 (上游节点 output_var 捕获) 以 vars.<名> 引用:
+		// 模板是运行时渲染, 能读到本次运行中已执行节点写入的值
+		runVars := c.snapshotRunVars()
+		if len(runVars) > 0 {
+			data["vars"] = runVars
+		}
 		var sb strings.Builder
 		if err := tpl.Execute(&sb, data); err != nil {
 			return nil, fmt.Errorf("模板 %s 渲染失败: %w", n.ID, err)
@@ -315,21 +444,121 @@ func (c *orchestrationCompiler) buildTemplateLambda(n *OrchestrationNode) (*comp
 		}
 		return &schema.Message{Role: schema.User, Content: content}, nil
 	}
-	return compose.AnyLambda(
-		func(_ context.Context, in *schema.Message, _ ...any) (*schema.Message, error) { return run(in) },
-		func(_ context.Context, in *schema.Message, _ ...any) (*schema.StreamReader[*schema.Message], error) {
+	return c.nodeLambda(n,
+		func(_ context.Context, in *schema.Message) (*schema.Message, error) { return run(in) },
+		func(_ context.Context, in *schema.Message) (*schema.StreamReader[*schema.Message], error) {
 			out, err := run(in)
 			if err != nil {
 				return nil, err
 			}
 			return schema.StreamReaderFromArray([]*schema.Message{out}), nil
-		},
-		nil, nil,
-	)
+		}), nil
 }
 
 // buildMergeLambda 合并节点: Workflow 字段映射把各来源的 Content 注入 map[来源key]any,
 // 按 DSL 连线顺序拼接
+// buildForeachLambda 迭代节点: 输入内容按 JSON 解析后经 items_path 取数组,
+// 逐项渲染 item_template 并调用模型, 输出按 join 拼接。顺序执行, max_items 防御超长数组
+func (c *orchestrationCompiler) buildForeachLambda(ctx context.Context, n *OrchestrationNode) (*compose.Lambda, error) {
+	var cfg OrchForeachConfig
+	if len(n.Config) == 0 || json.Unmarshal(n.Config, &cfg) != nil || strings.TrimSpace(cfg.ItemTemplate) == "" {
+		return nil, fmt.Errorf("迭代节点 %s 缺少 item_template 配置", n.ID)
+	}
+	maxItems := cfg.MaxItems
+	if maxItems <= 0 {
+		maxItems = 10
+	}
+	if maxItems > 50 {
+		maxItems = 50
+	}
+	join := cfg.Join
+	if join == "" {
+		join = "\n\n"
+	}
+	itemsPath := cfg.ItemsPath
+	itemTpl, err := template.New(n.ID + ".item").Parse(cfg.ItemTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("迭代节点 %s item_template 语法错误: %w", n.ID, err)
+	}
+	chatModel, err := c.nodeModelFn(cfg.Model, 0, n.ID)
+	if err != nil {
+		return nil, fmt.Errorf("迭代节点 %s 获取模型失败: %w", n.ID, err)
+	}
+	systemPrompt := strings.TrimSpace(cfg.SystemPrompt)
+
+	run := func(in *schema.Message) (*schema.Message, error) {
+		content := ""
+		if in != nil {
+			content = in.Content
+		}
+		var root any
+		if err := json.Unmarshal([]byte(content), &root); err != nil {
+			return nil, fmt.Errorf("迭代节点 %s 输入不是合法 JSON: %w", n.ID, err)
+		}
+		itemsAny := any(root)
+		if itemsPath != "" {
+			v, ok := jsonPathAny(content, itemsPath)
+			if !ok {
+				return nil, fmt.Errorf("迭代节点 %s 路径 %s 未取到数组", n.ID, itemsPath)
+			}
+			itemsAny = v
+		}
+		items, ok := itemsAny.([]any)
+		if !ok {
+			return nil, fmt.Errorf("迭代节点 %s 输入不是数组", n.ID)
+		}
+		if len(items) > maxItems {
+			items = items[:maxItems]
+		}
+		parts := make([]string, 0, len(items))
+		baseVars := c.resolvedSessionVars()
+		for i, item := range items {
+			itemJSON, _ := json.Marshal(item)
+			data := map[string]any{
+				"item":  string(itemJSON),
+				"index": i,
+			}
+			for k, v := range baseVars {
+				data[k] = v
+			}
+			if runVars := c.snapshotRunVars(); len(runVars) > 0 {
+				varsMap, _ := data["vars"].(map[string]any)
+				if varsMap == nil {
+					varsMap = map[string]any{}
+					data["vars"] = varsMap
+				}
+				for k, v := range runVars {
+					varsMap[k] = v
+				}
+			}
+			var sb strings.Builder
+			if err := itemTpl.Execute(&sb, data); err != nil {
+				return nil, fmt.Errorf("迭代节点 %s 第 %d 项渲染失败: %w", n.ID, i, err)
+			}
+			msgs := []*schema.Message{}
+			if systemPrompt != "" {
+				msgs = append(msgs, schema.SystemMessage(systemPrompt))
+			}
+			msgs = append(msgs, schema.UserMessage(sb.String()))
+			out, err := chatModel.Generate(ctx, msgs)
+			if err != nil {
+				return nil, fmt.Errorf("迭代节点 %s 第 %d 项调用模型失败: %w", n.ID, i, err)
+			}
+			parts = append(parts, out.Content)
+		}
+		return &schema.Message{Role: schema.User, Content: strings.Join(parts, join)}, nil
+	}
+	return c.nodeLambda(n,
+		func(ctx context.Context, in *schema.Message) (*schema.Message, error) { return run(in) },
+		func(ctx context.Context, in *schema.Message) (*schema.StreamReader[*schema.Message], error) {
+			out, err := run(in)
+			if err != nil {
+				return nil, err
+			}
+			return schema.StreamReaderFromArray([]*schema.Message{out}), nil
+		}), nil
+}
+
 func (c *orchestrationCompiler) buildMergeLambda(n *OrchestrationNode) (*compose.Lambda, error) {
 	var cfg OrchMergeConfig
 	if len(n.Config) > 0 {
@@ -538,17 +767,15 @@ func (c *orchestrationCompiler) buildExtractLambda(n *OrchestrationNode) (*compo
 		}
 		return &schema.Message{Role: schema.User, Content: out}, nil
 	}
-	return compose.AnyLambda(
-		func(_ context.Context, in *schema.Message, _ ...any) (*schema.Message, error) { return run(in) },
-		func(_ context.Context, in *schema.Message, _ ...any) (*schema.StreamReader[*schema.Message], error) {
+	return c.nodeLambda(n,
+		func(_ context.Context, in *schema.Message) (*schema.Message, error) { return run(in) },
+		func(_ context.Context, in *schema.Message) (*schema.StreamReader[*schema.Message], error) {
 			out, err := run(in)
 			if err != nil {
 				return nil, err
 			}
 			return schema.StreamReaderFromArray([]*schema.Message{out}), nil
-		},
-		nil, nil,
-	)
+		}), nil
 }
 
 // orchExtractField 按 a.b.0.c 形式的点号路径从 JSON 内容里抽取值:
@@ -652,18 +879,13 @@ func (c *orchestrationCompiler) buildSubOrchLambda(ctx context.Context, n *Orche
 		c.extraNodeModels[k] = v
 	}
 	runnable := nested.runnable
-	lambda, err := compose.AnyLambda(
-		func(ctx context.Context, in *schema.Message, _ ...any) (*schema.Message, error) {
+	lambda := c.nodeLambda(n,
+		func(ctx context.Context, in *schema.Message) (*schema.Message, error) {
 			return runnable.Invoke(ctx, in)
 		},
-		func(ctx context.Context, in *schema.Message, _ ...any) (*schema.StreamReader[*schema.Message], error) {
+		func(ctx context.Context, in *schema.Message) (*schema.StreamReader[*schema.Message], error) {
 			return runnable.Stream(ctx, in)
-		},
-		nil, nil,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("子编排节点 %s 构建失败: %w", n.ID, err)
-	}
+		})
 	return lambda, nil
 }
 

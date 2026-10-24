@@ -17,10 +17,13 @@ import (
 type stickyTestModel struct {
 	fixed    string
 	received int
+	// lastInputs 最近一次收到的消息序列 (验证提示词渲染内容)
+	lastInputs []*schema.Message
 }
 
 func (f *stickyTestModel) Generate(_ context.Context, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
 	f.received++
+	f.lastInputs = input
 	return &schema.Message{Role: schema.Assistant, Content: f.fixed}, nil
 }
 

@@ -48,6 +48,8 @@ type DebugRunRequest struct {
 	History    []ChatTurn `json:"history"`
 	// HistoryID 编排对话已落库的会话 ID (首轮为 0); chat_first_turn 会话状态按它存取
 	HistoryID uint `json:"history_id"`
+	// Params 编排入参值 (按 DSL 声明的 params 名传值), 模板以 {{vars.<名>}} 引用
+	Params map[string]string `json:"params,omitempty"`
 	// SkipSummary 为 true 时不回写 last_debug_summary。
 	// 训练中心的"编排对话"复用调试运行时置 true, 避免覆盖 Agent Studio 的最近调试摘要。
 	SkipSummary bool `json:"skip_summary"`
@@ -65,8 +67,51 @@ type OrchChatState struct {
 	OrchID    uint `gorm:"index" json:"orch_id"`
 	Active    bool `json:"active"`
 	// Routes 粘性分支 (chat_first_turn 的 branch/router) 本轮实际选择的目标: 节点ID -> target
-	Routes    string    `gorm:"type:text" json:"routes"`
+	Routes string `gorm:"type:text" json:"routes"`
+	// Artifacts 会话存档 (节点 save_state 的跨轮产物): JSON map 名称 -> 内容,
+	// 下一轮编译种子进 vars ({{vars.<名>}} 引用), 典型如场景事实卡
+	Artifacts string    `gorm:"type:text" json:"artifacts"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func (OrchChatState) TableName() string { return "orch_chat_states" }
+
+// OrchRun 编排运行历史: 调试/对话/单节点试跑每次运行一行, 供事后复盘与用量统计
+type OrchRun struct {
+	ID     uint `gorm:"primaryKey" json:"id"`
+	OrchID uint `gorm:"index" json:"orch_id"`
+	UserID uint `gorm:"index" json:"user_id"`
+	// Source 触发来源: debug / chat / node
+	Source  string `json:"source"`
+	Status  string `json:"status"` // success / error
+	Mode    string `json:"mode"`   // chain / graph / workflow
+	TotalMS int64  `json:"total_ms"`
+	Error   string `json:"error,omitempty"`
+	// Summary 运行摘要 JSON (DebugRunResult: 节点 trace/输出/token), 供回看
+	Summary   string    `gorm:"type:mediumtext" json:"summary"`
+	CreatedAt time.Time `gorm:"index" json:"created_at"`
+}
+
+func (OrchRun) TableName() string { return "orch_runs" }
+
+// OrchRun 来源与状态常量
+const (
+	OrchRunSourceDebug = "debug"
+	OrchRunSourceChat  = "chat"
+	OrchRunSourceNode  = "node"
+
+	OrchRunStatusSuccess = "success"
+	OrchRunStatusError   = "error"
+)
+
+// OrchTemplate 用户自定义编排模板: 从当前画布"存为模板", 新建时复用
+type OrchTemplate struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	UserID      uint      `gorm:"index" json:"user_id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Definition  string    `gorm:"type:mediumtext" json:"definition"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+func (OrchTemplate) TableName() string { return "orch_templates" }

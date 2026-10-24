@@ -83,6 +83,15 @@ type orchestrationCompiler struct {
 	// builtFirstTurnReal 本轮编译实际构建了 chat_first_turn 节点的真实逻辑 (未跳过):
 	// 用于跑后判定会话是否进入激活态
 	builtFirstTurnReal bool
+	// runVars 运行变量: 节点 output_var 捕获的输出 (节点间数据通道, 运行时写入),
+	// 模板/迭代节点以 {{vars.<名>}} 引用; runMu 保护 (节点可能并发求值)
+	runVars map[string]string
+	runMu   sync.Mutex
+	// stateArtifacts 节点 save_state 捕获的会话存档 (跑后由服务层随会话落库)
+	stateArtifacts map[string]string
+	// parallelSkipTargets 并行分支 on_error=skip 时的目标节点集合: 其 lambda 被包裹为
+	// 失败转占位说明, 其余路径不受影响
+	parallelSkipTargets map[string]bool
 	// userID 运行发起人: router 节点的分类调用不经 compose 节点 span, token 记账
 	// 在 buildRouterCond 里直接落库时归属用; 校验/单测构造为 0 (0 不记账)
 	userID uint
@@ -138,7 +147,8 @@ func validateOrchestrationDSLDetailed(definition string) (*OrchestrationDSL, []o
 	return dsl, c.validateIssues()
 }
 
-// resolvedSessionVars 返回本次编译的模板/提示词变量 (deps.sessionVars 结果在编译内只解析一次)
+// resolvedSessionVars 返回本次编译的模板/提示词变量 (deps.sessionVars 结果在编译内只解析一次;
+// 编排入参 (params) 与会话存档 (artifacts) 已由服务层种子进该结果)
 func (c *orchestrationCompiler) resolvedSessionVars() map[string]any {
 	if !c.varsResolved {
 		if c.deps.sessionVars != nil {
@@ -202,6 +212,8 @@ type compiledOrchestration struct {
 	stickyDefaults map[string]string
 	// builtFirstTurnReal 本轮编译构建了 chat_first_turn 节点的真实逻辑 (未跳过)
 	builtFirstTurnReal bool
+	// stateArtifacts 节点 save_state 捕获的会话存档 (跑后由服务层随会话落库)
+	stateArtifacts map[string]string
 }
 
 func (c *orchestrationCompiler) compile(ctx context.Context, deps compilerDeps) (*compiledOrchestration, error) {
@@ -209,6 +221,22 @@ func (c *orchestrationCompiler) compile(ctx context.Context, deps compilerDeps) 
 	c.extraNodeKeys = map[string]string{}
 	c.extraSubNodes = map[string]bool{}
 	c.extraNodeModels = map[string]string{}
+	c.runVars = map[string]string{}
+	c.stateArtifacts = map[string]string{}
+	c.parallelSkipTargets = map[string]bool{}
+	// 并行分支 on_error=skip: 收集其全部目标节点, 构建完 lambda 后统一包裹失败隔离
+	for _, n := range c.dsl.Nodes {
+		if n.Type != OrchNodeBranch {
+			continue
+		}
+		var cfg OrchBranchConfig
+		if json.Unmarshal(n.Config, &cfg) != nil || cfg.Mode != OrchBranchModeParallel || cfg.OnError != "skip" {
+			continue
+		}
+		for _, t := range c.flowAdj[n.ID] {
+			c.parallelSkipTargets[t] = true
+		}
+	}
 	if errs := c.validate(); len(errs) > 0 {
 		return nil, errors.New("编排定义校验失败: " + strings.Join(errs, "; "))
 	}
@@ -360,7 +388,7 @@ func (c *orchestrationCompiler) compileChain(lambdas map[string]*compose.Lambda,
 		return nil, fmt.Errorf("Chain 编译失败: %w", err)
 	}
 	return &compiledOrchestration{runnable: runnable, mode: "chain", nodeKeys: nodeKeys, subNodes: subNodes, trace: c.trace,
-		stickyDecisions: c.stickyDecisions, stickyDefaults: c.stickyDefaults, builtFirstTurnReal: c.builtFirstTurnReal}, nil
+		stickyDecisions: c.stickyDecisions, stickyDefaults: c.stickyDefaults, builtFirstTurnReal: c.builtFirstTurnReal, stateArtifacts: c.stateArtifacts}, nil
 }
 
 func (c *orchestrationCompiler) compileGraph(ctx context.Context, lambdas map[string]*compose.Lambda, nodeKeys map[string]string, subNodes map[string]bool, maxRunSteps int) (*compiledOrchestration, error) {
@@ -459,7 +487,7 @@ func (c *orchestrationCompiler) compileGraph(ctx context.Context, lambdas map[st
 		return nil, fmt.Errorf("Graph 编译失败: %w", err)
 	}
 	return &compiledOrchestration{runnable: runnable, mode: "graph", nodeKeys: nodeKeys, subNodes: subNodes, trace: c.trace,
-		stickyDecisions: c.stickyDecisions, stickyDefaults: c.stickyDefaults, builtFirstTurnReal: c.builtFirstTurnReal}, nil
+		stickyDecisions: c.stickyDecisions, stickyDefaults: c.stickyDefaults, builtFirstTurnReal: c.builtFirstTurnReal, stateArtifacts: c.stateArtifacts}, nil
 }
 
 // stickyDefaultTarget 解析粘性分支的默认目标 (会话激活判定: 命中非默认目标才算进入主流程)
@@ -819,7 +847,7 @@ func (c *orchestrationCompiler) compileWorkflow(lambdas map[string]*compose.Lamb
 		return nil, fmt.Errorf("Workflow 编译失败: %w", err)
 	}
 	return &compiledOrchestration{runnable: runnable, mode: "workflow", nodeKeys: nodeKeys, subNodes: subNodes, trace: c.trace,
-		stickyDecisions: c.stickyDecisions, stickyDefaults: c.stickyDefaults, builtFirstTurnReal: c.builtFirstTurnReal}, nil
+		stickyDecisions: c.stickyDecisions, stickyDefaults: c.stickyDefaults, builtFirstTurnReal: c.builtFirstTurnReal, stateArtifacts: c.stateArtifacts}, nil
 }
 
 func orchBranchMatch(cs OrchBranchCase, content string) bool {
@@ -832,6 +860,10 @@ func orchBranchMatch(cs OrchBranchCase, content string) bool {
 			return false
 		}
 		return re.MatchString(content)
+	case "json":
+		// 输入按 JSON 解析后沿 cs.Path 点路径取值比较 (结构化分支, 免去脆弱的文本 contains)
+		v, ok := jsonPathValue(content, cs.Path)
+		return ok && strings.TrimSpace(v) == strings.TrimSpace(cs.Value)
 	default: // contains
 		return strings.Contains(content, cs.Value)
 	}

@@ -31,8 +31,9 @@ const emit = defineEmits<{
   'duplicateNode': [id: string];
   'addNode': [type: string, position: { x: number; y: number }];
   'deleteEdge': [id: string];
-  /** 画布任何节点/边变更 (拖动/连线/选中/删除), 父级据此清除过期的错误高亮 */
-  'canvasChange': [];
+  /** 画布任何节点/边变更 (拖动/连线/选中/删除), 父级据此清除过期的错误高亮;
+   *  载荷为变更类型列表, 父级的 undo 栈据此识别结构性变更 (add/remove) */
+  'canvasChange': [changes: Array<{ type: string }>];
 }>();
 
 const message = useMessage();
@@ -186,6 +187,7 @@ function onConnect(connection: Connection) {
       class: isLoop ? 'orch-loop-edge' : undefined
     }
   ];
+  emit('canvasChange', [{ type: 'add' }]);
   // 画成的是普通边但正向图已成环: 后端校验必报"存在循环连线", 当场提示用右键转回边,
   // 避免用户画完一圈才发现回边没被识别 (正向路径没画完时回边会被静默当成普通边)
   if (!isLoop && reachesForward(target!, source!)) {
@@ -348,8 +350,8 @@ function menuAddNode(type: string) {
       @node-context-menu="openNodeMenu"
       @edge-context-menu="openEdgeMenu"
       @pane-context-menu="openPaneMenu"
-      @nodes-change="emit('canvasChange')"
-      @edges-change="emit('canvasChange')"
+      @nodes-change="(cs: any[]) => emit('canvasChange', cs)"
+      @edges-change="(cs: any[]) => emit('canvasChange', cs)"
     >
       <Background :gap="16" />
       <MiniMap pannable zoomable />

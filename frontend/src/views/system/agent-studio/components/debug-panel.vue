@@ -2,7 +2,7 @@
 import { computed, h, onBeforeUnmount, ref } from 'vue';
 import { NButton, NDataTable, NInput, NModal, NScrollbar, NSpace, NTag, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
-import { fetchOrchestrationDebugRun, fetchResolveOrchestrationApproval } from '@/service/api';
+import { fetchOrchestrationDebugRun, fetchResolveOrchestrationApproval, fetchOrchestrationRuns, type OrchRunItem } from '@/service/api';
 import { consumeSSEStream, extractSSEResponseError } from '@/utils/sse';
 
 // 节点调试摘要 (与后端 OrchNodeTrace 对应)
@@ -66,6 +66,8 @@ const message = useMessage();
 
 const input = ref('');
 const running = ref(false);
+
+const runSourceLabel: Record<string, string> = { debug: '调试', chat: '对话', node: '试跑' };
 const output = ref('');
 // 思考过程 (模型 reasoning 增量) 与正文分开: 默认折叠, 有内容时可展开
 const reasoning = ref('');
@@ -73,6 +75,75 @@ const showReasoning = ref(true);
 const events = ref<DebugEvent[]>([]);
 const summary = ref<DebugSummary | null>(null);
 const liveTraces = ref<Record<string, NodeTrace>>({});
+
+// ---------- 编排入参 ----------
+// 从画布定义解析 params 声明, 渲染填值字段随运行下发
+const paramFields = ref<Array<{ name: string; description: string; required: boolean }>>([]);
+const paramData = ref<Record<string, string>>({});
+
+function syncParamFields() {
+  let declared: Array<{ name: string; description: string; required: boolean }> = [];
+  try {
+    const dsl = JSON.parse(props.getDefinition() || '{}');
+    declared = (dsl.params || []).map((p: any) => ({ name: p.name || '', description: p.description || '', required: p.required === true }));
+  } catch {
+    declared = [];
+  }
+  const names = declared.map(p => p.name).join('|');
+  if (names === paramFields.value.map(p => p.name).join('|')) return;
+  const prev = { ...paramData.value };
+  paramFields.value = declared;
+  const next: Record<string, string> = {};
+  for (const p of declared) next[p.name] = prev[p.name] || '';
+  paramData.value = next;
+}
+
+function collectParamValues(): Record<string, string> {
+  syncParamFields();
+  const values: Record<string, string> = {};
+  for (const p of paramFields.value) {
+    if (paramData.value[p.name]) values[p.name] = paramData.value[p.name];
+  }
+  return values;
+}
+
+// ---------- 运行历史 ----------
+const showHistory = ref(false);
+const runs = ref<OrchRunItem[]>([]);
+const runsLoading = ref(false);
+
+async function loadRuns() {
+  if (!props.orchestrationId) return;
+  runsLoading.value = true;
+  try {
+    const { data, error } = await fetchOrchestrationRuns(props.orchestrationId, 30);
+    if (!error && data) runs.value = data;
+  } finally {
+    runsLoading.value = false;
+  }
+}
+
+// 回看一条历史: 恢复输出/节点 trace/摘要 (当前会话轮次不受影响)
+function viewRun(run: OrchRunItem) {
+  if (!run.summary) {
+    message.info('该记录没有摘要 (可能运行失败于编译阶段)');
+    return;
+  }
+  try {
+    const s = JSON.parse(run.summary) as DebugSummary;
+    output.value = s.output || '';
+    summary.value = s.mode ? s : null;
+    liveTraces.value = {};
+    if (Array.isArray(s.nodes)) {
+      for (const t of s.nodes) liveTraces.value[t.key] = t;
+    }
+    emit('tracesChange', buildTraces(s));
+    message.success('已载入该次运行的输出与节点 trace');
+  } catch {
+    message.error('摘要解析失败');
+  }
+}
+
 // 多轮对话: 每轮问答都留在列表里, 下一轮把历史一起发给后端
 const turns = ref<ChatTurnItem[]>([]);
 const showTranscript = ref(true);
@@ -255,6 +326,7 @@ async function handleRun() {
       definition: props.getDefinition(),
       input: userText,
       history,
+      params: collectParamValues(),
       signal: abortController.signal
     });
     if (!response.ok || !response.body) {
@@ -335,7 +407,7 @@ async function handleRun() {
           break;
         case 'summary':
           summary.value = payload as DebugSummary;
-          emit('tracesChange', buildTraces(summary.value));
+          emit('tracesChange', buildTraces(summary.value as DebugSummary));
           patchTurn({ summary: summary.value, assistant: summary.value.output || output.value });
           pushEvent('done', `执行完成 (${payload?.mode}, ${payload?.total_ms ?? 0}ms)`, 'success');
           break;
@@ -370,6 +442,10 @@ async function handleRun() {
     running.value = false;
     emit('runningChange', false);
     abortController = null;
+    // 运行历史落库是异步的, 稍候刷新列表 (面板开着时才刷)
+    if (showHistory.value && props.orchestrationId) {
+      window.setTimeout(loadRuns, 800);
+    }
   }
 }
 
@@ -377,7 +453,15 @@ function handleAbort() {
   abortController?.abort();
 }
 
+// 节点完整输出检视: 表格行可展开看全文 (branch 判定依据/extract 结果/agent 完整回复)
+const traceExpand = (row: NodeTrace) =>
+  h('pre', { class: 'text-xs whitespace-pre-wrap break-all max-h-48 overflow-auto m-0' }, row.content || row.error || '(无输出)');
+
 const traceColumns: DataTableColumns<NodeTrace> = [
+  {
+    type: 'expand',
+    renderExpand: traceExpand
+  },
   {
     title: '节点',
     key: 'name',
@@ -481,6 +565,46 @@ onBeforeUnmount(() => {
       </NScrollbar>
     </div>
 
+    <!-- 编排入参填值 -->
+    <div v-if="paramFields.length" class="shrink-0 flex flex-wrap gap-2">
+      <div v-for="p in paramFields" :key="p.name" class="flex items-center gap-1">
+        <span class="text-xs text-gray-500" :title="p.description">{{ p.name }}<span v-if="p.required" class="text-red-400">*</span></span>
+        <NInput v-model:value="paramData[p.name]" size="tiny" class="w-40" :placeholder="p.description || '参数值'" />
+      </div>
+    </div>
+
+    <!-- 历史运行 (可折叠) -->
+    <div v-if="orchestrationId" class="shrink-0">
+      <div class="flex items-center gap-2">
+        <NButton size="tiny" quaternary @click="showHistory = !showHistory; showHistory && loadRuns()">
+          {{ showHistory ? '收起历史' : `历史运行${runs.length ? ` (${runs.length})` : ''}` }}
+        </NButton>
+        <NButton v-if="showHistory" size="tiny" quaternary :loading="runsLoading" @click="loadRuns">刷新</NButton>
+      </div>
+      <div v-if="showHistory && runs.length" class="max-h-40 overflow-auto mt-1">
+        <table class="w-full text-xs">
+          <tbody>
+            <tr
+              v-for="r in runs"
+              :key="r.id"
+              class="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
+              @click="viewRun(r)"
+            >
+              <td class="py-1 px-1 text-gray-400 whitespace-nowrap">{{ new Date(r.created_at).toLocaleString() }}</td>
+              <td class="py-1 px-1">{{ runSourceLabel[r.source] || r.source }}</td>
+              <td class="py-1 px-1">
+                <NTag size="tiny" :type="r.status === 'error' ? 'error' : 'success'" :bordered="false">{{ r.status === 'error' ? '失败' : '成功' }}</NTag>
+              </td>
+              <td class="py-1 px-1 text-gray-400">{{ r.total_ms }}ms</td>
+              <td class="py-1 px-1 truncate max-w-40" :class="r.error ? 'text-red-500' : 'text-gray-400'" :title="r.error || ''">
+                {{ r.error || '点击回看输出与节点 trace' }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- 输出 + 事件流 -->
     <div class="flex-1 min-h-0 flex gap-3 flex-col md:flex-row">
       <div class="flex-1 min-h-0 flex flex-col gap-1">
@@ -518,7 +642,14 @@ onBeforeUnmount(() => {
 
     <!-- 节点摘要表 -->
     <div v-if="summary" class="shrink-0">
-      <NDataTable :columns="traceColumns" :data="summary.nodes" :row-key="(r: NodeTrace) => r.key" :scroll-x="560" size="small" :max-height="120" />
+      <NDataTable
+        :columns="traceColumns"
+        :data="summary.nodes"
+        :row-key="(r: NodeTrace) => r.key"
+        :scroll-x="560"
+        size="small"
+        :max-height="120"
+      />
     </div>
 
     <!-- 工具审批弹窗: confirm_required 工具在编排运行时需人工批准 -->

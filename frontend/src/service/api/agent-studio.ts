@@ -108,10 +108,67 @@ export async function fetchOrchestrationDebugRun(data: {
   definition: string;
   input: string;
   history?: { role: string; content: string }[];
+  /** 编排入参值 (按 DSL params 声明的名传值) */
+  params?: Record<string, string>;
   signal?: AbortSignal;
 }): Promise<Response> {
   const { signal, ...payload } = data;
   return fetchSSEWithAuthRetry('/api/agent-studio/debug', payload, signal);
+}
+
+// ---------- 运行历史 / 单节点试跑 / 自定义模板 ----------
+
+/** 编排运行历史条目 */
+export interface OrchRunItem {
+  id: number;
+  orch_id: number;
+  user_id: number;
+  source: 'debug' | 'chat' | 'node';
+  status: 'success' | 'error';
+  mode: string;
+  total_ms: number;
+  error?: string;
+  summary?: string;
+  created_at: string;
+}
+
+export function fetchOrchestrationRuns(id: number, limit = 20) {
+  return request<OrchRunItem[]>({ url: `/api/agent-studio/orchestrations/${id}/runs`, params: { limit } });
+}
+
+export function fetchOrchestrationDebugNode(data: {
+  definition: string;
+  node_id: string;
+  input: string;
+  params?: Record<string, string>;
+}) {
+  return request<{ mode: string; output: string; total_ms: number }>({
+    url: '/api/agent-studio/debug-node',
+    method: 'post',
+    data
+  });
+}
+
+/** 用户自定义编排模板 */
+export interface OrchTemplateItem {
+  id: number;
+  user_id: number;
+  name: string;
+  description: string;
+  definition: string;
+  created_at: string;
+}
+
+export function fetchMyOrchTemplates() {
+  return request<OrchTemplateItem[]>({ url: '/api/agent-studio/my-templates' });
+}
+
+export function fetchSaveMyOrchTemplate(data: { name: string; description: string; definition: string }) {
+  return request<OrchTemplateItem>({ url: '/api/agent-studio/my-templates', method: 'post', data });
+}
+
+export function fetchDeleteMyOrchTemplate(id: number) {
+  return request<null>({ url: `/api/agent-studio/my-templates/${id}`, method: 'delete' });
 }
 
 /** 训练中心「编排对话」精简信息 */

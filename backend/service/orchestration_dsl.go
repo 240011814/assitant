@@ -28,12 +28,23 @@ const (
 	OrchNodeExtract = "extract"
 	// OrchNodeSubOrch 子编排: 引用另一个已保存编排作为节点执行 (递归编译, 禁止循环引用)
 	OrchNodeSubOrch = "suborch"
+	// OrchNodeForeach 迭代: 输入 JSON 数组逐项渲染提示词并调用模型, 结果按分隔符拼接
+	OrchNodeForeach = "foreach"
 )
 
+// OrchParam 编排入参声明: 调试/对话/定时任务按名传值, 模板用 {{vars.<名>}} 引用
+type OrchParam struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+
 type OrchestrationDSL struct {
-	Version int                 `json:"version"`
-	Nodes   []OrchestrationNode `json:"nodes"`
-	Edges   []OrchestrationEdge `json:"edges"`
+	Version int `json:"version"`
+	// Params 编排入参声明 (可选): 运行时值经 DebugRunRequest.Params 传入并种子进 vars
+	Params []OrchParam         `json:"params,omitempty"`
+	Nodes  []OrchestrationNode `json:"nodes"`
+	Edges  []OrchestrationEdge `json:"edges"`
 }
 
 type OrchestrationNode struct {
@@ -47,6 +58,12 @@ type OrchestrationNode struct {
 	// 解决"每轮全量重跑"与训练类对话的错配: 首轮解析目标/生成场景, 后续轮次直接续聊。
 	// 调试运行不受影响; 未激活的会话 (如澄清轮) 正常执行。
 	ChatFirstTurn bool `json:"chat_first_turn,omitempty"`
+	// OutputVar 运行变量名: 节点最终输出存入本次运行的变量空间, 下游模板用 {{vars.<名>}} 引用。
+	// 仅本次运行有效 (区别于 SaveState 的跨轮持久)
+	OutputVar string `json:"output_var,omitempty"`
+	// SaveState 会话存档名: 编排对话模式下把节点最终输出写入会话 artifacts (跨轮持久),
+	// 下一轮编译时以 {{vars.<名>}} 注入。典型用途: 场景事实卡首轮生成、后续轮次复用
+	SaveState string `json:"save_state,omitempty"`
 }
 
 type OrchestrationEdge struct {
@@ -85,10 +102,29 @@ type OrchTemplateConfig struct {
 	Template string `json:"template"`
 }
 
+// OrchForeachConfig 迭代节点配置: 输入内容按 JSON 解析后经 items_path 取数组,
+// 逐项渲染 item_template (可用 {{vars.*}} 与 .item/.index) 调用模型, 输出按 join 拼接
+type OrchForeachConfig struct {
+	// ItemsPath 输入 JSON 的点路径, 指向数组 (空=整个输入就是数组)
+	ItemsPath string `json:"items_path"`
+	// ItemTemplate 每项的提示词模板, 可引用 {{.item}} (当前项 JSON 文本) / {{.index}} (序号) / {{vars.*}}
+	ItemTemplate string `json:"item_template"`
+	// SystemPrompt 迭代调用的系统提示词 (可为空)
+	SystemPrompt string `json:"system_prompt"`
+	// Model 模型 code, 空=默认模型
+	Model string `json:"model"`
+	// Join 多项结果的拼接分隔符, 默认 "\n\n"
+	Join string `json:"join"`
+	// MaxItems 迭代上限 (1-50), 默认 10, 防御超长数组
+	MaxItems int `json:"max_items"`
+}
+
 type OrchBranchCase struct {
-	Type   string `json:"type"` // contains / equals / regex
+	Type   string `json:"type"` // contains / equals / regex / json
 	Value  string `json:"value"`
 	Target string `json:"target"`
+	// Path json 条件专用: 输入内容按 JSON 解析后的点路径 (如 scene.training_type)
+	Path string `json:"path,omitempty"`
 }
 
 // orchMaxRetriesCap 单节点失败重试次数上限 (与画布校验一致)
@@ -111,6 +147,9 @@ type OrchBranchConfig struct {
 	// MaxLoops 循环回边的最大执行次数 (该分支带 loop 边时必填):
 	// 回边命中超过该次数后强制走退出目标, 防止评审一直不通过导致死循环
 	MaxLoops int `json:"max_loops"`
+	// OnError 并行模式的失败策略: fail (默认, 任一路径失败整个运行报错) /
+	// skip (失败路径以占位说明参与汇总, 其余路径正常)
+	OnError string `json:"on_error,omitempty"`
 }
 
 type OrchSubAgentConfig struct {
@@ -249,7 +288,7 @@ func (c *orchestrationCompiler) validateIssues() []orchValidateIssue {
 		}
 		switch n.Type {
 		case OrchNodeAgent, OrchNodeTool, OrchNodeTemplate, OrchNodeBranch, OrchNodeMerge, OrchNodeEnd, OrchNodeSubAgent,
-			OrchNodeRouter, OrchNodeExtract, OrchNodeSubOrch:
+			OrchNodeRouter, OrchNodeExtract, OrchNodeSubOrch, OrchNodeForeach:
 		default:
 			add(n.ID, "节点 %s 类型非法: %s", n.ID, n.Type)
 		}
@@ -514,13 +553,13 @@ func (c *orchestrationCompiler) validateIssues() []orchValidateIssue {
 					}
 					targets[cs.Target] = true
 					switch cs.Type {
-					case "contains", "equals":
+					case "contains", "equals", "json":
 					case "regex":
 						if _, err := regexp.Compile(cs.Value); err != nil {
 							add(id, "分支节点 %s 第 %d 个条件正则非法: %v", id, j+1, err)
 						}
 					default:
-						add(id, "分支节点 %s 第 %d 个条件类型非法: %s (contains/equals/regex)", id, j+1, cs.Type)
+						add(id, "分支节点 %s 第 %d 个条件类型非法: %s (contains/equals/regex/json)", id, j+1, cs.Type)
 					}
 				}
 				if cfg.DefaultTarget == "" || c.nodeByID(cfg.DefaultTarget) == nil {

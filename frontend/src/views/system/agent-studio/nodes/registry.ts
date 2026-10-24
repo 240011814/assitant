@@ -10,9 +10,10 @@ import MergeNode from './merge-node.vue';
 import EndNode from './end-node.vue';
 import SubAgentNode from './sub-agent-node.vue';
 import SubOrchNode from './sub-orch-node.vue';
+import ForeachNode from './foreach-node.vue';
 
 /** 编排节点类型 (与后端 DSL 的 node.type 一致) */
-export type OrchNodeType = 'agent' | 'tool' | 'template' | 'branch' | 'router' | 'extract' | 'merge' | 'end' | 'subagent' | 'suborch';
+export type OrchNodeType = 'agent' | 'tool' | 'template' | 'branch' | 'router' | 'extract' | 'merge' | 'end' | 'subagent' | 'suborch' | 'foreach';
 
 export interface OrchNodeMeta {
   /** 画布与右键菜单展示名 */
@@ -96,6 +97,13 @@ export const NODE_META: Record<OrchNodeType, OrchNodeMeta> = {
     color: '#7c3aed',
     defaultConfig: { orchestration_id: 0 },
     component: markRaw(SubOrchNode)
+  },
+  foreach: {
+    label: '迭代',
+    icon: 'mdi:repeat-variant',
+    color: '#b45309',
+    defaultConfig: { items_path: '', item_template: '处理: {{.item}}', system_prompt: '', model: '', join: '\n\n', max_items: 10 },
+    component: markRaw(ForeachNode)
   }
 };
 

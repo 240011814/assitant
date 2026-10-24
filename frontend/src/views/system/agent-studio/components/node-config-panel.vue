@@ -30,6 +30,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:data': [data: { name: string; config: Record<string, any>; chatFirstTurn?: boolean }];
   delete: [id: string];
+  /** 试跑本节点: 父组件打开单节点试跑弹窗 */
+  debugNode: [id: string];
 }>();
 
 // 面板是该节点配置的唯一编辑入口: 仅在切换节点时从 props 初始化本地副本,
@@ -76,6 +78,20 @@ watch([localName, localConfig, localChatFirstTurn], () => {
 const chatFirstTurnSupported = computed(() =>
   ['agent', 'suborch', 'template', 'tool', 'extract', 'branch', 'router'].includes(props.nodeType)
 );
+
+// foreach 节点: 便捷绑定 items_path/item_template
+const foreachItemsPath = computed({
+  get: () => String(localConfig.value.items_path || ''),
+  set: (v: string) => { localConfig.value.items_path = v; }
+});
+const foreachItemTemplate = computed({
+  get: () => String(localConfig.value.item_template || ''),
+  set: (v: string) => { localConfig.value.item_template = v; }
+});
+const foreachJoin = computed({
+  get: () => String(localConfig.value.join || ''),
+  set: (v: string) => { localConfig.value.join = v; }
+});
 
 const toolOptions = computed(() =>
   (props.resources?.tools || []).map(t => ({ label: t.display_name ? `${t.display_name} (${t.name})` : t.name, value: t.name }))
@@ -266,7 +282,18 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
   <div class="flex flex-col gap-3">
     <div class="flex items-center justify-between">
       <span class="text-sm font-bold">{{ typeLabel }}</span>
-      <NButton size="tiny" quaternary type="error" @click="emit('delete', nodeId)">删除节点</NButton>
+      <div class="flex items-center gap-1">
+        <NButton
+          v-if="['agent', 'tool', 'template', 'extract', 'foreach', 'suborch'].includes(nodeType)"
+          size="tiny"
+          quaternary
+          type="primary"
+          @click="emit('debugNode', nodeId)"
+        >
+          试跑
+        </NButton>
+        <NButton size="tiny" quaternary type="error" @click="emit('delete', nodeId)">删除节点</NButton>
+      </div>
     </div>
 
     <NFormItem label="名称" label-placement="left" label-width="72" size="small">
@@ -435,6 +462,24 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
           未使用循环回边时保持 0; 从路由连一条线回上游后右键该连线「转为循环回边」, 并把上限设为 ≥1。
         </p>
       </template>
+    </template>
+
+    <!-- 迭代节点 -->
+    <template v-else-if="nodeType === 'foreach'">
+      <NFormItem label="数组路径" label-placement="left" label-width="72" size="small">
+        <NInput v-model:value="foreachItemsPath" size="small" placeholder="输入 JSON 的点路径 (空=整个输入是数组)" />
+      </NFormItem>
+      <NFormItem label="逐项提示词" label-placement="left" label-width="72" size="small">
+        <NInput
+          v-model:value="foreachItemTemplate"
+          type="textarea"
+          :autosize="{ minRows: 3, maxRows: 10 }"
+          placeholder="每项的提示词, 可用 {{`{{.item}}`}}/{{`{{.index}}`}}/{{`{{.vars.*}}`}}"
+        />
+      </NFormItem>
+      <NFormItem label="拼接符" label-placement="left" label-width="72" size="small">
+        <NInput v-model:value="foreachJoin" size="small" placeholder="默认换行空行" />
+      </NFormItem>
     </template>
 
     <!-- 字段提取节点 -->

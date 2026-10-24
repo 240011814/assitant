@@ -309,6 +309,11 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			orchestrationGroup.POST("/orchestrations/validate", orchestrationHandler.HandleValidate)
 			orchestrationGroup.GET("/resources", orchestrationHandler.HandleResources)
 			orchestrationGroup.POST("/debug", api.RequirePermission("system:orchestration:debug"), orchestrationHandler.HandleDebugRun)
+			orchestrationGroup.POST("/debug-node", api.RequirePermission("system:orchestration:debug"), orchestrationHandler.HandleDebugNode)
+			orchestrationGroup.GET("/orchestrations/:id/runs", orchestrationHandler.HandleListRuns)
+			orchestrationGroup.GET("/my-templates", orchestrationHandler.HandleListMyTemplates)
+			orchestrationGroup.POST("/my-templates", orchestrationHandler.HandleSaveMyTemplate)
+			orchestrationGroup.DELETE("/my-templates/:id", orchestrationHandler.HandleDeleteMyTemplate)
 		}
 
 		// Course APIs

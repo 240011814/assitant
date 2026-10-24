@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
-import { NButton, NCard, NDropdown, NEmpty, NInput, NModal, NPopconfirm, NSpace, NSwitch, NTag, useMessage } from 'naive-ui';
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { NButton, NCard, NCheckbox, NDropdown, NEmpty, NInput, NModal, NPopconfirm, NSpace, NSwitch, NTag, useMessage } from 'naive-ui';
 import { useAppStore } from '@/store/modules/app';
 import { useAuth } from '@/hooks/business/auth';
 import CanvasPanel from './components/canvas-panel.vue';
@@ -10,8 +10,8 @@ import type { NodeTrace } from './components/debug-panel.vue';
 import { NODE_META, nodeTypeOptions } from './nodes/registry';
 import { ORCHESTRATION_TEMPLATES } from './templates';
 import type { OrchestrationTemplate } from './templates';
-import { fetchOrchestrations, fetchCreateOrchestration, fetchUpdateOrchestration, fetchDeleteOrchestration, fetchOrchestrationResources, fetchValidateOrchestration } from '@/service/api';
-import type { AIOrchestrationItem, OrchestrationResource } from '@/service/api';
+import { fetchOrchestrations, fetchCreateOrchestration, fetchUpdateOrchestration, fetchDeleteOrchestration, fetchOrchestrationResources, fetchValidateOrchestration, fetchOrchestrationDebugNode, fetchMyOrchTemplates, fetchSaveMyOrchTemplate, fetchDeleteMyOrchTemplate } from '@/service/api';
+import type { AIOrchestrationItem, OrchestrationResource, OrchTemplateItem } from '@/service/api';
 
 const message = useMessage();
 const appStore = useAppStore();
@@ -37,10 +37,29 @@ const resources = ref<OrchestrationResource | null>(null);
 
 
 
+
+// ---------- 交互状态: undo/入参/单节点试跑/自定义模板 ----------
+const undoStack = ref<string[]>([]);
+const redoStack = ref<string[]>([]);
+const dslParams = ref<Array<{ name: string; description: string; required: boolean }>>([]);
+const showParamsModal = ref(false);
+const showNodeRunModal = ref(false);
+const nodeRunInput = ref('');
+const nodeRunLoading = ref(false);
+const nodeRunResult = ref<{ output: string; total_ms: number } | null>(null);
+const nodeRunError = ref('');
+const nodeRunTargetId = ref('');
+const debugParamValues = ref<Record<string, string>>({});
+const showSaveTemplateModal = ref(false);
+const templateForm = ref({ name: '', description: '' });
+const savingTemplate = ref(false);
+const myTemplates = ref<OrchTemplateItem[]>([]);
+
 // ---------- 序列化: 画布 <-> DSL ----------
 function serializeDefinition(): string {
   return JSON.stringify({
     version: 1,
+    params: dslParams.value.filter(p => p.name.trim()).map(p => ({ name: p.name.trim(), description: p.description, required: p.required })),
     nodes: flowNodes.value.map(n => ({
       id: n.id,
       type: n.data.nodeType as string,
@@ -62,6 +81,7 @@ function serializeDefinition(): string {
 function loadDefinition(definition: string) {
   try {
     const dsl = JSON.parse(definition || '{}');
+    dslParams.value = (dsl.params || []).map((p: any) => ({ name: p.name || '', description: p.description || '', required: p.required === true }));
     flowNodes.value = (dsl.nodes || []).map((n: any) => ({
       id: n.id,
       type: 'orch',
@@ -87,6 +107,10 @@ function loadDefinition(definition: string) {
     flowEdges.value = [];
   }
   clearErrorNodes();
+  // 画布整体重载是 undo 的还原点: 清空栈, 以当前状态为新基线
+  undoStack.value = [];
+  redoStack.value = [];
+  refreshBaseline();
 }
 
 function handleDuplicateNode(nodeId: string) {
@@ -102,6 +126,7 @@ function handleDuplicateNode(nodeId: string) {
     data: JSON.parse(JSON.stringify(source.data))
   });
   selectedNodeId.value = id;
+  pushUndo();
   clearErrorNodes();
   message.success('已复制节点');
 }
@@ -127,6 +152,7 @@ function makeNode(nodeType: string, position: { x: number; y: number }) {
     }
   });
   selectedNodeId.value = id;
+  pushUndo();
   clearErrorNodes();
 }
 
@@ -335,6 +361,7 @@ function handleUpdateNodeData(data: { name: string; config: Record<string, any>;
   const node = flowNodes.value.find(n => n.id === selectedNodeId.value);
   if (node) {
     node.data = { ...node.data, ...data };
+    pushUndo(800);
     clearErrorNodes();
   }
 }
@@ -343,12 +370,170 @@ function handleDeleteNode(nodeId: string) {
   flowNodes.value = flowNodes.value.filter(n => n.id !== nodeId);
   flowEdges.value = flowEdges.value.filter(e => e.source !== nodeId && e.target !== nodeId);
   selectedNodeId.value = null;
+  pushUndo();
   clearErrorNodes();
 }
 
 function handleDeleteEdge(edgeId: string) {
   flowEdges.value = flowEdges.value.filter(e => e.id !== edgeId);
+  pushUndo();
   clearErrorNodes();
+}
+
+// ---------- undo/redo ----------
+// 快照式: baseline 保存最近稳定状态, 结构性变更 (加/删/连线/配置改动) 时把 baseline 压栈。
+// 位置拖动不入栈 (噪声大且价值低); 快照为完整 DSL 定义, 恢复走 loadDefinition
+
+let undoBaseline = '';
+let lastDataPushAt = 0;
+
+
+function refreshBaseline() {
+  undoBaseline = serializeDefinition();
+}
+
+function pushUndo(coalesceMs = 0) {
+  const now = Date.now();
+  if (coalesceMs > 0 && now - lastDataPushAt < coalesceMs) {
+    // 连续配置改动合并为一个 undo 步
+    lastDataPushAt = now;
+    undoBaseline = serializeDefinition();
+    return;
+  }
+  lastDataPushAt = now;
+  if (undoBaseline) undoStack.value.push(undoBaseline);
+  if (undoStack.value.length > 50) undoStack.value.shift();
+  redoStack.value = [];
+  undoBaseline = serializeDefinition();
+}
+
+function applyUndoSnapshot(def: string) {
+  loadDefinition(def);
+  undoBaseline = def;
+}
+
+function handleUndo() {
+  const prev = undoStack.value.pop();
+  if (!prev) return;
+  redoStack.value.push(undoBaseline);
+  applyUndoSnapshot(prev);
+}
+
+function handleRedo() {
+  const next = redoStack.value.pop();
+  if (!next) return;
+  undoStack.value.push(undoBaseline);
+  applyUndoSnapshot(next);
+}
+
+// 画布变更: 结构性 (add/remove) 入 undo 栈; 其余 (拖动/选中) 仅清除错误高亮
+function handleCanvasChange(changes: Array<{ type: string }>) {
+  clearErrorNodes();
+  if (changes.some(ch => ch.type === 'add' || ch.type === 'remove')) {
+    pushUndo();
+  }
+}
+
+function handleUndoKeydown(e: KeyboardEvent) {
+  if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+  const tag = (e.target as HTMLElement | null)?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return; // 输入框内保留原生撤销
+  e.preventDefault();
+  if (e.shiftKey) handleRedo();
+  else handleUndo();
+}
+
+function openNodeRun(nodeId: string) {
+  nodeRunInput.value = '';
+  nodeRunResult.value = null;
+  nodeRunError.value = '';
+  showNodeRunModal.value = true;
+  nodeRunTargetId.value = nodeId;
+}
+
+
+async function handleNodeRun() {
+  if (!nodeRunInput.value.trim() || !nodeRunTargetId.value) return;
+  nodeRunLoading.value = true;
+  nodeRunError.value = '';
+  try {
+    const { data, error } = await fetchOrchestrationDebugNode({
+      definition: serializeDefinition(),
+      node_id: nodeRunTargetId.value,
+      input: nodeRunInput.value,
+      params: paramValues()
+    });
+    if (error || !data) {
+      nodeRunError.value = error?.message || '试跑失败';
+      return;
+    }
+    nodeRunResult.value = { output: data.output, total_ms: data.total_ms };
+  } finally {
+    nodeRunLoading.value = false;
+  }
+}
+
+function paramValues(): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const p of dslParams.value) {
+    values[p.name] = debugParamValues.value[p.name] || '';
+  }
+  return values;
+}
+
+// 调试面板的入参填值 (传给 DebugPanel 渲染字段)
+
+
+async function handleSaveTemplate() {
+  if (!templateForm.value.name.trim()) {
+    message.warning('请输入模板名称');
+    return;
+  }
+  savingTemplate.value = true;
+  try {
+    const { error } = await fetchSaveMyOrchTemplate({
+      name: templateForm.value.name.trim(),
+      description: templateForm.value.description,
+      definition: serializeDefinition()
+    });
+    if (error) {
+      message.error(error.message || '保存模板失败');
+      return;
+    }
+    message.success('已存为我的模板');
+    showSaveTemplateModal.value = false;
+    loadMyTemplates();
+  } finally {
+    savingTemplate.value = false;
+  }
+}
+
+
+
+async function loadMyTemplates() {
+  const { data, error } = await fetchMyOrchTemplates();
+  if (!error && data) myTemplates.value = data;
+}
+
+function applyMyTemplate(t: OrchTemplateItem) {
+  currentId.value = null;
+  currentName.value = t.name;
+  currentDesc.value = t.description;
+  currentEnabled.value = true;
+  nodeTraces.value = {};
+  selectedNodeId.value = null;
+  loadDefinition(t.definition);
+  showCreateModal.value = false;
+  message.success(`已从「${t.name}」加载`);
+}
+
+async function deleteMyTemplate(t: OrchTemplateItem) {
+  const { error } = await fetchDeleteMyOrchTemplate(t.id);
+  if (error) {
+    message.error(error.message || '删除失败');
+    return;
+  }
+  loadMyTemplates();
 }
 
 const addNodeOptions = nodeTypeOptions().map(o => ({ label: o.label, key: o.value }));
@@ -362,6 +547,12 @@ function handleAddNode(key: string | number) {
 onMounted(() => {
   loadList();
   loadResources();
+  loadMyTemplates();
+  window.addEventListener('keydown', handleUndoKeydown);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleUndoKeydown);
 });
 </script>
 
@@ -376,6 +567,25 @@ onMounted(() => {
         <span class="font-medium">{{ currentName || '未命名编排' }}</span>
         <span v-if="currentDesc" class="text-xs text-gray-500 truncate max-w-60">{{ currentDesc }}</span>
         <NSpace size="small" class="ml-auto">
+          <NButton size="small" secondary quaternary :disabled="undoStack.length === 0" title="撤销 (Ctrl+Z)" @click="handleUndo">
+            <template #icon><SvgIcon icon="mdi:undo" /></template>
+          </NButton>
+          <NButton size="small" secondary quaternary :disabled="redoStack.length === 0" title="重做 (Ctrl+Shift+Z)" @click="handleRedo">
+            <template #icon><SvgIcon icon="mdi:redo" /></template>
+          </NButton>
+          <NButton size="small" secondary @click="showParamsModal = true">
+            <template #icon><SvgIcon icon="mdi:tune" /></template>
+            入参{{ dslParams.length ? `(${dslParams.length})` : '' }}
+          </NButton>
+          <NButton
+            size="small"
+            secondary
+            title="把当前画布存为我的模板"
+            @click="templateForm = { name: currentName || '', description: currentDesc || '' }; showSaveTemplateModal = true"
+          >
+            <template #icon><SvgIcon icon="mdi:collapse-all-outline" /></template>
+            存为模板
+          </NButton>
           <NDropdown :options="addNodeOptions" trigger="click" @select="handleAddNode">
             <NButton size="small" secondary>
               <template #icon><SvgIcon icon="mdi:plus" /></template>
@@ -466,7 +676,7 @@ onMounted(() => {
           @duplicate-node="handleDuplicateNode"
           @add-node="handleCanvasAddNode"
           @delete-edge="handleDeleteEdge"
-          @canvas-change="clearErrorNodes"
+          @canvas-change="handleCanvasChange"
         />
       </NCard>
 
@@ -484,6 +694,7 @@ onMounted(() => {
           :current-orch-id="currentId"
           @update:data="handleUpdateNodeData"
           @delete="handleDeleteNode"
+          @debug-node="openNodeRun"
         />
       </NCard>
     </div>
@@ -522,6 +733,26 @@ onMounted(() => {
         </div>
       </div>
       <div class="text-xs text-gray-400 mt-2">模板预填了节点、连线与校验配置; 依赖实例资源的节点 (工具/子编排) 加载后需补选。</div>
+
+      <!-- 我的模板 -->
+      <div v-if="myTemplates.length" class="mt-4">
+        <div class="text-sm font-medium mb-2">我的模板</div>
+        <div class="grid gap-2 max-h-52 overflow-auto" :class="appStore.isMobile ? 'grid-cols-1' : 'grid-cols-3'">
+          <div
+            v-for="t in myTemplates"
+            :key="t.id"
+            class="p-3 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition-colors relative group"
+            @click="applyMyTemplate(t)"
+          >
+            <div class="text-sm font-medium truncate pr-5">{{ t.name }}</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400 leading-5 line-clamp-2">{{ t.description || '无描述' }}</div>
+            <span
+              class="absolute top-2 right-2 text-red-400 hover:text-red-500 text-xs hidden group-hover:block"
+              @click.stop="deleteMyTemplate(t)"
+            >删除</span>
+          </div>
+        </div>
+      </div>
     </NModal>
 
     <!-- ====== 另存为弹窗 ====== -->
@@ -534,6 +765,57 @@ onMounted(() => {
         <NSpace justify="end">
           <NButton @click="showSaveModal = false">取消</NButton>
           <NButton type="primary" @click="handleCreate">保存</NButton>
+        </NSpace>
+      </template>
+    </NModal>
+
+    <!-- ====== 编排入参编辑 ====== -->
+    <NModal v-model:show="showParamsModal" preset="card" title="编排入参" :style="{ width: appStore.isMobile ? '95vw' : '560px' }">
+      <p class="text-xs text-gray-500 mb-2">
+        入参按名传值: 调试面板/编排对话/定时任务运行时填值, 节点模板用 <code>params.参数名</code> 引用 (与 current_time 等会话变量同命名空间)。
+      </p>
+      <div v-for="(p, idx) in dslParams" :key="idx" class="flex gap-2 mb-2 items-center">
+        <NInput v-model:value="p.name" placeholder="参数名 (如 stock_code)" size="small" class="w-40" />
+        <NInput v-model:value="p.description" placeholder="说明 (可选)" size="small" />
+        <NCheckbox v-model:checked="p.required" size="small">必填</NCheckbox>
+        <NButton size="tiny" quaternary type="error" @click="dslParams.splice(idx, 1)">删除</NButton>
+      </div>
+      <NButton size="small" dashed block @click="dslParams.push({ name: '', description: '', required: false })">
+        添加参数
+      </NButton>
+      <template #footer>
+        <NSpace justify="end">
+          <NButton @click="showParamsModal = false">完成</NButton>
+        </NSpace>
+      </template>
+    </NModal>
+
+    <!-- ====== 单节点试跑 ====== -->
+    <NModal v-model:show="showNodeRunModal" preset="card" title="单节点试跑" :style="{ width: appStore.isMobile ? '95vw' : '640px' }">
+      <div class="flex flex-col gap-3">
+        <NInput v-model:value="nodeRunInput" type="textarea" :rows="3" placeholder="输入内容 (作为该节点的上游输入)" />
+        <NButton type="primary" size="small" :loading="nodeRunLoading" :disabled="!nodeRunInput.trim()" @click="handleNodeRun">
+          运行
+        </NButton>
+        <div v-if="nodeRunError" class="text-red-500 text-sm">{{ nodeRunError }}</div>
+        <div v-if="nodeRunResult" class="rounded bg-gray-50 dark:bg-gray-800 p-3">
+          <div class="text-xs text-gray-400 mb-1">输出 · {{ nodeRunResult.total_ms }}ms</div>
+          <pre class="text-xs whitespace-pre-wrap break-all max-h-72 overflow-auto">{{ nodeRunResult.output }}</pre>
+        </div>
+      </div>
+    </NModal>
+
+    <!-- ====== 存为我的模板 ====== -->
+    <NModal v-model:show="showSaveTemplateModal" preset="card" title="存为我的模板" :style="{ width: appStore.isMobile ? '95vw' : '480px' }">
+      <div class="flex flex-col gap-3">
+        <NInput v-model:value="templateForm.name" placeholder="模板名称" />
+        <NInput v-model:value="templateForm.description" type="textarea" :rows="2" placeholder="描述 (可选)" />
+        <p class="text-xs text-gray-400">仅自己可见; 保存前会做画布结构校验。</p>
+      </div>
+      <template #footer>
+        <NSpace justify="end">
+          <NButton @click="showSaveTemplateModal = false">取消</NButton>
+          <NButton type="primary" :loading="savingTemplate" @click="handleSaveTemplate">保存</NButton>
         </NSpace>
       </template>
     </NModal>
