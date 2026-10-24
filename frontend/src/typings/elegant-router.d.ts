@@ -33,6 +33,7 @@ declare module "@elegant-router/types" {
     "ai_quiz": "/ai/quiz";
     "ai_reading": "/ai/reading";
     "ai_reading-detail": "/ai/reading-detail/:id";
+    "ai_rss": "/ai/rss";
     "ai_training": "/ai/training";
     "ai_vocabulary": "/ai/vocabulary";
     "cut": "/cut";
@@ -151,6 +152,7 @@ declare module "@elegant-router/types" {
     | "ai_quiz"
     | "ai_reading-detail"
     | "ai_reading"
+    | "ai_rss"
     | "ai_training"
     | "ai_vocabulary"
     | "cut_bar-detail"

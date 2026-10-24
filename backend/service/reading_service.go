@@ -175,6 +175,16 @@ func (s *ReadingService) DeleteDoc(userID, id uint) error {
 	return DB.Where("id = ? AND user_id = ?", id, userID).Delete(&model.ReadingDoc{}).Error
 }
 
+// HasDocByURL 判断是否已导入过同一原文链接的文章 (RSS 条目防重复导入)
+func (s *ReadingService) HasDocByURL(userID uint, sourceURL string) bool {
+	if strings.TrimSpace(sourceURL) == "" {
+		return false
+	}
+	var count int64
+	DB.Model(&model.ReadingDoc{}).Where("user_id = ? AND source_url = ?", userID, sourceURL).Count(&count)
+	return count > 0
+}
+
 // StartAnnotate 异步启动生词标注: 立即置 annotating 并返回, LLM 在后台执行。
 // Cloudflare 对源站响应有 100s 上限, 同步等 LLM 必 504, 故一律异步 + 前端轮询文档状态
 func (s *ReadingService) StartAnnotate(userID, id uint) (*model.ReadingDoc, error) {

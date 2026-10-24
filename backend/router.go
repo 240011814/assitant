@@ -38,6 +38,7 @@ type appDeps struct {
 	vocabHandler         *api.VocabularyHandler
 	quizHandler          *api.QuizHandler
 	readingHandler       *api.ReadingHandler
+	rssHandler           *api.RSSHandler
 	noteHandler          *api.NoteHandler
 	reminderHandler      *api.ReminderHandler
 	systemConfigHandler  *api.SystemConfigHandler
@@ -63,6 +64,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 	vocabHandler := d.vocabHandler
 	quizHandler := d.quizHandler
 	readingHandler := d.readingHandler
+	rssHandler := d.rssHandler
 	noteHandler := d.noteHandler
 	aiAgentHandler := d.aiAgentHandler
 	orchestrationHandler := d.orchestrationHandler
@@ -206,6 +208,20 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			readingGroup.GET("/lookup", readingHandler.HandleLookupWord)
 			readingGroup.GET("/generation-jobs/:id", readingHandler.HandleGetGenerationJob)
 			readingGroup.POST("/generate-passage", readingHandler.HandleGeneratePassage)
+		}
+
+		// RSS 阅读 (挂 vocabulary 权限域)
+		rssGroup := apiGroup.Group("/rss")
+		rssGroup.Use(api.RequirePermission("ai:vocabulary:view"))
+		{
+			rssGroup.POST("/sources", api.RequirePermission("ai:vocabulary:add"), rssHandler.HandleAddRSSSource)
+			rssGroup.GET("/sources", rssHandler.HandleListRSSSources)
+			rssGroup.DELETE("/sources/:id", api.RequirePermission("ai:vocabulary:delete"), rssHandler.HandleDeleteRSSSource)
+			rssGroup.POST("/sources/:id/fetch", rssHandler.HandleFetchRSSSource)
+			rssGroup.GET("/items", rssHandler.HandleListRSSItems)
+			rssGroup.POST("/items/:id/read", rssHandler.HandleMarkRSSItemRead)
+			rssGroup.GET("/items/:id/content", rssHandler.HandleGetRSSItemContent)
+			rssGroup.POST("/items/:id/import", rssHandler.HandleImportRSSItem)
 		}
 
 		noteGroup := apiGroup.Group("/notes")

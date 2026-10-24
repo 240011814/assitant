@@ -32,6 +32,7 @@ export const views: Record<LastLevelRouteKey, RouteComponent | (() => Promise<Ro
   ai_quiz: () => import("@/views/ai/quiz/index.vue"),
   "ai_reading-detail": () => import("@/views/ai/reading-detail/[id].vue"),
   ai_reading: () => import("@/views/ai/reading/index.vue"),
+  ai_rss: () => import("@/views/ai/rss/index.vue"),
   ai_training: () => import("@/views/ai/training/index.vue"),
   ai_vocabulary: () => import("@/views/ai/vocabulary/index.vue"),
   "cut_bar-detail": () => import("@/views/cut/bar-detail/[id].vue"),

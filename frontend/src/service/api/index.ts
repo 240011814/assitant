@@ -4,6 +4,7 @@ export * from './route';
 export * from './vocabulary';
 export * from './quiz';
 export * from './reading';
+export * from './rss';
 export * from './note';
 export * from './history';
 export * from './custom-training';

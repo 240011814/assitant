@@ -245,6 +245,7 @@ const local: App.I18n.Schema = {
     ai_quiz: "智能练习",
     ai_reading: "分级阅读",
     "ai_reading-detail": "阅读",
+    ai_rss: "RSS 阅读",
     "ai_learning-stats": "学习看板",
     cut: "切割工具",
     cut_bar: "一维切割",

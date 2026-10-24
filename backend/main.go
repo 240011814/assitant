@@ -168,6 +168,8 @@ func main() {
 	quizHandler := api.NewQuizHandler(quizService)
 	readingService := service.NewReadingService(aiAgentService, courseService)
 	readingHandler := api.NewReadingHandler(readingService)
+	rssService := service.NewRSSService(readingService)
+	rssHandler := api.NewRSSHandler(rssService)
 
 	stockService := service.NewStockService()
 	stockHandler := api.NewStockHandler(stockService, cfg.Baostock.URL)
@@ -241,6 +243,7 @@ func main() {
 		vocabHandler:         vocabHandler,
 		quizHandler:          quizHandler,
 		readingHandler:       readingHandler,
+		rssHandler:           rssHandler,
 		noteHandler:          noteHandler,
 		reminderHandler:      reminderHandler,
 		systemConfigHandler:  systemConfigHandler,

@@ -249,6 +249,7 @@ const local: App.I18n.Schema = {
     ai_quiz: "Quiz",
     ai_reading: "Reading",
     "ai_reading-detail": "Reader",
+    ai_rss: "RSS Reader",
     "ai_learning-stats": "Learning Stats",
     cut: "Cutting Tools",
     cut_bar: "1D Cutting",

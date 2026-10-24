@@ -194,6 +194,19 @@ export const generatedRoutes: GeneratedRoute[] = [
         }
       },
       {
+        name: 'ai_rss',
+        path: '/ai/rss',
+        component: 'view.ai_rss',
+        meta: {
+          title: 'ai_rss',
+          i18nKey: 'route.ai_rss',
+          icon: 'mdi:rss',
+          permissions: ['ai:vocabulary:view'],
+          order: 11,
+          keepAlive: true
+        }
+      },
+      {
         name: 'ai_training',
         path: '/ai/training',
         component: 'view.ai_training',
