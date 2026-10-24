@@ -42,6 +42,11 @@ type OrchestrationNode struct {
 	Name string `json:"name"`
 	// Config 各类型节点的配置, 按类型反序列化
 	Config json.RawMessage `json:"config"`
+	// ChatFirstTurn 编排对话专用: 会话"激活"后 (首跑有粘性分支命中非默认目标) 本节点跳过执行 ——
+	// agent/suborch/template/tool/extract 变为直通转发, branch/router 回放首跑记录的路由。
+	// 解决"每轮全量重跑"与训练类对话的错配: 首轮解析目标/生成场景, 后续轮次直接续聊。
+	// 调试运行不受影响; 未激活的会话 (如澄清轮) 正常执行。
+	ChatFirstTurn bool `json:"chat_first_turn,omitempty"`
 }
 
 type OrchestrationEdge struct {

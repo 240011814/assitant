@@ -46,6 +46,8 @@ function serializeDefinition(): string {
       type: n.data.nodeType as string,
       name: (n.data.name || n.id) as string,
       config: n.data.config ?? {},
+      // chat_first_turn: 编排对话会话激活后跳过该节点 (后端按此字段编译直通/路由回放)
+      chat_first_turn: n.data.chatFirstTurn === true ? true : undefined,
       position: { x: Math.round(n.position?.x ?? 0), y: Math.round(n.position?.y ?? 0) }
     })),
     edges: flowEdges.value.map(e => ({
@@ -66,7 +68,7 @@ function loadDefinition(definition: string) {
       position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
       sourcePosition: 'right',
       targetPosition: 'left',
-      data: { nodeType: n.type, name: n.name || n.id, config: n.config || {} }
+      data: { nodeType: n.type, name: n.name || n.id, config: n.config || {}, chatFirstTurn: n.chat_first_turn === true || n.chatFirstTurn === true }
     }));
     flowEdges.value = (dsl.edges || []).map((e: any, i: number) => ({
       id: `e_${i}_${e.source}_${e.target}`,
@@ -329,7 +331,7 @@ function onDebugTraces(traces: Record<string, NodeTrace>) {
 
 const selectedNode = computed(() => flowNodes.value.find(n => n.id === selectedNodeId.value) || null);
 
-function handleUpdateNodeData(data: { name: string; config: Record<string, any> }) {
+function handleUpdateNodeData(data: { name: string; config: Record<string, any>; chatFirstTurn?: boolean }) {
   const node = flowNodes.value.find(n => n.id === selectedNodeId.value);
   if (node) {
     node.data = { ...node.data, ...data };
@@ -475,6 +477,7 @@ onMounted(() => {
           :node-type="selectedNode.data.nodeType"
           :name="selectedNode.data.name"
           :config="selectedNode.data.config"
+          :chat-first-turn="selectedNode.data.chatFirstTurn === true"
           :all-nodes="flowNodes"
           :edges="flowEdges"
           :resources="resources"

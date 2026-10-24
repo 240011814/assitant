@@ -137,7 +137,7 @@ func (h *AIOrchestrationHandler) HandleDebugRun(c *gin.Context) {
 	// SSE 写串行化: 节点事件来自回调 goroutine, delta 来自主循环
 	emit := newSSEEmitter(c).emit
 
-	if err := h.svc.DebugRun(c.Request.Context(), userID, &req, emit); err != nil {
+	if _, err := h.svc.DebugRun(c.Request.Context(), userID, &req, emit); err != nil {
 		log.Printf("[orchestration] debug run error: id=%v err=%v", req.ID, err)
 	}
 }
@@ -236,6 +236,7 @@ func (h *AIOrchestrationHandler) HandleChatRun(c *gin.Context) {
 		ID:          &orchID,
 		Input:       body.Input,
 		History:     body.History,
+		HistoryID:   body.HistoryID,
 		SkipSummary: true,
 		// 编排对话: 注入编排名称/简介作为身份前言 (模型此前只在前端欢迎气泡"见过"自己)
 		ChatMode: true,
@@ -246,9 +247,11 @@ func (h *AIOrchestrationHandler) HandleChatRun(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 
-	// 捕获最终答案与思考内容, 运行结束后落库 (供刷新/重开后继续与历史列表回放)
+	// 捕获最终答案与思考内容, 运行结束后落库 (供刷新/重开后继续与历史列表回放);
+	// delta 也累计: 中途停止/失败时按已生成的部分落库 (对齐普通对话的"停止保留部分回复")
 	var finalOutput string
 	var thinking strings.Builder
+	var streamed strings.Builder
 
 	// SSE 写串行化: 节点事件来自回调 goroutine, delta 来自主循环; 顺带捕获最终答案与思考供落库
 	em := newSSEEmitter(c)
@@ -264,18 +267,47 @@ func (h *AIOrchestrationHandler) HandleChatRun(c *gin.Context) {
 					thinking.WriteString(s)
 				}
 			}
+		case "delta":
+			if m, ok := payload.(map[string]any); ok {
+				if s, _ := m["content"].(string); s != "" {
+					streamed.WriteString(s)
+				}
+			}
 		}
 		em.emit(event, payload)
 	}
 
-	if err := h.svc.DebugRun(c.Request.Context(), uid, req, emit); err != nil {
+	result, err := h.svc.DebugRun(c.Request.Context(), uid, req, emit)
+	if err != nil {
 		log.Printf("[orchestration] chat run error: orchID=%d userID=%d err=%v", orchID, uid, err)
 	}
 
 	// 「编排对话」持久化: 把本轮 user + 图级最终答案写入 training_histories。
-	// 无输出 (编译/启动失败) 时不落库, 避免留下空的半截会话。
-	if h.historyService != nil && strings.TrimSpace(finalOutput) != "" {
+	// 完整跑完以 summary 输出为准; 中途停止/失败时保留已流出的部分输出 (与普通对话一致),
+	// 完全无输出 (编译/启动失败) 时不落库, 避免留下空的半截会话。
+	reply := finalOutput
+	if strings.TrimSpace(reply) == "" {
+		reply = streamed.String()
+	}
+	if h.historyService != nil && strings.TrimSpace(reply) != "" {
+		// 已有会话时从 DB 重建全量消息再追加本轮 (不依赖前端回传, 前端截断历史也不丢早期轮次)
 		inputMessages := service.OrchChatTurnsToMessages(body.History)
+		if body.HistoryID > 0 {
+			if hist, loadErr := h.historyService.GetHistoryByID(uid, body.HistoryID); loadErr == nil {
+				dbMsgs := make([]*schema.Message, 0, len(hist.Messages))
+				for _, m := range hist.Messages {
+					switch m.Role {
+					case "user":
+						dbMsgs = append(dbMsgs, schema.UserMessage(m.Content))
+					case "assistant":
+						dbMsgs = append(dbMsgs, schema.AssistantMessage(m.Content, nil))
+					}
+				}
+				if len(dbMsgs) > 0 {
+					inputMessages = dbMsgs
+				}
+			}
+		}
 		inputMessages = append(inputMessages, schema.UserMessage(body.Input))
 		customID := uint(orchID)
 		historyID, saveErr := h.historyService.SaveConversation(&service.SaveConversationParams{
@@ -284,13 +316,22 @@ func (h *AIOrchestrationHandler) HandleChatRun(c *gin.Context) {
 			TrainingType:     model.TrainingTypeOrchestration,
 			CustomTrainingID: &customID,
 			InputMessages:    inputMessages,
-			AssistantReply:   finalOutput,
+			AssistantReply:   reply,
 			ThinkingContent:  thinking.String(),
 		})
 		if saveErr != nil {
 			log.Printf("[orchestration] save chat history failed user=%d orch=%d err=%v", uid, orchID, saveErr)
-		} else if body.HistoryID == 0 {
-			em.emit("history_id", gin.H{"history_id": historyID, "title": "编排对话"})
+		} else {
+			// chat_first_turn 会话状态随会话落库/更新 (首轮拿到新 historyID, 后续轮次原位更新)
+			if result != nil && result.ChatState != nil {
+				result.ChatState.HistoryID = historyID
+				if err := h.svc.SaveOrchChatState(result.ChatState); err != nil {
+					log.Printf("[orchestration] save chat state failed history=%d err=%v", historyID, err)
+				}
+			}
+			if body.HistoryID == 0 {
+				em.emit("history_id", gin.H{"history_id": historyID, "title": "编排对话"})
+			}
 		}
 	}
 }

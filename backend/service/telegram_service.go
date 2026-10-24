@@ -251,7 +251,7 @@ func (s *TelegramService) startLongPolling() {
 		log.Println("[Telegram] Webhook deleted successfully")
 	}
 
-	go s.listenUpdates(bot)
+	SafeGo("telegram:listen-updates", func() { s.listenUpdates(bot) })
 }
 
 // GetBot 获取 Bot 实例（供 webhook handler 使用）
@@ -363,9 +363,9 @@ func (s *TelegramService) handleBind(msg *tgbotapi.Message) {
 	}
 
 	updates := map[string]interface{}{
-		"telegram_chat_id":            chatID,
-		"telegram_username":           telegramUsername,
-		"telegram_bind_code":          nil,
+		"telegram_chat_id":              chatID,
+		"telegram_username":             telegramUsername,
+		"telegram_bind_code":            nil,
 		"telegram_bind_code_expires_at": nil,
 	}
 
@@ -492,7 +492,7 @@ func (s *TelegramService) GenerateBindCode(userID uint) (*model.TelegramBindCode
 	expiresAt := time.Now().Add(10 * time.Minute)
 
 	updates := map[string]interface{}{
-		"telegram_bind_code":           code,
+		"telegram_bind_code":            code,
 		"telegram_bind_code_expires_at": expiresAt,
 	}
 
@@ -559,9 +559,9 @@ func (s *TelegramService) UnbindTelegram(userID uint) error {
 	}
 
 	updates := map[string]interface{}{
-		"telegram_chat_id":            nil,
-		"telegram_username":           nil,
-		"telegram_bind_code":          nil,
+		"telegram_chat_id":              nil,
+		"telegram_username":             nil,
+		"telegram_bind_code":            nil,
 		"telegram_bind_code_expires_at": nil,
 	}
 

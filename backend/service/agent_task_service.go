@@ -175,7 +175,7 @@ func (s *AgentTaskService) runOrchestration(ctx context.Context, userID uint, pa
 	}
 	orchID := int(params.AgentID)
 	req := &model.DebugRunRequest{ID: &orchID, Input: params.Input, ChatMode: true, SkipSummary: true}
-	if err := s.orchSvc.DebugRun(ctx, userID, req, collect); err != nil {
+	if _, err := s.orchSvc.DebugRun(ctx, userID, req, collect); err != nil {
 		return "", "", fmt.Errorf("编排运行失败: %w", err)
 	}
 	if runErr != nil {

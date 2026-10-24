@@ -64,6 +64,14 @@ func maxStepOf(cfg OrchAgentConfig) int {
 // buildNodeLambda 构建单个节点的 Lambda (agent/tool/template/extract/suborch/merge/end;
 // branch/router 是路由点: lambda 为直通, 路由由 GraphBranch 承担)
 func (c *orchestrationCompiler) buildNodeLambda(ctx context.Context, n *OrchestrationNode) (*compose.Lambda, error) {
+	// 编排对话会话已激活: chat_first_turn 节点跳过执行, 直接直通转发输入
+	// (训练类编排后续轮次不再重跑场景生成/意图解析; branch/router 的回放在 cond 层处理)
+	if n.ChatFirstTurn && c.chatSkipActive && n.Type != OrchNodeBranch && n.Type != OrchNodeRouter {
+		return orchPassthroughLambda(), nil
+	}
+	if n.ChatFirstTurn && c.chatMode {
+		c.builtFirstTurnReal = true
+	}
 	switch n.Type {
 	case OrchNodeAgent:
 		return c.buildAgentLambda(ctx, n)

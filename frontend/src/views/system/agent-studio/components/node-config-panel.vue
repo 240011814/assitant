@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { NButton, NDynamicInput, NFormItem, NInput, NInputNumber, NSelect, useMessage } from 'naive-ui';
+import { NButton, NDynamicInput, NFormItem, NInput, NInputNumber, NSelect, NSwitch, useMessage } from 'naive-ui';
 import type { Node as FlowNode } from '@vue-flow/core';
 import type { OrchestrationResource } from '@/service/api';
 import { NODE_META } from '../nodes/registry';
@@ -23,10 +23,12 @@ const props = defineProps<{
   resources: OrchestrationResource | null;
   /** currentOrchId 当前编排 id: 子编排引用下拉里排除自己 (避免自引用) */
   currentOrchId?: number | null;
+  /** chatFirstTurn 编排对话: 会话激活后跳过该节点 (分支回放首跑路由) */
+  chatFirstTurn?: boolean;
 }>();
 
 const emit = defineEmits<{
-  'update:data': [data: { name: string; config: Record<string, any> }];
+  'update:data': [data: { name: string; config: Record<string, any>; chatFirstTurn?: boolean }];
   delete: [id: string];
 }>();
 
@@ -34,9 +36,11 @@ const emit = defineEmits<{
 // 之后不再反向同步 (否则属性回写 -> props 变化 -> 重置本地, 下拉选择会被冲掉)
 const localName = ref(props.name);
 const localConfig = ref<Record<string, any>>(JSON.parse(JSON.stringify(props.config || {})));
+const localChatFirstTurn = ref(props.chatFirstTurn === true);
 
 function initLocal() {
   localName.value = props.name;
+  localChatFirstTurn.value = props.chatFirstTurn === true;
   const cfg = JSON.parse(JSON.stringify(props.config || {}));
   // 兼容历史数据缺省的数组/字符串字段, 避免受控组件值 undefined
   if ((props.nodeType === 'agent' || props.nodeType === 'subagent') && !Array.isArray(cfg.tools)) cfg.tools = [];
@@ -60,9 +64,18 @@ watch(
 );
 
 // 配置变更立即同步回画布节点
-watch([localName, localConfig], () => {
-  emit('update:data', { name: localName.value, config: JSON.parse(JSON.stringify(localConfig.value)) });
+watch([localName, localConfig, localChatFirstTurn], () => {
+  emit('update:data', {
+    name: localName.value,
+    config: JSON.parse(JSON.stringify(localConfig.value)),
+    chatFirstTurn: localChatFirstTurn.value
+  });
 }, { deep: true });
+
+// 支持编排对话跳过的节点类型 (branch/router 回放路由, 其余直通; merge/end/子Agent 不适用)
+const chatFirstTurnSupported = computed(() =>
+  ['agent', 'suborch', 'template', 'tool', 'extract', 'branch', 'router'].includes(props.nodeType)
+);
 
 const toolOptions = computed(() =>
   (props.resources?.tools || []).map(t => ({ label: t.display_name ? `${t.display_name} (${t.name})` : t.name, value: t.name }))
@@ -258,6 +271,14 @@ const typeLabel = computed(() => `${NODE_META[props.nodeType as OrchNodeType]?.l
 
     <NFormItem label="名称" label-placement="left" label-width="72" size="small">
       <NInput v-model:value="localName" size="small" placeholder="节点显示名" />
+    </NFormItem>
+    <NFormItem v-if="chatFirstTurnSupported" label="首轮后跳过" label-placement="left" label-width="72" size="small">
+      <div class="flex items-center gap-2 w-full">
+        <NSwitch v-model:value="localChatFirstTurn" size="small" />
+        <span class="text-11px text-gray-400 leading-4">
+          编排对话: 会话进入主流程后跳过本节点 (分支回放首轮路由), 避免每轮重跑场景生成/意图解析
+        </span>
+      </div>
     </NFormItem>
 
     <!-- Agent 节点 -->

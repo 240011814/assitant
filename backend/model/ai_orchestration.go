@@ -46,6 +46,8 @@ type DebugRunRequest struct {
 	Definition string     `json:"definition"`
 	Input      string     `json:"input" binding:"required"`
 	History    []ChatTurn `json:"history"`
+	// HistoryID 编排对话已落库的会话 ID (首轮为 0); chat_first_turn 会话状态按它存取
+	HistoryID uint `json:"history_id"`
 	// SkipSummary 为 true 时不回写 last_debug_summary。
 	// 训练中心的"编排对话"复用调试运行时置 true, 避免覆盖 Agent Studio 的最近调试摘要。
 	SkipSummary bool `json:"skip_summary"`
@@ -54,3 +56,17 @@ type DebugRunRequest struct {
 	// Agent Studio 的调试运行不置位, 保持画布定义的原样测试。
 	ChatMode bool `json:"-"`
 }
+
+// OrchChatState 编排对话的会话级状态 (chat_first_turn 机制):
+// 会话"激活"后, 标记 chat_first_turn 的节点在后续轮次跳过执行、粘性分支回放记录的路由,
+// 避免训练型编排每轮重跑场景生成/意图解析。按 history_id 一行。
+type OrchChatState struct {
+	HistoryID uint `gorm:"primaryKey" json:"history_id"`
+	OrchID    uint `gorm:"index" json:"orch_id"`
+	Active    bool `json:"active"`
+	// Routes 粘性分支 (chat_first_turn 的 branch/router) 本轮实际选择的目标: 节点ID -> target
+	Routes    string    `gorm:"type:text" json:"routes"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (OrchChatState) TableName() string { return "orch_chat_states" }

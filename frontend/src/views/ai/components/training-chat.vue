@@ -456,6 +456,10 @@ const finalizeLastMessage = () => {
   };
 };
 
+// 编排对话注入模型的历史轮次上限: 后端把历史注入每个 agent 节点, 全量注入会让
+// token 成本随轮数×节点数线性膨胀; 落库侧由后端从 DB 重建全量, 截断不影响持久化
+const ORCH_HISTORY_MAX_TURNS = 20;
+
 // 编排对话: 历史轮次 (不含本轮 input), 跳过开场欢迎语, 只保留有效的 user/assistant 文本。
 // 会话打开即全新, 继续旧对话走历史列表「继续训练」(路由带 history_id), 不做自动恢复。
 const buildOrchestrationHistory = () => {
@@ -467,6 +471,10 @@ const buildOrchestrationHistory = () => {
     if (idx === 0 && msg.role === "assistant") return;
     turns.push({ role: msg.role, content: msg.content });
   });
+  // 保留最近轮次, 偶数对齐让截断后仍以 user 开头
+  if (turns.length > ORCH_HISTORY_MAX_TURNS) {
+    return turns.slice(turns.length - ORCH_HISTORY_MAX_TURNS - (turns.length % 2));
+  }
   return turns;
 };
 

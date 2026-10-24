@@ -114,6 +114,10 @@ type orchTraceHandler struct {
 	mu       sync.Mutex
 	emit     func(event string, payload any)
 	started  time.Time
+	// chatStreamToReasoning 编排对话模式: 节点级模型正文增量分流到 reasoning 通道
+	// (前端折叠的思考框), 气泡只收图级最终输出 —— 中间产物/子Agent 对话不再混进气泡,
+	// 也不会在 summary 到达时被覆盖丢失; 同时图级输出去重停用 (markStreamed 不再记)
+	chatStreamToReasoning bool
 	// streamedText 已被实时下发的模型文本 (按当前模型调用计, 图级输出据此去重);
 	// 记文本而不是长度: 图级输出与流式内容不是同一段文本时 (如模型后接模板/提取节点)
 	// 按长度跳过会误伤, 前缀比对只在真正重复时生效
@@ -149,6 +153,14 @@ func orchDebugTrace(event string, payload map[string]any) {
 func toStr(v any) string {
 	s, _ := v.(string)
 	return s
+}
+
+// setChatStreamToReasoning 编排对话模式启用节点级流分流出 conversation 通道。
+// emit 尚未注入时也可安全调用 (编译期在 setEmit 之前)。
+func (h *orchTraceHandler) setChatStreamToReasoning() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.chatStreamToReasoning = true
 }
 
 func newOrchTraceHandler(nodeKeys map[string]string, subNodes map[string]bool, emit func(event string, payload any)) *orchTraceHandler {
@@ -386,10 +398,16 @@ func (h *orchTraceHandler) OnEndWithStreamOutput(ctx context.Context, info *call
 					h.emitReasoningDelta(m.Message.ReasoningContent)
 				}
 				if m.Message.Content != "" {
-					h.emitDelta(m.Message.Content)
-					// 计数按"本次模型调用"重置, 避免多个模型节点累计导致图级输出去重过度
-					h.markStreamed(m.Message.Content, firstDelta)
-					firstDelta = false
+					if h.chatStreamToReasoning {
+						// 编排对话: 节点级正文也走 reasoning 通道, 中间产物/子Agent 对话
+						// 保留在思考框里供回看, 气泡只收图级最终输出
+						h.emitReasoningDelta(m.Message.Content)
+					} else {
+						h.emitDelta(m.Message.Content)
+						// 计数按"本次模型调用"重置, 避免多个模型节点累计导致图级输出去重过度
+						h.markStreamed(m.Message.Content, firstDelta)
+						firstDelta = false
+					}
 				}
 			}
 			mo = m

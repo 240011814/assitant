@@ -185,7 +185,7 @@ func (s *AIOrchestrationService) Validate(definition string, userID uint) *Orche
 		return result
 	}
 	// 结构合法, 尝试完整编译捕获构建期错误
-	compiled, err := s.compile(context.Background(), userID, dsl, nil, nil, "", 0, nil, false)
+	compiled, err := s.compile(context.Background(), userID, dsl, nil, nil, "", 0, nil, false, nil)
 	if err != nil {
 		result.Valid = false
 		result.Errors = append(result.Errors, err.Error())
@@ -308,7 +308,7 @@ func (s *AIOrchestrationService) validateDefinition(definition string, selfID ui
 	if len(issues) > 0 {
 		return orchIssueMessages(issues)
 	}
-	if _, err := s.compile(context.Background(), 0, dsl, nil, nil, "", selfID, nil, false); err != nil {
+	if _, err := s.compile(context.Background(), 0, dsl, nil, nil, "", selfID, nil, false, nil); err != nil {
 		return []string{err.Error()}
 	}
 	return nil
@@ -332,7 +332,8 @@ func (s *AIOrchestrationService) wrapOrchestrationTool(name string) (tool.BaseTo
 // compile 编译编排 DSL。orchID 是编排自身 id (草稿为 0), chain 是编译链上层的
 // 编排 id: 子编排节点引用其他编排时递归编译, 依据二者做循环引用检测。
 // chatMode 标记编排对话运行: 入口模板未引用 {{.Input}} 时兜底补入用户输入。
-func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *OrchestrationDSL, trace *orchTraceHandler, history []*schema.Message, chatPreamble string, orchID uint, chain []uint, chatMode bool) (*compiledOrchestration, error) {
+// chatState 为编排对话的会话状态 (chat_first_turn 机制的回放来源), 调试/首轮对话为 nil。
+func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *OrchestrationDSL, trace *orchTraceHandler, history []*schema.Message, chatPreamble string, orchID uint, chain []uint, chatMode bool, chatState *model.OrchChatState) (*compiledOrchestration, error) {
 	// 编译链含自身: 子编排引用链上的任一编排 (含自己) 都算循环引用
 	orchChain := chain
 	if orchID > 0 {
@@ -384,8 +385,50 @@ func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *
 			return up.CustomPrompt, true
 		},
 	}
-	c := &orchestrationCompiler{dsl: dsl, trace: trace, chatPreamble: chatPreamble, chatMode: chatMode, orchChain: orchChain, userID: userID}
+	c := &orchestrationCompiler{
+		dsl: dsl, trace: trace, chatPreamble: chatPreamble, chatMode: chatMode,
+		orchChain: orchChain, userID: userID,
+		stickyDecisions: map[string][]string{}, stickyDefaults: map[string]string{},
+	}
+	// 已激活的编排对话会话: chat_first_turn 节点本轮跳过, 粘性分支回放记录的路由
+	if chatState != nil && chatState.Active {
+		c.chatSkipActive = true
+		if strings.TrimSpace(chatState.Routes) != "" {
+			var routes map[string][]string
+			if err := json.Unmarshal([]byte(chatState.Routes), &routes); err == nil {
+				c.chatStickyRoutes = routes
+			}
+		}
+	}
 	return c.compile(ctx, deps)
+}
+
+// loadOrchChatState 读取编排对话的会话状态 (不存在返回 nil, 未激活语义由调用方处理)
+func (s *AIOrchestrationService) loadOrchChatState(historyID uint) *model.OrchChatState {
+	if DB == nil || historyID == 0 {
+		return nil
+	}
+	var state model.OrchChatState
+	if err := DB.First(&state, "history_id = ?", historyID).Error; err != nil {
+		return nil
+	}
+	return &state
+}
+
+// SaveOrchChatState 落库编排对话会话状态 (chat_first_turn 机制), 随会话轮次更新
+func (s *AIOrchestrationService) SaveOrchChatState(state *model.OrchChatState) error {
+	if DB == nil || state == nil || state.HistoryID == 0 {
+		return nil
+	}
+	var existing model.OrchChatState
+	err := DB.First(&existing, "history_id = ?", state.HistoryID).Error
+	if err != nil {
+		return DB.Create(state).Error
+	}
+	existing.OrchID = state.OrchID
+	existing.Active = state.Active
+	existing.Routes = state.Routes
+	return DB.Save(&existing).Error
 }
 
 // compileNested 编译子编排节点引用的已保存编排:
@@ -403,7 +446,7 @@ func (s *AIOrchestrationService) compileNested(ctx context.Context, userID uint,
 	if len(issues) > 0 {
 		return nil, fmt.Errorf("子编排「%s」(%d) 定义校验失败: %s", agent.Title, refID, strings.Join(orchIssueMessages(issues), "; "))
 	}
-	return s.compile(ctx, userID, prefixOrchestrationDSL(dsl, keyPrefix), trace, nil, "", refID, chain, false)
+	return s.compile(ctx, userID, prefixOrchestrationDSL(dsl, keyPrefix), trace, nil, "", refID, chain, false, nil)
 }
 
 // Resources 画布可用资源: 工具/模型/Agent/Skill
@@ -507,19 +550,22 @@ type DebugRunResult struct {
 	Nodes   []*OrchNodeTrace   `json:"nodes"`
 	TotalMS int64              `json:"total_ms"`
 	Tokens  *schema.TokenUsage `json:"tokens,omitempty"`
+	// ChatState 编排对话的会话状态产出 (chat_first_turn 机制, 跑后由调用方落库; 不下发前端)
+	ChatState *model.OrchChatState `json:"-"`
 }
 
 // DebugRun 调试执行一次编排, 通过 emit 推送 SSE 事件:
 // start / delta / reasoning / node / summary / error / done
 // 多轮: req.History 是之前轮次, req.Input 是本轮输入
-func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req *model.DebugRunRequest, emit func(event string, payload any)) error {
+// 返回运行摘要 (编排对话模式含待落库的会话状态)
+func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req *model.DebugRunRequest, emit func(event string, payload any)) (*DebugRunResult, error) {
 	definition := strings.TrimSpace(req.Definition)
 	var orchID uint
 	if definition == "" {
 		if req.ID == nil || *req.ID == 0 {
 			emit("error", map[string]any{"message": "请提供编排 ID 或画布草稿定义"})
 			emit("done", map[string]any{})
-			return nil
+			return nil, nil
 		}
 		orch, err := s.Get(uint(*req.ID))
 		if err != nil {
@@ -529,7 +575,7 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 				emit("error", map[string]any{"message": "读取编排失败: " + err.Error()})
 			}
 			emit("done", map[string]any{})
-			return nil
+			return nil, nil
 		}
 		definition = orch.Definition
 		orchID = uint(orch.ID)
@@ -547,7 +593,7 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 		orchLog("%s 限额拦截: %v", runTag, err)
 		emit("error", map[string]any{"message": err.Error()})
 		emit("done", map[string]any{})
-		return nil
+		return nil, nil
 	}
 
 	// 编排对话模式: 用编排名称/简介构造身份前言, 注入主 Agent 系统提示词。
@@ -569,23 +615,34 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 			"error_items": orchIssueDTOs(issues),
 		})
 		emit("done", map[string]any{})
-		return nil
+		return nil, nil
 	}
 
 	// 追踪 handler 必须在编译前建立: 委派工具在编译期构建并持有该实例,
 	// 事件出口 (emit) 等编译成功后再注入, 避免编译期事件写到已关闭的 SSE
 	handler := newOrchTraceHandler(orchNodeKeysOf(dsl), orchSubAgentKeysOf(dsl), nil)
+	// 编排对话: 节点级模型增量 (含子Agent 对话/中间产物) 分流到 reasoning 通道,
+	// 气泡只收图级最终输出, 避免 summary 到达时把已看到的子Agent 对话覆盖丢失
+	if req.ChatMode {
+		handler.setChatStreamToReasoning()
+	}
+
+	// chat_first_turn 会话状态: 已激活的会话在后续轮次跳过首跑节点 (场景生成/意图解析等)
+	var chatState *model.OrchChatState
+	if req.ChatMode && req.HistoryID > 0 {
+		chatState = s.loadOrchChatState(req.HistoryID)
+	}
 
 	// 本次运行唯一标识: 工具审批的请求/决定靠它配对, 随 start 事件下发
 	runID := orchNewRunID()
 	runTag = fmt.Sprintf("%s run=%s", runTag, runID)
 
-	compiled, err := s.compile(ctx, userID, dsl, handler, history, chatPreamble, orchID, nil, req.ChatMode)
+	compiled, err := s.compile(ctx, userID, dsl, handler, history, chatPreamble, orchID, nil, req.ChatMode, chatState)
 	if err != nil {
 		orchLog("%s 编译失败: %v", runTag, err)
 		emit("error", map[string]any{"message": err.Error()})
 		emit("done", map[string]any{})
-		return nil
+		return nil, nil
 	}
 	// 子编排节点编译时展开了嵌套编排: 把前缀化的节点 key/子Agent 集合并入归属表,
 	// 嵌套节点的事件才能正确进摘要 (在 setEmit 前完成, 事件出口尚未开启)
@@ -615,7 +672,7 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 		orchLog("%s 启动失败: %v", runTag, runErr)
 		emit("error", map[string]any{"message": runErr.Error()})
 		emit("done", map[string]any{})
-		return nil
+		return nil, nil
 	}
 	defer stream.Close()
 
@@ -671,6 +728,20 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 	// token 用量落库: 按各节点配置的模型记录 (含子编排嵌套展开的节点)
 	s.recordOrchestrationUsage(userID, req.ChatMode, summary, compiled)
 
+	// chat_first_turn 会话状态产出: 本轮构建了首跑节点真实逻辑且运行完成时,
+	// 把粘性分支的实际选择 (及激活判定) 交给调用方随会话落库
+	if req.ChatMode && orchID > 0 && compiled.builtFirstTurnReal && len(compiled.stickyDecisions) >= 0 {
+		state := &model.OrchChatState{
+			HistoryID: req.HistoryID,
+			OrchID:    orchID,
+			Active:    orchStickyActivated(compiled.stickyDecisions, compiled.stickyDefaults),
+		}
+		if routes, err := json.Marshal(compiled.stickyDecisions); err == nil {
+			state.Routes = string(routes)
+		}
+		summary.ChatState = state
+	}
+
 	emit("summary", summary)
 	emit("done", map[string]any{})
 
@@ -683,19 +754,19 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 	// 已保存编排: 异步落最近一次调试摘要, 供列表回显
 	// (训练中心的编排对话 skip_summary=true, 不污染调试摘要)
 	if orchID > 0 && !req.SkipSummary {
-		go func(id uint, sres *DebugRunResult) {
-			data, mErr := json.Marshal(sres)
+		SafeGo("orch:save-debug-summary", func() {
+			data, mErr := json.Marshal(summary)
 			if mErr != nil {
 				return
 			}
 			if err := DB.Model(&model.AIAgent{}).
-				Where("agent_type = ? AND id = ?", model.AIAgentTypeOrchestration, id).
+				Where("agent_type = ? AND id = ?", model.AIAgentTypeOrchestration, orchID).
 				Update("last_debug_summary", string(data)).Error; err != nil {
-				log.Printf("[orchestration] save debug summary failed id=%d err=%v", id, err)
+				log.Printf("[orchestration] save debug summary failed id=%d err=%v", orchID, err)
 			}
-		}(orchID, summary)
+		})
 	}
-	return nil
+	return summary, nil
 }
 
 // recordOrchestrationUsage 把本次编排运行各节点的用量按节点配置的模型落库:

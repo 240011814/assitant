@@ -11,6 +11,8 @@ export interface OrchestrationTemplateNode {
   name: string;
   config: Record<string, any>;
   position: { x: number; y: number };
+  /** chat_first_turn 编排对话: 会话激活后 (首跑粘性分支命中非默认目标) 该节点跳过, 分支回放首跑路由 */
+  chatFirstTurn?: boolean;
 }
 
 export interface OrchestrationTemplateEdge {
@@ -480,13 +482,14 @@ export const ORCHESTRATION_TEMPLATES: OrchestrationTemplate[] = [
     label: '训练平台·编排试点',
     icon: 'mdi:sitemap',
     description: '按对话「完整架构总览」七分层落地: 01 用户入口 → 02 主控 Agent(只调度) → 03 目标解析+条件路由 → 04 场景工程层(子编排·质检循环·降级) → 05 专业训练层·六个子 Agent(英语/决策/社交/应变/认知/思辨, 读取同一份场景事实卡, 遵循统一训练接口) → 06 独立评估+达标判断(复盘结束/针对性复练) → 07 状态管理与统一输出; 类型无法识别时转回主控 Agent 向用户澄清, 下一轮重新进入流水线',
-    hint: '先加载「训练·场景工程层」建好并保存, 再加载本模板并在「场景工程层」节点选择该编排; 评估层须内联在主画布 (子编排不注入对话历史); 六个训练 Agent 的模块规则可按需精简, 或用提示词版本管理按节点覆盖; 类型无法识别走主控澄清: 本轮只问清需求, 用户回复后聊天模式每轮重跑会重新解析入链路',
+    hint: '先加载「训练·场景工程层」建好并保存, 再加载本模板并在「场景工程层」节点选择该编排; 评估层须内联在主画布 (子编排不注入对话历史); 六个训练 Agent 的模块规则可按需精简, 或用提示词版本管理按节点覆盖; 标注「首轮后跳过」的节点在编排对话会话激活后不再重跑 (首轮确定训练类型/场景, 后续轮直接续聊); 类型无法识别时走主控澄清 (仅问清需求, 不激活会话), 用户答清后下一轮重新进入流水线',
     definition: {
       nodes: [
         { id: 'tpl', type: 'template', name: '01·用户入口', config: tplConfig('{{.Input}}'), position: { x: 40, y: 300 } },
         {
           id: 'master',
           type: 'agent',
+          chatFirstTurn: true,
           name: '02·主控 Agent',
           config: agentConfig(
             '# 角色\n你是 AI 训练平台的主控 Agent，负责理解用户意图和调度训练流程。\n\n# 职责\n1. 判断用户是普通问答、明确训练请求，还是需要进一步澄清的模糊任务。\n2. 明确训练类型、用户目标和必要的约束条件。\n3. 将训练任务交给统一训练流程，不直接自行编写未经审核的训练场景。\n4. 不替代专业训练 Agent，不替代独立评估 Agent。\n5. 需要外部事实或最新信息时才调用搜索工具，普通情景训练不默认调用搜索。\n6. 用户主动结束训练时，转入阶段性总结流程。\n\n# 约束\n- 不自行制造用户没有提供的个人经历。\n- 不把所有请求都转成训练任务。\n- 不要求六个专业 Agent 同时参与普通训练。\n- 不绕过场景质量检查。\n- 不将模型生成的分数直接视为已经验证的事实。\n\n# 输出\n输出任务类型、训练目标、必要约束和下一步流程动作，供下游节点使用。\n\n# 引擎适配\n本画布从用户输入直接下接训练目标解析器, 你只输出调度结论 (训练类型/目标/约束/下一步), 不复述请求全文; 属普通问答或需澄清时, 输出说明并注明训练类型未知, 交由条件路由转主控澄清, 不虚构训练任务。'
@@ -496,6 +499,7 @@ export const ORCHESTRATION_TEMPLATES: OrchestrationTemplate[] = [
         {
           id: 'parser',
           type: 'agent',
+          chatFirstTurn: true,
           name: '03·训练目标解析器',
           config: agentConfig(
             '# 角色\n你是训练目标分析器。\n\n# 任务\n将用户请求转化为可执行、可观察、可评估的训练目标。\n\n# 分析字段\n- training_type：训练类型\n- primary_skill：主要训练能力\n- behavioral_objectives：希望用户实际练习的行为\n- difficulty：难度等级\n- context_constraints：场景约束\n- success_criteria：成功标准\n- prohibited_elements：不希望出现的场景元素\n\n# 规则\n1. 一次训练优先设置一个主要能力目标，最多附加两个次要目标。\n2. 不把抽象目标直接当作可评估行为。\n3. 将“提升社交能力”转化为具体行为，例如自然开启话题、回应对方、延续对话。\n4. 将“提升决策能力”转化为识别目标、比较方案、权衡风险和解释选择。\n5. 用户未指定难度时，优先选择普通、低风险、容易进入的场景。\n6. 不擅自添加极端冲突来提高难度。\n7. 输出结构化结果，不生成完整剧情。\n\n# 引擎适配\n只输出一个 JSON 对象 (字段同上); training_type 取值: english / decision / social / crisis / cognitive / debate, 无法归类时输出 {"training_type":"unknown"}。'
@@ -505,6 +509,7 @@ export const ORCHESTRATION_TEMPLATES: OrchestrationTemplate[] = [
         {
           id: 'type_route',
           type: 'branch',
+          chatFirstTurn: true,
           name: '03·条件路由',
           config: {
             mode: 'route',
@@ -529,10 +534,11 @@ export const ORCHESTRATION_TEMPLATES: OrchestrationTemplate[] = [
           ),
           position: { x: 680, y: 560 }
         },
-        { id: 'scene', type: 'suborch', name: '04·场景工程层', config: { orchestration_id: 0 }, position: { x: 900, y: 300 } },
+        { id: 'scene', type: 'suborch', chatFirstTurn: true, name: '04·场景工程层', config: { orchestration_id: 0 }, position: { x: 900, y: 300 } },
         {
           id: 'scene_gate',
           type: 'branch',
+          chatFirstTurn: true,
           name: '04·质检判断',
           config: {
             mode: 'route',
@@ -544,6 +550,7 @@ export const ORCHESTRATION_TEMPLATES: OrchestrationTemplate[] = [
         {
           id: 'init',
           type: 'template',
+          chatFirstTurn: true,
           name: '04·场景初始化',
           config: tplConfig('以下是已通过独立质检的场景事实卡。基础事实不可修改, runtime_state 初始化为起始状态并随后续对话更新：\n\n{{.Input}}'),
           position: { x: 1340, y: 180 }
@@ -551,6 +558,7 @@ export const ORCHESTRATION_TEMPLATES: OrchestrationTemplate[] = [
         {
           id: 'fallback',
           type: 'template',
+          chatFirstTurn: true,
           name: '04·降级为已审核场景',
           config: tplConfig(
             '【降级·使用已审核基础场景】(生成的场景未通过质检或修订超限, 按审查机制改用下面这份内置已审核场景)\n\n{\n  "scenario_id": "SOC-001",\n  "training_type": "social",\n  "primary_skill": "polite_refusal",\n  "difficulty": "beginner",\n  "background": "同事临时请求代班",\n  "user_goal": "表达拒绝并维护合作关系",\n  "characters": [\n    {\n      "id": "coworker",\n      "role": "同事",\n      "goal": "找到可以代班的人",\n      "motivation": "临时有事需要处理",\n      "known_facts": [\n        "自己周五无法正常上班",\n        "用户可能已有安排"\n      ],\n      "behavior_constraints": [\n        "可以请求或协商",\n        "不能无故升级为威胁"\n      ]\n    }\n  ],\n  "conflict": {\n    "cause": "双方时间安排冲突",\n    "stakes": "同事需要帮助，用户需要维护自己的安排"\n  },\n  "opening_line": "我周五临时有点事，你能不能帮我顶一下班？",\n  "success_criteria": [\n    "清楚表达是否能够帮忙",\n    "尊重双方的合理需求",\n    "在适当情况下提出可行替代方案"\n  ],\n  "quality_control": {\n    "status": "approved",\n    "critical_failure": false\n  },\n  "runtime_state": {\n    "turn_count": 0,\n    "facts_established": [],\n    "relationship_state": "normal",\n    "termination_reason": null\n  }\n}'
@@ -561,6 +569,7 @@ export const ORCHESTRATION_TEMPLATES: OrchestrationTemplate[] = [
         {
           id: 'module_route',
           type: 'branch',
+          chatFirstTurn: true,
           name: '05·专业训练路由',
           config: {
             mode: 'route',

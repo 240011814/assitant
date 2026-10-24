@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	coremodel "backend/model"
 
@@ -67,6 +68,21 @@ type orchestrationCompiler struct {
 	// chatMode 编排对话模式: 入口模板未引用 {{.Input}} 时把用户输入补进渲染结果,
 	// 保证"用户说了什么"一定到达模型 (画布配置失误不能吞掉对话输入)
 	chatMode bool
+	// chatSkipActive 编排对话会话已"激活"(首跑有粘性分支命中非默认目标):
+	// chat_first_turn 节点在本轮跳过执行 (直通/路由回放), 训练类编排不再每轮重跑场景生成
+	chatSkipActive bool
+	// chatStickyRoutes 已激活会话回放用的粘性分支路由: 节点ID -> 首跑实际选择的目标集合
+	chatStickyRoutes map[string][]string
+	// stickyDecisions 本轮运行中粘性分支 (chat_first_turn 的 branch/router) 的实际选择,
+	// 由 cond 闭包运行时写入; 编译实例按运行隔离, 天然按次隔离
+	stickyDecisions map[string][]string
+	// stickyDefaults 粘性分支的默认目标 (会话激活判定用)
+	stickyDefaults map[string]string
+	// stickyMu stickyDecisions 的写保护 (cond 可能被并发求值)
+	stickyMu sync.Mutex
+	// builtFirstTurnReal 本轮编译实际构建了 chat_first_turn 节点的真实逻辑 (未跳过):
+	// 用于跑后判定会话是否进入激活态
+	builtFirstTurnReal bool
 	// userID 运行发起人: router 节点的分类调用不经 compose 节点 span, token 记账
 	// 在 buildRouterCond 里直接落库时归属用; 校验/单测构造为 0 (0 不记账)
 	userID uint
@@ -179,6 +195,13 @@ type compiledOrchestration struct {
 	// trace 本次编译注入的调试追踪 handler (委派工具持有同一实例,
 	// 因此运行前 setEmit 即可把子Agent 的委派事件推送到 SSE)
 	trace *orchTraceHandler
+	// stickyDecisions 本轮运行中粘性分支 (chat_first_turn 的 branch/router) 的实际选择
+	// (节点ID -> 目标集合), 由 cond 闭包写入; 仅编排对话模式有值
+	stickyDecisions map[string][]string
+	// stickyDefaults 粘性分支的默认目标 (会话激活判定用)
+	stickyDefaults map[string]string
+	// builtFirstTurnReal 本轮编译构建了 chat_first_turn 节点的真实逻辑 (未跳过)
+	builtFirstTurnReal bool
 }
 
 func (c *orchestrationCompiler) compile(ctx context.Context, deps compilerDeps) (*compiledOrchestration, error) {
@@ -336,7 +359,8 @@ func (c *orchestrationCompiler) compileChain(lambdas map[string]*compose.Lambda,
 	if err != nil {
 		return nil, fmt.Errorf("Chain 编译失败: %w", err)
 	}
-	return &compiledOrchestration{runnable: runnable, mode: "chain", nodeKeys: nodeKeys, subNodes: subNodes, trace: c.trace}, nil
+	return &compiledOrchestration{runnable: runnable, mode: "chain", nodeKeys: nodeKeys, subNodes: subNodes, trace: c.trace,
+		stickyDecisions: c.stickyDecisions, stickyDefaults: c.stickyDefaults, builtFirstTurnReal: c.builtFirstTurnReal}, nil
 }
 
 func (c *orchestrationCompiler) compileGraph(ctx context.Context, lambdas map[string]*compose.Lambda, nodeKeys map[string]string, subNodes map[string]bool, maxRunSteps int) (*compiledOrchestration, error) {
@@ -409,6 +433,10 @@ func (c *orchestrationCompiler) compileGraph(ctx context.Context, lambdas map[st
 			if len(c.loopEdges[id]) > 0 {
 				cond = c.wrapLoopCond(id, n.Name, cond)
 			}
+			// chat_first_turn 粘性分支: 已激活会话回放首跑选择的路由, 否则记录本轮选择
+			if n.ChatFirstTurn && c.chatMode {
+				cond = c.wrapStickyGraphCond(id, n, cond)
+			}
 			if err := g.AddBranch(id, compose.NewGraphBranch[*schema.Message](cond, endNodes)); err != nil {
 				return nil, fmt.Errorf("构建分支 %s 失败: %w", id, err)
 			}
@@ -430,7 +458,103 @@ func (c *orchestrationCompiler) compileGraph(ctx context.Context, lambdas map[st
 	if err != nil {
 		return nil, fmt.Errorf("Graph 编译失败: %w", err)
 	}
-	return &compiledOrchestration{runnable: runnable, mode: "graph", nodeKeys: nodeKeys, subNodes: subNodes, trace: c.trace}, nil
+	return &compiledOrchestration{runnable: runnable, mode: "graph", nodeKeys: nodeKeys, subNodes: subNodes, trace: c.trace,
+		stickyDecisions: c.stickyDecisions, stickyDefaults: c.stickyDefaults, builtFirstTurnReal: c.builtFirstTurnReal}, nil
+}
+
+// stickyDefaultTarget 解析粘性分支的默认目标 (会话激活判定: 命中非默认目标才算进入主流程)
+func stickyDefaultTarget(n *OrchestrationNode) string {
+	switch n.Type {
+	case OrchNodeBranch:
+		var cfg OrchBranchConfig
+		if json.Unmarshal(n.Config, &cfg) == nil {
+			return cfg.DefaultTarget
+		}
+	case OrchNodeRouter:
+		var cfg OrchRouterConfig
+		if json.Unmarshal(n.Config, &cfg) == nil {
+			return cfg.DefaultTarget
+		}
+	}
+	return ""
+}
+
+// recordStickyDecision 记录粘性分支本轮实际选择 (cond 在运行协程中调用, 加锁保护)
+func (c *orchestrationCompiler) recordStickyDecision(id string, targets []string) {
+	c.stickyMu.Lock()
+	defer c.stickyMu.Unlock()
+	if c.stickyDecisions == nil {
+		c.stickyDecisions = map[string][]string{}
+	}
+	c.stickyDecisions[id] = targets
+}
+
+// orchStickyActivated 会话激活判定: 任一粘性分支命中了非默认目标。
+// 只走默认目标的轮次 (如类型未识别进澄清) 不算激活, 下一轮仍正常解析。
+func orchStickyActivated(decisions map[string][]string, defaults map[string]string) bool {
+	for id, targets := range decisions {
+		def, ok := defaults[id]
+		if !ok || def == "" {
+			if len(targets) > 0 {
+				return true
+			}
+			continue
+		}
+		for _, t := range targets {
+			if t != def {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// wrapStickyGraphCond graph 模式粘性分支: 已激活且有记录时回放记录的目标, 否则记录本轮选择
+func (c *orchestrationCompiler) wrapStickyGraphCond(id string, n *OrchestrationNode, inner func(context.Context, *schema.Message) (string, error)) func(context.Context, *schema.Message) (string, error) {
+	c.stickyDefaults[id] = stickyDefaultTarget(n)
+	if c.chatSkipActive {
+		if targets, ok := c.chatStickyRoutes[id]; ok && len(targets) > 0 {
+			replay := targets[0]
+			return func(context.Context, *schema.Message) (string, error) { return replay, nil }
+		}
+		return inner
+	}
+	nodeID := id
+	return func(ctx context.Context, in *schema.Message) (string, error) {
+		target, err := inner(ctx, in)
+		if err == nil {
+			c.recordStickyDecision(nodeID, []string{target})
+		}
+		return target, err
+	}
+}
+
+// wrapStickyWorkflowCond workflow 模式粘性分支 (cond 返回多目标集合), 语义同 graph 版
+func (c *orchestrationCompiler) wrapStickyWorkflowCond(id string, n *OrchestrationNode, inner func(context.Context, *schema.Message) (map[string]bool, error)) func(context.Context, *schema.Message) (map[string]bool, error) {
+	c.stickyDefaults[id] = stickyDefaultTarget(n)
+	if c.chatSkipActive {
+		if targets, ok := c.chatStickyRoutes[id]; ok && len(targets) > 0 {
+			replay := make(map[string]bool, len(targets))
+			for _, t := range targets {
+				replay[t] = true
+			}
+			return func(context.Context, *schema.Message) (map[string]bool, error) { return replay, nil }
+		}
+		return inner
+	}
+	nodeID := id
+	return func(ctx context.Context, in *schema.Message) (map[string]bool, error) {
+		selected, err := inner(ctx, in)
+		if err == nil {
+			targets := make([]string, 0, len(selected))
+			for t := range selected {
+				targets = append(targets, t)
+			}
+			sort.Strings(targets)
+			c.recordStickyDecision(nodeID, targets)
+		}
+		return selected, err
+	}
 }
 
 // wrapLoopCond 包装带循环回边的分支条件: 命中回边目标时计数并推送循环事件;
@@ -669,6 +793,10 @@ func (c *orchestrationCompiler) compileWorkflow(lambdas map[string]*compose.Lamb
 			if err != nil {
 				return nil, err
 			}
+			// chat_first_turn 粘性分支: 已激活会话回放首跑选择的路由, 否则记录本轮选择
+			if n.ChatFirstTurn && c.chatMode {
+				cond = c.wrapStickyWorkflowCond(id, n, cond)
+			}
 			wf.AddBranch(id, compose.NewGraphMultiBranch[*schema.Message](cond, endNodes))
 			continue
 		}
@@ -690,7 +818,8 @@ func (c *orchestrationCompiler) compileWorkflow(lambdas map[string]*compose.Lamb
 	if err != nil {
 		return nil, fmt.Errorf("Workflow 编译失败: %w", err)
 	}
-	return &compiledOrchestration{runnable: runnable, mode: "workflow", nodeKeys: nodeKeys, subNodes: subNodes, trace: c.trace}, nil
+	return &compiledOrchestration{runnable: runnable, mode: "workflow", nodeKeys: nodeKeys, subNodes: subNodes, trace: c.trace,
+		stickyDecisions: c.stickyDecisions, stickyDefaults: c.stickyDefaults, builtFirstTurnReal: c.builtFirstTurnReal}, nil
 }
 
 func orchBranchMatch(cs OrchBranchCase, content string) bool {
