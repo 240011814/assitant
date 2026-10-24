@@ -7,7 +7,6 @@ import (
 	"time"
 
 	iface "backend/interface"
-	"backend/model"
 	"backend/service"
 
 	"github.com/gin-gonic/gin"
@@ -64,24 +63,25 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if err := h.configSvc.SetValue(req.Key, req.Value, req.Remark); err != nil {
+	// 关闭 2FA 时同事务清除所有用户的 TOTP 密钥, 确保重新开启时需要重新绑定
+	if req.Key == "admin_2fa_enabled" && req.Value == "false" {
+		if err := h.configSvc.Disable2FAAndResetTOTP(req.Key, req.Value, req.Remark); err != nil {
+			SendError(c, "500", "更新配置失败: "+err.Error())
+			return
+		}
+	} else if err := h.configSvc.SetValue(req.Key, req.Value, req.Remark); err != nil {
 		SendError(c, "500", "更新配置失败: "+err.Error())
 		return
-	}
-
-	// 当关闭 2FA 时，清除所有用户的 TOTP 密钥，确保重新开启时需要重新绑定
-	if req.Key == "admin_2fa_enabled" && req.Value == "false" {
-		service.DB.Model(&model.User{}).Where("totp_secret IS NOT NULL").Update("totp_secret", nil)
 	}
 
 	// Telegram Bot Token 变更后重启 Bot
 	if req.Key == "telegram_bot_token" || req.Key == "telegram_enabled" || req.Key == "telegram_webhook_url" {
 		if h.telegramService != nil {
-			go func() {
+			service.SafeGo("system_config:restart-telegram", func() {
 				if err := h.telegramService.RestartBot(); err != nil {
 					log.Printf("[system_config] 重启 Telegram Bot 失败: %v", err)
 				}
-			}()
+			})
 		}
 	}
 
@@ -91,11 +91,11 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 		if req.Key == key {
 			h.configSvc.ReloadTimeoutConfig()
 			if h.aiAgentSvc != nil {
-				go func() {
+				service.SafeGo("system_config:reload-timeout", func() {
 					if err := h.aiAgentSvc.ReloadConfig(); err != nil {
 						log.Printf("[system_config] 超时配置重载失败: %v", err)
 					}
-				}()
+				})
 			}
 			break
 		}

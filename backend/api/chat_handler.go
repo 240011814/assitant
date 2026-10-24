@@ -3,7 +3,6 @@ package api
 import (
 	"backend/model"
 	"backend/service"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -78,8 +77,7 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 
 		setupSSE(c)
 
-		var fullAssistantReply string
-		var fullThinkingContent string
+		state := &agentStreamState{}
 		firstTokenLogged := false
 		// token 用量落库: 每次模型调用一条 (req.Model 为空 = 默认模型, 记账时解析成真实 code)
 		recordUsage := func(u *schema.TokenUsage) {
@@ -88,10 +86,17 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 			}
 			service.RecordTokenUsage(userID, agentService.ResolveModelCode(req.Model), model.TokenSourceChat, int64(u.PromptTokens), int64(u.CompletionTokens))
 		}
+		onMessage := func(msg *schema.Message) {
+			if !firstTokenLogged {
+				firstTokenLogged = true
+				log.Printf("chat first token user=%d first_token_ms=%d", userID, time.Since(requestStart).Milliseconds())
+			}
+			emitUsage(c, msg, recordUsage)
+		}
 		c.Stream(func(w io.Writer) bool {
 			event, ok := iter.Next()
 			if !ok {
-				log.Printf("chat stream completed user=%d reply_chars=%d total_ms=%d", userID, len(fullAssistantReply), time.Since(requestStart).Milliseconds())
+				log.Printf("chat stream completed user=%d reply_chars=%d total_ms=%d", userID, len(state.assistantReply), time.Since(requestStart).Milliseconds())
 				c.SSEvent("message", "[DONE]")
 
 				saveFunc := func() {
@@ -101,8 +106,8 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 						TrainingType:     req.TrainingType,
 						CustomTrainingID: req.CustomTrainingID,
 						InputMessages:    inputMessages,
-						AssistantReply:   fullAssistantReply,
-						ThinkingContent:  fullThinkingContent,
+						AssistantReply:   state.assistantReply,
+						ThinkingContent:  state.thinking,
 					})
 					if saveErr == nil && req.HistoryID == 0 {
 						c.SSEvent("history_id", gin.H{"history_id": historyID, "title": "AI 训练对话"})
@@ -112,7 +117,7 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 				if req.HistoryID == 0 {
 					saveFunc()
 				} else {
-					go saveFunc()
+					service.SafeGo("chat:save-conversation", saveFunc)
 				}
 
 				return false
@@ -155,59 +160,7 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 				}
 			}
 
-			if event.Output != nil && event.Output.MessageOutput != nil {
-				mv := event.Output.MessageOutput
-				if mv.Role == schema.Tool {
-					toolName := ""
-					if mv.Message != nil {
-						toolName = mv.Message.ToolName
-					}
-					thinking := "正在调用工具..."
-					if toolName != "" {
-						thinking = "正在调用工具：" + toolName
-					}
-					c.SSEvent("message", gin.H{"thinking": thinking})
-					return true
-				}
-				if mv.IsStreaming && mv.MessageStream != nil {
-					for {
-						msg, err := mv.MessageStream.Recv()
-						if errors.Is(err, io.EOF) {
-							break
-						}
-						if err != nil {
-							log.Printf("stream recv error: %v", err)
-							break
-						}
-						if !firstTokenLogged {
-							firstTokenLogged = true
-							log.Printf("chat first token user=%d first_token_ms=%d", userID, time.Since(requestStart).Milliseconds())
-						}
-						if msg.ReasoningContent != "" {
-							fullThinkingContent += msg.ReasoningContent
-							c.SSEvent("message", gin.H{"reasoning_content": msg.ReasoningContent})
-						}
-						if msg.Content != "" {
-							fullAssistantReply += msg.Content
-							c.SSEvent("message", gin.H{"content": msg.Content})
-						}
-						emitUsage(c, msg, recordUsage)
-					}
-				} else if mv.Message != nil {
-					msg := mv.Message
-					if msg.ReasoningContent != "" {
-						fullThinkingContent += msg.ReasoningContent
-						c.SSEvent("message", gin.H{"reasoning_content": msg.ReasoningContent})
-					}
-					if msg.Content != "" {
-						fullAssistantReply += msg.Content
-						c.SSEvent("message", gin.H{"content": msg.Content})
-					}
-					emitUsage(c, msg, recordUsage)
-				}
-			}
-
-			return true
+			return handleAgentStreamEvent(c, event, state, onMessage)
 		})
 	}
 }

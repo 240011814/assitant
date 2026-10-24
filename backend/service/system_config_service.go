@@ -4,6 +4,8 @@ import (
 	"backend/model"
 	"strconv"
 	"sync"
+
+	"gorm.io/gorm"
 )
 
 // Mem0Config mem0 服务配置
@@ -57,6 +59,29 @@ func (s *SystemConfigService) SetValue(key, value, remark string) error {
 		cfg.Remark = remark
 	}
 	return DB.Save(&cfg).Error
+}
+
+// Disable2FAAndResetTOTP 关闭 2FA 并在同一事务里清除全部用户的 TOTP 密钥:
+// 两步分开执行时, 中途失败会留下"开关已关但旧密钥仍在"的不一致状态 (重新开启时旧密钥可被复用)
+func (s *SystemConfigService) Disable2FAAndResetTOTP(key, value, remark string) error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var cfg model.SystemConfig
+		if err := tx.Where("`key` = ?", key).First(&cfg).Error; err != nil {
+			cfg = model.SystemConfig{Key: key, Value: value, Remark: remark}
+			if err := tx.Create(&cfg).Error; err != nil {
+				return err
+			}
+		} else {
+			cfg.Value = value
+			if remark != "" {
+				cfg.Remark = remark
+			}
+			if err := tx.Save(&cfg).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Model(&model.User{}).Where("totp_secret IS NOT NULL").Update("totp_secret", nil).Error
+	})
 }
 
 // GetMem0Config 从数据库读取 mem0 配置

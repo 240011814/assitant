@@ -57,7 +57,9 @@ func (c *orchestrationCompiler) orchSubAgentDesc(id string) string {
 	}
 	var cfg OrchSubAgentConfig
 	if len(n.Config) > 0 {
-		_ = json.Unmarshal(n.Config, &cfg)
+		if err := json.Unmarshal(n.Config, &cfg); err != nil {
+			orchLog("node %s config 解析失败(按零值继续): %v", n.ID, err)
+		}
 	}
 	desc := strings.TrimSpace(cfg.Description)
 	if cfg.AgentID > 0 {
@@ -91,7 +93,9 @@ func (c *orchestrationCompiler) orchSubAgentTitle(id string) string {
 	}
 	var cfg OrchSubAgentConfig
 	if len(n.Config) > 0 {
-		_ = json.Unmarshal(n.Config, &cfg)
+		if err := json.Unmarshal(n.Config, &cfg); err != nil {
+			orchLog("node %s config 解析失败(按零值继续): %v", n.ID, err)
+		}
 	}
 	if cfg.AgentID == 0 {
 		return ""

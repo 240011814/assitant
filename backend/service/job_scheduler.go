@@ -289,7 +289,7 @@ func releaseDefinition(defID uint) {
 
 func recordSkippedRun(defID uint, reason string) {
 	now := time.Now()
-	DB.Create(&model.JobRun{
+	run := model.JobRun{
 		Definition:  defID,
 		Attempt:     1,
 		Status:      model.JobRunStatusSkipped,
@@ -297,7 +297,33 @@ func recordSkippedRun(defID uint, reason string) {
 		StartedAt:   &now,
 		FinishedAt:  &now,
 		Error:       reason,
-	})
+	}
+	if err := DB.Create(&run).Error; err != nil {
+		log.Printf("[JobScheduler] 跳过记录落库失败 (def=%d): %v", defID, err)
+	}
+}
+
+// createJobRun 落库执行记录; 失败时 run.ID 为 0, 后续按 id 的收尾更新会全部落空, 调用方需短路
+func createJobRun(run *model.JobRun) bool {
+	if err := DB.Create(run).Error; err != nil {
+		log.Printf("[JobScheduler] 执行记录落库失败 (def=%d attempt=%d): %v", run.Definition, run.Attempt, err)
+		return false
+	}
+	return true
+}
+
+// updateJobRun 收尾执行记录 (状态/结束时间/错误), 失败仅留痕不中断流程
+func updateJobRun(run *model.JobRun, status string, finishedAt time.Time, runErr string) {
+	updates := map[string]interface{}{
+		"status":      status,
+		"finished_at": finishedAt,
+	}
+	if runErr != "" {
+		updates["error"] = runErr
+	}
+	if err := DB.Model(&model.JobRun{}).Where("id = ?", run.ID).Updates(updates).Error; err != nil {
+		log.Printf("[JobScheduler] 执行记录收尾失败 (id=%d): %v", run.ID, err)
+	}
 }
 
 func (js *JobScheduler) runDefinition(defID uint, triggerType string, attempt int) {
@@ -336,12 +362,15 @@ func (js *JobScheduler) runDefinition(defID uint, triggerType string, attempt in
 		run.Status = model.JobRunStatusFailed
 		run.FinishedAt = &finishAt
 		run.Error = fmt.Sprintf("任务方法未注册: %s", def.TaskName)
-		DB.Create(&run)
+		createJobRun(&run)
 		log.Printf("[JobScheduler] 定时任务 %s 执行失败: %s", def.Name, run.Error)
 		js.alertSvc.NotifyJobFailed(&def, run.Error, attempt, triggerType, finishAt)
 		return
 	}
-	DB.Create(&run)
+	if !createJobRun(&run) {
+		// 记录都写不进去 (DB 故障?), 执行了也无法回写结果, 短路避免产生不可见运行
+		return
+	}
 
 	log.Printf("[JobScheduler] 执行定时任务: %s (%s) 第%d次尝试", def.Name, def.TaskName, attempt)
 

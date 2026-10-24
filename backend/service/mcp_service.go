@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
+	einomcp "github.com/cloudwego/eino-ext/components/tool/mcp"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	einomcp "github.com/cloudwego/eino-ext/components/tool/mcp"
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	mcptransport "github.com/mark3labs/mcp-go/client/transport"
 	mcp "github.com/mark3labs/mcp-go/mcp"
@@ -26,11 +26,11 @@ import (
 // (工具不写迁移/不自动种); server 删除时自动删其工具行, 禁用时自动禁行。
 // 状态/生命周期全部运行时管理, 变更后 ClearRunnerCache 让 Agent 重建工具描述
 const (
-	mcpToolPrefix       = "mcp_"
-	mcpConnectTimeout   = 60 * time.Second
-	mcpDefaultTimeout   = 30
-	mcpTimeoutMin       = 5
-	mcpTimeoutMax       = 300
+	mcpToolPrefix     = "mcp_"
+	mcpConnectTimeout = 60 * time.Second
+	mcpDefaultTimeout = 30
+	mcpTimeoutMin     = 5
+	mcpTimeoutMax     = 300
 )
 
 var mcpNameSanitizer = regexp.MustCompile(`[^a-z0-9]+`)
@@ -55,9 +55,14 @@ func mcpToolLikePattern(serverName string) string {
 // ============ 服务 ============
 
 type MCPService struct {
-	mu       sync.Mutex
+	mu       sync.RWMutex
 	entries  map[string]*mcpEntry // server name -> 连接与已注册工具
 	agentSvc *AIAgentService
+
+	// connMu 保护 serverConns; 连接/握手等网络阶段只持对应 server 的锁,
+	// 不持 entries 锁 —— 否则一个卡死的 server 会阻塞其余 server 的连接与所有工具查询
+	connMu      sync.Mutex
+	serverConns map[string]*sync.Mutex
 }
 
 type mcpEntry struct {
@@ -67,7 +72,19 @@ type mcpEntry struct {
 }
 
 func NewMCPService() *MCPService {
-	return &MCPService{entries: map[string]*mcpEntry{}}
+	return &MCPService{entries: map[string]*mcpEntry{}, serverConns: map[string]*sync.Mutex{}}
+}
+
+// serverConnectLock 取同名 server 的连接互斥锁 (Init 并发连接与管理页重连可能同时发生)
+func (s *MCPService) serverConnectLock(name string) *sync.Mutex {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	lk, ok := s.serverConns[name]
+	if !ok {
+		lk = &sync.Mutex{}
+		s.serverConns[name] = lk
+	}
+	return lk
 }
 
 // SetAgentService 注入 Agent 服务 (注册/注销工具后清 runner/tool 缓存)
@@ -88,13 +105,13 @@ func (s *MCPService) Init() {
 	}
 	for i := range servers {
 		srv := servers[i]
-		go func() {
+		SafeGo("mcp:init-connect:"+srv.Name, func() {
 			ctx, cancel := context.WithTimeout(context.Background(), mcpConnectTimeout)
 			defer cancel()
 			if err := s.connectServer(ctx, &srv); err != nil {
 				log.Printf("[MCP] 服务 %s 启动连接失败: %v", srv.Name, err)
 			}
-		}()
+		})
 	}
 	if len(servers) > 0 {
 		log.Printf("[MCP] 开始连接 %d 个已启用的服务", len(servers))
@@ -141,13 +158,11 @@ func (s *MCPService) buildClient(srv *model.MCPServer) (*mcpclient.Client, error
 
 // connectServer 连接 -> 初始化 -> 发现并注册工具 (状态回写 DB)
 func (s *MCPService) connectServer(ctx context.Context, srv *model.MCPServer) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if old, ok := s.entries[srv.Name]; ok {
-		tools.Unregister(old.toolNames...)
-		_ = old.cli.Close()
-		delete(s.entries, srv.Name)
-	}
+	lk := s.serverConnectLock(srv.Name)
+	lk.Lock()
+	defer lk.Unlock()
+
+	// 网络阶段 (连接/握手/发现工具, 最长 mcpConnectTimeout) 不持 entries 锁
 	cli, err := s.buildClient(srv)
 	if err != nil {
 		s.markStatus(srv.ID, "failed", err.Error(), 0)
@@ -172,7 +187,17 @@ func (s *MCPService) connectServer(ctx context.Context, srv *model.MCPServer) er
 		s.markStatus(srv.ID, "failed", err.Error(), 0)
 		return fmt.Errorf("发现工具失败: %w", err)
 	}
+
+	// 临界区: 卸旧连接 + 注册新工具 + 记 entries
+	s.mu.Lock()
+	if old, ok := s.entries[srv.Name]; ok {
+		tools.Unregister(old.toolNames...)
+		_ = old.cli.Close()
+		delete(s.entries, srv.Name)
+	}
 	names := s.registerToolsLocked(srv, eTools, cli)
+	s.mu.Unlock()
+
 	s.markStatus(srv.ID, "ok", "", len(names))
 	log.Printf("[MCP] 服务 %s 已连接, 注册 %d 个工具: %s", srv.Name, len(names), strings.Join(names, ", "))
 	return nil
@@ -232,8 +257,8 @@ func (s *MCPService) markStatus(id uint, status, errMsg string, toolCount int) {
 
 // RegisteredToolNames server 当前已注册的工具名 (管理页展示用)
 func (s *MCPService) RegisteredToolNames(serverName string) []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	entry, ok := s.entries[serverName]
 	if !ok {
 		return nil
@@ -380,13 +405,13 @@ func (s *MCPService) ConnectNow(id uint) error {
 
 func (s *MCPService) asyncConnect(srv *model.MCPServer) {
 	copySrv := *srv
-	go func() {
+	SafeGo("mcp:async-connect:"+copySrv.Name, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), mcpConnectTimeout)
 		defer cancel()
 		if err := s.connectServer(ctx, &copySrv); err != nil {
 			log.Printf("[MCP] 服务 %s 连接失败: %v", copySrv.Name, err)
 		}
-	}()
+	})
 }
 
 func (s *MCPService) disableToolRows(serverName string) {

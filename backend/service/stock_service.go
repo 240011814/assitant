@@ -4,6 +4,7 @@ import (
 	"backend/model"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"sort"
 	"strings"
@@ -349,10 +350,11 @@ func rsiOf(closes []float64, n int) *float64 {
 	return &v
 }
 
-// enrichConcepts 批量补充概念板块
-func senrichConcepts(list []model.StockScreenResult, codes []string) {
+// conceptMapFor 批量查询股票的概念板块; 查询失败仅留痕返回空 map (概念是展示性补充, 不阻断主数据)
+func conceptMapFor(codes []string) map[string][]string {
+	result := make(map[string][]string)
 	if len(codes) == 0 {
-		return
+		return result
 	}
 
 	type conceptResult struct {
@@ -361,17 +363,23 @@ func senrichConcepts(list []model.StockScreenResult, codes []string) {
 	}
 
 	var conceptResults []conceptResult
-	DB.Raw(`
+	if err := DB.Raw(`
 		SELECT code, concept_name
 		FROM stock_concept
 		WHERE code IN ?
-	`, codes).Find(&conceptResults)
-
-	conceptMap := make(map[string][]string)
-	for _, c := range conceptResults {
-		conceptMap[c.Code] = append(conceptMap[c.Code], c.ConceptName)
+	`, codes).Find(&conceptResults).Error; err != nil {
+		log.Printf("[stock] 查询概念板块失败: %v", err)
+		return result
 	}
+	for _, c := range conceptResults {
+		result[c.Code] = append(result[c.Code], c.ConceptName)
+	}
+	return result
+}
 
+// enrichConcepts 批量补充概念板块
+func senrichConcepts(list []model.StockScreenResult, codes []string) {
+	conceptMap := conceptMapFor(codes)
 	for i := range list {
 		list[i].Concepts = conceptMap[list[i].Code]
 	}
@@ -466,10 +474,8 @@ func (s *StockService) GetDetail(code string) (*model.StockScreenResult, error) 
 		CfoToOr:        result.CfoToOr,
 	}
 
-	// 补充概念
-	var concepts []string
-	DB.Raw("SELECT concept_name FROM stock_concept WHERE code = ?", code).Scan(&concepts)
-	detail.Concepts = concepts
+	// 补充概念 (查询失败时为空列表, 不阻断详情)
+	detail.Concepts = conceptMapFor([]string{code})[code]
 
 	return detail, nil
 }
@@ -731,27 +737,7 @@ func (s *StockService) ListWatchlist(userID uint) ([]model.StockWatchlistItem, e
 
 // enrichWatchlistConcepts 补充自选股概念板块
 func enrichWatchlistConcepts(list []model.StockWatchlistItem, codes []string) {
-	if len(codes) == 0 {
-		return
-	}
-
-	type conceptResult struct {
-		Code        string `gorm:"column:code"`
-		ConceptName string `gorm:"column:concept_name"`
-	}
-
-	var conceptResults []conceptResult
-	DB.Raw(`
-		SELECT code, concept_name
-		FROM stock_concept
-		WHERE code IN ?
-	`, codes).Find(&conceptResults)
-
-	conceptMap := make(map[string][]string)
-	for _, c := range conceptResults {
-		conceptMap[c.Code] = append(conceptMap[c.Code], c.ConceptName)
-	}
-
+	conceptMap := conceptMapFor(codes)
 	for i := range list {
 		list[i].Concepts = conceptMap[list[i].Code]
 	}

@@ -1,13 +1,15 @@
 package service
 
 import (
-	"backend/model"
 	iface "backend/interface"
+	"backend/model"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // ReminderService 用户备忘
@@ -242,12 +244,30 @@ func (s *ReminderService) deletePendingChainJobs(def *model.JobDefinition) {
 	var rows []model.JobDefinition
 	if err := DB.Where("user_id = ? AND task_name = ? AND chain_id = ? AND enabled = ? AND id <> ?",
 		def.UserID, model.TaskNameReminder, def.ChainID, true, def.ID).Find(&rows).Error; err != nil {
+		log.Printf("[ReminderService] 查询链上待执行任务失败 chain=%d: %v", def.ChainID, err)
+		return
+	}
+	if len(rows) == 0 {
+		return
+	}
+	// 定义与运行记录同事务删除, 避免部分失败留下孤儿任务仍被调度;
+	// 调度器注销放在事务成功之后 (纯内存操作)
+	if err := DB.Transaction(func(tx *gorm.DB) error {
+		for i := range rows {
+			if err := tx.Delete(&rows[i]).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("definition_id = ?", rows[i].ID).Delete(&model.JobRun{}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		log.Printf("[ReminderService] 删除链上任务失败 chain=%d: %v", def.ChainID, err)
 		return
 	}
 	for i := range rows {
 		s.jobScheduler.UnscheduleDefinition(rows[i].ID)
-		DB.Delete(&rows[i])
-		DB.Where("definition_id = ?", rows[i].ID).Delete(&model.JobRun{})
 	}
 }
 

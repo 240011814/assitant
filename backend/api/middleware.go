@@ -1,8 +1,8 @@
 package api
 
 import (
-	"errors"
 	"backend/service"
+	"errors"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -141,10 +141,13 @@ func HasPermission(c *gin.Context, permissions ...string) bool {
 	return hasPermission
 }
 
+// GetUserID 读取 AuthMiddleware 写入的认证用户 ID。
+// 未认证返回 0; 类型异常 (非 uint) 也返回 0 而不是 panic —— 该函数在几十个 handler 中使用,
+// 任何一处被非标准中间件链调用都不应拖垮请求。
 func GetUserID(c *gin.Context) uint {
-	val, exists := c.Get("userId")
-	if !exists {
+	uid, ok := currentUserID(c)
+	if !ok {
 		return 0
 	}
-	return val.(uint)
+	return uid
 }

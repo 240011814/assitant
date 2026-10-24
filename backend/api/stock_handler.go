@@ -439,104 +439,40 @@ func (h *StockHandler) HandleSyncStatus(c *gin.Context) {
 	SendSuccess(c, h.syncService.GetStatus())
 }
 
-// HandleGetMacroReserveRatios 存款准备金率历史
-func (h *StockHandler) HandleGetMacroReserveRatios(c *gin.Context) {
-	result, err := h.svc.GetReserveRatios()
-	if err != nil {
-		SendError(c, "500", "获取存款准备金率失败: "+err.Error())
-		return
-	}
-	SendSuccess(c, result)
+// macroMeta 宏观指标查询元数据: fetch 绑定 service 方法, label 用于错误提示
+type macroMeta struct {
+	fetch func(s *service.StockService) (interface{}, error)
+	label string
 }
 
-// HandleGetMacroMoneySupplyMonth 货币供应量月度历史
-func (h *StockHandler) HandleGetMacroMoneySupplyMonth(c *gin.Context) {
-	result, err := h.svc.GetMoneySupplyMonth()
-	if err != nil {
-		SendError(c, "500", "获取货币供应量(月度)失败: "+err.Error())
-		return
-	}
-	SendSuccess(c, result)
+// 宏观经济数据查询表: 十个端点只差一个 service 方法与中文标签
+var macroEndpoints = map[string]macroMeta{
+	"deposit-rates":      {func(s *service.StockService) (interface{}, error) { return s.GetDepositRates() }, "存款利率"},
+	"loan-rates":         {func(s *service.StockService) (interface{}, error) { return s.GetLoanRates() }, "贷款利率"},
+	"reserve-ratios":     {func(s *service.StockService) (interface{}, error) { return s.GetReserveRatios() }, "存款准备金率"},
+	"money-supply-month": {func(s *service.StockService) (interface{}, error) { return s.GetMoneySupplyMonth() }, "货币供应量(月度)"},
+	"money-supply-year":  {func(s *service.StockService) (interface{}, error) { return s.GetMoneySupplyYear() }, "货币供应量(年度)"},
+	"lpr":                {func(s *service.StockService) (interface{}, error) { return s.GetLPR() }, "LPR"},
+	"gdp":                {func(s *service.StockService) (interface{}, error) { return s.GetGDP() }, "GDP"},
+	"cpi":                {func(s *service.StockService) (interface{}, error) { return s.GetCPI() }, "CPI"},
+	"pmi":                {func(s *service.StockService) (interface{}, error) { return s.GetPMI() }, "PMI"},
+	"ppi":                {func(s *service.StockService) (interface{}, error) { return s.GetPPI() }, "PPI"},
 }
 
-// HandleGetMacroMoneySupplyYear 货币供应量年度历史(年底余额)
-func (h *StockHandler) HandleGetMacroMoneySupplyYear(c *gin.Context) {
-	result, err := h.svc.GetMoneySupplyYear()
-	if err != nil {
-		SendError(c, "500", "获取货币供应量(年度)失败: "+err.Error())
-		return
+// MacroHandler 宏观数据路由统一 handler: 按 kind 查表分发, 由 router.go 注册时绑定
+func (h *StockHandler) MacroHandler(kind string) gin.HandlerFunc {
+	meta, ok := macroEndpoints[kind]
+	if !ok {
+		panic("未知宏观指标 kind: " + kind) // 注册期错误, 启动即暴露
 	}
-	SendSuccess(c, result)
-}
-
-// HandleGetMacroDepositRates 存款利率历史
-func (h *StockHandler) HandleGetMacroDepositRates(c *gin.Context) {
-	result, err := h.svc.GetDepositRates()
-	if err != nil {
-		SendError(c, "500", "获取存款利率失败: "+err.Error())
-		return
+	return func(c *gin.Context) {
+		result, err := meta.fetch(h.svc)
+		if err != nil {
+			SendError(c, "500", "获取"+meta.label+"失败: "+err.Error())
+			return
+		}
+		SendSuccess(c, result)
 	}
-	SendSuccess(c, result)
-}
-
-// HandleGetMacroLoanRates 贷款利率历史
-func (h *StockHandler) HandleGetMacroLoanRates(c *gin.Context) {
-	result, err := h.svc.GetLoanRates()
-	if err != nil {
-		SendError(c, "500", "获取贷款利率失败: "+err.Error())
-		return
-	}
-	SendSuccess(c, result)
-}
-
-// HandleGetMacroLPR 贷款市场报价利率 LPR 历史
-func (h *StockHandler) HandleGetMacroLPR(c *gin.Context) {
-	result, err := h.svc.GetLPR()
-	if err != nil {
-		SendError(c, "500", "获取LPR失败: "+err.Error())
-		return
-	}
-	SendSuccess(c, result)
-}
-
-// HandleGetMacroGDP GDP数据
-func (h *StockHandler) HandleGetMacroGDP(c *gin.Context) {
-	result, err := h.svc.GetGDP()
-	if err != nil {
-		SendError(c, "500", "获取GDP失败: "+err.Error())
-		return
-	}
-	SendSuccess(c, result)
-}
-
-// HandleGetMacroCPI CPI数据
-func (h *StockHandler) HandleGetMacroCPI(c *gin.Context) {
-	result, err := h.svc.GetCPI()
-	if err != nil {
-		SendError(c, "500", "获取CPI失败: "+err.Error())
-		return
-	}
-	SendSuccess(c, result)
-}
-
-// HandleGetMacroPMI PMI数据
-func (h *StockHandler) HandleGetMacroPMI(c *gin.Context) {
-	result, err := h.svc.GetPMI()
-	if err != nil {
-		SendError(c, "500", "获取PMI失败: "+err.Error())
-		return
-	}
-	SendSuccess(c, result)
-}
-
-// HandleGetMacroPPI PPI数据
-func (h *StockHandler) HandleGetMacroPPI(c *gin.Context) {
-	result, err := h.svc.GetPPI()
-	if err != nil {
-		SendError(c, "500", "获取PPI失败: "+err.Error())
-		return
-	}
-	SendSuccess(c, result)
 }
 
 // HandleSyncMacro 同步宏观经济数据(存款准备金率/货币供应量)

@@ -401,7 +401,7 @@ func (s *AgentTaskService) Delete(userID uint, id uint) error {
 // TaskItem 任务列表条目 (定义 + 调度信息 + 最近一次执行)
 type TaskItem struct {
 	model.JobDefinition
-	NextRunAt  *time.Time `json:"next_run_at"`
+	NextRunAt  *time.Time            `json:"next_run_at"`
 	ParamsData model.AgentTaskParams `json:"params_data"`
 }
 
@@ -416,7 +416,9 @@ func (s *AgentTaskService) List(userID uint) ([]TaskItem, error) {
 	for i := range defs {
 		def := defs[i]
 		item := TaskItem{JobDefinition: def}
-		_ = json.Unmarshal(def.Params, &item.ParamsData)
+		if err := json.Unmarshal(def.Params, &item.ParamsData); err != nil {
+			log.Printf("[agent_task] 任务 %s(%d) params 解析失败(展示为空): %v", def.Name, def.ID, err)
+		}
 		if def.Enabled {
 			item.NextRunAt = s.jobScheduler.NextRunAt(def.ID)
 		}

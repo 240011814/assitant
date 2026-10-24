@@ -255,7 +255,9 @@ func (c *orchestrationCompiler) compile(ctx context.Context, deps compilerDeps) 
 		}
 		var cfg OrchAgentConfig
 		if len(n.Config) > 0 {
-			_ = json.Unmarshal(n.Config, &cfg)
+			if err := json.Unmarshal(n.Config, &cfg); err != nil {
+				orchLog("node %s config 解析失败(按零值继续): %v", id, err)
+			}
 		}
 		subs := c.subAgentIDsOf(id)
 		orchLog("compile mode=%s node=%s tools=%v subagents=%v max_step=%d",
@@ -283,7 +285,9 @@ func (c *orchestrationCompiler) compile(ctx context.Context, deps compilerDeps) 
 		case OrchNodeAgent:
 			var cfg OrchAgentConfig
 			if len(n.Config) > 0 {
-				_ = json.Unmarshal(n.Config, &cfg)
+				if err := json.Unmarshal(n.Config, &cfg); err != nil {
+					orchLog("node %s config 解析失败(按零值继续): %v", id, err)
+				}
 			}
 			nodeModels[id] = strings.TrimSpace(cfg.Model)
 		}
@@ -294,7 +298,9 @@ func (c *orchestrationCompiler) compile(ctx context.Context, deps compilerDeps) 
 		}
 		var cfg OrchSubAgentConfig
 		if len(c.nodeMap[id].Config) > 0 {
-			_ = json.Unmarshal(c.nodeMap[id].Config, &cfg)
+			if err := json.Unmarshal(c.nodeMap[id].Config, &cfg); err != nil {
+				orchLog("node %s config 解析失败(按零值继续): %v", id, err)
+			}
 		}
 		nodeModels[id] = strings.TrimSpace(cfg.Model)
 	}

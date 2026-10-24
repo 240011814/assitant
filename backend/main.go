@@ -179,11 +179,11 @@ func main() {
 	wolMqttHandler := api.NewWolMqttHandler(wolMqttService)
 
 	// 启动自动连接 MQTT (只尝试一次, 失败不重试; 可到设备管理页手动连接)
-	go func() {
+	service.SafeGo("mqtt:auto-connect", func() {
 		if err := wolMqttService.Connect(); err != nil {
 			log.Printf("Warning: 自动连接 MQTT 失败(不重试): %v", err)
 		}
-	}()
+	})
 
 	// 米哈游原神签到 (扫码登录绑定 + 每日定时签到)
 	mihoyoService := service.NewMihoyoService()
@@ -244,11 +244,11 @@ func main() {
 	})
 
 	// Start Telegram Bot
-	go func() {
+	service.SafeGo("telegram:start-bot", func() {
 		if err := telegramService.StartBot(); err != nil {
 			log.Printf("Warning: Failed to start Telegram Bot: %v", err)
 		}
-	}()
+	})
 
 	// Start Scheduler
 	if jobScheduler != nil {

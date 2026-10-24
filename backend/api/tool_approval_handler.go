@@ -2,7 +2,6 @@ package api
 
 import (
 	"backend/service"
-	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -14,16 +13,16 @@ import (
 )
 
 type ToolApprovalRequest struct {
-	CheckPointID     string        `json:"checkpoint_id" binding:"required"`
-	InterruptID      string        `json:"interrupt_id" binding:"required"`
-	Approved         bool          `json:"approved"`
-	Reason           string        `json:"reason,omitempty"`
-	HistoryID        uint          `json:"history_id"`
-	TrainingType     string        `json:"training_type"`
-	CustomTrainingID *uint         `json:"custom_training_id"`
+	CheckPointID     string `json:"checkpoint_id" binding:"required"`
+	InterruptID      string `json:"interrupt_id" binding:"required"`
+	Approved         bool   `json:"approved"`
+	Reason           string `json:"reason,omitempty"`
+	HistoryID        uint   `json:"history_id"`
+	TrainingType     string `json:"training_type"`
+	CustomTrainingID *uint  `json:"custom_training_id"`
 	// Model 发起被中断那次对话时使用的模型 (前端随审批带回), 恢复时用同一 runner
-	Model            string        `json:"model"`
-	Messages         []ChatMessage `json:"messages"`
+	Model    string        `json:"model"`
+	Messages []ChatMessage `json:"messages"`
 }
 
 func HandleToolApproval(agentService *service.AIAgentService, historyService *service.HistoryService) gin.HandlerFunc {
@@ -81,33 +80,33 @@ func HandleToolApproval(agentService *service.AIAgentService, historyService *se
 
 		setupSSE(c)
 
-		var fullAssistantReply string
-		var fullThinkingContent string
+		state := &agentStreamState{}
 
 		c.Stream(func(w io.Writer) bool {
 			event, ok := iter.Next()
 			if !ok {
-				log.Printf("[tool-approval] stream completed user=%d reply_chars=%d", userID, len(fullAssistantReply))
+				log.Printf("[tool-approval] stream completed user=%d reply_chars=%d", userID, len(state.assistantReply))
 				c.SSEvent("message", "[DONE]")
 
-				go func() {
+				service.SafeGo("tool-approval:save-conversation", func() {
 					if _, saveErr := historyService.SaveConversation(&service.SaveConversationParams{
 						UserID:           userID,
 						HistoryID:        historyID,
 						TrainingType:     req.TrainingType,
 						CustomTrainingID: req.CustomTrainingID,
 						InputMessages:    inputMessages,
-						AssistantReply:   fullAssistantReply,
-						ThinkingContent:  fullThinkingContent,
+						AssistantReply:   state.assistantReply,
+						ThinkingContent:  state.thinking,
 					}); saveErr != nil {
 						log.Printf("[tool-approval] 保存对话历史失败 userID=%d historyID=%d: %v", userID, historyID, saveErr)
 					}
-				}()
+				})
 
 				return false
 			}
 
 			if event.Err != nil {
+				log.Printf("[tool-approval] stream error user=%d: %v", userID, event.Err)
 				c.SSEvent("error", gin.H{"error": event.Err.Error()})
 				return false
 			}
@@ -126,52 +125,7 @@ func HandleToolApproval(agentService *service.AIAgentService, historyService *se
 				}
 			}
 
-			if event.Output != nil && event.Output.MessageOutput != nil {
-				mv := event.Output.MessageOutput
-				if mv.Role == schema.Tool {
-					toolName := ""
-					if mv.Message != nil {
-						toolName = mv.Message.ToolName
-					}
-					thinking := "正在调用工具..."
-					if toolName != "" {
-						thinking = "正在调用工具：" + toolName
-					}
-					c.SSEvent("message", gin.H{"thinking": thinking})
-					return true
-				}
-				if mv.IsStreaming && mv.MessageStream != nil {
-					for {
-						msg, err := mv.MessageStream.Recv()
-						if errors.Is(err, io.EOF) {
-							break
-						}
-						if err != nil {
-							break
-						}
-						if msg.ReasoningContent != "" {
-							fullThinkingContent += msg.ReasoningContent
-							c.SSEvent("message", gin.H{"reasoning_content": msg.ReasoningContent})
-						}
-						if msg.Content != "" {
-							fullAssistantReply += msg.Content
-							c.SSEvent("message", gin.H{"content": msg.Content})
-						}
-					}
-				} else if mv.Message != nil {
-					msg := mv.Message
-					if msg.ReasoningContent != "" {
-						fullThinkingContent += msg.ReasoningContent
-						c.SSEvent("message", gin.H{"reasoning_content": msg.ReasoningContent})
-					}
-					if msg.Content != "" {
-						fullAssistantReply += msg.Content
-						c.SSEvent("message", gin.H{"content": msg.Content})
-					}
-				}
-			}
-
-			return true
+			return handleAgentStreamEvent(c, event, state, nil)
 		})
 	}
 }
