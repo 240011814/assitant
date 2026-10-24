@@ -14,6 +14,9 @@ const granularity = ref<Api.TokenUsage.Granularity>('day');
 const model = ref<string | null>(null);
 const userId = ref<number | null>(null);
 const timeRange = ref<[number, number] | null>(null);
+// 模板内联箭头函数的类型标注会触发 vue/no-undef-properties 误报, 收进 script
+const userRowKey = (row: Api.TokenUsage.UserItem) => row.user_id;
+const recordRowKey = (row: Api.TokenUsage.UsageRecord) => row.id;
 
 const granularityOptions = [
   { label: '按小时', value: 'hour' },
@@ -349,7 +352,7 @@ const showExport = computed(() => records.value.length > 0);
                 :data="stats?.by_user || []"
                 size="small"
                 striped
-                :row-key="(row: Api.TokenUsage.UserItem) => row.user_id"
+                :row-key="userRowKey"
                 :max-height="300"
               />
             </NCard>
@@ -363,7 +366,7 @@ const showExport = computed(() => records.value.length > 0);
             :loading="loading"
             :pagination="pagination"
             remote
-            :row-key="(row: Api.TokenUsage.UsageRecord) => row.id"
+            :row-key="recordRowKey"
             size="small"
             striped
             :scroll-x="900"

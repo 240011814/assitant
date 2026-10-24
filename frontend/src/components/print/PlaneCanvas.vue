@@ -12,6 +12,10 @@ const props = defineProps<{
 // canvas 引用
 const canvases = ref<HTMLCanvasElement[]>([]);
 const canvasImages = ref<string[]>([]);
+// 模板内联箭头函数的类型标注会触发 vue/no-undef-properties 误报, 收进 script
+function setCanvas(el: Element | unknown, index: number) {
+  canvases.value[index] = el as HTMLCanvasElement;
+}
 
 function isRemainderMaterial(bin: Api.Cut.BinResult) {
   if (!bin.materialType) return false;
@@ -190,7 +194,7 @@ onMounted(async () => {
           </p>
         </div>
         <div class="aspect-square bg-white">
-          <canvas :ref="el => (canvases[index] = el as HTMLCanvasElement)" class="h-full w-full"></canvas>
+          <canvas :ref="el => setCanvas(el, index)" class="h-full w-full"></canvas>
         </div>
       </div>
     </div>

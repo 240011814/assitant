@@ -15,7 +15,6 @@ import { NODE_META } from '../nodes/registry';
 const props = defineProps<{
   nodeTraces: Record<string, NodeTrace>;
   selectedId: string | null;
-  debugRunning: boolean;
   refitKey?: boolean;
   /** resources 画布可用资源 (仅用于把子Agent 显示成被引用的 Agent 标题) */
   resources?: OrchestrationResource | null;
@@ -27,13 +26,13 @@ const nodes = defineModel<FlowNode[]>('nodes', { required: true });
 const edges = defineModel<FlowEdge[]>('edges', { required: true });
 
 const emit = defineEmits<{
-  'select-node': [id: string | null];
-  'delete-node': [id: string];
-  'duplicate-node': [id: string];
-  'add-node': [type: string, position: { x: number; y: number }];
-  'delete-edge': [id: string];
+  'selectNode': [id: string | null];
+  'deleteNode': [id: string];
+  'duplicateNode': [id: string];
+  'addNode': [type: string, position: { x: number; y: number }];
+  'deleteEdge': [id: string];
   /** 画布任何节点/边变更 (拖动/连线/选中/删除), 父级据此清除过期的错误高亮 */
-  'canvas-change': [];
+  'canvasChange': [];
 }>();
 
 const message = useMessage();
@@ -196,17 +195,17 @@ function onConnect(connection: Connection) {
 
 function onNodeClick(e: NodeMouseEvent) {
   closeCtxMenu();
-  emit('select-node', e.node.id);
+  emit('selectNode', e.node.id);
 }
 
 function onPaneClick() {
   closeCtxMenu();
-  emit('select-node', null);
+  emit('selectNode', null);
 }
 
 function onEdgeClick(_e: EdgeMouseEvent) {
   closeCtxMenu();
-  emit('select-node', null);
+  emit('selectNode', null);
 }
 
 // ---------- 右键菜单 ----------
@@ -232,7 +231,7 @@ function openNodeMenu(e: NodeMouseEvent) {
   native.preventDefault();
   native.stopPropagation();
   ctxMenu.value = { show: true, x: native.clientX, y: native.clientY, kind: 'node', id: e.node.id, nodeType: e.node.data.nodeType };
-  emit('select-node', e.node.id);
+  emit('selectNode', e.node.id);
 }
 
 function openEdgeMenu(e: EdgeMouseEvent) {
@@ -248,17 +247,17 @@ function openPaneMenu(e: MouseEvent) {
 }
 
 function menuDeleteNode() {
-  if (ctxMenu.value.id) emit('delete-node', ctxMenu.value.id);
+  if (ctxMenu.value.id) emit('deleteNode', ctxMenu.value.id);
   closeCtxMenu();
 }
 
 function menuDuplicateNode() {
-  if (ctxMenu.value.id) emit('duplicate-node', ctxMenu.value.id);
+  if (ctxMenu.value.id) emit('duplicateNode', ctxMenu.value.id);
   closeCtxMenu();
 }
 
 function menuDeleteEdge() {
-  if (ctxMenu.value.id) emit('delete-edge', ctxMenu.value.id);
+  if (ctxMenu.value.id) emit('deleteEdge', ctxMenu.value.id);
   closeCtxMenu();
 }
 
@@ -327,7 +326,7 @@ function menuToggleLoopEdge() {
 
 function menuAddNode(type: string) {
   const point = screenToFlowCoordinate({ x: ctxMenu.value.x, y: ctxMenu.value.y });
-  emit('add-node', type, { x: Math.round(point.x), y: Math.round(point.y) });
+  emit('addNode', type, { x: Math.round(point.x), y: Math.round(point.y) });
   closeCtxMenu();
 }
 
@@ -349,8 +348,8 @@ function menuAddNode(type: string) {
       @node-context-menu="openNodeMenu"
       @edge-context-menu="openEdgeMenu"
       @pane-context-menu="openPaneMenu"
-      @nodes-change="emit('canvas-change')"
-      @edges-change="emit('canvas-change')"
+      @nodes-change="emit('canvasChange')"
+      @edges-change="emit('canvasChange')"
     >
       <Background :gap="16" />
       <MiniMap pannable zoomable />

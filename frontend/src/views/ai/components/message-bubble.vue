@@ -25,12 +25,12 @@ const emit = defineEmits<{
   (e: "edit"): void;
   (e: "retry"): void;
   (e: "copy", content: string): void;
-  (e: "open-vocab"): void;
-  (e: "open-note", content: string): void;
-  (e: "apply-suggestion", vocab: VocabSuggestion): void;
-  (e: "add-expression", expr: ExpressionSuggestion): void;
-  (e: "select-text"): void;
-  (e: "toggle-thinking"): void;
+  (e: "openVocab"): void;
+  (e: "openNote", content: string): void;
+  (e: "applySuggestion", vocab: VocabSuggestion): void;
+  (e: "addExpression", expr: ExpressionSuggestion): void;
+  (e: "selectText"): void;
+  (e: "toggleThinking"): void;
 }>();
 
 const appStore = useAppStore();
@@ -69,7 +69,7 @@ const actionsClass = computed(() =>
 );
 
 const onSelectText = () => {
-  if (isAssistant.value) emit("select-text");
+  if (isAssistant.value) emit("selectText");
 };
 </script>
 
@@ -103,7 +103,7 @@ const onSelectText = () => {
       <div class="group/btn">
         <!-- PC: 思考过程在气泡上方; 移动端: 与气泡同行 -->
         <div v-if="!isMobile && isAssistant && msg.thinkingContent" class="thinking-wrapper mb-2">
-          <button class="thinking-toggle" @click="emit('toggle-thinking')">
+          <button class="thinking-toggle" @click="emit('toggleThinking')">
             <span class="thinking-toggle-icon" :class="{ expanded: thinkingExpanded }">▶</span>
             <span>💭 思考过程</span>
           </button>
@@ -118,7 +118,7 @@ const onSelectText = () => {
         <!-- 移动端的行包裹 (思考过程+气泡), PC 端为普通块容器 -->
         <div :class="isMobile ? 'flex ' + (msg.role === 'user' ? 'justify-end' : 'justify-start') : ''">
           <div v-if="isMobile && isAssistant && msg.thinkingContent" class="thinking-wrapper mb-2">
-            <button class="thinking-toggle" @click="emit('toggle-thinking')">
+            <button class="thinking-toggle" @click="emit('toggleThinking')">
               <span class="thinking-toggle-icon" :class="{ expanded: thinkingExpanded }">▶</span>
               <span>💭 思考过程</span>
             </button>
@@ -184,14 +184,14 @@ const onSelectText = () => {
             icon="mdi:star-outline"
             class="!h-28px !w-28px text-gray-400 hover:text-amber-500 dark:text-gray-500 dark:hover:text-amber-400"
             tooltip-content="添加到生词本"
-            @click.stop="emit('open-vocab')"
+            @click.stop="emit('openVocab')"
           />
           <ButtonIcon
             v-if="isAssistant"
             icon="mdi:notebook-edit-outline"
             class="!h-28px !w-28px text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400"
             tooltip-content="添加笔记"
-            @click.stop="emit('open-note', msg.content)"
+            @click.stop="emit('openNote', msg.content)"
           />
         </div>
       </div>
@@ -206,7 +206,7 @@ const onSelectText = () => {
           type="info"
           check-strategy="child"
           class="cursor-pointer hover:shadow-sm transition-shadow"
-          @click="emit('apply-suggestion', vocab)"
+          @click="emit('applySuggestion', vocab)"
         >
           <template #icon>
             <div class="i-mdi:plus" />
@@ -225,7 +225,7 @@ const onSelectText = () => {
           type="success"
           check-strategy="child"
           class="cursor-pointer hover:shadow-sm transition-shadow"
-          @click="emit('add-expression', expr)"
+          @click="emit('addExpression', expr)"
         >
           <template #icon>
             <div class="i-mdi:plus" />

@@ -148,6 +148,9 @@ function updateChart(res: Api.Stock.BacktestResponse) {
   })
 }
 
+// 模板内联箭头函数的类型标注会触发 vue/no-undef-properties 误报, 收进 script
+const periodRowKey = (row: Api.Stock.BacktestPeriod) => row.rebalanceDate
+
 // 各期明细表
 const periodColumns = computed<DataTableColumns<Api.Stock.BacktestPeriod>>(() => [
   { title: $t('page.tool.backtest.rebalanceDate'), key: 'rebalanceDate', width: 120 },
@@ -244,7 +247,7 @@ const periodColumns = computed<DataTableColumns<Api.Stock.BacktestPeriod>>(() =>
           <NDataTable
             :columns="periodColumns"
             :data="result.periods"
-            :row-key="(row: Api.Stock.BacktestPeriod) => row.rebalanceDate"
+            :row-key="periodRowKey"
             :scroll-x="440"
             :pagination="{ pageSize: 20 }"
             size="small"

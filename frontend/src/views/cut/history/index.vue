@@ -460,9 +460,9 @@ onMounted(() => {
             }}{{
               stockInTotal !== stockInKept
                 ? $t('page.cut.stockInFiltered', {
-                    count: stockInTotal - stockInKept,
-                    unit: stockInType === '1' ? $t('page.cut.unitShortBar') : $t('page.cut.unitSmallPiece')
-                  })
+                  count: stockInTotal - stockInKept,
+                  unit: stockInType === '1' ? $t('page.cut.unitShortBar') : $t('page.cut.unitSmallPiece')
+                })
                 : ''
             }}
           </div>

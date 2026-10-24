@@ -251,14 +251,14 @@ onMounted(() => {
             <NInput v-model:value="form.command" placeholder="npx / uvx / python (需部署机已安装)" />
           </NFormItem>
           <NFormItem label="命令参数">
-            <NInput v-model:value="form.args" type="textarea" :rows="2" placeholder='JSON 数组, 如 ["-y", "@modelcontextprotocol/server-filesystem", "/data"]' />
+            <NInput v-model:value="form.args" type="textarea" :rows="2" placeholder="JSON 数组, 如 [&quot;-y&quot;, &quot;@modelcontextprotocol/server-filesystem&quot;, &quot;/data&quot;]" />
           </NFormItem>
           <NFormItem label="环境变量">
-            <NInput v-model:value="form.env" type="textarea" :rows="2" placeholder='JSON 对象, 如 {"API_KEY": "xxx"}' />
+            <NInput v-model:value="form.env" type="textarea" :rows="2" placeholder="JSON 对象, 如 {&quot;API_KEY&quot;: &quot;xxx&quot;}" />
           </NFormItem>
         </template>
         <NFormItem v-if="form.transport !== 'stdio'" label="附加请求头">
-          <NInput v-model:value="form.headers" type="textarea" :rows="2" placeholder='JSON 对象, 如 {"Authorization": "Bearer xxx"}' />
+          <NInput v-model:value="form.headers" type="textarea" :rows="2" placeholder="JSON 对象, 如 {&quot;Authorization&quot;: &quot;Bearer xxx&quot;}" />
         </NFormItem>
         <NFormItem label="调用超时(秒)">
           <NInputNumber v-model:value="form.timeout_seconds" :min="5" :max="300" />

@@ -11,6 +11,8 @@ const isMobile = computed(() => appStore.isMobile);
 
 const loading = ref(false);
 const logs = ref<Api.AuditLog.OperationAuditLog[]>([]);
+// 模板内联箭头函数的类型标注会触发 vue/no-undef-properties 误报, 收进 script
+const rowKey = (row: Api.AuditLog.OperationAuditLog) => row.id;
 
 const filters = reactive({
   method: null as string | null,
@@ -214,7 +216,7 @@ onMounted(() => {
         :loading="loading"
         :pagination="pagination"
         remote
-        :row-key="(row: Api.AuditLog.OperationAuditLog) => row.id"
+        :row-key="rowKey"
         size="small"
         striped
         :scroll-x="1200"

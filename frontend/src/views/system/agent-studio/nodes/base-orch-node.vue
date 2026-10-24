@@ -26,7 +26,7 @@ const headerLabel = computed(() => props.name || meta.value.label);
 
 <template>
   <div class="orch-node" :class="{ selected, running: status === 'running' }" :style="{ borderColor: color }">
-    <Handle type="target" id="in" :position="Position.Left" class="orch-handle" />
+    <Handle id="in" type="target" :position="Position.Left" class="orch-handle" />
     <div class="orch-node-header" :style="{ background: color }">
       <SvgIcon :icon="meta.icon" class="text-14px" />
       <span class="truncate">{{ headerLabel }}</span>
@@ -35,7 +35,7 @@ const headerLabel = computed(() => props.name || meta.value.label);
     <div class="orch-node-body">
       <slot />
     </div>
-    <Handle v-if="!hideSource" type="source" id="out" :position="Position.Right" class="orch-handle" />
+    <Handle v-if="!hideSource" id="out" type="source" :position="Position.Right" class="orch-handle" />
   </div>
 </template>
 

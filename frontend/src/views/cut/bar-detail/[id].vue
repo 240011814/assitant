@@ -251,113 +251,113 @@ onUnmounted(() => {
 
   <NSpin v-else :show="loading">
     <div class="p-4">
-    <!-- 输入区域 -->
-    <NCard :title="$t('page.cut.vizTitle')" size="large" class="mb-4">
-      <h3>{{ $t('page.cut.cutSizes') }}</h3>
-      <NDataTable :columns="itemColumns" :data="itemsData" />
-      <h3 class="mt-6">{{ $t('page.cut.materialStock') }}</h3>
-      <NDataTable :columns="materialColumns" :data="materialsData" />
+      <!-- 输入区域 -->
+      <NCard :title="$t('page.cut.vizTitle')" size="large" class="mb-4">
+        <h3>{{ $t('page.cut.cutSizes') }}</h3>
+        <NDataTable :columns="itemColumns" :data="itemsData" />
+        <h3 class="mt-6">{{ $t('page.cut.materialStock') }}</h3>
+        <NDataTable :columns="materialColumns" :data="materialsData" />
 
-      <h3 class="mt-6">{{ $t('page.cut.paramsConfig') }}</h3>
-      <div class="mb-4 flex flex-wrap items-start gap-6">
-        <div class="flex items-start gap-2">
-          <span class="w-24 pt-1">{{ $t('page.cut.newMaterialSpec') }}</span>
-          <div class="flex flex-col gap-2">
-            <div v-for="(row, idx) in newMaterials" :key="idx" class="flex items-center gap-2">
-              <span class="w-32 text-gray-600">{{ row.label?.trim() || $t('page.cut.unnamedSpec') }}</span>
-              <NInputNumber :value="row.length" disabled class="w-40" />
-            </div>
-          </div>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="w-24">{{ $t('page.cut.loss') }}</span>
-          <NInputNumber v-model:value="loss" disabled class="w-40" />
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="w-24">{{ $t('page.cut.solveMode') }}</span>
-          <NInput :value="solveModeLabel" disabled class="w-52" />
-        </div>
-        <div v-if="protectEnabled" class="flex items-center gap-2">
-          <span class="w-24">{{ $t('page.cut.materialProtect') }}</span>
-          <span class="whitespace-nowrap text-gray-600">
-            {{ $t('page.cut.protectRange', { min: protectMin ?? '-', max: protectMax ?? '-' }) }}
-          </span>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="w-24">{{ $t('page.cut.aggregateDisplay') }}</span>
-          <NSwitch v-model:value="group" class="w-40" />
-        </div>
-      </div>
-
-      <div class="mt-4 flex gap-2">
-        <BarPrinter :data="processedResult" />
-      </div>
-    </NCard>
-
-    <!-- 结果统计 -->
-    <NCard :title="$t('page.cut.summaryTitle')" size="large" class="mb-4">
-      <p>
-        {{
-          $t('page.cut.barSummary', {
-            count: result.totalMaterials,
-            total: result.totalLength,
-            used: result.totalUsed,
-            remaining: result.totalRemaining,
-            usage: result.usagePercent
-          })
-        }}
-      </p>
-      <NDataTable
-        v-if="summaryData?.byMaterialType?.length"
-        class="mt-4"
-        size="small"
-        :columns="typeSummaryColumns"
-        :data="summaryData.byMaterialType"
-        :bordered="false"
-      />
-    </NCard>
-
-    <!-- 裁剪图示 -->
-    <NCard :title="$t('page.cut.cutChart')" size="large">
-      <div ref="canvasWrapper" class="cursor-grab overflow-x-auto border border-gray-300 rounded-md p-4">
-        <div class="origin-top-left" :style="{ transform: `scale(${scaleFactor})` }">
-          <div v-for="item in processedResult" :key="item.index" class="mb-6">
-            <!-- 标签 -->
-            <div class="mb-1 font-bold">
-              {{ $t('page.cut.barLabel', { index: item.index }) }}
-              {{
-                $t('page.cut.barStats', { total: item.totalLength, used: item.used, remaining: item.remaining, count: item.count || 1 })
-              }}
-            </div>
-
-            <!-- 条形图 -->
-            <div class="h-10 flex">
-              <div
-                v-for="(cut, idx) in item.cuts"
-                :key="idx"
-                class="flex items-center justify-center border border-white text-xs text-white"
-                :style="{
-                  width: Number(cut) * (containerWidth / maxTotalLength) + 'px',
-                  backgroundColor: randomColors[Number(idx) % randomColors.length]
-                }"
-              >
-                {{ cut }}cm
-              </div>
-
-              <div
-                v-if="item.remaining > 0"
-                class="flex items-center justify-center bg-gray-300 text-xs text-black"
-                :style="{
-                  width: item.remaining * (containerWidth / maxTotalLength) + 'px'
-                }"
-              >
-                {{ $t('page.cut.tailRemaining', { remaining: item.remaining }) }}
+        <h3 class="mt-6">{{ $t('page.cut.paramsConfig') }}</h3>
+        <div class="mb-4 flex flex-wrap items-start gap-6">
+          <div class="flex items-start gap-2">
+            <span class="w-24 pt-1">{{ $t('page.cut.newMaterialSpec') }}</span>
+            <div class="flex flex-col gap-2">
+              <div v-for="(row, idx) in newMaterials" :key="idx" class="flex items-center gap-2">
+                <span class="w-32 text-gray-600">{{ row.label?.trim() || $t('page.cut.unnamedSpec') }}</span>
+                <NInputNumber :value="row.length" disabled class="w-40" />
               </div>
             </div>
           </div>
+          <div class="flex items-center gap-2">
+            <span class="w-24">{{ $t('page.cut.loss') }}</span>
+            <NInputNumber v-model:value="loss" disabled class="w-40" />
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-24">{{ $t('page.cut.solveMode') }}</span>
+            <NInput :value="solveModeLabel" disabled class="w-52" />
+          </div>
+          <div v-if="protectEnabled" class="flex items-center gap-2">
+            <span class="w-24">{{ $t('page.cut.materialProtect') }}</span>
+            <span class="whitespace-nowrap text-gray-600">
+              {{ $t('page.cut.protectRange', { min: protectMin ?? '-', max: protectMax ?? '-' }) }}
+            </span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-24">{{ $t('page.cut.aggregateDisplay') }}</span>
+            <NSwitch v-model:value="group" class="w-40" />
+          </div>
         </div>
-      </div>
-    </NCard>
+
+        <div class="mt-4 flex gap-2">
+          <BarPrinter :data="processedResult" />
+        </div>
+      </NCard>
+
+      <!-- 结果统计 -->
+      <NCard :title="$t('page.cut.summaryTitle')" size="large" class="mb-4">
+        <p>
+          {{
+            $t('page.cut.barSummary', {
+              count: result.totalMaterials,
+              total: result.totalLength,
+              used: result.totalUsed,
+              remaining: result.totalRemaining,
+              usage: result.usagePercent
+            })
+          }}
+        </p>
+        <NDataTable
+          v-if="summaryData?.byMaterialType?.length"
+          class="mt-4"
+          size="small"
+          :columns="typeSummaryColumns"
+          :data="summaryData.byMaterialType"
+          :bordered="false"
+        />
+      </NCard>
+
+      <!-- 裁剪图示 -->
+      <NCard :title="$t('page.cut.cutChart')" size="large">
+        <div ref="canvasWrapper" class="cursor-grab overflow-x-auto border border-gray-300 rounded-md p-4">
+          <div class="origin-top-left" :style="{ transform: `scale(${scaleFactor})` }">
+            <div v-for="item in processedResult" :key="item.index" class="mb-6">
+              <!-- 标签 -->
+              <div class="mb-1 font-bold">
+                {{ $t('page.cut.barLabel', { index: item.index }) }}
+                {{
+                  $t('page.cut.barStats', { total: item.totalLength, used: item.used, remaining: item.remaining, count: item.count || 1 })
+                }}
+              </div>
+
+              <!-- 条形图 -->
+              <div class="h-10 flex">
+                <div
+                  v-for="(cut, idx) in item.cuts"
+                  :key="idx"
+                  class="flex items-center justify-center border border-white text-xs text-white"
+                  :style="{
+                    width: Number(cut) * (containerWidth / maxTotalLength) + 'px',
+                    backgroundColor: randomColors[Number(idx) % randomColors.length]
+                  }"
+                >
+                  {{ cut }}cm
+                </div>
+
+                <div
+                  v-if="item.remaining > 0"
+                  class="flex items-center justify-center bg-gray-300 text-xs text-black"
+                  :style="{
+                    width: item.remaining * (containerWidth / maxTotalLength) + 'px'
+                  }"
+                >
+                  {{ $t('page.cut.tailRemaining', { remaining: item.remaining }) }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </NCard>
     </div>
   </NSpin>
 </template>

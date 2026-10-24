@@ -1126,8 +1126,8 @@ onBeforeUnmount(() => {
                 </NButton>
                 <NButton
                   v-else
-                  key="send"
                   v-show="inputMessage.trim()"
+                  key="send"
                   type="primary"
                   size="small"
                   class="send-btn send-btn-active"
@@ -1197,8 +1197,8 @@ onBeforeUnmount(() => {
                   </NButton>
                   <NButton
                     v-else
-                    key="send"
                     v-show="inputMessage.trim()"
+                    key="send"
                     type="primary"
                     size="tiny"
                     class="send-btn-mobile send-btn-active"

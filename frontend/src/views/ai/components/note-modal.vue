@@ -102,12 +102,14 @@ defineExpose({ open });
             "
             placeholder="输入笔记内容"
           />
-          <!-- eslint-disable-next-line vue/no-v-html -->
+          <!-- eslint-disable vue/no-v-html -->
+          <!-- 内容经 utils/markdown 的 DOMPurify 消毒 -->
           <div
             class="prose dark:prose-invert max-w-none overflow-y-auto p-4 border border-gray-200 dark:border-gray-700 rounded-md bg-gray-50/50 dark:bg-dark-100 text-sm leading-relaxed"
             style="height: 100%; max-height: 350px"
             v-html="renderMarkdown(form.content)"
           ></div>
+          <!-- eslint-enable vue/no-v-html -->
         </div>
       </NFormItem>
     </NForm>

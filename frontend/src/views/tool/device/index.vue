@@ -692,11 +692,14 @@ onBeforeUnmount(() => {
               {{ $t('page.tool.device.editSend') }}
             </NButton>
           </div>
+          <!-- eslint-disable vue/no-v-html -->
+          <!-- 内容为 hljs 高亮输出 (纯转义文本, 无用户原始 HTML) -->
           <pre
             v-if="msg.html"
             class="hljs mt-1 max-h-40 overflow-auto rounded !p-2 text-xs"
             v-html="msg.html"
           ></pre>
+          <!-- eslint-enable vue/no-v-html -->
           <div v-else class="mt-1 whitespace-pre-wrap break-all text-gray-700">{{ msg.payload }}</div>
         </div>
       </div>

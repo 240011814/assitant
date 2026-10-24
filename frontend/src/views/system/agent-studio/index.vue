@@ -456,7 +456,6 @@ onMounted(() => {
           v-model:edges="flowEdges"
           :node-traces="nodeTraces"
           :selected-id="selectedNodeId"
-          :debug-running="debugRunning"
           :refit-key="showDebug"
           :resources="resources"
           :error-node-ids="errorNodeIds"

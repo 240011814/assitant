@@ -56,10 +56,10 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  'running-change': [running: boolean];
-  'traces-change': [traces: Record<string, NodeTrace>];
+  'runningChange': [running: boolean];
+  'tracesChange': [traces: Record<string, NodeTrace>];
   /** 校验/编译失败且带节点定位时上报, 画布据此红圈高亮 */
-  'error-nodes': [ids: string[]];
+  'errorNodes': [ids: string[]];
 }>();
 
 const message = useMessage();
@@ -161,7 +161,7 @@ function applyNodeEvent(payload: any) {
       sub.status = payload.status;
     }
     liveTraces.value = { ...liveTraces.value, [key]: sub };
-    emit('traces-change', liveTraces.value);
+    emit('tracesChange', liveTraces.value);
     return;
   }
   const owner = String(payload.owner || payload.key || '');
@@ -184,7 +184,7 @@ function applyNodeEvent(payload: any) {
     trace.tool_calls = [...(trace.tool_calls || []), { name: payload.tool, ms: payload.ms ?? 0 }];
   }
   liveTraces.value = { ...liveTraces.value, [owner]: trace };
-  emit('traces-change', liveTraces.value);
+  emit('tracesChange', liveTraces.value);
 }
 
 function buildTraces(result: DebugSummary): Record<string, NodeTrace> {
@@ -214,7 +214,7 @@ function clearConversation() {
   events.value = [];
   liveTraces.value = {};
   pendingApprovals.value = [];
-  emit('traces-change', {});
+  emit('tracesChange', {});
   message.success('已清空会话, 下一轮将作为新会话开始');
 }
 
@@ -233,7 +233,7 @@ async function handleRun() {
   turns.value = [...turns.value, turn];
 
   running.value = true;
-  emit('running-change', true);
+  emit('runningChange', true);
   input.value = '';
   output.value = '';
   reasoning.value = '';
@@ -241,7 +241,7 @@ async function handleRun() {
   summary.value = null;
   liveTraces.value = {};
   pendingApprovals.value = [];
-  emit('traces-change', {});
+  emit('tracesChange', {});
   abortController = new AbortController();
 
   // 本轮实时内容直接写入对应轮次, 便于边跑边看
@@ -335,7 +335,7 @@ async function handleRun() {
           break;
         case 'summary':
           summary.value = payload as DebugSummary;
-          emit('traces-change', buildTraces(summary.value));
+          emit('tracesChange', buildTraces(summary.value));
           patchTurn({ summary: summary.value, assistant: summary.value.output || output.value });
           pushEvent('done', `执行完成 (${payload?.mode}, ${payload?.total_ms ?? 0}ms)`, 'success');
           break;
@@ -344,7 +344,7 @@ async function handleRun() {
             payload.errors.forEach((e: string) => pushEvent('error', e, 'error'));
             patchTurn({ error: payload.errors.join('; ') });
             const errorIds = (payload?.error_items || []).map((i: any) => String(i?.node_id || '')).filter(Boolean);
-            if (errorIds.length) emit('error-nodes', errorIds);
+            if (errorIds.length) emit('errorNodes', errorIds);
           } else {
             pushEvent('error', payload?.message || '执行出错', 'error');
             patchTurn({ error: payload?.message || '执行出错' });
@@ -368,7 +368,7 @@ async function handleRun() {
     }
   } finally {
     running.value = false;
-    emit('running-change', false);
+    emit('runningChange', false);
     abortController = null;
   }
 }

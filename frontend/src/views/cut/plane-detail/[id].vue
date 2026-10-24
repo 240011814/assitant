@@ -132,65 +132,65 @@ const typeSummaryColumns: DataTableColumns<Api.Cut.PlaneMaterialTypeSummary> = [
 
   <NSpin v-else :show="loading">
     <div class="p-4">
-    <NCard :title="$t('page.cut.vizTitle')" size="large" class="mb-4">
-      <!-- 切割项目列表 -->
+      <NCard :title="$t('page.cut.vizTitle')" size="large" class="mb-4">
+        <!-- 切割项目列表 -->
 
-      <h3 class="mb-2 text-lg font-semibold">{{ $t('page.cut.cutItems') }}</h3>
-      <NDataTable :columns="itemColumns" :data="items" />
+        <h3 class="mb-2 text-lg font-semibold">{{ $t('page.cut.cutItems') }}</h3>
+        <NDataTable :columns="itemColumns" :data="items" />
 
-      <!-- 剩余材料列表 -->
+        <!-- 剩余材料列表 -->
 
-      <h3 class="mb-2 text-lg font-semibold">{{ $t('page.cut.remainingMaterial') }}</h3>
-      <NDataTable :columns="materialColumns" :data="materials" />
+        <h3 class="mb-2 text-lg font-semibold">{{ $t('page.cut.remainingMaterial') }}</h3>
+        <NDataTable :columns="materialColumns" :data="materials" />
 
-      <h3 class="mt-6">{{ $t('page.cut.paramsConfig') }}</h3>
-      <div class="mb-4 flex flex-wrap items-start gap-6">
-        <div class="flex items-start gap-2">
-          <span class="w-24 pt-1">{{ $t('page.cut.newMaterialSpec') }}</span>
-          <div class="flex flex-col gap-2">
-            <div v-for="(row, idx) in newBoards" :key="idx" class="flex items-center gap-2">
-              <span class="w-32 text-gray-600">{{ row.label?.trim() || $t('page.cut.newBoard') }}</span>
-              <NInputNumber :value="row.width" :placeholder="$t('page.cut.widthCm')" disabled class="w-40" />
-              <NInputNumber :value="row.height" :placeholder="$t('page.cut.heightCm')" disabled class="w-40" />
+        <h3 class="mt-6">{{ $t('page.cut.paramsConfig') }}</h3>
+        <div class="mb-4 flex flex-wrap items-start gap-6">
+          <div class="flex items-start gap-2">
+            <span class="w-24 pt-1">{{ $t('page.cut.newMaterialSpec') }}</span>
+            <div class="flex flex-col gap-2">
+              <div v-for="(row, idx) in newBoards" :key="idx" class="flex items-center gap-2">
+                <span class="w-32 text-gray-600">{{ row.label?.trim() || $t('page.cut.newBoard') }}</span>
+                <NInputNumber :value="row.width" :placeholder="$t('page.cut.widthCm')" disabled class="w-40" />
+                <NInputNumber :value="row.height" :placeholder="$t('page.cut.heightCm')" disabled class="w-40" />
+              </div>
             </div>
           </div>
+          <div class="flex items-center gap-2">
+            <span class="w-24">{{ $t('page.cut.strategy') }}</span>
+            <NSelect v-model:value="strategy" :options="strategyOptions" disabled />
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-24">{{ $t('page.cut.aggregateDisplay') }}</span>
+            <NSwitch v-model:value="group" class="w-40" />
+          </div>
         </div>
-        <div class="flex items-center gap-2">
-          <span class="w-24">{{ $t('page.cut.strategy') }}</span>
-          <NSelect v-model:value="strategy" :options="strategyOptions" disabled />
+
+        <!-- 操作按钮 -->
+        <div class="mt-4 flex gap-2">
+          <PlanePrinter :results="results" :materials="materials" :group-data="group"></PlanePrinter>
         </div>
-        <div class="flex items-center gap-2">
-          <span class="w-24">{{ $t('page.cut.aggregateDisplay') }}</span>
-          <NSwitch v-model:value="group" class="w-40" />
-        </div>
-      </div>
+      </NCard>
 
-      <!-- 操作按钮 -->
-      <div class="mt-4 flex gap-2">
-        <PlanePrinter :results="results" :materials="materials" :group-data="group"></PlanePrinter>
-      </div>
-    </NCard>
+      <!-- 未排入件警示 (保存时的 unplaced 数据, 旧记录无) -->
+      <NAlert
+        v-if="unplaced.length > 0"
+        type="error"
+        :closable="false"
+        class="mb-4"
+        :title="$t('page.cut.unplacedCountTitle', { count: unplacedTotal })"
+      >
+        <NDataTable size="small" :columns="unplacedColumns" :data="unplaced" />
+      </NAlert>
 
-    <!-- 未排入件警示 (保存时的 unplaced 数据, 旧记录无) -->
-    <NAlert
-      v-if="unplaced.length > 0"
-      type="error"
-      :closable="false"
-      class="mb-4"
-      :title="$t('page.cut.unplacedCountTitle', { count: unplacedTotal })"
-    >
-      <NDataTable size="small" :columns="unplacedColumns" :data="unplaced" />
-    </NAlert>
+      <PlaneStats :results="results"></PlaneStats>
 
-    <PlaneStats :results="results"></PlaneStats>
+      <!-- 按材料类型分组统计 (旧记录无此字段则不展示) -->
+      <NCard v-if="summaryData?.byMaterialType?.length" size="large" class="mb-4">
+        <template #header>{{ $t('page.cut.summaryByTypeTitle') }}</template>
+        <NDataTable size="small" :columns="typeSummaryColumns" :data="summaryData.byMaterialType" :bordered="false" />
+      </NCard>
 
-    <!-- 按材料类型分组统计 (旧记录无此字段则不展示) -->
-    <NCard v-if="summaryData?.byMaterialType?.length" size="large" class="mb-4">
-      <template #header>{{ $t('page.cut.summaryByTypeTitle') }}</template>
-      <NDataTable size="small" :columns="typeSummaryColumns" :data="summaryData.byMaterialType" :bordered="false" />
-    </NCard>
-
-    <PlaneCanvas :results="results" :group-data="group" :materials="materials"></PlaneCanvas>
+      <PlaneCanvas :results="results" :group-data="group" :materials="materials"></PlaneCanvas>
     </div>
   </NSpin>
 </template>

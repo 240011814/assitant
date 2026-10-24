@@ -21,6 +21,8 @@ const message = useMessage();
 const loading = ref(false);
 const records = ref<Api.Cut.CutProduct[]>([]);
 const checkedKeys = ref<number[]>([]);
+// 模板内联箭头函数的类型标注会触发 vue/no-undef-properties 误报, 收进 script
+const rowKey = (row: Api.Cut.CutProduct) => row.id;
 
 const columns = computed<DataTableColumns<Api.Cut.CutProduct>>(() => [
   { type: 'selection' },
@@ -87,7 +89,7 @@ function handleConfirm() {
       :loading="loading"
       size="small"
       max-height="420"
-      :row-key="(row: Api.Cut.CutProduct) => row.id"
+      :row-key="rowKey"
     />
     <template #footer>
       <div class="flex justify-end gap-2">

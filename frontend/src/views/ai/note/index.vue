@@ -419,12 +419,14 @@ onMounted(() => {
       :style="{ width: appStore.isMobile ? '95vw' : '800px' }"
       :segmented="{ content: 'soft' }"
     >
-      <!-- eslint-disable-next-line vue/no-v-html -->
+      <!-- eslint-disable vue/no-v-html -->
+      <!-- 内容经 utils/markdown 的 DOMPurify 消毒 -->
       <div
         class="prose dark:prose-invert max-w-none overflow-y-auto p-4 bg-gray-50/50 dark:bg-dark-100 rounded-md text-sm leading-relaxed"
         style="max-height: 70vh"
         v-html="renderMarkdown(currentNoteContent)"
       ></div>
+      <!-- eslint-enable vue/no-v-html -->
     </NModal>
 
     <!-- 编辑模态框 -->
@@ -462,12 +464,14 @@ onMounted(() => {
               :autosize="appStore.isMobile ? { minRows: 6, maxRows: 10 } : { minRows: 12, maxRows: 15 }"
               :placeholder="$t('page.ai.note.noteContentPlaceholder')"
             />
-            <!-- eslint-disable-next-line vue/no-v-html -->
+            <!-- eslint-disable vue/no-v-html -->
+            <!-- 内容经 utils/markdown 的 DOMPurify 消毒 -->
             <div
               class="prose dark:prose-invert max-w-none overflow-y-auto p-4 border border-gray-200 dark:border-gray-700 rounded-md bg-gray-50/50 dark:bg-dark-100 text-sm leading-relaxed"
               :style="appStore.isMobile ? { maxHeight: '200px' } : { height: '100%', maxHeight: '350px' }"
               v-html="renderMarkdown(editForm.content)"
             ></div>
+            <!-- eslint-enable vue/no-v-html -->
           </div>
         </NFormItem>
       </NForm>

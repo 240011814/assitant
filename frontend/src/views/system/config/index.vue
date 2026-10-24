@@ -516,12 +516,12 @@ onMounted(() => {
           <!-- Telegram Bot 配置 -->
           <div class="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
             <div class="flex items-center justify-between mb-4">
-            <div>
-              <div class="font-bold text-gray-800 dark:text-gray-200">{{ $t("page.system.config.telegram") }}</div>
-              <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {{ $t("page.system.config.telegramDesc") }}
+              <div>
+                <div class="font-bold text-gray-800 dark:text-gray-200">{{ $t("page.system.config.telegram") }}</div>
+                <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  {{ $t("page.system.config.telegramDesc") }}
+                </div>
               </div>
-            </div>
               <NSwitch
                 v-model:value="telegramEnabled"
                 :loading="savingTelegram"
@@ -638,14 +638,14 @@ onMounted(() => {
           <!-- 用户画像 / 经历抽取配置 -->
           <div class="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
             <div class="flex items-center justify-between mb-4">
-            <div>
-              <div class="font-bold text-gray-800 dark:text-gray-200">
-                {{ $t("page.system.config.memory") }}
+              <div>
+                <div class="font-bold text-gray-800 dark:text-gray-200">
+                  {{ $t("page.system.config.memory") }}
+                </div>
+                <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  {{ $t("page.system.config.memoryDesc") }}
+                </div>
               </div>
-              <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {{ $t("page.system.config.memoryDesc") }}
-              </div>
-            </div>
               <NSwitch
                 v-model:value="memoryEnabled"
                 :loading="savingMemory"
@@ -703,14 +703,14 @@ onMounted(() => {
           <!-- SMTP 邮件配置 -->
           <div class="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
             <div class="flex items-center justify-between mb-4">
-            <div>
-              <div class="font-bold text-gray-800 dark:text-gray-200">
-                {{ $t("page.system.config.smtp") }}
+              <div>
+                <div class="font-bold text-gray-800 dark:text-gray-200">
+                  {{ $t("page.system.config.smtp") }}
+                </div>
+                <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  {{ $t("page.system.config.smtpDesc") }}
+                </div>
               </div>
-              <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {{ $t("page.system.config.smtpDesc") }}
-              </div>
-            </div>
               <NSwitch
                 v-model:value="smtpEnabled"
                 :loading="savingSmtp"
@@ -815,14 +815,14 @@ onMounted(() => {
           <!-- S3 用户文档存储 -->
           <div class="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
             <div class="flex items-center justify-between mb-4">
-            <div>
-              <div class="font-bold text-gray-800 dark:text-gray-200">
-                {{ $t("page.system.config.s3") }}
+              <div>
+                <div class="font-bold text-gray-800 dark:text-gray-200">
+                  {{ $t("page.system.config.s3") }}
+                </div>
+                <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  {{ $t("page.system.config.s3Desc") }}
+                </div>
               </div>
-              <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {{ $t("page.system.config.s3Desc") }}
-              </div>
-            </div>
               <NSwitch
                 v-model:value="s3Enabled"
                 :loading="savingS3"
@@ -926,14 +926,14 @@ onMounted(() => {
           <!-- 文档 RAG (语义检索) -->
           <div class="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
             <div class="flex items-center justify-between mb-4">
-            <div>
-              <div class="font-bold text-gray-800 dark:text-gray-200">
-                {{ $t("page.system.config.rag") }}
+              <div>
+                <div class="font-bold text-gray-800 dark:text-gray-200">
+                  {{ $t("page.system.config.rag") }}
+                </div>
+                <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  {{ $t("page.system.config.ragDesc") }}
+                </div>
               </div>
-              <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {{ $t("page.system.config.ragDesc") }}
-              </div>
-            </div>
               <NSwitch
                 v-model:value="ragEnabled"
                 :loading="savingRag"

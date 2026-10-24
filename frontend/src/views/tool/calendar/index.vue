@@ -281,90 +281,90 @@ onMounted(() => {
         </NCard>
 
         <div class="flex gap-4">
-      <NCard size="small" class="flex-[7]">
-        <NCalendar
-          :value="currentDate.getTime()"
-          :is-date-disabled="() => false"
-          @update:value="(v: number) => { currentDate = new Date(v); handleDateChange(new Date(v)); }"
-          @panel-change="handlePanelChange"
-        >
-          <template #default="{ year, month, date }">
-            <div class="relative flex items-center justify-center">
-              <div
-                v-if="reminders.some(r => { const d = new Date(r.scheduledAt); return d.getFullYear() === year && d.getMonth() + 1 === month && d.getDate() === date; })"
-                class="w-6px h-6px rounded-full bg-primary"
-              />
-            </div>
-          </template>
-        </NCalendar>
-      </NCard>
-
-      <NCard size="small" class="flex-[3]">
-        <template #header>
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <SvgIcon icon="mdi:format-list-bulleted" class="text-18px text-primary" />
-              <span class="font-bold">
-                {{ $t('page.tool.calendar.dayHeader', { date: selectedDate.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' }) }) }}
-              </span>
-              <NTag size="tiny" :bordered="false" type="info">
-                {{ $t('page.tool.calendar.count', { count: selectedDayReminders.length }) }}
-              </NTag>
-            </div>
-          </div>
-        </template>
-
-        <NSpin :show="loading">
-          <div v-if="selectedDayReminders.length === 0" class="py-12 flex flex-col items-center justify-center text-gray-400">
-            <SvgIcon icon="mdi:calendar-blank-outline" class="text-48px mb-2 opacity-30" />
-            <div class="text-14px">{{ $t('page.tool.calendar.empty') }}</div>
-            <div class="text-12px mt-1">{{ $t('page.tool.calendar.emptyTip') }}</div>
-          </div>
-          <div v-else class="space-y-3">
-            <div
-              v-for="item in selectedDayReminders"
-              :key="item.id"
-              class="p-3 rounded-lg border border-gray-100 dark:border-gray-700 hover:border-primary/50 transition-colors"
-              :class="{ 'opacity-50 bg-gray-50 dark:bg-gray-800/50': item.status === 'completed', 'bg-white dark:bg-gray-800': item.status !== 'completed' }"
+          <NCard size="small" class="flex-[7]">
+            <NCalendar
+              :value="currentDate.getTime()"
+              :is-date-disabled="() => false"
+              @update:value="(v: number) => { currentDate = new Date(v); handleDateChange(new Date(v)); }"
+              @panel-change="handlePanelChange"
             >
-              <div class="flex items-start justify-between gap-3">
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2">
-                    <span class="font-bold text-15px truncate">{{ item.params.title }}</span>
-                    <NTag v-if="item.status === 'completed'" size="tiny" type="success" :bordered="false">
-                      {{ $t('page.tool.calendar.notified') }}
-                    </NTag>
-                  </div>
-                  <div v-if="item.params.content" class="text-gray-500 mt-1 text-13px line-clamp-2">{{ item.params.content }}</div>
-                  <div class="flex flex-wrap gap-1 mt-2">
-                    <NTag size="tiny" :bordered="false" type="warning">
-                      <template #icon>
-                        <SvgIcon icon="mdi:clock-outline" class="text-12px" />
-                      </template>
-                      {{ formatTime(item.scheduledAt) }}
-                    </NTag>
-                    <NTag v-if="item.repeatType !== 'none'" size="tiny" type="info" :bordered="false">
-                      <template #icon>
-                        <SvgIcon icon="mdi:repeat" class="text-12px" />
-                      </template>
-                      {{ getRepeatLabel(item.repeatType) }}{{ item.repeatInterval > 1 ? ` ×${item.repeatInterval}` : '' }}
-                    </NTag>
-                  </div>
+              <template #default="{ year, month, date }">
+                <div class="relative flex items-center justify-center">
+                  <div
+                    v-if="reminders.some(r => { const d = new Date(r.scheduledAt); return d.getFullYear() === year && d.getMonth() + 1 === month && d.getDate() === date; })"
+                    class="w-6px h-6px rounded-full bg-primary"
+                  />
                 </div>
-                <div class="flex items-center gap-1 flex-shrink-0">
-                  <NButton text type="primary" size="small" @click="openEditModal(item)">
-                    <SvgIcon icon="mdi:pencil-outline" />
-                  </NButton>
-                  <NButton text type="error" size="small" @click="handleDelete(item)">
-                    <SvgIcon icon="mdi:delete-outline" />
-                  </NButton>
+              </template>
+            </NCalendar>
+          </NCard>
+
+          <NCard size="small" class="flex-[3]">
+            <template #header>
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <SvgIcon icon="mdi:format-list-bulleted" class="text-18px text-primary" />
+                  <span class="font-bold">
+                    {{ $t('page.tool.calendar.dayHeader', { date: selectedDate.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' }) }) }}
+                  </span>
+                  <NTag size="tiny" :bordered="false" type="info">
+                    {{ $t('page.tool.calendar.count', { count: selectedDayReminders.length }) }}
+                  </NTag>
                 </div>
               </div>
-            </div>
-          </div>
-        </NSpin>
-      </NCard>
-      </div>
+            </template>
+
+            <NSpin :show="loading">
+              <div v-if="selectedDayReminders.length === 0" class="py-12 flex flex-col items-center justify-center text-gray-400">
+                <SvgIcon icon="mdi:calendar-blank-outline" class="text-48px mb-2 opacity-30" />
+                <div class="text-14px">{{ $t('page.tool.calendar.empty') }}</div>
+                <div class="text-12px mt-1">{{ $t('page.tool.calendar.emptyTip') }}</div>
+              </div>
+              <div v-else class="space-y-3">
+                <div
+                  v-for="item in selectedDayReminders"
+                  :key="item.id"
+                  class="p-3 rounded-lg border border-gray-100 dark:border-gray-700 hover:border-primary/50 transition-colors"
+                  :class="{ 'opacity-50 bg-gray-50 dark:bg-gray-800/50': item.status === 'completed', 'bg-white dark:bg-gray-800': item.status !== 'completed' }"
+                >
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2">
+                        <span class="font-bold text-15px truncate">{{ item.params.title }}</span>
+                        <NTag v-if="item.status === 'completed'" size="tiny" type="success" :bordered="false">
+                          {{ $t('page.tool.calendar.notified') }}
+                        </NTag>
+                      </div>
+                      <div v-if="item.params.content" class="text-gray-500 mt-1 text-13px line-clamp-2">{{ item.params.content }}</div>
+                      <div class="flex flex-wrap gap-1 mt-2">
+                        <NTag size="tiny" :bordered="false" type="warning">
+                          <template #icon>
+                            <SvgIcon icon="mdi:clock-outline" class="text-12px" />
+                          </template>
+                          {{ formatTime(item.scheduledAt) }}
+                        </NTag>
+                        <NTag v-if="item.repeatType !== 'none'" size="tiny" type="info" :bordered="false">
+                          <template #icon>
+                            <SvgIcon icon="mdi:repeat" class="text-12px" />
+                          </template>
+                          {{ getRepeatLabel(item.repeatType) }}{{ item.repeatInterval > 1 ? ` ×${item.repeatInterval}` : '' }}
+                        </NTag>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-1 flex-shrink-0">
+                      <NButton text type="primary" size="small" @click="openEditModal(item)">
+                        <SvgIcon icon="mdi:pencil-outline" />
+                      </NButton>
+                      <NButton text type="error" size="small" @click="handleDelete(item)">
+                        <SvgIcon icon="mdi:delete-outline" />
+                      </NButton>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </NSpin>
+          </NCard>
+        </div>
       </NTabPane>
 
       <!-- 定时 Agent 任务 -->
