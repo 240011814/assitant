@@ -144,11 +144,16 @@ func fetchURLText(rawURL string) (string, string, error) {
 	return strings.TrimSpace(text), title, nil
 }
 
-// ListDocs 文档列表 (不含正文)
-func (s *ReadingService) ListDocs(userID uint) ([]model.ReadingDoc, error) {
+// ListDocs 文档列表 (不含正文, keyword 模糊匹配标题与正文)
+func (s *ReadingService) ListDocs(userID uint, keyword string) ([]model.ReadingDoc, error) {
 	var list []model.ReadingDoc
-	err := DB.Select("id, user_id, title, source_type, source_url, word_count, unknown_rate, status, created_at, updated_at").
-		Where("user_id = ?", userID).Order("created_at DESC").Find(&list).Error
+	query := DB.Select("id, user_id, title, source_type, source_url, word_count, unknown_rate, status, created_at, updated_at").
+		Where("user_id = ?", userID)
+	if kw := strings.TrimSpace(keyword); kw != "" {
+		like := "%" + kw + "%"
+		query = query.Where("(title LIKE ? OR content LIKE ?)", like, like)
+	}
+	err := query.Order("created_at DESC").Find(&list).Error
 	return list, err
 }
 

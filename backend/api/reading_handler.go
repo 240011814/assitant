@@ -32,10 +32,10 @@ func (h *ReadingHandler) HandleImportReading(c *gin.Context) {
 	SendSuccess(c, doc)
 }
 
-// HandleListReadingDocs 文档列表
+// HandleListReadingDocs 文档列表 (keyword 模糊匹配标题与正文)
 func (h *ReadingHandler) HandleListReadingDocs(c *gin.Context) {
 	userId := GetUserID(c)
-	list, err := h.svc.ListDocs(userId)
+	list, err := h.svc.ListDocs(userId, c.Query("keyword"))
 	if err != nil {
 		SendError(c, "500", "获取列表失败: "+err.Error())
 		return

@@ -16,6 +16,7 @@ const { routerPushByKey } = useRouterPush();
 
 const loading = ref(false);
 const docs = ref<any[]>([]);
+const keyword = ref("");
 
 // 导入
 const showImportModal = ref(false);
@@ -110,7 +111,7 @@ const columns = ref<DataTableColumns<any>>([
 
 const loadData = async () => {
   loading.value = true;
-  const { data: resp, error } = await fetchGetReadingDocs();
+  const { data: resp, error } = await fetchGetReadingDocs({ keyword: keyword.value.trim() || undefined });
   loading.value = false;
   if (error) {
     message.error("获取文档列表失败");
@@ -176,6 +177,21 @@ onMounted(() => {
       <template #header-extra>
         <span class="text-xs text-gray-400">生词率 &lt;5% 适合泛读, 5%~10% 适合精读; AI 写课文在课程包页</span>
       </template>
+
+      <div class="flex gap-2 mb-4" :class="appStore.isMobile ? '' : 'w-96'">
+        <NInput
+          v-model:value="keyword"
+          placeholder="搜索标题或正文关键词"
+          clearable
+          @keyup.enter="loadData"
+          @clear="loadData"
+        />
+        <NButton type="primary" @click="loadData">
+          <template #icon>
+            <IconMdiMagnify class="text-icon" />
+          </template>
+        </NButton>
+      </div>
 
       <NDataTable :columns="columns" :data="docs" :loading="loading" :row-key="(row: any) => row.id" />
     </NCard>

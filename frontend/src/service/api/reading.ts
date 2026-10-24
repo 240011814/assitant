@@ -50,11 +50,12 @@ export function fetchImportReading(data: { title?: string; sourceType: 'url' | '
   });
 }
 
-/** 阅读文档列表 */
-export function fetchGetReadingDocs() {
+/** 阅读文档列表 (keyword 模糊匹配标题与正文) */
+export function fetchGetReadingDocs(params?: { keyword?: string }) {
   return request<ReadingDoc[]>({
     url: '/api/reading/docs',
-    method: 'get'
+    method: 'get',
+    params
   });
 }
 
