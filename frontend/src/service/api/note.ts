@@ -5,7 +5,7 @@ export function fetchAddNote(data: {
   category: string;
   content: string;
 }) {
-  return request<any>({
+  return request<Api.Note.Item>({
     url: '/api/notes',
     method: 'post',
     data
@@ -13,7 +13,7 @@ export function fetchAddNote(data: {
 }
 
 export function fetchGetNoteList(params?: { page?: number; pageSize?: number; category?: string; content?: string }) {
-  return request<{ items: any[]; total: number }>({
+  return request<{ items: Api.Note.Item[]; total: number }>({
     url: '/api/notes',
     method: 'get',
     params

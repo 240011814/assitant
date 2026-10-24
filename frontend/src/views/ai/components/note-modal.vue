@@ -3,16 +3,15 @@ import { ref } from "vue";
 import { useMessage } from "naive-ui";
 import { useAppStore } from "@/store/modules/app";
 import { fetchAddNote } from "@/service/api";
+import { renderMarkdown as renderMarkdownRaw } from "@/utils/markdown";
 
 defineOptions({
   name: "NoteModal"
 });
 
 // 添加笔记弹窗: 预填 (标题/分类/内容) 由父组件经 open() 传入,
-// 正文右侧的 markdown 实时预览复用父组件的 renderMarkdown
-const props = defineProps<{
-  renderMarkdown: (content: string) => string;
-}>();
+// 正文右侧的 markdown 实时预览直接复用 utils/markdown (纯函数, 无需经 props 传入)
+const renderMarkdown = (content: string) => renderMarkdownRaw(content).trim();
 
 const appStore = useAppStore();
 const message = useMessage();
@@ -107,7 +106,7 @@ defineExpose({ open });
           <div
             class="prose dark:prose-invert max-w-none overflow-y-auto p-4 border border-gray-200 dark:border-gray-700 rounded-md bg-gray-50/50 dark:bg-dark-100 text-sm leading-relaxed"
             style="height: 100%; max-height: 350px"
-            v-html="props.renderMarkdown(form.content)"
+            v-html="renderMarkdown(form.content)"
           ></div>
         </div>
       </NFormItem>

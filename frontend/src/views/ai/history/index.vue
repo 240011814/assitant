@@ -26,12 +26,18 @@ const message = useMessage();
 const loading = ref(false);
 const data = ref<any[]>([]);
 const title = ref("");
-const favoriteFilter = ref(null);
+// NSelect 的 value 只接受 string/number, 用字符串编码收藏过滤, 查询参数处再还原为 boolean
+const favoriteFilter = ref<string | null>(null);
 const favoriteOptions = computed(() => [
-  { label: $t("page.ai.history.all"), value: null },
-  { label: $t("page.ai.history.favorited"), value: true },
-  { label: $t("page.ai.history.unfavorited"), value: false },
+  { label: $t("page.ai.history.all"), value: "all" },
+  { label: $t("page.ai.history.favorited"), value: "fav" },
+  { label: $t("page.ai.history.unfavorited"), value: "unfav" },
 ]);
+const favoriteParam = computed(() => {
+  if (favoriteFilter.value === "fav") return true;
+  if (favoriteFilter.value === "unfav") return false;
+  return undefined;
+});
 const total = ref(0);
 
 const pagination = ref({
@@ -56,7 +62,7 @@ const loadData = async () => {
   try {
     const { data: res } = await fetchHistoryList({
       title: title.value,
-      is_favorite: favoriteFilter.value !== null ? favoriteFilter.value : undefined,
+      is_favorite: favoriteParam.value,
       page: pagination.value.page,
       pageSize: pagination.value.pageSize,
     });
@@ -400,7 +406,7 @@ onMounted(() => {
               v-model:value="favoriteFilter"
               :placeholder="$t('page.ai.history.favoriteStatus')"
               clearable
-              :options="(favoriteOptions as any)"
+              :options="favoriteOptions"
               style="flex: 1"
               @update:value="loadData"
             />
@@ -425,7 +431,7 @@ onMounted(() => {
                 v-model:value="favoriteFilter"
                 :placeholder="$t('page.ai.history.favoriteStatus')"
                 clearable
-                :options="(favoriteOptions as any)"
+                :options="favoriteOptions"
                 style="width: 120px"
                 @update:value="loadData"
               />

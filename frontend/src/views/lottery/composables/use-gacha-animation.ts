@@ -3,9 +3,9 @@ import type { Ref } from 'vue';
 import type { MessageApi } from 'naive-ui';
 import { fetchDrawLottery } from '@/service/api';
 
-type GachaPhase = 'idle' | 'meteor' | 'flash' | 'reveal' | 'result';
+export type GachaPhase = 'idle' | 'meteor' | 'flash' | 'reveal' | 'result';
 
-interface GachaParticle {
+export interface GachaParticle {
   id: number;
   x: number;
   y: number;

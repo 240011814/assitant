@@ -75,14 +75,14 @@ async function loadList() {
 async function loadAgents() {
   const [agentsRes, orchRes] = await Promise.allSettled([fetchAIAgentList(), fetchOrchestrationChatList()]);
   if (agentsRes.status === 'fulfilled' && agentsRes.value.data) {
-    chatAgents.value = (agentsRes.value.data as any[])
-      .filter((a: any) => (a.agent_type || 'chat') === 'chat')
-      .map((a: any) => ({ id: a.id, title: a.title || `Agent #${a.id}` }));
+    chatAgents.value = agentsRes.value.data
+      .filter(a => (a.agent_type || 'chat') === 'chat')
+      .map(a => ({ id: a.id, title: a.title || `Agent #${a.id}` }));
   }
   if (orchRes.status === 'fulfilled' && orchRes.value.data) {
-    orchestrations.value = (orchRes.value.data as any[]).map((o: any) => ({
+    orchestrations.value = orchRes.value.data.map(o => ({
       id: o.id,
-      title: o.title || o.name || $t('page.tool.calendar.agentTask.orchestrationFallback', { id: o.id })
+      title: o.name || $t('page.tool.calendar.agentTask.orchestrationFallback', { id: o.id })
     }));
   }
 }

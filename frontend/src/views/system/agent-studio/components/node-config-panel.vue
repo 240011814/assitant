@@ -32,6 +32,9 @@ const emit = defineEmits<{
 
 // 面板是该节点配置的唯一编辑入口: 仅在切换节点时从 props 初始化本地副本,
 // 之后不再反向同步 (否则属性回写 -> props 变化 -> 重置本地, 下拉选择会被冲掉)
+const localName = ref(props.name);
+const localConfig = ref<Record<string, any>>(JSON.parse(JSON.stringify(props.config || {})));
+
 function initLocal() {
   localName.value = props.name;
   const cfg = JSON.parse(JSON.stringify(props.config || {}));
@@ -49,9 +52,6 @@ function initLocal() {
   if (props.nodeType === 'suborch' && !cfg.orchestration_id) cfg.orchestration_id = 0;
   localConfig.value = cfg;
 }
-
-const localName = ref(props.name);
-const localConfig = ref<Record<string, any>>(JSON.parse(JSON.stringify(props.config || {})));
 
 watch(
   () => props.nodeId,

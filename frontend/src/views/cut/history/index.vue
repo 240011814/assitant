@@ -200,17 +200,17 @@ async function openStockIn(row: Api.Cut.CutRecord) {
   barScrapRows.value = [];
   planeScrapRows.value = [];
   stockInModal.value = { show: true, loading: true, row };
-  const { data, error } = await fetchCutRecord(row.id);
+  const { data: record, error } = await fetchCutRecord(row.id);
   stockInModal.value.loading = false;
-  if (error || !data?.response) {
+  if (error || !record?.response) {
     message.error($t('page.cut.recordLoadFailed'));
     stockInModal.value.show = false;
     return;
   }
   try {
-    const resp = JSON.parse(data.response) as Api.Cut.BarCutResponse | Api.Cut.BinResult[] | Api.Cut.PlaneCutResponse;
-    const results = Array.isArray(resp) ? resp : ((resp as any).results ?? []);
-    if (data.type === '1') {
+    const resp = JSON.parse(record.response) as Api.Cut.BarCutResponse | Api.Cut.BinResult[] | Api.Cut.PlaneCutResponse;
+    const results = Array.isArray(resp) ? resp : (resp.results ?? []);
+    if (record.type === '1') {
       barScrapRows.value = (results as Api.Cut.BarResult[])
         .filter(item => item.remaining > 0)
         .map(item => ({ ...item, kept: true }));
@@ -229,8 +229,8 @@ async function openStockIn(row: Api.Cut.CutRecord) {
       });
       planeScrapRows.value = [...map.values()];
     }
-    const total = data.type === '1' ? barScrapRows.value.length : planeScrapRows.value.length;
-    if (total === 0) {
+    const totalRows = record.type === '1' ? barScrapRows.value.length : planeScrapRows.value.length;
+    if (totalRows === 0) {
       message.warning($t('page.cut.noScrapToStockIn'));
     }
   } catch {

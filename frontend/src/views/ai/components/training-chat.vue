@@ -1,9 +1,21 @@
 <script setup lang="ts">
 import { nextTick, ref, shallowRef, computed, onBeforeUnmount, onMounted, onActivated, watch } from "vue";
 import { useFullscreen } from "@vueuse/core";
-import { useMessage, NDrawer, NDrawerContent, NModal, NInput } from "naive-ui";
-import { useAppStore } from "@/store/modules/app";
-import { fetchHistoryDetail, fetchUpdateFavorite, fetchUpdateHistoryTitle, fetchGenerateShareToken, fetchGetAIModels, fetchGetUserPrompt, fetchChatStream, fetchToolApproval, fetchOrchestrationChatRun, fetchResolveOrchestrationApproval } from "@/service/api";
+import { useMessage, NDrawer, NDrawerContent, NModal, NInput, NScrollbar } from "naive-ui";
+import type { ScrollbarInst } from "naive-ui";import { useAppStore } from "@/store/modules/app";
+import {
+  fetchHistoryDetail,
+  fetchUpdateFavorite,
+  fetchUpdateHistoryTitle,
+  fetchGenerateShareToken,
+  fetchGetAIModels,
+  fetchGetUserPrompt,
+  fetchChatStream,
+  fetchToolApproval,
+  fetchOrchestrationChatRun,
+  fetchResolveOrchestrationApproval
+} from "@/service/api";
+import { consumeSSEStream, extractSSEResponseError, parseSSEPayload } from "@/utils/sse";
 import { useAuth } from "@/hooks/business/auth";
 import { renderMarkdown as renderMarkdownRaw } from "@/utils/markdown";
 import { speak } from "@/utils/tts";
@@ -12,37 +24,22 @@ import PromptEditor from "./prompt-editor.vue";
 import VocabModal from "./vocab-modal.vue";
 import NoteModal from "./note-modal.vue";
 import CourseItemModal from "./course-item-modal.vue";
+import MessageBubble from "./message-bubble.vue";
+import type { ChatMessage, ExpressionSuggestion, TokenUsage, VocabSuggestion } from "./chat-types";
 
-interface VocabSuggestion {
-  word?: string;
-  phonetic?: string;
-  definition?: string;
-  example?: string;
-  confusingWords?: string;
-}
-
-interface ExpressionSuggestion {
-  english: string;
-  chinese: string;
-}
-
-interface TokenUsage {
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-}
-
-interface ChatMessage {
-  role: "user" | "assistant" | "system";
-  content: string;
-  renderedContent?: string;
-  thinkingContent?: string;
-  renderedThinking?: string;
+/** 普通对话 SSE 事件 data (chat 与 tool-approval 恢复共用) */
+interface ChatStreamData {
+  history_id?: number;
+  title?: string;
+  tool_name?: string;
+  arguments?: string;
+  checkpoint_id?: string;
+  interrupt_id?: string;
+  error?: string;
+  reasoning_content?: string;
+  thinking?: string;
+  content?: string;
   usage?: TokenUsage;
-  suggestions?: VocabSuggestion[];
-  expressions?: ExpressionSuggestion[];
-  isError?: boolean;
-  timestamp?: number;
 }
 
 const props = withDefaults(
@@ -84,18 +81,6 @@ const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
 
 const renderMarkdown = (content: string) => {
   return renderMarkdownRaw(content).trim();
-};
-
-const formatTime = (timestamp?: number) => {
-  if (!timestamp) return "";
-  const date = new Date(timestamp);
-  return date.toLocaleString("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 };
 
 function formatDisplayContent(content: string) {
@@ -144,7 +129,7 @@ const parseExpressionsFromContent = (content: string): ExpressionSuggestion[] | 
   try {
     const expressions = JSON.parse(match[1]);
     if (Array.isArray(expressions) && expressions.length > 0) {
-      return expressions.filter(e => e.english);
+      return expressions.filter((e: ExpressionSuggestion) => e.english);
     }
   } catch (error) {
     console.error("Failed to parse expressions:", error);
@@ -175,8 +160,8 @@ const messages = ref<ChatMessage[]>([
 const showPromptEditor = ref(false);
 
 async function refreshPrompt() {
-  const { data } = await fetchGetUserPrompt(props.agentId);
-  if (data) {
+  const { data, error } = await fetchGetUserPrompt(props.agentId);
+  if (!error && data) {
     systemMessage.value.content = data.effective_prompt || props.systemPrompt;
   }
 }
@@ -190,7 +175,17 @@ const inputMessage = ref("");
 const isGenerating = ref(false);
 // 当前流式请求的中断控制器(用于"停止生成"与组件卸载时中止)
 const abortController = shallowRef<AbortController | null>(null);
-const scrollbarRef = ref<any>(null);
+/** naive-ui 运行时支持 scrollTo({ position: 'top' | 'bottom' }) 但公开类型漏声明, 这里补齐 */
+interface ScrollbarInstExtended extends Omit<ScrollbarInst, "scrollTo"> {
+  scrollTo: (options: {
+    left?: number;
+    top?: number;
+    behavior?: ScrollBehavior;
+    position?: "top" | "bottom";
+  }) => void;
+}
+
+const scrollbarRef = ref<ScrollbarInstExtended | null>(null);
 const message = useMessage();
 let scrollFrame = 0;
 
@@ -200,8 +195,8 @@ const selectedModel = ref("");
 let lastRunModel = "";
 
 async function loadModels() {
-  const { data } = await fetchGetAIModels();
-  if (data && data.length > 0) {
+  const { data, error } = await fetchGetAIModels();
+  if (!error && data && data.length > 0) {
     modelOptions.value = data.map((m) => ({
       label: m.display_name,
       value: m.model_code,
@@ -308,14 +303,23 @@ const scheduleScrollToBottom = () => {
   });
 };
 
+// 流式期间 markdown 渲染限频: 逐 delta 对全文重渲 markdown+katex+hljs 是 O(n²),
+// 长回复明显卡顿; 限频渲染 + 流结束时 finalizeLastMessage 补齐最终形态
+const STREAM_RENDER_INTERVAL_MS = 200;
+let lastContentRenderAt = 0;
+let lastThinkingRenderAt = 0;
+
 const appendAssistantContent = (content: string) => {
   const lastIdx = messages.value.length - 1;
-  const nextContent = messages.value[lastIdx].content + content;
-  messages.value[lastIdx] = {
-    ...messages.value[lastIdx],
-    content: nextContent,
-    renderedContent: renderMessageContent(nextContent),
-  };
+  const lastMsg = messages.value[lastIdx];
+  const nextContent = lastMsg.content + content;
+  const now = Date.now();
+  if (now - lastContentRenderAt >= STREAM_RENDER_INTERVAL_MS) {
+    lastContentRenderAt = now;
+    messages.value[lastIdx] = { ...lastMsg, content: nextContent, renderedContent: renderMessageContent(nextContent) };
+  } else {
+    messages.value[lastIdx] = { ...lastMsg, content: nextContent };
+  }
 };
 
 // 用最终文本替换当前助手气泡 (编排运行结束后只保留图级最终输出)
@@ -369,11 +373,17 @@ const toggleAllThinking = () => {
 
 const appendThinkingContent = (content: string) => {
   const lastIdx = messages.value.length - 1;
-  const nextThinking = (messages.value[lastIdx].thinkingContent || "") + content;
+  const lastMsg = messages.value[lastIdx];
+  const nextThinking = (lastMsg.thinkingContent || "") + content;
+  const now = Date.now();
+  const shouldRender = now - lastThinkingRenderAt >= STREAM_RENDER_INTERVAL_MS;
+  if (shouldRender) lastThinkingRenderAt = now;
   messages.value[lastIdx] = {
-    ...messages.value[lastIdx],
+    ...lastMsg,
     thinkingContent: nextThinking,
-    renderedThinking: renderMarkdown(nextThinking),
+    renderedThinking: shouldRender
+      ? renderMarkdown(nextThinking)
+      : lastMsg.renderedThinking,
   };
   // 默认展开思考过程
   expandedThinking.value.add(lastIdx);
@@ -427,7 +437,10 @@ const copyToClipboard = async (content: string) => {
   }
 };
 
-const parseVocabSuggestions = () => {
+// 流结束后收尾: 补齐限频期间未渲染的最终 markdown, 并解析生词/表达建议
+const finalizeLastMessage = () => {
+  lastContentRenderAt = 0;
+  lastThinkingRenderAt = 0;
   const lastIdx = messages.value.length - 1;
   const lastMsg = messages.value[lastIdx];
   if (lastMsg.role !== "assistant") return;
@@ -435,6 +448,9 @@ const parseVocabSuggestions = () => {
   messages.value[lastIdx] = {
     ...lastMsg,
     renderedContent: renderMessageContent(lastMsg.content),
+    renderedThinking: lastMsg.thinkingContent
+      ? renderMarkdown(lastMsg.thinkingContent)
+      : lastMsg.renderedThinking,
     suggestions: parseVocabsFromContent(lastMsg.content),
     expressions: parseExpressionsFromContent(lastMsg.content),
   };
@@ -465,26 +481,11 @@ const sendOrchestrationMessage = async (userText: string, controller: AbortContr
   });
 
   if (!response.ok) {
-    let errorMessage = `请求失败 (HTTP ${response.status})`;
-    try {
-      const errorData = await response.json();
-      if (errorData?.error) errorMessage = errorData.error;
-      else if (errorData?.message) errorMessage = errorData.message;
-    } catch {}
-    throw new Error(errorMessage);
+    throw await extractSSEResponseError(response);
   }
 
-  const reader = response.body?.getReader();
-  const decoder = new TextDecoder("utf-8");
-  if (!reader) throw new Error("无法获取响应流");
-
   const handleEvent = (eventType: string, dataStr: string) => {
-    let payload: any = null;
-    try {
-      payload = dataStr ? JSON.parse(dataStr) : null;
-    } catch {
-      payload = null;
-    }
+    const payload = parseSSEPayload(dataStr);
 
     switch (eventType) {
       case "history_id":
@@ -542,31 +543,58 @@ const sendOrchestrationMessage = async (userText: string, controller: AbortContr
     }
   };
 
-  let buffer = "";
-  let eventType = "message";
+  await consumeSSEStream(response, handleEvent);
+};
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+// 普通对话 SSE 事件处理 (chat 与 tool-approval 恢复共用)
+const handleChatStreamEvent = (eventType: string, dataStr: string) => {
+  const data = parseSSEPayload<ChatStreamData>(dataStr);
+  if (!data) {
+    if (dataStr) console.warn("SSE 数据解析失败:", dataStr.slice(0, 100));
+    return;
+  }
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split(/\r?\n/);
-    buffer = lines.pop() || "";
-
-    for (let line of lines) {
-      line = line.trim();
-      if (!line) continue;
-
-      if (line.startsWith("event:")) {
-        eventType = line.replace(/^event:\s*/, "").trim();
-        continue;
-      }
-
-      if (line.startsWith("data:")) {
-        const dataStr = line.replace(/^data:\s*/, "").trim();
-        handleEvent(eventType, dataStr);
-      }
+  if (eventType === "history_id") {
+    historyId.value = data.history_id ?? historyId.value;
+    if (data.title) {
+      historyTitle.value = data.title;
     }
+    return;
+  }
+
+  if (eventType === "tool_approval") {
+    toolApprovalInfo.value = {
+      toolName: data.tool_name || "",
+      arguments: data.arguments || "",
+      checkpointId: data.checkpoint_id || "",
+      interruptId: data.interrupt_id || "",
+    };
+    showToolApprovalModal.value = true;
+    return;
+  }
+
+  if (data.error) {
+    setAssistantError(`AI 服务错误: ${data.error}`);
+    return;
+  }
+
+  if (data.reasoning_content) {
+    appendThinkingContent(data.reasoning_content);
+    scheduleScrollToBottom();
+  }
+
+  if (data.thinking) {
+    setAssistantThinking(data.thinking);
+    scheduleScrollToBottom();
+  }
+
+  if (data.content) {
+    appendAssistantContent(data.content);
+    scheduleScrollToBottom();
+  }
+
+  if (data.usage) {
+    appendUsage(data.usage);
   }
 };
 
@@ -611,91 +639,10 @@ const sendMessage = async () => {
     });
 
     if (!response.ok) {
-      let errorMessage = `请求失败 (HTTP ${response.status})`;
-      try {
-        const errorData = await response.json();
-        if (errorData.error) errorMessage = errorData.error;
-      } catch {}
-      throw new Error(errorMessage);
+      throw await extractSSEResponseError(response);
     }
 
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder("utf-8");
-    if (!reader) throw new Error("无法获取响应流");
-
-    let buffer = "";
-    let eventType = "message"; // 1. 移到循环外，持久化状态
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split(/\r?\n/);
-      buffer = lines.pop() || "";
-
-      for (let line of lines) {
-        line = line.trim();
-        if (!line) continue;
-
-        if (line.startsWith("event:")) {
-          eventType = line.replace(/^event:\s*/, "").trim();
-          continue;
-        }
-
-        if (line.startsWith("data:")) {
-          const dataStr = line.replace(/^data:\s*/, "").trim();
-
-          try {
-            const dataObj = JSON.parse(dataStr);
-
-            if (eventType == "history_id") {
-              historyId.value = dataObj.history_id;
-              if (dataObj.title) {
-                historyTitle.value = dataObj.title;
-              }
-            }
-
-            if (eventType === "tool_approval") {
-              toolApprovalInfo.value = {
-                toolName: dataObj.tool_name,
-                arguments: dataObj.arguments,
-                checkpointId: dataObj.checkpoint_id,
-                interruptId: dataObj.interrupt_id,
-              };
-              showToolApprovalModal.value = true;
-              return;
-            }
-
-            if (dataObj.error) {
-              setAssistantError(`AI 服务错误: ${dataObj.error}`);
-              return;
-            }
-
-            if (dataObj.reasoning_content) {
-              appendThinkingContent(dataObj.reasoning_content);
-              scheduleScrollToBottom();
-            }
-
-            if (dataObj.thinking) {
-              setAssistantThinking(dataObj.thinking);
-              scheduleScrollToBottom();
-            }
-
-            if (dataObj.content) {
-              appendAssistantContent(dataObj.content);
-              scheduleScrollToBottom();
-            }
-
-            if (dataObj.usage) {
-              appendUsage(dataObj.usage);
-            }
-          } catch (e) {
-            console.warn("Parse error:", e);
-          }
-        }
-      }
-    }
+    await consumeSSEStream(response, handleChatStreamEvent);
   } catch (err: any) {
     if (controller.signal.aborted) {
       // 用户主动停止: 保留已收到的部分回复并标注, 不作为错误处理
@@ -710,7 +657,7 @@ const sendMessage = async () => {
       abortController.value = null;
     }
     await scrollToBottom();
-    parseVocabSuggestions();
+    finalizeLastMessage();
   }
 };
 
@@ -817,115 +764,46 @@ const handleToolApproval = async (approved: boolean, reason?: string) => {
     });
 
     if (!response.ok) {
-      let errorMessage = `请求失败 (HTTP ${response.status})`;
-      try {
-        const errorData = await response.json();
-        if (errorData.error) errorMessage = errorData.error;
-      } catch {}
-      throw new Error(errorMessage);
+      throw await extractSSEResponseError(response);
     }
 
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder("utf-8");
-    if (!reader) throw new Error("无法获取响应流");
-
-    let buffer = "";
-    let eventType = "message";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split(/\r?\n/);
-      buffer = lines.pop() || "";
-
-      for (let line of lines) {
-        line = line.trim();
-        if (!line) continue;
-
-        if (line.startsWith("event:")) {
-          eventType = line.replace(/^event:\s*/, "").trim();
-          continue;
-        }
-
-        if (line.startsWith("data:")) {
-          const dataStr = line.replace(/^data:\s*/, "").trim();
-
-          try {
-            const dataObj = JSON.parse(dataStr);
-
-            if (eventType === "tool_approval") {
-              toolApprovalInfo.value = {
-                toolName: dataObj.tool_name,
-                arguments: dataObj.arguments,
-                checkpointId: dataObj.checkpoint_id,
-                interruptId: dataObj.interrupt_id,
-              };
-              showToolApprovalModal.value = true;
-              return;
-            }
-
-            if (dataObj.error) {
-              setAssistantError(`AI 服务错误: ${dataObj.error}`);
-              return;
-            }
-
-            if (dataObj.reasoning_content) {
-              appendThinkingContent(dataObj.reasoning_content);
-              scheduleScrollToBottom();
-            }
-
-            if (dataObj.thinking) {
-              setAssistantThinking(dataObj.thinking);
-              scheduleScrollToBottom();
-            }
-
-            if (dataObj.content) {
-              appendAssistantContent(dataObj.content);
-              scheduleScrollToBottom();
-            }
-          } catch (e) {
-            console.warn("Parse error:", e);
-          }
-        }
-      }
-    }
+    await consumeSSEStream(response, handleChatStreamEvent);
   } catch (err: any) {
     setAssistantError(`工具审批请求失败: ${err?.message || "未知错误"}`);
   } finally {
     isGenerating.value = false;
     await scrollToBottom();
+    finalizeLastMessage();
   }
 };
 
 const lastLoadedHistoryId = ref<number>(0);
 
 const loadHistory = async (id: number) => {
-  try {
-    const { data } = await fetchHistoryDetail(id);
-    if (data) {
-      historyId.value = data.id;
-      lastLoadedHistoryId.value = data.id;
-      historyTitle.value = data.title;
-      messages.value = (data.messages || [])
-        .filter((msg: any) => msg.role !== "system")
-        .map((msg: any, idx: number) => {
-          const chatMsg = createChatMessage(msg.role, msg.content);
-          if (msg.thinking_content) {
-            chatMsg.thinkingContent = msg.thinking_content;
-            chatMsg.renderedThinking = renderMarkdown(msg.thinking_content);
-            // 历史记录中的思考过程默认展开
-            expandedThinking.value.add(idx);
-          }
-          return chatMsg;
-        });
-      isFavorite.value = data.is_favorite;
-      shareToken.value = data.share_token || null;
-    }
-  } catch (err: any) {
-    message.error(`加载历史记录失败: ${err?.message || "未知错误"}`);
+  const { data, error } = await fetchHistoryDetail(id);
+  if (error) {
+    message.error(`加载历史记录失败: ${error.message || "未知错误"}`);
+    return;
   }
+  if (!data) return;
+
+  historyId.value = data.id;
+  lastLoadedHistoryId.value = data.id;
+  historyTitle.value = data.title;
+  messages.value = (data.messages || [])
+    .filter((msg) => msg.role !== "system")
+    .map((msg, idx) => {
+      const chatMsg = createChatMessage(msg.role as ChatMessage["role"], msg.content);
+      if (msg.thinking_content) {
+        chatMsg.thinkingContent = msg.thinking_content;
+        chatMsg.renderedThinking = renderMarkdown(msg.thinking_content);
+        // 历史记录中的思考过程默认展开
+        expandedThinking.value.add(idx);
+      }
+      return chatMsg;
+    });
+  isFavorite.value = data.is_favorite;
+  shareToken.value = data.share_token || null;
 };
 
 const handleToggleFavorite = async () => {
@@ -959,13 +837,15 @@ const handleShare = async () => {
       await navigator.clipboard.writeText(shareUrl);
       message.success("分享链接已复制到剪贴板");
     } else {
-      const { data } = await fetchGenerateShareToken(historyId.value);
-      if (data?.share_token) {
-        shareToken.value = data.share_token;
-        const shareUrl = getShareUrl(data.share_token);
-        await navigator.clipboard.writeText(shareUrl);
-        message.success("分享链接已复制到剪贴板");
+      const { data, error } = await fetchGenerateShareToken(historyId.value);
+      if (error || !data?.share_token) {
+        message.error(`操作失败: ${error?.message || "生成分享链接失败"}`);
+        return;
       }
+      shareToken.value = data.share_token;
+      const shareUrl = getShareUrl(data.share_token);
+      await navigator.clipboard.writeText(shareUrl);
+      message.success("分享链接已复制到剪贴板");
     }
   } catch (err: any) {
     message.error(`操作失败: ${err?.message || "未知错误"}`);
@@ -1122,347 +1002,26 @@ onBeforeUnmount(() => {
           :class="appStore.isMobile ? 'px-1.5 py-1' : 'p-4'"
         >
           <div class="flex flex-col pb-4" :class="appStore.isMobile ? 'gap-4' : 'gap-6'">
-            <div
+            <MessageBubble
               v-for="(msg, index) in messages"
               :key="index"
-              class="flex items-start"
-              :class="[
-                msg.role === 'user' ? 'flex-row-reverse' : 'flex-row',
-                appStore.isMobile ? 'gap-2' : 'gap-3',
-              ]"
-            >
-              <!-- PC: 水平布局（头像+气泡并排） -->
-              <template v-if="!appStore.isMobile">
-                <NAvatar
-                  :color="msg.role === 'user' ? '#6bb8e8' : assistantColor"
-                  round
-                  size="large"
-                  class="shrink-0 self-start"
-                >
-                  {{ msg.role === "user" ? "U" : "AI" }}
-                </NAvatar>
-                <div class="flex flex-col gap-1 max-w-[80%]">
-                  <div class="group/btn">
-                    <!-- 思考过程 -->
-                    <div v-if="msg.role === 'assistant' && msg.thinkingContent" class="thinking-wrapper mb-2">
-                      <button
-                        class="thinking-toggle"
-                        @click="toggleThinking(index)"
-                      >
-                        <span class="thinking-toggle-icon" :class="{ expanded: expandedThinking.has(index) }">▶</span>
-                        <span>💭 思考过程</span>
-                      </button>
-                      <Transition name="thinking-expand">
-                        <div v-if="expandedThinking.has(index)" class="thinking-body">
-                          <!-- eslint-disable-next-line vue/no-v-html -->
-                          <div class="thinking-content" v-html="msg.renderedThinking"></div>
-                        </div>
-                      </Transition>
-                    </div>
-                    <div
-                      class="p-4 text-[15px] rounded-2xl whitespace-pre-wrap leading-relaxed shadow-sm"
-                      :class="
-                        msg.role === 'user'
-                          ? 'bg-[#e8f4fd] text-gray-800 rounded-tr-none dark:bg-blue-900/40 dark:text-gray-200'
-                          : 'bg-white text-gray-800 rounded-tl-none dark:bg-gray-800 dark:text-gray-200'
-                      "
-                      @mouseup="msg.role === 'assistant' ? handleSelectText() : undefined"
-                    >
-                      <!-- eslint-disable-next-line vue/no-v-html -->
-                      <div class="msg-content" v-html="msg.renderedContent"></div>
-                      <span
-                        v-if="
-                          isGenerating &&
-                            index === messages.length - 1 &&
-                            msg.content === ''
-                        "
-                        class="inline-block mt-1"
-                      >
-                        <NSpin size="small" />
-                      </span>
-                      <span
-                        v-else-if="
-                          isGenerating &&
-                            index === messages.length - 1 &&
-                            msg.content !== ''
-                        "
-                        class="inline-flex items-center gap-1.5 ml-1 align-bottom"
-                      >
-                        <span class="thinking-dot" style="animation-delay: 0s"></span>
-                        <span class="thinking-dot" style="animation-delay: 0.15s"></span>
-                        <span class="thinking-dot" style="animation-delay: 0.3s"></span>
-                        <span class="thinking-dot" style="animation-delay: 0.45s"></span>
-                        <span class="thinking-dot" style="animation-delay: 0.6s"></span>
-                      </span>
-                    </div>
-
-                    <div
-                      class="flex items-center gap-2 mt-1 justify-end"
-                    >
-                      <span v-if="msg.usage" class="text-[11px] text-gray-400 dark:text-gray-500">
-                        Token: {{ msg.usage.total_tokens }}
-                        <span class="text-gray-300 dark:text-gray-600 mx-0.5">|</span>
-                        输入 {{ msg.usage.prompt_tokens }} / 输出 {{ msg.usage.completion_tokens }}
-                        <span class="text-gray-300 dark:text-gray-600 mx-0.5">|</span>
-                      </span>
-                      <span class="text-[11px] text-gray-400 dark:text-gray-500">
-                        {{ formatTime(msg.timestamp) }}
-                      </span>
-                    </div>
-                    <div
-                      v-if="msg.content"
-                      class="flex items-center gap-0.5 mt-1 justify-end opacity-0 group-hover/btn:opacity-100 transition-all duration-200"
-                    >
-                      <ButtonIcon
-                        v-if="msg.role === 'user' && index === lastUserMessageIndex && !isGenerating"
-                        icon="mdi:pencil-outline"
-                        class="!h-28px !w-28px text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400"
-                        tooltip-content="编辑"
-                        @click.stop="handleEditMessage(index)"
-                      />
-                      <ButtonIcon
-                        v-if="msg.role === 'assistant' && msg.isError && !isGenerating"
-                        icon="mdi:refresh"
-                        class="!h-28px !w-28px text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400"
-                        tooltip-content="重试"
-                        @click.stop="handleRetryMessage(index)"
-                      />
-                      <ButtonIcon
-                        icon="mdi:content-copy"
-                        class="!h-28px !w-28px text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-                        tooltip-content="复制"
-                        @click.stop="copyToClipboard(msg.content)"
-                      />
-                      <ButtonIcon
-                        v-if="enableVocabulary && msg.role === 'assistant'"
-                        icon="mdi:star-outline"
-                        class="!h-28px !w-28px text-gray-400 hover:text-amber-500 dark:text-gray-500 dark:hover:text-amber-400"
-                        tooltip-content="添加到生词本"
-                        @click.stop="openVocabModal()"
-                      />
-                      <ButtonIcon
-                        v-if="msg.role === 'assistant'"
-                        icon="mdi:notebook-edit-outline"
-                        class="!h-28px !w-28px text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400"
-                        tooltip-content="添加笔记"
-                        @click.stop="openNoteModal(msg.content)"
-                      />
-                    </div>
-                  </div>
-
-                  <div
-                    v-if="enableVocabulary && msg.suggestions?.length"
-                    class="flex flex-wrap gap-2 mt-2"
-                  >
-                    <span class="text-xs text-gray-400 self-center">智能建议:</span>
-                    <NTag
-                      v-for="(vocab, vocabIndex) in msg.suggestions"
-                      :key="vocabIndex"
-                      size="small"
-                      round
-                      type="info"
-                      check-strategy="child"
-                      class="cursor-pointer hover:shadow-sm transition-shadow"
-                      @click="handleApplySuggestion(vocab)"
-                    >
-                      <template #icon>
-                        <div class="i-mdi:plus" />
-                      </template>
-                      {{ vocab.word }}
-                    </NTag>
-                  </div>
-
-                  <div
-                    v-if="hasAuth('ai:course:edit') && msg.expressions?.length"
-                    class="flex flex-wrap gap-2 mt-2"
-                  >
-                    <span class="text-xs text-gray-400 self-center">添加到课程:</span>
-                    <NTag
-                      v-for="(expr, exprIndex) in msg.expressions"
-                      :key="exprIndex"
-                      size="small"
-                      round
-                      type="success"
-                      check-strategy="child"
-                      class="cursor-pointer hover:shadow-sm transition-shadow"
-                      @click="handleAddExpression(expr)"
-                    >
-                      <template #icon>
-                        <div class="i-mdi:plus" />
-                      </template>
-                      {{ expr.english.slice(0, 30) }}{{ expr.english.length > 30 ? '...' : '' }}
-                    </NTag>
-                  </div>
-                </div>
-              </template>
-
-              <!-- 移动端: 垂直布局（头像独占一行，气泡占满宽度） -->
-              <template v-else>
-                <div class="flex flex-col gap-2 w-full">
-                  <div
-                    class="flex"
-                    :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
-                  >
-                    <div
-                      class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                      :style="{
-                        backgroundColor: msg.role === 'user' ? '#6bb8e8' : assistantColor,
-                      }"
-                    >
-                      {{ msg.role === "user" ? "U" : "AI" }}
-                    </div>
-                  </div>
-                  <div
-                    class="flex"
-                    :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
-                  >
-                    <!-- 思考过程 -->
-                    <div v-if="msg.role === 'assistant' && msg.thinkingContent" class="thinking-wrapper mb-2">
-                      <button
-                        class="thinking-toggle"
-                        @click="toggleThinking(index)"
-                      >
-                        <span class="thinking-toggle-icon" :class="{ expanded: expandedThinking.has(index) }">▶</span>
-                        <span>💭 思考过程</span>
-                      </button>
-                      <Transition name="thinking-expand">
-                        <div v-if="expandedThinking.has(index)" class="thinking-body">
-                          <!-- eslint-disable-next-line vue/no-v-html -->
-                          <div class="thinking-content" v-html="msg.renderedThinking"></div>
-                        </div>
-                      </Transition>
-                    </div>
-                    <div
-                      class="p-3 text-[14px] rounded-2xl whitespace-pre-wrap leading-relaxed shadow-sm w-full"
-                      :class="
-                        msg.role === 'user'
-                          ? 'bg-[#e8f4fd] text-gray-800 rounded-tr-none dark:bg-blue-900/40 dark:text-gray-200'
-                          : 'bg-white text-gray-800 rounded-tl-none dark:bg-gray-800 dark:text-gray-200'
-                      "
-                      @mouseup="msg.role === 'assistant' ? handleSelectText() : undefined"
-                    >
-                      <!-- eslint-disable-next-line vue/no-v-html -->
-                      <div class="msg-content" v-html="msg.renderedContent"></div>
-                      <span
-                        v-if="
-                          isGenerating &&
-                            index === messages.length - 1 &&
-                            msg.content === ''
-                        "
-                        class="inline-block mt-1"
-                      >
-                        <NSpin size="small" />
-                      </span>
-                      <span
-                        v-else-if="
-                          isGenerating &&
-                            index === messages.length - 1 &&
-                            msg.content !== ''
-                        "
-                        class="inline-flex items-center gap-1.5 ml-1 align-bottom"
-                      >
-                        <span class="thinking-dot" style="animation-delay: 0s"></span>
-                        <span class="thinking-dot" style="animation-delay: 0.15s"></span>
-                        <span class="thinking-dot" style="animation-delay: 0.3s"></span>
-                        <span class="thinking-dot" style="animation-delay: 0.45s"></span>
-                        <span class="thinking-dot" style="animation-delay: 0.6s"></span>
-                      </span>
-                    </div>
-                  </div>
-                  <div class="flex items-center gap-2 justify-end">
-                    <span v-if="msg.usage" class="text-[11px] text-gray-400 dark:text-gray-500">
-                      Token: {{ msg.usage.total_tokens }}
-                      <span class="text-gray-300 dark:text-gray-600 mx-0.5">|</span>
-                      输入 {{ msg.usage.prompt_tokens }} / 输出 {{ msg.usage.completion_tokens }}
-                      <span class="text-gray-300 dark:text-gray-600 mx-0.5">|</span>
-                    </span>
-                    <span class="text-[11px] text-gray-400 dark:text-gray-500">
-                      {{ formatTime(msg.timestamp) }}
-                    </span>
-                  </div>
-                  <div v-if="msg.content" class="flex items-center gap-0.5 justify-end">
-                    <ButtonIcon
-                      v-if="msg.role === 'user' && index === lastUserMessageIndex && !isGenerating"
-                      icon="mdi:pencil-outline"
-                      class="!h-28px !w-28px text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400"
-                      tooltip-content="编辑"
-                      @click.stop="handleEditMessage(index)"
-                    />
-                    <ButtonIcon
-                      v-if="msg.role === 'assistant' && msg.isError && !isGenerating"
-                      icon="mdi:refresh"
-                      class="!h-28px !w-28px text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400"
-                      tooltip-content="重试"
-                      @click.stop="handleRetryMessage(index)"
-                    />
-                    <ButtonIcon
-                      icon="mdi:content-copy"
-                      class="!h-28px !w-28px text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-                      tooltip-content="复制"
-                      @click.stop="copyToClipboard(msg.content)"
-                    />
-                    <ButtonIcon
-                      v-if="enableVocabulary && msg.role === 'assistant'"
-                      icon="mdi:star-outline"
-                      class="!h-28px !w-28px text-gray-400 hover:text-amber-500 dark:text-gray-500 dark:hover:text-amber-400"
-                      tooltip-content="添加到生词本"
-                      @click.stop="openVocabModal()"
-                    />
-                    <ButtonIcon
-                      v-if="msg.role === 'assistant'"
-                      icon="mdi:notebook-edit-outline"
-                      class="!h-28px !w-28px text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400"
-                      tooltip-content="添加笔记"
-                      @click.stop="openNoteModal(msg.content)"
-                    />
-                  </div>
-
-                  <div
-                    v-if="enableVocabulary && msg.suggestions?.length"
-                    class="flex flex-wrap gap-2 mt-2"
-                  >
-                    <span class="text-xs text-gray-400 self-center">智能建议:</span>
-                    <NTag
-                      v-for="(vocab, vocabIndex) in msg.suggestions"
-                      :key="vocabIndex"
-                      size="small"
-                      round
-                      type="info"
-                      check-strategy="child"
-                      class="cursor-pointer hover:shadow-sm transition-shadow"
-                      @click="handleApplySuggestion(vocab)"
-                    >
-                      <template #icon>
-                        <div class="i-mdi:plus" />
-                      </template>
-                      {{ vocab.word }}
-                    </NTag>
-                  </div>
-
-                  <div
-                    v-if="hasAuth('ai:course:edit') && msg.expressions?.length"
-                    class="flex flex-wrap gap-2 mt-2"
-                  >
-                    <span class="text-xs text-gray-400 self-center">添加到课程:</span>
-                    <NTag
-                      v-for="(expr, exprIndex) in msg.expressions"
-                      :key="exprIndex"
-                      size="small"
-                      round
-                      type="success"
-                      check-strategy="child"
-                      class="cursor-pointer hover:shadow-sm transition-shadow"
-                      @click="handleAddExpression(expr)"
-                    >
-                      <template #icon>
-                        <div class="i-mdi:plus" />
-                      </template>
-                      {{ expr.english.slice(0, 30) }}{{ expr.english.length > 30 ? '...' : '' }}
-                    </NTag>
-                  </div>
-                </div>
-              </template>
-            </div>
+              :msg="msg"
+              :is-last="index === messages.length - 1"
+              :is-generating="isGenerating"
+              :is-last-user="index === lastUserMessageIndex"
+              :enable-vocabulary="enableVocabulary"
+              :assistant-color="assistantColor"
+              :thinking-expanded="expandedThinking.has(index)"
+              @edit="handleEditMessage(index)"
+              @retry="handleRetryMessage(index)"
+              @copy="copyToClipboard"
+              @open-vocab="openVocabModal"
+              @open-note="openNoteModal"
+              @apply-suggestion="handleApplySuggestion"
+              @add-expression="handleAddExpression"
+              @select-text="handleSelectText"
+              @toggle-thinking="toggleThinking(index)"
+            />
           </div>
         </NScrollbar>
 
@@ -1659,7 +1218,7 @@ onBeforeUnmount(() => {
 
     <!-- 生词本/笔记/课程包弹窗 (子组件, 表单逻辑内聚) -->
     <VocabModal v-if="enableVocabulary" ref="vocabModalRef" :play="handlePlay" />
-    <NoteModal ref="noteModalRef" :render-markdown="renderMarkdown" />
+    <NoteModal ref="noteModalRef" />
     <CourseItemModal ref="courseModalRef" />
 
     <NModal
@@ -1771,89 +1330,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-:deep(.msg-content p) {
-  margin: 0;
-}
-:deep(.msg-content p + p) {
-  margin-top: 0.5em;
-}
-
-/* 思考过程折叠区域 */
-.thinking-wrapper {
-  border-left: 3px solid #d1d5db;
-  border-radius: 8px;
-  background: rgba(249, 250, 251, 0.8);
-  overflow: hidden;
-}
-.dark .thinking-wrapper {
-  border-left-color: #4b5563;
-  background: rgba(55, 65, 81, 0.5);
-}
-.thinking-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 6px 12px;
-  font-size: 13px;
-  color: #6b7280;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: color 0.2s;
-}
-.thinking-toggle:hover {
-  color: #374151;
-}
-.dark .thinking-toggle {
-  color: #9ca3af;
-}
-.dark .thinking-toggle:hover {
-  color: #d1d5db;
-}
-.thinking-toggle-icon {
-  display: inline-block;
-  font-size: 10px;
-  transition: transform 0.2s ease;
-}
-.thinking-toggle-icon.expanded {
-  transform: rotate(90deg);
-}
-.thinking-body {
-  padding: 0 12px 8px;
-}
-.thinking-content {
-  font-size: 13px;
-  color: #6b7280;
-  line-height: 1.6;
-  white-space: pre-wrap;
-}
-.dark .thinking-content {
-  color: #9ca3af;
-}
-:deep(.thinking-content p) {
-  margin: 0;
-}
-:deep(.thinking-content p + p) {
-  margin-top: 0.5em;
-}
-/* 展开/收起动画 */
-.thinking-expand-enter-active,
-.thinking-expand-leave-active {
-  transition: all 0.2s ease;
-  overflow: hidden;
-}
-.thinking-expand-enter-from,
-.thinking-expand-leave-to {
-  opacity: 0;
-  max-height: 0;
-}
-.thinking-expand-enter-to,
-.thinking-expand-leave-from {
-  opacity: 1;
-  max-height: 500px;
-}
-
 /* ============ Input Area ============ */
 .input-wrapper {
   position: relative;
@@ -2106,31 +1582,5 @@ onBeforeUnmount(() => {
   background: rgba(30, 30, 46, 1) !important;
   color: #818cf8;
   border-color: #818cf8 !important;
-}
-
-.thinking-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: #60a5fa;
-  animation: thinking-bounce 1.4s infinite ease-in-out both;
-}
-
-.dark .thinking-dot {
-  background-color: #93c5fd;
-}
-
-@keyframes thinking-bounce {
-  0%,
-  80%,
-  100% {
-    transform: scale(0);
-    opacity: 0.5;
-  }
-  40% {
-    transform: scale(1);
-    opacity: 1;
-  }
 }
 </style>

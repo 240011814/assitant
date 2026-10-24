@@ -3,6 +3,7 @@ import { computed, h, onBeforeUnmount, ref } from 'vue';
 import { NButton, NDataTable, NInput, NModal, NScrollbar, NSpace, NTag, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { fetchOrchestrationDebugRun, fetchResolveOrchestrationApproval } from '@/service/api';
+import { consumeSSEStream, extractSSEResponseError } from '@/utils/sse';
 
 // 节点调试摘要 (与后端 OrchNodeTrace 对应)
 export interface NodeTrace {
@@ -257,14 +258,10 @@ async function handleRun() {
       signal: abortController.signal
     });
     if (!response.ok || !response.body) {
-      const text = await response.text().catch(() => '');
-      message.error(`调试请求失败 (${response.status}) ${text.slice(0, 200)}`);
+      const err = await extractSSEResponseError(response);
+      message.error(`调试请求失败: ${err.message.slice(0, 200)}`);
       return;
     }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let buffer = '';
 
     const handlePayload = (eventName: string, dataStr: string) => {
       let payload: any = null;
@@ -360,27 +357,7 @@ async function handleRun() {
       }
     };
 
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const blocks = buffer.split(/\n\n/);
-      buffer = blocks.pop() || '';
-      for (const block of blocks) {
-        let eventName = 'message';
-        const dataLines: string[] = [];
-        for (const line of block.split(/\r?\n/)) {
-          if (line.startsWith('event:')) {
-            eventName = line.replace(/^event:\s*/, '').trim();
-          } else if (line.startsWith('data:')) {
-            dataLines.push(line.replace(/^data:\s*/, ''));
-          }
-        }
-        if (dataLines.length > 0) {
-          handlePayload(eventName, dataLines.join('\n'));
-        }
-      }
-    }
+    await consumeSSEStream(response, handlePayload);
   } catch (err: any) {
     if (err?.name === 'AbortError') {
       pushEvent('abort', '已手动中断', 'error');
@@ -505,7 +482,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 输出 + 事件流 -->
-    <div class="flex-1 min-h-0 flex gap-3" :class="'flex-col md:flex-row'">
+    <div class="flex-1 min-h-0 flex gap-3 flex-col md:flex-row">
       <div class="flex-1 min-h-0 flex flex-col gap-1">
         <div class="text-xs text-gray-500 flex items-center gap-2">
           <span>本轮输出</span>

@@ -3,10 +3,11 @@ packages:
 
 # 对齐 soybean-admin 2.3.0: vite/typescript 走 catalog 别名
 # vite -> vite-plus-core (vite-plus 工具链), typescript -> 原生编译器桥接
+# 版本固定为 lockfile 已解析版本: catalog 不允许 latest, 保证构建可复现
 catalog:
-  vite: npm:@voidzero-dev/vite-plus-core@latest
-  vite-plus: latest
-  typescript: npm:typescript-native-bridge@latest
+  vite: npm:@voidzero-dev/vite-plus-core@1.1.0
+  vite-plus: 1.1.0
+  typescript: npm:typescript-native-bridge@6.0.3-bridge.18.tsgo.7.0.2
 
 overrides:
   vite: 'catalog:'
@@ -27,3 +28,6 @@ linkWorkspacePackages: true
 minimumReleaseAgeExclude:
   - dompurify@3.4.17
   - '@iconify/json@2.2.541'
+  - crossws@0.4.16
+  - katex@0.19.1
+  - srvx@1.0.7

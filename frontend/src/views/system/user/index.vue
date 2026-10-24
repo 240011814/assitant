@@ -106,6 +106,17 @@ const userStats = computed(() => {
   return { total, superCount, adminCount, userCount };
 });
 
+// pagination 需在 columns (render 回调内引用) 与 loadUsers 之前定义
+const pagination = reactive({
+  page: 1,
+  pageSize: 10,
+  itemCount: 0,
+  showSizePicker: true,
+  pageSizes: [10, 20, 50],
+  onChange: onPageChange,
+  onUpdatePageSize: onPageSizeChange,
+});
+
 const columns = computed<DataTableColumns<Api.Admin.User>>(() => [
   {
     title: $t("page.system.user.userName"),
@@ -254,16 +265,6 @@ function handleSearch() {
   pagination.page = 1;
   loadUsers();
 }
-
-const pagination = reactive({
-  page: 1,
-  pageSize: 10,
-  itemCount: 0,
-  showSizePicker: true,
-  pageSizes: [10, 20, 50],
-  onChange: onPageChange,
-  onUpdatePageSize: onPageSizeChange,
-});
 
 function resetForm() {
   editingUserId.value = null;

@@ -138,11 +138,11 @@ function onDimensionChange(v: CutDimension) {
 /** 总尺寸/框料宽变化: 先写入值再等比缩放净宽高, 保持几何自洽 */
 function onOuterChange() {
   const w = width.value;
-  const h = height.value;
+  const totalH = height.value;
   const c = frameWidth.value;
-  if (!w || !h || c === null || c < 0) return;
+  if (!w || !totalH || c === null || c < 0) return;
   cols.value = rescale(cols.value, availableColWidth(w, c, cols.value.length, sliding.value));
-  rows.value = rescale(rows.value, availableRowHeight(h, c, rows.value.length));
+  rows.value = rescale(rows.value, availableRowHeight(totalH, c, rows.value.length));
 }
 
 function onWidthChange(v: number | null) {
@@ -189,10 +189,10 @@ function setColCount(n: number) {
 }
 
 function setRowCount(n: number) {
-  const h = height.value;
+  const totalH = height.value;
   const c = frameWidth.value;
-  if (!h || c === null || c < 0 || n < 1 || n > 20) return;
-  rows.value = evenSplit(availableRowHeight(h, c, n), n);
+  if (!totalH || c === null || c < 0 || n < 1 || n > 20) return;
+  rows.value = evenSplit(availableRowHeight(totalH, c, n), n);
   const next = cells.value.map(r => [...r]);
   while (next.length < n) next.push([...(next[next.length - 1] ?? Array.from({ length: cols.value.length }, () => CELL_FIXED))]);
   cells.value = next.slice(0, n);
@@ -210,7 +210,7 @@ function setColWidth(index: number, v: number | null) {
   const oldRestSum = rest.reduce((s, cv) => s + cv, 0);
   const newRest = oldRestSum > 0 ? rest.map(cv => round2((cv / oldRestSum) * restSum)) : evenSplit(restSum, rest.length);
   if (newRest.length > 0) {
-    const diff = round2(restSum - newRest.reduce((s, v) => s + v, 0));
+    const diff = round2(restSum - newRest.reduce((s, cv) => s + cv, 0));
     newRest[newRest.length - 1] = round2(newRest[newRest.length - 1]! + diff);
   }
   let ri = 0;
@@ -218,17 +218,17 @@ function setColWidth(index: number, v: number | null) {
 }
 
 function setRowHeight(index: number, v: number | null) {
-  const h = height.value;
+  const totalH = height.value;
   const c = frameWidth.value;
-  if (!h || c === null || c < 0 || v === null || v <= 0) return;
-  const avail = availableRowHeight(h, c, rows.value.length);
+  if (!totalH || c === null || c < 0 || v === null || v <= 0) return;
+  const avail = availableRowHeight(totalH, c, rows.value.length);
   const target = Math.min(v, round2(avail - 0.1 * (rows.value.length - 1)));
   const restSum = round2(avail - target);
   const rest = rows.value.filter((_, i) => i !== index);
   const oldRestSum = rest.reduce((s, cv) => s + cv, 0);
   const newRest = oldRestSum > 0 ? rest.map(cv => round2((cv / oldRestSum) * restSum)) : evenSplit(restSum, rest.length);
   if (newRest.length > 0) {
-    const diff = round2(restSum - newRest.reduce((s, v) => s + v, 0));
+    const diff = round2(restSum - newRest.reduce((s, cv) => s + cv, 0));
     newRest[newRest.length - 1] = round2(newRest[newRest.length - 1]! + diff);
   }
   let ri = 0;
@@ -238,11 +238,11 @@ function setRowHeight(index: number, v: number | null) {
 /** 编辑区当前产品 (尺寸不全时给最小占位, 供校验与预览兜底) */
 const currentItem = computed<ProductItem>(() => {
   const w = width.value ?? 0;
-  const h = height.value ?? 0;
+  const totalH = height.value ?? 0;
   if (isGlassMode.value) {
     // 玻璃: 无框料/拼装参数, 分格为 1×1 平凡格 (兼容后端几何校验), series 承载厚度
     return {
-      ...glassItemFromDefaults(w, h),
+      ...glassItemFromDefaults(w, totalH),
       series: series.value?.trim() ?? '',
       count: Math.max(count.value ?? 1, 1)
     };
@@ -251,7 +251,7 @@ const currentItem = computed<ProductItem>(() => {
   return {
     type: curType.value,
     width: w,
-    height: h,
+    height: totalH,
     frameWidth: c,
     series: series.value?.trim() ?? '',
     fit: {
@@ -448,7 +448,7 @@ const listColumns = computed<DataTableColumns<ProductItem>>(() => [
     title: $t('common.action'),
     key: 'actions',
     width: 110,
-    render(row, index) {
+    render(_row, index) {
       return h('div', { class: 'flex gap-1' }, [
         h(
           NButton,

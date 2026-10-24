@@ -7,6 +7,35 @@ import { $t } from "@/locales";
 
 defineOptions({ name: "SystemConfig" });
 
+/** system_config 表条目 (value 恒为字符串, 布尔/数字序列化后存入) */
+interface ConfigItem {
+  key: string;
+  value: string;
+  remark?: string;
+}
+
+/** 配置条目数组转 key -> value 映射, 消除逐条 data.find 样板 */
+function toConfigMap(items: ConfigItem[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const item of items) map[item.key] = item.value;
+  return map;
+}
+
+/** "true" 才视为开 (register/smtp/s3/rag 等缺省关闭的开关) */
+function isTrue(value: string | undefined): boolean {
+  return value === "true";
+}
+
+/** 仅 "false" 视为关 (telegram/memory 等缺省开启的开关) */
+function notFalse(value: string | undefined): boolean {
+  return value !== "false";
+}
+
+function toNumber(value: string | undefined, fallback: number): number {
+  if (value === undefined || value === "") return fallback;
+  return Number(value);
+}
+
 const message = useMessage();
 const loading = ref(false);
 const savingRegister = ref(false);
@@ -71,129 +100,55 @@ const mqttPassword = ref("");
 async function loadConfig() {
   loading.value = true;
   try {
-    const { data } = await request<any[]>({
+    // API 失败时全局拦截器已 toast, 这里静默返回
+    const { data, error } = await request<ConfigItem[]>({
       url: "/api/admin/system-config",
     });
-    if (data) {
-      const registerConfig = data.find((c: any) => c.key === "register_enabled");
-      registerEnabled.value = registerConfig?.value === "true";
+    if (!error && data) {
+      const cfg = toConfigMap(data);
 
-      const telegramEnabledConfig = data.find((c: any) => c.key === "telegram_enabled");
-      telegramEnabled.value = telegramEnabledConfig?.value !== "false";
+      registerEnabled.value = isTrue(cfg.register_enabled);
 
-      const telegramTokenConfig = data.find((c: any) => c.key === "telegram_bot_token");
-      telegramBotToken.value = telegramTokenConfig?.value || "";
+      telegramEnabled.value = notFalse(cfg.telegram_enabled);
+      telegramBotToken.value = cfg.telegram_bot_token ?? "";
+      telegramWebhookUrl.value = cfg.telegram_webhook_url ?? "";
 
-      const telegramWebhookUrlConfig = data.find(
-        (c: any) => c.key === "telegram_webhook_url"
-      );
-      telegramWebhookUrl.value = telegramWebhookUrlConfig?.value || "";
+      aiTimeoutMinutes.value = toNumber(cfg.ai_timeout_minutes, 5);
+      aiTlsHandshakeTimeout.value = toNumber(cfg.ai_tls_handshake_timeout, 15);
+      aiResponseHeaderTimeout.value = toNumber(cfg.ai_response_header_timeout, 30);
+      httpTimeoutSeconds.value = toNumber(cfg.http_timeout_seconds, 30);
 
-      const aiTimeoutConfig = data.find((c: any) => c.key === "ai_timeout_minutes");
-      aiTimeoutMinutes.value = aiTimeoutConfig ? Number(aiTimeoutConfig.value) : 5;
+      smtpEnabled.value = isTrue(cfg.smtp_enabled);
+      smtpHost.value = cfg.smtp_host ?? "";
+      smtpPort.value = toNumber(cfg.smtp_port, 587);
+      smtpEncryption.value = cfg.smtp_encryption ?? "ssl";
+      smtpUser.value = cfg.smtp_user ?? "";
+      smtpPassword.value = cfg.smtp_password ?? "";
+      smtpFrom.value = cfg.smtp_from ?? "";
+      smtpFromName.value = cfg.smtp_from_name ?? "";
 
-      const aiTlsConfig = data.find((c: any) => c.key === "ai_tls_handshake_timeout");
-      aiTlsHandshakeTimeout.value = aiTlsConfig ? Number(aiTlsConfig.value) : 15;
+      memoryEnabled.value = notFalse(cfg.memory_extraction_enabled);
+      memoryExtractionModel.value = cfg.memory_extraction_model ?? "";
+      memoryIdleMinutes.value = toNumber(cfg.memory_session_idle_minutes, 15);
+      memoryMinUserMessages.value = toNumber(cfg.memory_min_min_user_messages, 6);
 
-      const aiResponseConfig = data.find(
-        (c: any) => c.key === "ai_response_header_timeout"
-      );
-      aiResponseHeaderTimeout.value = aiResponseConfig
-        ? Number(aiResponseConfig.value)
-        : 30;
+      s3Enabled.value = isTrue(cfg.s3_enabled);
+      s3Endpoint.value = cfg.s3_endpoint ?? "";
+      s3Region.value = cfg.s3_region ?? "";
+      s3Bucket.value = cfg.s3_bucket ?? "";
+      s3AccessKey.value = cfg.s3_access_key ?? "";
+      s3SecretKey.value = cfg.s3_secret_key ?? "";
+      s3Secure.value = isTrue(cfg.s3_secure);
+      s3UsePathStyle.value = isTrue(cfg.s3_use_path_style);
+      s3MaxUploadMB.value = toNumber(cfg.s3_max_upload_mb, 20);
 
-      const httpTimeoutConfig = data.find((c: any) => c.key === "http_timeout_seconds");
-      httpTimeoutSeconds.value = httpTimeoutConfig ? Number(httpTimeoutConfig.value) : 30;
-
-      const smtpEnabledConfig = data.find((c: any) => c.key === "smtp_enabled");
-      smtpEnabled.value = smtpEnabledConfig?.value === "true";
-
-      const smtpHostConfig = data.find((c: any) => c.key === "smtp_host");
-      smtpHost.value = smtpHostConfig?.value || "";
-
-      const smtpPortConfig = data.find((c: any) => c.key === "smtp_port");
-      smtpPort.value = smtpPortConfig ? Number(smtpPortConfig.value) : 587;
-
-      const smtpEncryptionConfig = data.find((c: any) => c.key === "smtp_encryption");
-      smtpEncryption.value = smtpEncryptionConfig?.value || "ssl";
-
-      const smtpUserConfig = data.find((c: any) => c.key === "smtp_user");
-      smtpUser.value = smtpUserConfig?.value || "";
-
-      const smtpPasswordConfig = data.find((c: any) => c.key === "smtp_password");
-      smtpPassword.value = smtpPasswordConfig?.value || "";
-
-      const smtpFromConfig = data.find((c: any) => c.key === "smtp_from");
-      smtpFrom.value = smtpFromConfig?.value || "";
-
-      const smtpFromNameConfig = data.find((c: any) => c.key === "smtp_from_name");
-      smtpFromName.value = smtpFromNameConfig?.value || "";
-
-      const memoryEnabledConfig = data.find(
-        (c: any) => c.key === "memory_extraction_enabled"
-      );
-      memoryEnabled.value = memoryEnabledConfig?.value !== "false";
-
-      const memoryModelConfig = data.find((c: any) => c.key === "memory_extraction_model");
-      memoryExtractionModel.value = memoryModelConfig?.value || "";
-
-      const memoryIdleConfig = data.find(
-        (c: any) => c.key === "memory_session_idle_minutes"
-      );
-      memoryIdleMinutes.value = memoryIdleConfig ? Number(memoryIdleConfig.value) : 15;
-
-      const memoryMinConfig = data.find(
-        (c: any) => c.key === "memory_min_min_user_messages"
-      );
-      memoryMinUserMessages.value = memoryMinConfig ? Number(memoryMinConfig.value) : 6;
-
-      const s3EnabledConfig = data.find((c: any) => c.key === "s3_enabled");
-      s3Enabled.value = s3EnabledConfig?.value === "true";
-
-      const s3EndpointConfig = data.find((c: any) => c.key === "s3_endpoint");
-      s3Endpoint.value = s3EndpointConfig?.value || "";
-
-      const s3RegionConfig = data.find((c: any) => c.key === "s3_region");
-      s3Region.value = s3RegionConfig?.value || "";
-
-      const s3BucketConfig = data.find((c: any) => c.key === "s3_bucket");
-      s3Bucket.value = s3BucketConfig?.value || "";
-
-      const s3AccessKeyConfig = data.find((c: any) => c.key === "s3_access_key");
-      s3AccessKey.value = s3AccessKeyConfig?.value || "";
-
-      const s3SecretKeyConfig = data.find((c: any) => c.key === "s3_secret_key");
-      s3SecretKey.value = s3SecretKeyConfig?.value || "";
-
-      const s3SecureConfig = data.find((c: any) => c.key === "s3_secure");
-      s3Secure.value = s3SecureConfig?.value === "true";
-
-      const s3PathStyleConfig = data.find((c: any) => c.key === "s3_use_path_style");
-      s3UsePathStyle.value = s3PathStyleConfig?.value === "true";
-
-      const s3MaxConfig = data.find((c: any) => c.key === "s3_max_upload_mb");
-      s3MaxUploadMB.value = s3MaxConfig ? Number(s3MaxConfig.value) : 20;
-
-      const ragEnabledConfig = data.find((c: any) => c.key === "rag_enabled");
-      ragEnabled.value = ragEnabledConfig?.value === "true";
-
-      const ragBaseUrlConfig = data.find((c: any) => c.key === "rag_embedding_base_url");
-      ragBaseUrl.value = ragBaseUrlConfig?.value || "";
-
-      const ragModelConfig = data.find((c: any) => c.key === "rag_embedding_model");
-      ragModel.value = ragModelConfig?.value || "";
-
-      const ragApiKeyConfig = data.find((c: any) => c.key === "rag_embedding_api_key");
-      ragApiKey.value = ragApiKeyConfig?.value || "";
-
-      const ragChunkSizeConfig = data.find((c: any) => c.key === "rag_chunk_size");
-      ragChunkSize.value = ragChunkSizeConfig ? Number(ragChunkSizeConfig.value) : 500;
-
-      const ragOverlapConfig = data.find((c: any) => c.key === "rag_chunk_overlap");
-      ragChunkOverlap.value = ragOverlapConfig ? Number(ragOverlapConfig.value) : 80;
-
-      const ragTopKConfig = data.find((c: any) => c.key === "rag_top_k");
-      ragTopK.value = ragTopKConfig ? Number(ragTopKConfig.value) : 5;
+      ragEnabled.value = isTrue(cfg.rag_enabled);
+      ragBaseUrl.value = cfg.rag_embedding_base_url ?? "";
+      ragModel.value = cfg.rag_embedding_model ?? "";
+      ragApiKey.value = cfg.rag_embedding_api_key ?? "";
+      ragChunkSize.value = toNumber(cfg.rag_chunk_size, 500);
+      ragChunkOverlap.value = toNumber(cfg.rag_chunk_overlap, 80);
+      ragTopK.value = toNumber(cfg.rag_top_k, 5);
     }
 
     // MQTT 连接配置 (设备管理, 存 wol_mqtt_* 键, 走 wol 专用接口)
@@ -203,29 +158,38 @@ async function loadConfig() {
       mqttPort.value = mqttCfg.port || 1883;
       mqttUsername.value = mqttCfg.username;
     }
-  } catch (err: any) {
-    message.error($t("page.system.config.loadFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     loading.value = false;
   }
 }
 
-async function saveConfig(key: string, value: string, remark: string) {
-  await request({
+/** 保存单个配置项; 失败时全局拦截器已 toast, 返回 false 供调用方决定是否提示成功/回滚 */
+async function saveConfig(key: string, value: string, remark: string): Promise<boolean> {
+  const { error } = await request({
     url: "/api/admin/system-config",
     method: "put",
     data: { key, value, remark },
   });
+  return !error;
+}
+
+/** 依次保存多个配置项, 全部成功才返回 true (沿用逐条 PUT 的既有写法) */
+async function saveConfigs(entries: Array<[key: string, value: string, remark: string]>): Promise<boolean> {
+  for (const [key, value, remark] of entries) {
+    if (!(await saveConfig(key, value, remark))) return false;
+  }
+  return true;
 }
 
 async function handleToggleRegister(val: boolean) {
   savingRegister.value = true;
   try {
-    await saveConfig("register_enabled", val ? "true" : "false", $t("page.system.config.remarkRegister"));
-    message.success(val ? $t("page.system.config.registerEnabledMsg") : $t("page.system.config.registerDisabledMsg"));
-  } catch (err: any) {
-    registerEnabled.value = !val;
-    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
+    const ok = await saveConfig("register_enabled", val ? "true" : "false", $t("page.system.config.remarkRegister"));
+    if (ok) {
+      message.success(val ? $t("page.system.config.registerEnabledMsg") : $t("page.system.config.registerDisabledMsg"));
+    } else {
+      registerEnabled.value = !val;
+    }
   } finally {
     savingRegister.value = false;
   }
@@ -234,11 +198,12 @@ async function handleToggleRegister(val: boolean) {
 async function handleToggleTelegram(val: boolean) {
   savingTelegram.value = true;
   try {
-    await saveConfig("telegram_enabled", val ? "true" : "false", $t("page.system.config.remarkTelegramEnabled"));
-    message.success(val ? $t("page.system.config.telegramEnabledMsg") : $t("page.system.config.telegramDisabledMsg"));
-  } catch (err: any) {
-    telegramEnabled.value = !val;
-    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
+    const ok = await saveConfig("telegram_enabled", val ? "true" : "false", $t("page.system.config.remarkTelegramEnabled"));
+    if (ok) {
+      message.success(val ? $t("page.system.config.telegramEnabledMsg") : $t("page.system.config.telegramDisabledMsg"));
+    } else {
+      telegramEnabled.value = !val;
+    }
   } finally {
     savingTelegram.value = false;
   }
@@ -247,15 +212,11 @@ async function handleToggleTelegram(val: boolean) {
 async function handleSaveTelegram() {
   savingTelegram.value = true;
   try {
-    await saveConfig("telegram_bot_token", telegramBotToken.value, "Telegram Bot Token");
-    await saveConfig(
-      "telegram_webhook_url",
-      telegramWebhookUrl.value,
-      $t("page.system.config.remarkTelegramWebhook")
-    );
-    message.success($t("page.system.config.telegramSaved"));
-  } catch (err: any) {
-    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
+    const ok = await saveConfigs([
+      ["telegram_bot_token", telegramBotToken.value, "Telegram Bot Token"],
+      ["telegram_webhook_url", telegramWebhookUrl.value, $t("page.system.config.remarkTelegramWebhook")],
+    ]);
+    if (ok) message.success($t("page.system.config.telegramSaved"));
   } finally {
     savingTelegram.value = false;
   }
@@ -264,29 +225,13 @@ async function handleSaveTelegram() {
 async function handleSaveTimeout() {
   savingTimeout.value = true;
   try {
-    await saveConfig(
-      "ai_timeout_minutes",
-      String(aiTimeoutMinutes.value),
-      $t("page.system.config.remarkAiTimeout")
-    );
-    await saveConfig(
-      "ai_tls_handshake_timeout",
-      String(aiTlsHandshakeTimeout.value),
-      $t("page.system.config.remarkAiTlsHandshake")
-    );
-    await saveConfig(
-      "ai_response_header_timeout",
-      String(aiResponseHeaderTimeout.value),
-      $t("page.system.config.remarkAiResponseHeader")
-    );
-    await saveConfig(
-      "http_timeout_seconds",
-      String(httpTimeoutSeconds.value),
-      $t("page.system.config.remarkHttpTimeout")
-    );
-    message.success($t("page.system.config.timeoutSaved"));
-  } catch (err: any) {
-    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
+    const ok = await saveConfigs([
+      ["ai_timeout_minutes", String(aiTimeoutMinutes.value), $t("page.system.config.remarkAiTimeout")],
+      ["ai_tls_handshake_timeout", String(aiTlsHandshakeTimeout.value), $t("page.system.config.remarkAiTlsHandshake")],
+      ["ai_response_header_timeout", String(aiResponseHeaderTimeout.value), $t("page.system.config.remarkAiResponseHeader")],
+      ["http_timeout_seconds", String(httpTimeoutSeconds.value), $t("page.system.config.remarkHttpTimeout")],
+    ]);
+    if (ok) message.success($t("page.system.config.timeoutSaved"));
   } finally {
     savingTimeout.value = false;
   }
@@ -295,11 +240,12 @@ async function handleSaveTimeout() {
 async function handleToggleSmtp(val: boolean) {
   savingSmtp.value = true;
   try {
-    await saveConfig("smtp_enabled", val ? "true" : "false", $t("page.system.config.remarkSmtpEnabled"));
-    message.success(val ? $t("page.system.config.smtpEnabledMsg") : $t("page.system.config.smtpDisabledMsg"));
-  } catch (err: any) {
-    smtpEnabled.value = !val;
-    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
+    const ok = await saveConfig("smtp_enabled", val ? "true" : "false", $t("page.system.config.remarkSmtpEnabled"));
+    if (ok) {
+      message.success(val ? $t("page.system.config.smtpEnabledMsg") : $t("page.system.config.smtpDisabledMsg"));
+    } else {
+      smtpEnabled.value = !val;
+    }
   } finally {
     savingSmtp.value = false;
   }
@@ -308,20 +254,16 @@ async function handleToggleSmtp(val: boolean) {
 async function handleSaveSmtp() {
   savingSmtp.value = true;
   try {
-    await saveConfig("smtp_host", smtpHost.value, $t("page.system.config.remarkSmtpHost"));
-    await saveConfig("smtp_port", String(smtpPort.value), $t("page.system.config.remarkSmtpPort"));
-    await saveConfig(
-      "smtp_encryption",
-      smtpEncryption.value,
-      $t("page.system.config.remarkSmtpEncryption")
-    );
-    await saveConfig("smtp_user", smtpUser.value, $t("page.system.config.remarkSmtpUser"));
-    await saveConfig("smtp_password", smtpPassword.value, $t("page.system.config.remarkSmtpPassword"));
-    await saveConfig("smtp_from", smtpFrom.value, $t("page.system.config.remarkSmtpFrom"));
-    await saveConfig("smtp_from_name", smtpFromName.value, $t("page.system.config.remarkSmtpFromName"));
-    message.success($t("page.system.config.smtpSaved"));
-  } catch (err: any) {
-    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
+    const ok = await saveConfigs([
+      ["smtp_host", smtpHost.value, $t("page.system.config.remarkSmtpHost")],
+      ["smtp_port", String(smtpPort.value), $t("page.system.config.remarkSmtpPort")],
+      ["smtp_encryption", smtpEncryption.value, $t("page.system.config.remarkSmtpEncryption")],
+      ["smtp_user", smtpUser.value, $t("page.system.config.remarkSmtpUser")],
+      ["smtp_password", smtpPassword.value, $t("page.system.config.remarkSmtpPassword")],
+      ["smtp_from", smtpFrom.value, $t("page.system.config.remarkSmtpFrom")],
+      ["smtp_from_name", smtpFromName.value, $t("page.system.config.remarkSmtpFromName")],
+    ]);
+    if (ok) message.success($t("page.system.config.smtpSaved"));
   } finally {
     savingSmtp.value = false;
   }
@@ -330,11 +272,12 @@ async function handleSaveSmtp() {
 async function handleToggleS3(val: boolean) {
   savingS3.value = true;
   try {
-    await saveConfig("s3_enabled", val ? "true" : "false", $t("page.system.config.remarkS3Enabled"));
-    message.success(val ? $t("page.system.config.s3EnabledMsg") : $t("page.system.config.s3DisabledMsg"));
-  } catch (err: any) {
-    s3Enabled.value = !val;
-    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
+    const ok = await saveConfig("s3_enabled", val ? "true" : "false", $t("page.system.config.remarkS3Enabled"));
+    if (ok) {
+      message.success(val ? $t("page.system.config.s3EnabledMsg") : $t("page.system.config.s3DisabledMsg"));
+    } else {
+      s3Enabled.value = !val;
+    }
   } finally {
     savingS3.value = false;
   }
@@ -343,22 +286,18 @@ async function handleToggleS3(val: boolean) {
 async function handleSaveS3() {
   savingS3.value = true;
   try {
-    await saveConfig("s3_enabled", s3Enabled.value ? "true" : "false", $t("page.system.config.remarkS3Enabled"));
-    await saveConfig("s3_endpoint", s3Endpoint.value, $t("page.system.config.remarkS3Endpoint"));
-    await saveConfig("s3_region", s3Region.value, $t("page.system.config.remarkS3Region"));
-    await saveConfig("s3_bucket", s3Bucket.value, "S3 Bucket");
-    await saveConfig("s3_access_key", s3AccessKey.value, "S3 Access Key");
-    await saveConfig("s3_secret_key", s3SecretKey.value, "S3 Secret Key");
-    await saveConfig("s3_secure", s3Secure.value ? "true" : "false", $t("page.system.config.remarkS3Secure"));
-    await saveConfig(
-      "s3_use_path_style",
-      s3UsePathStyle.value ? "true" : "false",
-      $t("page.system.config.remarkS3PathStyle")
-    );
-    await saveConfig("s3_max_upload_mb", String(s3MaxUploadMB.value), $t("page.system.config.remarkS3MaxUpload"));
-    message.success($t("page.system.config.s3Saved"));
-  } catch (err: any) {
-    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
+    const ok = await saveConfigs([
+      ["s3_enabled", s3Enabled.value ? "true" : "false", $t("page.system.config.remarkS3Enabled")],
+      ["s3_endpoint", s3Endpoint.value, $t("page.system.config.remarkS3Endpoint")],
+      ["s3_region", s3Region.value, $t("page.system.config.remarkS3Region")],
+      ["s3_bucket", s3Bucket.value, "S3 Bucket"],
+      ["s3_access_key", s3AccessKey.value, "S3 Access Key"],
+      ["s3_secret_key", s3SecretKey.value, "S3 Secret Key"],
+      ["s3_secure", s3Secure.value ? "true" : "false", $t("page.system.config.remarkS3Secure")],
+      ["s3_use_path_style", s3UsePathStyle.value ? "true" : "false", $t("page.system.config.remarkS3PathStyle")],
+      ["s3_max_upload_mb", String(s3MaxUploadMB.value), $t("page.system.config.remarkS3MaxUpload")],
+    ]);
+    if (ok) message.success($t("page.system.config.s3Saved"));
   } finally {
     savingS3.value = false;
   }
@@ -389,8 +328,6 @@ async function handleTestS3() {
       return;
     }
     message.success(data.message || $t("page.system.config.s3TestSuccess"));
-  } catch (err: any) {
-    message.error($t("page.system.config.s3TestFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     testingS3.value = false;
   }
@@ -399,11 +336,12 @@ async function handleTestS3() {
 async function handleToggleRag(val: boolean) {
   savingRag.value = true;
   try {
-    await saveConfig("rag_enabled", val ? "true" : "false", $t("page.system.config.remarkRagEnabled"));
-    message.success(val ? $t("page.system.config.ragEnabledMsg") : $t("page.system.config.ragDisabledMsg"));
-  } catch (err: any) {
-    ragEnabled.value = !val;
-    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
+    const ok = await saveConfig("rag_enabled", val ? "true" : "false", $t("page.system.config.remarkRagEnabled"));
+    if (ok) {
+      message.success(val ? $t("page.system.config.ragEnabledMsg") : $t("page.system.config.ragDisabledMsg"));
+    } else {
+      ragEnabled.value = !val;
+    }
   } finally {
     savingRag.value = false;
   }
@@ -412,20 +350,16 @@ async function handleToggleRag(val: boolean) {
 async function handleSaveRag() {
   savingRag.value = true;
   try {
-    await saveConfig("rag_enabled", ragEnabled.value ? "true" : "false", $t("page.system.config.remarkRagEnabled"));
-    await saveConfig(
-      "rag_embedding_base_url",
-      ragBaseUrl.value,
-      $t("page.system.config.remarkRagBaseUrl")
-    );
-    await saveConfig("rag_embedding_model", ragModel.value, $t("page.system.config.remarkRagModel"));
-    await saveConfig("rag_embedding_api_key", ragApiKey.value, $t("page.system.config.remarkRagApiKey"));
-    await saveConfig("rag_chunk_size", String(ragChunkSize.value), $t("page.system.config.remarkRagChunkSize"));
-    await saveConfig("rag_chunk_overlap", String(ragChunkOverlap.value), $t("page.system.config.remarkRagChunkOverlap"));
-    await saveConfig("rag_top_k", String(ragTopK.value), $t("page.system.config.remarkRagTopK"));
-    message.success($t("page.system.config.ragSaved"));
-  } catch (err: any) {
-    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
+    const ok = await saveConfigs([
+      ["rag_enabled", ragEnabled.value ? "true" : "false", $t("page.system.config.remarkRagEnabled")],
+      ["rag_embedding_base_url", ragBaseUrl.value, $t("page.system.config.remarkRagBaseUrl")],
+      ["rag_embedding_model", ragModel.value, $t("page.system.config.remarkRagModel")],
+      ["rag_embedding_api_key", ragApiKey.value, $t("page.system.config.remarkRagApiKey")],
+      ["rag_chunk_size", String(ragChunkSize.value), $t("page.system.config.remarkRagChunkSize")],
+      ["rag_chunk_overlap", String(ragChunkOverlap.value), $t("page.system.config.remarkRagChunkOverlap")],
+      ["rag_top_k", String(ragTopK.value), $t("page.system.config.remarkRagTopK")],
+    ]);
+    if (ok) message.success($t("page.system.config.ragSaved"));
   } finally {
     savingRag.value = false;
   }
@@ -452,8 +386,6 @@ async function handleTestEmbedding() {
       return;
     }
     message.success(data.message || $t("page.system.config.connectionSuccess"));
-  } catch (err: any) {
-    message.error($t("page.system.config.embeddingTestFailedWithReason", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     testingEmbedding.value = false;
   }
@@ -466,28 +398,18 @@ async function handleSaveMqtt() {
   }
   savingMqtt.value = true;
   try {
-    const { data, error } = await updateWolConfig({
+    const { error } = await updateWolConfig({
       host: mqttHost.value.trim(),
       port: mqttPort.value,
       username: mqttUsername.value.trim(),
       password: mqttPassword.value
     });
-    if (error || !data) {
-      message.error(
-        $t("page.system.config.saveFailed", {
-          error: error?.message || $t("page.system.config.unknownError")
-        })
-      );
+    if (error) {
+      message.error($t("page.system.config.saveFailed", { error: error.message || $t("page.system.config.unknownError") }));
       return;
     }
     mqttPassword.value = "";
     message.success($t("page.system.config.mqttSaved"));
-  } catch (err: any) {
-    message.error(
-      $t("page.system.config.saveFailed", {
-        error: err?.message || $t("page.system.config.unknownError")
-      })
-    );
   } finally {
     savingMqtt.value = false;
   }
@@ -496,15 +418,16 @@ async function handleSaveMqtt() {
 async function handleToggleMemory(val: boolean) {
   savingMemory.value = true;
   try {
-    await saveConfig(
+    const ok = await saveConfig(
       "memory_extraction_enabled",
       val ? "true" : "false",
       $t("page.system.config.remarkMemoryEnabled")
     );
-    message.success(val ? $t("page.system.config.memoryEnabledMsg") : $t("page.system.config.memoryDisabledMsg"));
-  } catch (err: any) {
-    memoryEnabled.value = !val;
-    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
+    if (ok) {
+      message.success(val ? $t("page.system.config.memoryEnabledMsg") : $t("page.system.config.memoryDisabledMsg"));
+    } else {
+      memoryEnabled.value = !val;
+    }
   } finally {
     savingMemory.value = false;
   }
@@ -513,24 +436,12 @@ async function handleToggleMemory(val: boolean) {
 async function handleSaveMemory() {
   savingMemory.value = true;
   try {
-    await saveConfig(
-      "memory_extraction_model",
-      memoryExtractionModel.value,
-      $t("page.system.config.remarkMemoryModel")
-    );
-    await saveConfig(
-      "memory_session_idle_minutes",
-      String(memoryIdleMinutes.value),
-      $t("page.system.config.remarkMemoryIdle")
-    );
-    await saveConfig(
-      "memory_min_min_user_messages",
-      String(memoryMinUserMessages.value),
-      $t("page.system.config.remarkMemoryMinMessages")
-    );
-    message.success($t("page.system.config.memorySaved"));
-  } catch (err: any) {
-    message.error($t("page.system.config.saveFailed", { error: err?.message || $t("page.system.config.unknownError") }));
+    const ok = await saveConfigs([
+      ["memory_extraction_model", memoryExtractionModel.value, $t("page.system.config.remarkMemoryModel")],
+      ["memory_session_idle_minutes", String(memoryIdleMinutes.value), $t("page.system.config.remarkMemoryIdle")],
+      ["memory_min_min_user_messages", String(memoryMinUserMessages.value), $t("page.system.config.remarkMemoryMinMessages")],
+    ]);
+    if (ok) message.success($t("page.system.config.memorySaved"));
   } finally {
     savingMemory.value = false;
   }
@@ -552,7 +463,7 @@ async function handleSendTestEmail() {
   }
   sendingTestEmail.value = true;
   try {
-    await request({
+    const { error } = await request({
       url: "/api/admin/system-config/test-email",
       method: "post",
       data: {
@@ -561,10 +472,12 @@ async function handleSendTestEmail() {
         content: testEmailForm.value.content,
       },
     });
+    if (error) {
+      message.error($t("page.system.config.sendFailed", { error: error.message || $t("page.system.config.unknownError") }));
+      return;
+    }
     message.success($t("page.system.config.testEmailSent"));
     showTestEmailModal.value = false;
-  } catch (err: any) {
-    message.error($t("page.system.config.sendFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     sendingTestEmail.value = false;
   }

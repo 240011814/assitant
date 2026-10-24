@@ -38,6 +38,9 @@ const canView = computed(() => hasAuth('tool:mihoyo:view'));
 const loading = ref(false);
 const bindStatus = ref<Api.Mihoyo.BindStatus | null>(null);
 
+// ---------- 签到信息查询 (不触发签到) ----------
+const checkinStatusInfo = ref<Api.Mihoyo.CheckinStatus | null>(null);
+
 async function loadBindStatus() {
   if (!canView.value) return;
   loading.value = true;
@@ -52,9 +55,6 @@ async function loadBindStatus() {
   }
   loading.value = false;
 }
-
-// ---------- 签到信息查询 (不触发签到) ----------
-const checkinStatusInfo = ref<Api.Mihoyo.CheckinStatus | null>(null);
 
 // 全部角色今日已签 → 隐藏「立即签到」按钮
 const allSignedToday = computed(() => {

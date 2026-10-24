@@ -49,7 +49,8 @@ export const useAppStore = defineStore(SetupStoreId.App, () => {
     routeStore.resetRouteCache();
   }
 
-  const locale = ref<App.I18n.LangType>(localStg.get('lang') || 'zh-CN');
+  // 单语策略: 固定 zh-CN, 不再读取历史存储的语言偏好 (切换入口已在 theme/settings.ts 隐藏)
+  const locale = ref<App.I18n.LangType>('zh-CN');
 
   const localeOptions: App.I18n.LangOption[] = [
     {

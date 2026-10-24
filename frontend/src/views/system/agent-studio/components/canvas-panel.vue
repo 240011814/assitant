@@ -32,6 +32,8 @@ const emit = defineEmits<{
   'duplicate-node': [id: string];
   'add-node': [type: string, position: { x: number; y: number }];
   'delete-edge': [id: string];
+  /** 画布任何节点/边变更 (拖动/连线/选中/删除), 父级据此清除过期的错误高亮 */
+  'canvas-change': [];
 }>();
 
 const message = useMessage();
@@ -347,6 +349,8 @@ function menuAddNode(type: string) {
       @node-context-menu="openNodeMenu"
       @edge-context-menu="openEdgeMenu"
       @pane-context-menu="openPaneMenu"
+      @nodes-change="emit('canvas-change')"
+      @edges-change="emit('canvas-change')"
     >
       <Background :gap="16" />
       <MiniMap pannable zoomable />

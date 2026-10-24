@@ -141,17 +141,17 @@ export const useAuthStore = defineStore(SetupStoreId.Auth, () => {
     const { data: loginResult, error } = await fetchLogin(userName, password);
 
     if (!error) {
-      // Check if 2FA is required
-      if (loginResult && 'need2fa' in loginResult && (loginResult as any).need2fa) {
+      // 已开启 2FA 的账号: 后端仅返回 { need2fa: true, tempToken }, 先验码再换正式 token
+      if (loginResult && 'need2fa' in loginResult) {
         twoFAState.need2FA = true;
-        twoFAState.tempToken = (loginResult as any).tempToken || '';
-        localStg.set('temp2faToken', (loginResult as any).tempToken || '');
+        twoFAState.tempToken = loginResult.tempToken || '';
+        localStg.set('temp2faToken', loginResult.tempToken || '');
         endLoading();
         return;
       }
 
       // Normal login (no 2FA)
-      const pass = await loginByToken(loginResult as Api.Auth.LoginToken);
+      const pass = await loginByToken(loginResult);
 
       if (pass) {
         twoFAState.need2FA = false;

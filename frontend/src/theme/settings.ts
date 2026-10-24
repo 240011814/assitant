@@ -27,8 +27,10 @@ export const themeSettings: App.Theme.ThemeSetting = {
       visible: true,
       showIcon: true
     },
+    // 语言切换已收归单语策略: 业务页面均为硬编码中文 (en-US 译文从未补齐, 切过去半中半英),
+    // 固定 zh-CN 并隐藏切换入口; i18n 基础设施保留给模板壳层文案
     multilingual: {
-      visible: true
+      visible: false
     },
     globalSearch: {
       visible: true

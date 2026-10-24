@@ -1,7 +1,5 @@
 import { request } from '../request';
-import { getAuthorization, handleExpiredRequest } from '../request/shared';
-import { getServiceBaseURL } from '@/utils/service';
-import { request as requestInstance } from '../request';
+import { fetchSSEWithAuthRetry } from './sse';
 
 /** 编排 DSL 节点 */
 export interface OrchNode {
@@ -113,52 +111,7 @@ export async function fetchOrchestrationDebugRun(data: {
   signal?: AbortSignal;
 }): Promise<Response> {
   const { signal, ...payload } = data;
-  const isHttpProxy = import.meta.env.DEV && import.meta.env.VITE_HTTP_PROXY === 'Y';
-  const { baseURL } = getServiceBaseURL(import.meta.env, isHttpProxy);
-
-  let Authorization = getAuthorization();
-
-  let response = await fetch(`${baseURL}/api/agent-studio/debug`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: Authorization || '',
-    },
-    body: JSON.stringify(payload),
-    signal,
-  });
-
-  if (response.ok) {
-    try {
-      const contentType = response.headers.get('content-type');
-      if (contentType?.includes('text/event-stream')) {
-        return response;
-      }
-      if (contentType?.includes('application/json')) {
-        const errorData = await response.json();
-        const expiredTokenCodes = import.meta.env.VITE_SERVICE_EXPIRED_TOKEN_CODES?.split(',') || [];
-        if (expiredTokenCodes.includes(String(errorData.code))) {
-          const success = await handleExpiredRequest(requestInstance.state);
-          if (success) {
-            Authorization = getAuthorization();
-            response = await fetch(`${baseURL}/api/agent-studio/debug`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: Authorization || '',
-              },
-              body: JSON.stringify(payload),
-              signal,
-            });
-          }
-        }
-      }
-    } catch {
-      // token 检查失败不阻断流式请求
-    }
-  }
-
-  return response;
+  return fetchSSEWithAuthRetry('/api/agent-studio/debug', payload, signal);
 }
 
 /** 训练中心「编排对话」精简信息 */
@@ -202,58 +155,14 @@ export async function fetchOrchestrationChatRun(data: {
   historyId?: number;
   signal?: AbortSignal;
 }): Promise<Response> {
-  const { signal } = data;
-  const isHttpProxy = import.meta.env.DEV && import.meta.env.VITE_HTTP_PROXY === 'Y';
-  const { baseURL } = getServiceBaseURL(import.meta.env, isHttpProxy);
-
-  const url = `${baseURL}/api/ai-orchestrations/${data.id}/chat`;
-  const body = JSON.stringify({
-    input: data.input,
-    history: data.history,
-    history_id: data.historyId || 0,
-  });
-
-  let Authorization = getAuthorization();
-
-  let response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: Authorization || '',
+  const { signal, id } = data;
+  return fetchSSEWithAuthRetry(
+    `/api/ai-orchestrations/${id}/chat`,
+    {
+      input: data.input,
+      history: data.history,
+      history_id: data.historyId || 0
     },
-    body,
-    signal,
-  });
-
-  if (response.ok) {
-    try {
-      const contentType = response.headers.get('content-type');
-      if (contentType?.includes('text/event-stream')) {
-        return response;
-      }
-      if (contentType?.includes('application/json')) {
-        const errorData = await response.json();
-        const expiredTokenCodes = import.meta.env.VITE_SERVICE_EXPIRED_TOKEN_CODES?.split(',') || [];
-        if (expiredTokenCodes.includes(String(errorData.code))) {
-          const success = await handleExpiredRequest(requestInstance.state);
-          if (success) {
-            Authorization = getAuthorization();
-            response = await fetch(url, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: Authorization || '',
-              },
-              body,
-              signal,
-            });
-          }
-        }
-      }
-    } catch {
-      // token 检查失败不阻断流式请求
-    }
-  }
-
-  return response;
+    signal
+  );
 }

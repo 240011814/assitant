@@ -33,6 +33,8 @@ function formatTime(t: string | null) {
   return d.toLocaleString('zh-CN', { hour12: false })
 }
 
+const togglingId = ref<number | null>(null)
+
 const columns = computed<DataTableColumns<Api.Stock.StockAlert>>(() => [
   {
     title: $t('page.tool.stockAlert.code'),
@@ -95,8 +97,6 @@ const columns = computed<DataTableColumns<Api.Stock.StockAlert>>(() => [
       )
   }
 ])
-
-const togglingId = ref<number | null>(null)
 
 async function loadAlerts() {
   loading.value = true

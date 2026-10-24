@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { NButton, NCard, NDropdown, NEmpty, NInput, NModal, NPopconfirm, NSpace, NSwitch, NTag, useMessage } from 'naive-ui';
 import { useAppStore } from '@/store/modules/app';
 import { useAuth } from '@/hooks/business/auth';
@@ -84,6 +84,7 @@ function loadDefinition(definition: string) {
     flowNodes.value = [];
     flowEdges.value = [];
   }
+  clearErrorNodes();
 }
 
 function handleDuplicateNode(nodeId: string) {
@@ -99,6 +100,7 @@ function handleDuplicateNode(nodeId: string) {
     data: JSON.parse(JSON.stringify(source.data))
   });
   selectedNodeId.value = id;
+  clearErrorNodes();
   message.success('已复制节点');
 }
 
@@ -123,6 +125,7 @@ function makeNode(nodeType: string, position: { x: number; y: number }) {
     }
   });
   selectedNodeId.value = id;
+  clearErrorNodes();
 }
 
 // ---------- 新建 (从模板) ----------
@@ -139,7 +142,7 @@ function applyTemplate(t: OrchestrationTemplate) {
   currentEnabled.value = true;
   nodeTraces.value = {};
   selectedNodeId.value = null;
-  // 模板定义即标准 DSL, 复用 loadDefinition 铺画布 (画布数组替换时深 watch 会清除错误高亮)
+  // 模板定义即标准 DSL, 复用 loadDefinition 铺画布 (loadDefinition 内会清除错误高亮)
   loadDefinition(JSON.stringify(t.definition));
   showCreateModal.value = false;
   if (t.hint) {
@@ -277,8 +280,9 @@ function clearErrorNodes() {
   if (errorNodeIds.value.length > 0) errorNodeIds.value = [];
 }
 
-// 画布任何改动后旧的高亮即失效
-watch([flowNodes, flowEdges], clearErrorNodes, { deep: true });
+// 画布改动后旧的高亮即失效: 画布内交互 (拖动/连线/删除) 走 canvas-change 事件,
+// 程序化修改 (配置面板写回/加减节点/加载定义) 在修改处显式调用 clearErrorNodes。
+// 此前用 deep watch 监听整个节点图, 拖动节点时每帧全量深比较, 已移除。
 
 async function handleValidate() {
   validating.value = true;
@@ -329,6 +333,7 @@ function handleUpdateNodeData(data: { name: string; config: Record<string, any> 
   const node = flowNodes.value.find(n => n.id === selectedNodeId.value);
   if (node) {
     node.data = { ...node.data, ...data };
+    clearErrorNodes();
   }
 }
 
@@ -336,10 +341,12 @@ function handleDeleteNode(nodeId: string) {
   flowNodes.value = flowNodes.value.filter(n => n.id !== nodeId);
   flowEdges.value = flowEdges.value.filter(e => e.source !== nodeId && e.target !== nodeId);
   selectedNodeId.value = null;
+  clearErrorNodes();
 }
 
 function handleDeleteEdge(edgeId: string) {
   flowEdges.value = flowEdges.value.filter(e => e.id !== edgeId);
+  clearErrorNodes();
 }
 
 const addNodeOptions = nodeTypeOptions().map(o => ({ label: o.label, key: o.value }));
@@ -458,6 +465,7 @@ onMounted(() => {
           @duplicate-node="handleDuplicateNode"
           @add-node="handleCanvasAddNode"
           @delete-edge="handleDeleteEdge"
+          @canvas-change="clearErrorNodes"
         />
       </NCard>
 

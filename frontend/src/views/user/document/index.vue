@@ -29,7 +29,6 @@ async function loadStatus() {
     statusLoading.value = false;
   }
 }
-const featureEnabled = computed(() => !docStatus.value || docStatus.value.enabled);
 const maxMB = computed(() => docStatus.value?.max_upload_mb || FALLBACK_MAX_MB);
 
 const loading = ref(false);

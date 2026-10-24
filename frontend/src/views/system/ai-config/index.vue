@@ -222,7 +222,10 @@ function handleEditTool(row: Api.Admin.AITool) {
     Object.keys(parsed).forEach((k) => {
       values[k] = String(parsed[k]);
     });
-  } catch {}
+  } catch (err) {
+    // 配置 JSON 损坏时降级为空表单, 但留痕便于排查脏数据
+    console.warn("工具配置 JSON 解析失败:", row.name, err);
+  }
   if (meta) {
     meta.params?.forEach((p) => {
       if (!(p.name in values)) values[p.name] = p.default || "";

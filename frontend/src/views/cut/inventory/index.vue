@@ -154,9 +154,9 @@ async function batchRemove() {
   if (checkedKeys.value.length === 0) return;
   batchDeleting.value = true;
   try {
-    const { data, error } = await batchDeleteCutScraps({ ids: checkedKeys.value });
+    const { data: res, error } = await batchDeleteCutScraps({ ids: checkedKeys.value });
     if (error) return;
-    message.success($t('page.cut.stockDeletedCount', { count: data?.deleted ?? checkedKeys.value.length }));
+    message.success($t('page.cut.stockDeletedCount', { count: res?.deleted ?? checkedKeys.value.length }));
     checkedKeys.value = [];
     getData();
   } finally {

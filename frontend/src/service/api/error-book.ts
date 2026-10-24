@@ -11,7 +11,7 @@ export function fetchAddErrorBook(data: {
   sourceType?: string;
   sourceId?: number;
 }) {
-  return request<any>({
+  return request<Api.ErrorBook.Item>({
     url: '/api/error-book',
     method: 'post',
     data
@@ -27,7 +27,7 @@ export function fetchGetErrorBookList(params?: {
   keyword?: string;
   isMastered?: boolean;
 }) {
-  return request<any[]>({
+  return request<Api.ErrorBook.Item[]>({
     url: '/api/error-book',
     method: 'get',
     params
@@ -41,7 +41,7 @@ export function fetchGetErrorBookList(params?: {
 export function fetchGetErrorBookForPractice(params?: {
   contentType?: string;
 }) {
-  return request<any[]>({
+  return request<Api.ErrorBook.Item[]>({
     url: '/api/error-book/practice',
     method: 'get',
     params
@@ -95,7 +95,7 @@ export function fetchDeleteErrorBook(id: number) {
  * @param params 查询参数
  */
 export function fetchGetRandomErrorBooks(params: { count?: number; contentType?: string }) {
-  return request<any[]>({
+  return request<Api.ErrorBook.Item[]>({
     url: '/api/error-book/random',
     method: 'get',
     params

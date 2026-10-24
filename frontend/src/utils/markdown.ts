@@ -2,8 +2,7 @@ import DOMPurify from 'dompurify';
 import MarkdownIt from 'markdown-it';
 import texmath from 'markdown-it-texmath';
 import katex from 'katex';
-// lib/common 只打包常用语言 (~40 种), 比全量 highlight.js 小很多
-import hljs from 'highlight.js/lib/common';
+import hljs from './highlight';
 import 'katex/dist/katex.min.css';
 
 /** 与 markdown-it utils.escapeHtml 等价的独立实现 (highlight 回调里不能引用 md 自身, 否则循环类型推断报 TS7022) */

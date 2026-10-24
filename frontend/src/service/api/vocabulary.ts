@@ -11,7 +11,7 @@ export function fetchAddVocabulary(data: {
   example?: string;
   sourceContext?: string;
 }) {
-  return request<any>({
+  return request<Api.Vocabulary.Item>({
     url: '/api/vocabulary',
     method: 'post',
     data
@@ -23,7 +23,7 @@ export function fetchAddVocabulary(data: {
  * @param params 查询参数, ids 为逗号分隔的主键串(如 '1,2,3'), 后端按主键过滤
  */
 export function fetchGetVocabularyList(params?: { keyword?: string; isMastered?: boolean; ids?: string }) {
-  return request<any[]>({
+  return request<Api.Vocabulary.Item[]>({
     url: '/api/vocabulary',
     method: 'get',
     params
@@ -64,7 +64,7 @@ export function fetchUpdateVocabulary(id: number, data: {
  * @param params 查询参数
  */
 export function fetchGetRandomVocabulary(params: { count?: number; isMastered?: boolean }) {
-  return request<any[]>({
+  return request<Api.Vocabulary.Item[]>({
     url: '/api/vocabulary/random',
     method: 'get',
     params

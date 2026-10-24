@@ -20,7 +20,8 @@ import {
   fetchSwitchUserPrompt,
   fetchDeleteUserPromptVersion,
 } from "@/service/api";
-import { format } from "date-fns";
+import type { UserPromptVersion } from "@/service/api";
+import dayjs from "dayjs";
 
  
 const props = defineProps<{
@@ -38,7 +39,7 @@ const saving = ref(false);
 const promptData = ref({
   effective_prompt: "",
   default_prompt: props.defaultPrompt,
-  versions: [] as any[],
+  versions: [] as UserPromptVersion[],
   is_customized: false,
 });
 
@@ -591,7 +592,7 @@ function getDiffLineClass(line: DiffLine) {
                     </div>
                     <div class="flex flex-col">
                       <span class="text-xs text-gray-400">{{
-                        format(new Date(v.created_at), "yyyy-MM-dd HH:mm")
+                        dayjs(v.created_at).format("YYYY-MM-DD HH:mm")
                       }}</span>
                     </div>
                   </div>

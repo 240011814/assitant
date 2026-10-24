@@ -2,7 +2,7 @@
 import { computed, h, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { NButton, useMessage } from 'naive-ui'
 import { useAppStore } from '@/store/modules/app'
-import hljs from 'highlight.js/lib/common'
+import hljs from '@/utils/highlight'
 import { useAuth } from '@/hooks/business/auth'
 import {
   clearWolRelay,
@@ -47,7 +47,11 @@ const wakeForm = reactive({ mac: '', ip: '' })
 
 // 调试弹窗
 const debugModalVisible = ref(false)
+
 const debugForm = reactive({ topic: '', payload: '' })
+// 发送区 JSON 实时校验 (sendDebug/模板状态均引用)
+const payloadError = computed(() => Boolean(debugForm.payload.trim()) && prettyJson(debugForm.payload) === null)
+
 
 // OTA 升级弹窗 (状态/进度来自设备状态快照的 version + ota 字段, 随 5s 轮询刷新)
 const otaModalVisible = ref(false)
@@ -356,8 +360,6 @@ function editReport(msg: { topic: string; pretty: string | null; payload: string
   debugForm.payload = msg.pretty ?? msg.payload
 }
 
-// 发送区 JSON 实时校验
-const payloadError = computed(() => Boolean(debugForm.payload.trim()) && prettyJson(debugForm.payload) === null)
 
 function formatPayload() {
   const pretty = prettyJson(debugForm.payload)

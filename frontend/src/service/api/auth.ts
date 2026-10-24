@@ -7,7 +7,8 @@ import { request } from '../request';
  * @param password Password
  */
 export function fetchLogin(userName: string, password: string) {
-  return request<Api.Auth.LoginToken>({
+  // 已开启 2FA 的账号返回 { need2fa, tempToken } 而非正式 token
+  return request<Api.Auth.LoginToken | Api.Auth.LoginTwoFAChallenge>({
     url: '/auth/login',
     method: 'post',
     data: {

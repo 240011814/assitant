@@ -199,7 +199,7 @@ function buildConditions(): Api.Stock.FilterCondition[] {
     } else if (f.value !== null) {
       conditions.push({
         field: f.field,
-        operator: f.operator as any,
+        operator: f.operator as Api.Stock.FilterCondition['operator'],
         value: f.value
       })
     }
