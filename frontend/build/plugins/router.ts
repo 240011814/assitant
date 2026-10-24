@@ -22,7 +22,7 @@ const customRouteMeta: Partial<Record<RouteKey, Partial<RouteMeta>>> = {
   ai_quiz: { icon: 'mdi:card-multiple-outline', permissions: ['ai:vocabulary:view'], order: 9, keepAlive: true },
   ai_reading: { icon: 'mdi:book-open-page-variant', permissions: ['ai:vocabulary:view'], order: 10, keepAlive: true },
   'ai_reading-detail': { permissions: ['ai:vocabulary:view'], hideInMenu: true },
-  ai_rss: { icon: 'mdi:rss', permissions: ['ai:vocabulary:view'], order: 11, keepAlive: true },
+  ai_rss: { icon: 'mdi:rss', permissions: ['ai:vocabulary:view'], order: 11, keepAlive: true, hideInMenu: true },
   ai_training: { icon: 'mdi:school-outline', order: 1, keepAlive: true },
   ai_vocabulary: { icon: 'mdi:book-open-outline', permissions: ['ai:vocabulary:view'], order: 6 },
   cut: { icon: 'mdi:scissors-cutting', order: 4, permissions: ['cut:menu:view'] },
