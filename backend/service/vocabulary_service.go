@@ -604,8 +604,8 @@ func (s *VocabularyService) ExtractWordsFromDocument(userID, documentID uint, li
 	}
 
 	var items []model.ImportWordItem
-	if err := json.Unmarshal([]byte(extractJSON(raw)), &items); err != nil {
-		return nil, errors.New("AI 返回格式异常")
+	if err := decodeLLMArray(raw, &items); err != nil {
+		return nil, errors.New("提取生词失败: AI 返回格式异常 (详见后端日志)")
 	}
 	return s.ImportWords(userID, items, "文档提取")
 }

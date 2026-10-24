@@ -181,7 +181,11 @@ func (s *ReadingService) StartAnnotate(userID, id uint) (*model.ReadingDoc, erro
 		return nil, errors.New("文档不存在")
 	}
 	if doc.Status == "annotating" {
-		return nil, errors.New("正在标注中, 请稍候")
+		// 进程在标注中途重启会把状态卡死在 annotating: 超过 10 分钟视为陈旧, 允许重新触发
+		if time.Since(doc.UpdatedAt) < 10*time.Minute {
+			return nil, errors.New("正在标注中, 请稍候")
+		}
+		log.Printf("reading annotate #%d 状态卡在 annotating 超过 10 分钟, 允许重试", id)
 	}
 	if err := DB.Model(&doc).Update("status", "annotating").Error; err != nil {
 		return nil, err

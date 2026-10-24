@@ -30,8 +30,17 @@ const stopPassagePolling = () => {
 
 const pollPassageJob = () => {
   stopPassagePolling()
+  let attempts = 0
   passagePollTimer = window.setInterval(async () => {
     if (!passageJobId.value) return
+    attempts += 1
+    // 上限 ~8 分钟: 超过则停轮询, 任务仍在后台跑, 完成后刷新列表可见
+    if (attempts > 160) {
+      stopPassagePolling()
+      passageJobId.value = null
+      message.info('课文仍在后台生成, 稍后刷新列表查看')
+      return
+    }
     const { data: job, error } = await fetchGetGenerationJob(passageJobId.value)
     if (error || !job) return
     if (job.status === 'running') return

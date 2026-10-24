@@ -92,7 +92,15 @@ const stopAnnotatePolling = () => {
 
 const startAnnotatePolling = () => {
   stopAnnotatePolling();
+  let attempts = 0;
   annotatePollTimer = window.setInterval(async () => {
+    attempts += 1;
+    // 上限 ~8 分钟: 超过则停轮询 (后端 10 分钟后会自动解锁该文档, 可手动重试)
+    if (attempts > 160) {
+      stopAnnotatePolling();
+      message.info("标注仍在后台进行, 稍后刷新页面查看结果");
+      return;
+    }
     const { data: resp, error } = await fetchGetReadingDoc(docId);
     if (error || !resp || resp.doc.status === "annotating") return;
     stopAnnotatePolling();
