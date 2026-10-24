@@ -1,9 +1,5 @@
 import { request } from '../request';
 
-/** 慢 LLM 请求 (全文标注/课文生成) 的超时: 后端专用超时 4 分钟, 前端放宽到 250s 取后端结构化错误而非本地超时 */
-const SLOW_LLM_TIMEOUT = 250 * 1000;
-
-/** 阅读文档 (列表项) */
 export interface ReadingDoc {
   id: number;
   title: string;
@@ -34,6 +30,15 @@ export interface DictionaryEntry {
   definition: string;
   translation: string;
   example: string;
+}
+
+/** 慢 LLM 生成任务 (Cloudflare 对源站有 100s 上限, 此类操作一律异步 + 轮询) */
+export interface AITextJob {
+  id: number;
+  kind: 'passage' | string;
+  status: 'running' | 'done' | 'failed';
+  resultId: number;
+  error: string;
 }
 
 /** 导入阅读材料 (URL 或文本) */
@@ -69,12 +74,11 @@ export function fetchDeleteReadingDoc(id: number) {
   });
 }
 
-/** LLM 标注生词 (同步, 耗时与文章长度相关) */
+/** LLM 标注生词 (异步启动, 立即返回 annotating; 轮询 fetchGetReadingDoc 取结果) */
 export function fetchAnnotateReadingDoc(id: number) {
-  return request<ReadingDocDetail>({
+  return request<ReadingDoc>({
     url: `/api/reading/docs/${id}/annotate`,
-    method: 'post',
-    timeout: SLOW_LLM_TIMEOUT
+    method: 'post'
   });
 }
 
@@ -87,12 +91,19 @@ export function fetchLookupWord(word: string) {
   });
 }
 
-/** AI 生成个性化课文 (落成课程包) */
+/** AI 写课文 (异步任务, 立即返回; 轮询 fetchGetGenerationJob 取结果) */
 export function fetchGeneratePassage(data: { wordIds?: number[]; sentenceCount?: number }) {
-  return request<{ course: { id: number; title: string }; usedWords: string[] }>({
+  return request<AITextJob>({
     url: '/api/reading/generate-passage',
     method: 'post',
-    data,
-    timeout: SLOW_LLM_TIMEOUT
+    data
+  });
+}
+
+/** 查询慢生成任务状态 */
+export function fetchGetGenerationJob(id: number) {
+  return request<AITextJob>({
+    url: `/api/reading/generation-jobs/${id}`,
+    method: 'get'
   });
 }

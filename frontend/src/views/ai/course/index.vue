@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, onActivated } from 'vue'
+import { ref, onMounted, onActivated, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useMessage, NCard, NButton, NTag, NEmpty, NSpin, NModal, NForm, NFormItem, NInput, NSwitch, NSpace, NPopconfirm, NPagination, NSelect } from 'naive-ui'
-import { fetchCourseList, fetchCreateCourse, fetchUpdateCourse, fetchDeleteCourse, fetchTrainingStatus, fetchUpdateTrainingStatus } from '@/service/api';
+import { useMessage, NCard, NButton, NTag, NEmpty, NSpin, NModal, NForm, NFormItem, NInput, NSwitch, NSpace, NPopconfirm, NPagination, NSelect, NInputNumber } from 'naive-ui'
+import { fetchCourseList, fetchCreateCourse, fetchUpdateCourse, fetchDeleteCourse, fetchTrainingStatus, fetchUpdateTrainingStatus, fetchGeneratePassage, fetchGetGenerationJob, fetchGetVocabularyList } from '@/service/api';
 import type { Course, UserCourseTraining } from '@/service/api';
 import { useAuth } from '@/hooks/business/auth'
 
@@ -11,6 +11,66 @@ defineOptions({ name: 'AiCourse' })
 const router = useRouter()
 const message = useMessage()
 const { hasAuth } = useAuth()
+
+// ===================== AI 写课文 (异步任务 + 轮询) =====================
+const showPassageModal = ref(false)
+const passageStarting = ref(false)
+const passageWordIds = ref<number[]>([])
+const passageSentenceCount = ref(8)
+const vocabOptions = ref<{ label: string; value: number }[]>([])
+const passageJobId = ref<number | null>(null)
+let passagePollTimer: number | null = null
+
+const stopPassagePolling = () => {
+  if (passagePollTimer !== null) {
+    window.clearInterval(passagePollTimer)
+    passagePollTimer = null
+  }
+}
+
+const pollPassageJob = () => {
+  stopPassagePolling()
+  passagePollTimer = window.setInterval(async () => {
+    if (!passageJobId.value) return
+    const { data: job, error } = await fetchGetGenerationJob(passageJobId.value)
+    if (error || !job) return
+    if (job.status === 'running') return
+    stopPassagePolling()
+    passageJobId.value = null
+    if (job.status === 'done') {
+      message.success('AI 课文生成完成, 已加入课程包列表')
+      // eslint-disable-next-line @typescript-eslint/no-use-before-define
+      loadCourses()
+    } else {
+      message.error(`AI 课文生成失败: ${job.error || '未知错误'}`)
+    }
+  }, 3000)
+}
+
+const openPassageModal = async () => {
+  showPassageModal.value = true
+  if (vocabOptions.value.length === 0) {
+    const { data: resp } = await fetchGetVocabularyList({ isMastered: false })
+    vocabOptions.value = (resp || []).slice(0, 200).map((v: any) => ({ label: v.word, value: v.id }))
+  }
+}
+
+const handleGeneratePassage = async () => {
+  passageStarting.value = true
+  const { data: job, error } = await fetchGeneratePassage({
+    wordIds: passageWordIds.value.length > 0 ? passageWordIds.value : undefined,
+    sentenceCount: passageSentenceCount.value
+  })
+  passageStarting.value = false
+  if (error || !job) {
+    message.error('启动生成失败')
+    return
+  }
+  passageJobId.value = job.id
+  showPassageModal.value = false
+  message.info('已开始生成, 完成后会自动出现在课程包列表 (可离开本页)')
+  pollPassageJob()
+}
 
 const loading = ref(false)
 const courses = ref<Course[]>([])
@@ -222,15 +282,22 @@ onActivated(() => {
     hasActivated = true
   }
 })
+
+onUnmounted(() => {
+  stopPassagePolling()
+})
 </script>
 
 <template>
   <div class="h-full flex flex-col p-4 gap-4">
     <div class="flex items-center justify-between">
       <h2 class="text-2xl font-bold">课程包管理</h2>
-      <NButton v-if="hasAuth('ai:course:create')" type="primary" @click="handleCreate">
-        创建课程包
-      </NButton>
+      <NSpace>
+        <NButton type="info" @click="openPassageModal">AI 写课文</NButton>
+        <NButton v-if="hasAuth('ai:course:create')" type="primary" @click="handleCreate">
+          创建课程包
+        </NButton>
+      </NSpace>
     </div>
 
     <div class="flex items-center gap-4">
@@ -368,6 +435,34 @@ onActivated(() => {
         />
       </div>
     </template>
+
+    <NModal
+      v-model:show="showPassageModal"
+      title="AI 写课文"
+      preset="card"
+      :style="{ width: '560px' }"
+    >
+      <div class="flex flex-col gap-4 py-2">
+        <div class="text-sm text-gray-500">
+          选一批生词, AI 会把它们自然织进一篇短文并落成课程包, 可直接做听写和翻译练习。
+          不选词则自动取最早加入的新词。生成在后台进行, 完成后自动出现在列表。
+        </div>
+        <NSelect
+          v-model:value="passageWordIds"
+          :options="vocabOptions"
+          multiple
+          filterable
+          clearable
+          placeholder="选择要织入的生词 (可空)"
+          :max-tag-count="5"
+        />
+        <div class="flex items-center gap-4">
+          <span class="text-sm">句子数量</span>
+          <NInputNumber v-model:value="passageSentenceCount" :min="3" :max="20" style="width: 120px" />
+          <NButton type="primary" :loading="passageStarting" @click="handleGeneratePassage">开始生成</NButton>
+        </div>
+      </div>
+    </NModal>
 
     <NModal
       v-model:show="showModal"

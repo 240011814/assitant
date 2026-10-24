@@ -204,6 +204,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			readingGroup.DELETE("/docs/:id", api.RequirePermission("ai:vocabulary:delete"), readingHandler.HandleDeleteReadingDoc)
 			readingGroup.POST("/docs/:id/annotate", readingHandler.HandleAnnotateReadingDoc)
 			readingGroup.GET("/lookup", readingHandler.HandleLookupWord)
+			readingGroup.GET("/generation-jobs/:id", readingHandler.HandleGetGenerationJob)
 			readingGroup.POST("/generate-passage", readingHandler.HandleGeneratePassage)
 		}
 

@@ -74,7 +74,7 @@ func (h *ReadingHandler) HandleDeleteReadingDoc(c *gin.Context) {
 	SendSuccess(c, nil)
 }
 
-// HandleAnnotateReadingDoc LLM 标注生词 (同步, 耗时与文章长度相关)
+// HandleAnnotateReadingDoc 异步启动 LLM 标注 (立即返回 annotating, 前端轮询文档状态)
 func (h *ReadingHandler) HandleAnnotateReadingDoc(c *gin.Context) {
 	userId := GetUserID(c)
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
@@ -82,12 +82,28 @@ func (h *ReadingHandler) HandleAnnotateReadingDoc(c *gin.Context) {
 		SendError(c, "400", "文档 ID 不合法")
 		return
 	}
-	doc, words, err := h.svc.AnnotateDoc(userId, uint(id))
+	doc, err := h.svc.StartAnnotate(userId, uint(id))
 	if err != nil {
-		SendError(c, "500", "标注失败: "+err.Error())
+		SendError(c, "500", "启动标注失败: "+err.Error())
 		return
 	}
-	SendSuccess(c, gin.H{"doc": doc, "difficultWords": words})
+	SendSuccess(c, doc)
+}
+
+// HandleGetGenerationJob 查询慢生成任务状态 (AI 写课文等, 前端轮询)
+func (h *ReadingHandler) HandleGetGenerationJob(c *gin.Context) {
+	userId := GetUserID(c)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		SendError(c, "400", "任务 ID 不合法")
+		return
+	}
+	job, err := h.svc.GetGenerationJob(userId, uint(id))
+	if err != nil {
+		SendError(c, "500", "查询任务失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, job)
 }
 
 // HandleLookupWord 点词即查 (词典缓存)
@@ -106,7 +122,7 @@ func (h *ReadingHandler) HandleLookupWord(c *gin.Context) {
 	SendSuccess(c, entry)
 }
 
-// HandleGeneratePassage AI 生成个性化课文 (落成课程包)
+// HandleGeneratePassage 异步启动 AI 写课文 (返回任务, 前端轮询)
 func (h *ReadingHandler) HandleGeneratePassage(c *gin.Context) {
 	userId := GetUserID(c)
 	var req model.GeneratePassageRequest
@@ -114,10 +130,10 @@ func (h *ReadingHandler) HandleGeneratePassage(c *gin.Context) {
 		SendError(c, "400", "请求参数错误")
 		return
 	}
-	course, words, err := h.svc.GeneratePassage(userId, req)
+	job, err := h.svc.StartGeneratePassage(userId, req)
 	if err != nil {
-		SendError(c, "500", "生成课文失败: "+err.Error())
+		SendError(c, "500", "启动生成失败: "+err.Error())
 		return
 	}
-	SendSuccess(c, gin.H{"course": course, "usedWords": words})
+	SendSuccess(c, job)
 }

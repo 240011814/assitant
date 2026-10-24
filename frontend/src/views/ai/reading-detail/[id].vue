@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { useMessage } from "naive-ui";
 import {
@@ -20,7 +20,8 @@ const docId = Number(route.params.id);
 const doc = ref<(ReadingDoc & { content: string }) | null>(null);
 const difficultWords = ref<DifficultWord[]>([]);
 const loading = ref(false);
-const annotating = ref(false);
+// 标注是异步任务 (Cloudflare 100s 源站响应上限), annotating 态由文档状态驱动
+const annotating = computed(() => doc.value?.status === "annotating");
 
 // 点词查词
 const showWordModal = ref(false);
@@ -72,20 +73,50 @@ const loadDoc = async () => {
   }
   doc.value = resp.doc;
   difficultWords.value = resp.difficultWords || [];
+  // 页面打开时若标注仍在后台进行, 继续轮询
+  if (resp.doc.status === "annotating") {
+    // eslint-disable-next-line @typescript-eslint/no-use-before-define
+    startAnnotatePolling();
+  }
+};
+
+// 标注任务轮询: 3s 一次, 状态离开 annotating 即收口
+let annotatePollTimer: number | null = null;
+
+const stopAnnotatePolling = () => {
+  if (annotatePollTimer !== null) {
+    window.clearInterval(annotatePollTimer);
+    annotatePollTimer = null;
+  }
+};
+
+const startAnnotatePolling = () => {
+  stopAnnotatePolling();
+  annotatePollTimer = window.setInterval(async () => {
+    const { data: resp, error } = await fetchGetReadingDoc(docId);
+    if (error || !resp || resp.doc.status === "annotating") return;
+    stopAnnotatePolling();
+    doc.value = resp.doc;
+    difficultWords.value = resp.difficultWords || [];
+    if (resp.doc.status === "annotated") {
+      message.success("标注完成");
+    } else if (resp.doc.status === "failed") {
+      message.error("标注失败, 可点击重试");
+    }
+  }, 3000);
 };
 
 const handleAnnotate = async () => {
-  annotating.value = true;
-  message.info("正在标注生词, 视文章长度可能需要数十秒...");
   const { data: resp, error } = await fetchAnnotateReadingDoc(docId);
-  annotating.value = false;
   if (error || !resp) {
-    message.error("标注失败");
+    message.error("启动标注失败");
     return;
   }
-  doc.value = resp.doc;
-  difficultWords.value = resp.difficultWords || [];
-  message.success("标注完成");
+  if (doc.value) {
+    doc.value.status = resp.status;
+  }
+  message.info("已开始标注, 完成后自动刷新");
+  startAnnotatePolling();
 };
 
 const handleWordClick = async (word: string) => {
@@ -128,6 +159,10 @@ const handleAddToVocabulary = async () => {
 onMounted(() => {
   loadDoc();
 });
+
+onUnmounted(() => {
+  stopAnnotatePolling();
+});
 </script>
 
 <template>
@@ -147,9 +182,10 @@ onMounted(() => {
           <NButton
             type="primary"
             :loading="annotating"
+            :disabled="annotating"
             @click="handleAnnotate"
           >
-            {{ doc?.status === 'annotated' ? '重新标注生词' : 'AI 标注生词' }}
+            {{ annotating ? '标注中...' : (doc?.status === 'annotated' ? '重新标注生词' : 'AI 标注生词') }}
           </NButton>
         </div>
       </template>

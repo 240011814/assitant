@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -169,19 +170,37 @@ func (s *ReadingService) DeleteDoc(userID, id uint) error {
 	return DB.Where("id = ? AND user_id = ?", id, userID).Delete(&model.ReadingDoc{}).Error
 }
 
-// AnnotateDoc LLM 标注生词: 产出超纲词清单 + 生词率 (同步调用, 已有词自动标记 known)
-func (s *ReadingService) AnnotateDoc(userID, id uint) (*model.ReadingDoc, []model.DifficultWord, error) {
+// StartAnnotate 异步启动生词标注: 立即置 annotating 并返回, LLM 在后台执行。
+// Cloudflare 对源站响应有 100s 上限, 同步等 LLM 必 504, 故一律异步 + 前端轮询文档状态
+func (s *ReadingService) StartAnnotate(userID, id uint) (*model.ReadingDoc, error) {
 	if s.agentSvc == nil {
-		return nil, nil, errors.New("AI 服务未启用")
+		return nil, errors.New("AI 服务未启用")
 	}
 	var doc model.ReadingDoc
 	if err := DB.Where("id = ? AND user_id = ?", id, userID).First(&doc).Error; err != nil {
-		return nil, nil, errors.New("文档不存在")
+		return nil, errors.New("文档不存在")
 	}
 	if doc.Status == "annotating" {
-		return nil, nil, errors.New("正在标注中, 请稍候")
+		return nil, errors.New("正在标注中, 请稍候")
 	}
-	DB.Model(&doc).Update("status", "annotating")
+	if err := DB.Model(&doc).Update("status", "annotating").Error; err != nil {
+		return nil, err
+	}
+	SafeGo("reading:annotate", func() {
+		if err := s.annotateDocSync(userID, id); err != nil {
+			log.Printf("reading annotate #%d failed: %v", id, err)
+		}
+	})
+	doc.Status = "annotating"
+	return &doc, nil
+}
+
+// annotateDocSync 标注主体 (后台协程执行): 产出超纲词清单 + 生词率, 失败置 failed 供重试
+func (s *ReadingService) annotateDocSync(userID, id uint) error {
+	var doc model.ReadingDoc
+	if err := DB.Where("id = ?", id).First(&doc).Error; err != nil {
+		return err
+	}
 
 	text := doc.Content
 	if len(text) > 15000 {
@@ -193,13 +212,13 @@ func (s *ReadingService) AnnotateDoc(userID, id uint) (*model.ReadingDoc, []mode
 	raw, err := s.agentSvc.GenerateTextWithTimeout(userID, "", system, user, slowGenTimeout)
 	if err != nil {
 		DB.Model(&doc).Update("status", "failed")
-		return nil, nil, fmt.Errorf("标注失败: %w", err)
+		return fmt.Errorf("标注失败: %w", err)
 	}
 
 	var flagged []model.DifficultWord
 	if err := json.Unmarshal([]byte(extractJSON(raw)), &flagged); err != nil || len(flagged) == 0 {
 		DB.Model(&doc).Update("status", "failed")
-		return nil, nil, errors.New("AI 返回格式异常")
+		return errors.New("AI 返回格式异常")
 	}
 
 	// 标记已在生词本中的词
@@ -209,33 +228,26 @@ func (s *ReadingService) AnnotateDoc(userID, id uint) (*model.ReadingDoc, []mode
 		for _, w := range known {
 			knownSet[strings.ToLower(w)] = true
 		}
-		unknown := 0
 		for i := range flagged {
 			flagged[i].Known = knownSet[strings.ToLower(flagged[i].Word)]
-			if !flagged[i].Known {
-				unknown++
-			}
 		}
 	}
-	if doc.WordCount > 0 {
-		unknownCount := 0
-		for _, f := range flagged {
-			if !f.Known {
-				unknownCount++
-			}
+	unknownCount := 0
+	for _, f := range flagged {
+		if !f.Known {
+			unknownCount++
 		}
-		doc.UnknownRate = float64(unknownCount) / float64(doc.WordCount)
+	}
+	unknownRate := 0.0
+	if doc.WordCount > 0 {
+		unknownRate = float64(unknownCount) / float64(doc.WordCount)
 	}
 	rawWords, _ := json.Marshal(flagged)
-	updates := map[string]interface{}{
+	return DB.Model(&doc).Updates(map[string]interface{}{
 		"difficult_words": string(rawWords),
-		"unknown_rate":    doc.UnknownRate,
+		"unknown_rate":    unknownRate,
 		"status":          "annotated",
-	}
-	if err := DB.Model(&doc).Updates(updates).Error; err != nil {
-		return nil, nil, err
-	}
-	return &doc, flagged, nil
+	}).Error
 }
 
 // LookupWord 点词即查: 词典缓存优先, 未命中走 LLM 并写入缓存
@@ -272,12 +284,44 @@ func (s *ReadingService) LookupWord(userID uint, word string) (*model.Dictionary
 	return &entry, nil
 }
 
-// GeneratePassage AI 生成个性化课文: 把指定新词自然织入短文, 落成课程包 (可接着做听写/翻译练习)
-func (s *ReadingService) GeneratePassage(userID uint, req model.GeneratePassageRequest) (*model.Course, []string, error) {
+// StartGeneratePassage 异步启动 AI 写课文: 建 ai_text_jobs 任务行后立即返回,
+// LLM 在后台执行, 前端轮询任务状态 (Cloudflare 100s 源站响应上限, 不能同步等)
+func (s *ReadingService) StartGeneratePassage(userID uint, req model.GeneratePassageRequest) (*model.AITextJob, error) {
 	if s.agentSvc == nil || s.courseSvc == nil {
-		return nil, nil, errors.New("AI 服务未启用")
+		return nil, errors.New("AI 服务未启用")
 	}
+	job := &model.AITextJob{UserID: userID, Kind: "passage", Status: "running"}
+	if err := DB.Create(job).Error; err != nil {
+		return nil, err
+	}
+	SafeGo("reading:generate-passage", func() {
+		updates := map[string]interface{}{}
+		course, _, err := s.generatePassageSync(userID, req)
+		if err != nil {
+			updates["status"] = "failed"
+			updates["error"] = err.Error()
+		} else {
+			updates["status"] = "done"
+			updates["result_id"] = course.ID
+		}
+		if err := DB.Model(&model.AITextJob{}).Where("id = ?", job.ID).Updates(updates).Error; err != nil {
+			log.Printf("reading passage job #%d update failed: %v", job.ID, err)
+		}
+	})
+	return job, nil
+}
 
+// GetGenerationJob 查询慢生成任务状态 (前端轮询)
+func (s *ReadingService) GetGenerationJob(userID, jobID uint) (*model.AITextJob, error) {
+	var job model.AITextJob
+	if err := DB.Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
+		return nil, errors.New("任务不存在")
+	}
+	return &job, nil
+}
+
+// generatePassageSync 课文生成主体 (后台协程执行): 把指定新词自然织入短文, 落成课程包
+func (s *ReadingService) generatePassageSync(userID uint, req model.GeneratePassageRequest) (*model.Course, []string, error) {
 	var words []model.Vocabulary
 	if len(req.WordIDs) > 0 {
 		if err := DB.Where("user_id = ? AND id IN ?", userID, req.WordIDs).Find(&words).Error; err != nil {
