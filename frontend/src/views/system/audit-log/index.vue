@@ -83,6 +83,19 @@ const columns = [
       h(NTag, { size: 'small', type: row.success ? 'success' : 'error', bordered: false }, { default: () => (row.success ? '成功' : '失败') })
   },
   { title: '业务码', key: 'statusCode', width: 80 },
+  {
+    title: '失败原因',
+    key: 'errorMsg',
+    minWidth: 220,
+    render: (row: Api.AuditLog.OperationAuditLog) => {
+      if (row.success || !row.errorMsg) return '-';
+      return h(
+        'span',
+        { class: 'text-red-500', title: row.errorMsg },
+        row.errorMsg.length > 60 ? `${row.errorMsg.slice(0, 60)}...` : row.errorMsg
+      );
+    }
+  },
   { title: '耗时', key: 'latencyMs', width: 90, render: (row: Api.AuditLog.OperationAuditLog) => `${row.latencyMs}ms` },
   { title: 'IP', key: 'ip', width: 140 },
   { title: '来源', key: 'userAgent', width: 160, ellipsis: { tooltip: true } },
