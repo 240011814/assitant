@@ -461,7 +461,6 @@ const goBack = () => {
 onMounted(() => {
   loadData();
   window.addEventListener("keydown", handleGlobalKeydown);
-  window.speechSynthesis.getVoices();
 });
 
 onUnmounted(() => {

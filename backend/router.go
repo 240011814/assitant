@@ -42,6 +42,7 @@ type appDeps struct {
 	noteHandler          *api.NoteHandler
 	reminderHandler      *api.ReminderHandler
 	systemConfigHandler  *api.SystemConfigHandler
+	ttsHandler           *api.TtsHandler
 	telegramHandler      *api.TelegramHandler
 	userPrefHandler      *api.UserPreferenceHandler
 	wolMqttHandler       *api.WolMqttHandler
@@ -52,6 +53,7 @@ type appDeps struct {
 func setupRouter(r *gin.Engine, d *appDeps) {
 	authService := d.authService
 	systemConfigHandler := d.systemConfigHandler
+	ttsHandler := d.ttsHandler
 	telegramHandler := d.telegramHandler
 	userPrefHandler := d.userPrefHandler
 	reminderHandler := d.reminderHandler
@@ -133,6 +135,10 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 		apiGroup.GET("/telegram/status", telegramHandler.HandleGetTelegramStatus)
 		apiGroup.POST("/telegram/bind-code", telegramHandler.HandleGenerateBindCode)
 		apiGroup.POST("/telegram/unbind", telegramHandler.HandleUnbindTelegram)
+
+		// TTS 语音合成 (按系统配置 tts_mode 分流: 前端本地朗读 / OpenAI 兼容 / Edge 在线)
+		apiGroup.GET("/tts/config", ttsHandler.HandleGetConfig)
+		apiGroup.GET("/tts", ttsHandler.HandleSynthesize)
 
 		// Reminders
 		apiGroup.GET("/reminders", reminderHandler.List)
@@ -576,6 +582,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 				configGroup.POST("/test-email", systemConfigHandler.SendTestEmail)
 				configGroup.POST("/test-embedding", systemConfigHandler.HandleTestEmbedding)
 				configGroup.POST("/test-s3", systemConfigHandler.HandleTestS3)
+				configGroup.POST("/test-tts", ttsHandler.HandleTestTts)
 			}
 
 			// Job Management (定时任务后台管理)

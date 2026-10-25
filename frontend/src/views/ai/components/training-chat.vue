@@ -731,12 +731,8 @@ const handleAddExpression = (expr: ExpressionSuggestion) => {
 };
 
 const handlePlay = async (text: string) => {
-  if (!window.speechSynthesis) {
-    message.error("您的浏览器不支持语音播放");
-    return;
-  }
-
   try {
+    // 朗读走统一 tts.ts: 服务端模式不依赖浏览器 speechSynthesis, 缺失时 speak 内部抛错
     await speak(text, { lang: props.speechLang, rate: props.speechRate });
   } catch (err) {
     message.error("语音播放失败");

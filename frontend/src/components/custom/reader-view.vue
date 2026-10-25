@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
 import { fetchLookupWord, fetchAddVocabulary, fetchTranslateText, fetchReadingHeartbeat } from "@/service/api";
 import type { DictionaryEntry } from "@/service/api";
-import { speak } from "@/utils/tts";
+import { speak, stopSpeak } from "@/utils/tts";
 import { useReaderPreferences } from "@/hooks/common/reader-preferences";
 
 /**
@@ -226,7 +226,7 @@ defineExpose({
   scrollToTop
 });
 
-// ===================== 全文朗读 (逐块高亮跟随) =====================
+// ===================== 全文朗读 (逐块高亮跟随, 统一走 tts.ts) =====================
 const speaking = ref(false);
 let speakQueue: HTMLElement[] = [];
 let speakIndex = 0;
@@ -244,7 +244,7 @@ const clearSpeakingHighlight = () => {
   scrollRef.value?.querySelectorAll(".reader-speaking").forEach((el) => el.classList.remove("reader-speaking"));
 };
 
-const speakNext = () => {
+const speakNext = async () => {
   if (!speaking.value || speakIndex >= speakQueue.length) {
     stopSpeaking();
     return;
@@ -253,15 +253,17 @@ const speakNext = () => {
   clearSpeakingHighlight();
   el.classList.add("reader-speaking");
   el.scrollIntoView({ behavior: "smooth", block: "center" });
-  const utter = new SpeechSynthesisUtterance(el.textContent || "");
-  utter.lang = contentLang();
-  utter.rate = 0.95;
-  utter.onend = () => {
-    speakIndex += 1;
-    speakNext();
-  };
-  utter.onerror = () => stopSpeaking();
-  window.speechSynthesis.speak(utter);
+  try {
+    await speak(el.textContent || "", { lang: contentLang(), rate: 0.95 });
+  } catch (err) {
+    console.error("朗读失败:", err);
+    stopSpeaking();
+    return;
+  }
+  // 播放结束/被取消后若已停止朗读则不再继续
+  if (!speaking.value) return;
+  speakIndex += 1;
+  speakNext();
 };
 
 const toggleSpeaking = () => {
@@ -284,7 +286,7 @@ const toggleSpeaking = () => {
 
 function stopSpeaking() {
   speaking.value = false;
-  window.speechSynthesis.cancel();
+  stopSpeak();
   clearSpeakingHighlight();
 }
 

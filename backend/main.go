@@ -129,9 +129,14 @@ func main() {
 	reminderHandler := api.NewReminderHandler(reminderService)
 	tools.SetReminderService(reminderService)
 
+	// TTS 语音合成 (tts_mode: frontend/openai/edge, 配置页保存后热刷新)
+	ttsService := service.NewTtsService(systemConfigService)
+	ttsHandler := api.NewTtsHandler(ttsService)
+
 	systemConfigHandler := api.NewSystemConfigHandler(systemConfigService, telegramService, emailNotifier, aiAgentService)
 	systemConfigHandler.SetUserDocumentService(userDocumentService)
 	systemConfigHandler.SetRAGService(ragService)
+	systemConfigHandler.SetTtsService(ttsService)
 
 	userPrefService := service.NewUserPreferenceService()
 	userPrefHandler := api.NewUserPreferenceHandler(userPrefService)
@@ -247,6 +252,7 @@ func main() {
 		noteHandler:          noteHandler,
 		reminderHandler:      reminderHandler,
 		systemConfigHandler:  systemConfigHandler,
+		ttsHandler:           ttsHandler,
 		telegramHandler:      telegramHandler,
 		userPrefHandler:      userPrefHandler,
 		wolMqttHandler:       wolMqttHandler,

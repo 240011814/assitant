@@ -19,6 +19,7 @@ type SystemConfigHandler struct {
 	emailNotifier   *service.EmailNotifier
 	docSvc          *service.UserDocumentService
 	ragSvc          *service.RagService
+	ttsSvc          *service.TtsService
 }
 
 func NewSystemConfigHandler(configSvc *service.SystemConfigService, telegramService *service.TelegramService, emailNotifier *service.EmailNotifier, aiAgentSvc ...*service.AIAgentService) *SystemConfigHandler {
@@ -41,6 +42,11 @@ func (h *SystemConfigHandler) SetUserDocumentService(docSvc *service.UserDocumen
 // SetRAGService 注入 RAG 服务 (rag_* 配置变更后热刷新 + 嵌入测试连接用)
 func (h *SystemConfigHandler) SetRAGService(ragSvc *service.RagService) {
 	h.ragSvc = ragSvc
+}
+
+// SetTtsService 注入 TTS 服务 (tts_* 配置变更后热刷新)
+func (h *SystemConfigHandler) SetTtsService(ttsSvc *service.TtsService) {
+	h.ttsSvc = ttsSvc
 }
 
 func (h *SystemConfigHandler) GetAll(c *gin.Context) {
@@ -127,6 +133,17 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 		if req.Key == key {
 			if h.ragSvc != nil {
 				go h.ragSvc.RefreshConfig()
+			}
+			break
+		}
+	}
+
+	// TTS (语音朗读) 配置变更后热刷新
+	ttsKeys := []string{"tts_mode", "tts_openai_base_url", "tts_openai_api_key", "tts_openai_model", "tts_openai_voice", "tts_edge_voice_en", "tts_edge_voice_zh", "tts_cache_dir"}
+	for _, key := range ttsKeys {
+		if req.Key == key {
+			if h.ttsSvc != nil {
+				go h.ttsSvc.RefreshConfig()
 			}
 			break
 		}
