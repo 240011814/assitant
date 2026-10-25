@@ -349,48 +349,65 @@ const speakUtterance = (
 // ===================== 长文本分块 =====================
 
 /**
- * 按句子边界切块 (中英文标点都认), 单句超长再硬切。
+ * 按句子边界切分为句元组 (中英文标点都认), 单句超长再硬切。
  * 桌面 Chrome 用网络音源时单条 utterance 约 15 秒会被掐断, 必须分块排队;
  * 服务端模式分块还能提高缓存命中率 (单词/短句重复播放免合成)。
+ * 注意: 不在这里做长度重组, 交给 groupByLang 按语言分组后再合并。
  */
 const SENTENCE_SPLIT = /([.!?？！。；;…]+[\s"'"”）)\]】]*)/;
 
-const splitText = (text: string, maxLen: number): string[] => {
+const splitSentences = (text: string, maxLen: number): string[] => {
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (!normalized) return [];
-  if (normalized.length <= maxLen) return [normalized];
 
   // split 的捕获组使「正文与分隔符」交替出现, 两两合并成一个句子单元
   const pieces = normalized.split(SENTENCE_SPLIT);
   const units: string[] = [];
   for (let i = 0; i < pieces.length; i += 2) {
     const unit = ((pieces[i] || '') + (pieces[i + 1] || '')).trim();
-    if (unit) units.push(unit);
-  }
-
-  const chunks: string[] = [];
-  let buf = '';
-  const flush = () => {
-    if (buf.trim()) chunks.push(buf.trim());
-    buf = '';
-  };
-  for (const unit of units) {
+    if (!unit) continue;
     if (unit.length > maxLen) {
-      flush();
-      for (let i = 0; i < unit.length; i += maxLen) {
-        chunks.push(unit.slice(i, i + maxLen).trim());
+      for (let j = 0; j < unit.length; j += maxLen) {
+        units.push(unit.slice(j, j + maxLen).trim());
       }
-      continue;
+    } else {
+      units.push(unit);
     }
-    if ((buf + unit).length > maxLen) flush();
-    buf += unit;
   }
-  flush();
-  return chunks.filter(Boolean);
+  return units.filter(Boolean);
 };
 
 /** 每次调用 speak 递增，用于让「已取消/已过时」的播放任务作废 */
 let speakToken = 0;
+
+/** 块级语言检测: CJK 字符占比高视为中文, 否则用调用方默认语言 (支持中英混排逐句切音色) */
+const detectChunkLang = (text: string, fallback: string): string => {
+  let cjk = 0;
+  for (const ch of text) {
+    if (ch >= '\u4e00' && ch <= '\u9fff') cjk += 1;
+  }
+  return cjk * 2 > text.length ? 'zh-CN' : fallback;
+};
+
+interface SpeechSegment {
+  text: string;
+  lang: string;
+}
+
+/** 相邻同语言句块合并成段 (合并后不超 maxLen), 每段用各自语言请求合成/选音色 */
+const groupByLang = (chunks: string[], fallback: string, maxLen: number): SpeechSegment[] => {
+  const segs: SpeechSegment[] = [];
+  for (const chunk of chunks) {
+    const lang = detectChunkLang(chunk, fallback);
+    const last = segs[segs.length - 1];
+    if (last && last.lang === lang && last.text.length + chunk.length + 1 <= maxLen) {
+      last.text += ` ${chunk}`;
+    } else {
+      segs.push({ text: chunk, lang });
+    }
+  }
+  return segs;
+};
 
 const speakViaBrowser = async (
   text: string,
@@ -399,19 +416,30 @@ const speakViaBrowser = async (
   token: number,
   voiceName?: string
 ) => {
-  const chunks = splitText(text, 180);
-  for (let i = 0; i < chunks.length; i += 1) {
+  const units = splitSentences(text, 180);
+  const segs = groupByLang(units, lang, 180);
+  for (let i = 0; i < segs.length; i += 1) {
     if (token !== speakToken) return;
     // eslint-disable-next-line no-await-in-loop
-    await speakUtterance(chunks[i], lang, rate, token, i === 0, voiceName);
+    await speakUtterance(segs[i].text, segs[i].lang, rate, token, i === 0, voiceName);
   }
 };
 
 // ===================== 服务端合成播放 (openai / edge 模式) =====================
 
+// 单一持久 Audio 元素: 部分国产移动浏览器 (vivo/UC/QQ 等) 对频繁新建媒体元素
+// 或连续多次 blob 播放有限制, 复用同一元素换 src 是兼容性最好的做法
 let audioEl: HTMLAudioElement | null = null;
 let audioUrl: string | null = null;
 let audioCancel: (() => void) | null = null;
+
+const getAudioEl = (): HTMLAudioElement => {
+  if (!audioEl) {
+    audioEl = new Audio();
+    audioEl.preload = 'auto';
+  }
+  return audioEl;
+};
 
 const stopAudio = () => {
   if (audioCancel) {
@@ -420,9 +448,12 @@ const stopAudio = () => {
     cancel();
   }
   if (audioEl) {
-    audioEl.pause();
+    try {
+      audioEl.pause();
+    } catch {
+      /* 忽略 */
+    }
     audioEl.removeAttribute('src');
-    audioEl = null;
   }
   if (audioUrl) {
     URL.revokeObjectURL(audioUrl);
@@ -430,33 +461,63 @@ const stopAudio = () => {
   }
 };
 
+/** 网络层失败判定 (TypeError: failed to fetch 等), 仅这类错误做自动重试 */
+const isNetworkError = (err: unknown): boolean => {
+  const msg = String((err as Error)?.message || err).toLowerCase();
+  return msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('load failed') || msg.includes('network request failed');
+};
+
 const fetchAudio = async (text: string, lang: string, rate: number): Promise<Blob> => {
   const query = new URLSearchParams({ text, lang, rate: String(rate) });
-  const res = await fetch(`${baseURL}/api/tts?${query.toString()}`, { headers: authHeaders() });
-  if (!res.ok) {
-    throw new Error(`TTS HTTP ${res.status}`);
-  }
-  const contentType = res.headers.get('content-type') || '';
-  if (!contentType.includes('audio')) {
-    // 后端统一 JSON 错误体 (如 frontend 模式 404 / 合成失败 500)
-    let msg = 'TTS 服务错误';
+  const url = `${baseURL}/api/tts?${query.toString()}`;
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const json = await res.json();
-      msg = json?.msg || msg;
-    } catch {
-      /* 保留默认消息 */
+      const res = await fetch(url, { headers: authHeaders() });
+      if (!res.ok) {
+        throw new Error(`语音服务错误 (${res.status})`);
+      }
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('audio')) {
+        // 后端统一 JSON 错误体 (如 frontend 模式 404 / 合成失败 500)
+        let msg = 'TTS 服务错误';
+        try {
+          const json = await res.json();
+          msg = json?.msg || msg;
+        } catch {
+          /* 保留默认消息 */
+        }
+        throw new Error(msg);
+      }
+      return await res.blob();
+    } catch (err) {
+      lastErr = err;
+      // 业务错误 (状态码/参数) 不重试; 移动网络抖动重试一次
+      if (attempt === 0 && isNetworkError(err)) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise(r => window.setTimeout(r, 600));
+        continue;
+      }
+      if (isNetworkError(err)) {
+        throw new Error('网络异常,无法获取语音');
+      }
+      throw err;
     }
-    throw new Error(msg);
   }
-  return res.blob();
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 };
 
 const playBlob = (blob: Blob, token: number) =>
   new Promise<void>((resolve, reject) => {
+    const el = getAudioEl();
+    // 清理上一段的 URL 与取消器 (元素本身复用)
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+      audioUrl = null;
+    }
+    audioCancel = null;
     const url = URL.createObjectURL(blob);
     audioUrl = url;
-    const el = new Audio(url);
-    audioEl = el;
     let done = false;
 
     const finish = () => {
@@ -488,21 +549,52 @@ const playBlob = (blob: Blob, token: number) =>
       return;
     }
 
-    el.addEventListener('ended', finish);
-    el.addEventListener('error', fail);
-    el.play().catch(fail);
+    // 持久元素必须用 on* 赋值 (addEventListener 会跨句叠加监听器)
+    el.onended = finish;
+    el.onerror = fail;
+    el.src = url;
+    el.play().catch(() => {
+      // 部分移动浏览器偶发 play() 首次失败, 稍候重试一次
+      window.setTimeout(() => {
+        if (done) return;
+        el.play().then(finish).catch(fail);
+      }, 300);
+    });
   });
 
 const speakViaServer = async (text: string, lang: string, rate: number, token: number) => {
-  // 分块粒度对齐缓存: 短句整块, 长段落按 1500 字符切 (OpenAI 单次上限 4096)
-  const chunks = splitText(text, 1500);
-  for (const chunk of chunks) {
+  // 分块粒度对齐缓存: 短句整块, 长段落按 1500 字符切 (OpenAI 单次上限 4096);
+  // 相邻同语言句块合并后按各自语言合成, 中英混排自动切换音色
+  const units = splitSentences(text, 1500);
+  const segs = groupByLang(units, lang, 1200);
+  // 预取下一段: 当前段播放期间并行完成请求, 移动网络下消除句间等待
+  let pending: Promise<Blob | null> | null = null;
+  let pendingErr: unknown = null;
+  for (let i = 0; i < segs.length; i += 1) {
     if (token !== speakToken) return;
-    // eslint-disable-next-line no-await-in-loop
-    const blob = await fetchAudio(chunk, lang, rate);
+    let blob: Blob;
+    if (pending) {
+      // eslint-disable-next-line no-await-in-loop
+      const prefetched = await pending;
+      if (!prefetched) throw pendingErr instanceof Error ? pendingErr : new Error(String(pendingErr));
+      blob = prefetched;
+      pending = null;
+      pendingErr = null;
+    } else {
+      // eslint-disable-next-line no-await-in-loop
+      blob = await fetchAudio(segs[i].text, segs[i].lang, rate);
+    }
     if (token !== speakToken) {
       stopAudio();
       return;
+    }
+    if (i + 1 < segs.length) {
+      const next = segs[i + 1];
+      pendingErr = null;
+      pending = fetchAudio(next.text, next.lang, rate).catch(err => {
+        pendingErr = err;
+        return null;
+      });
     }
     // eslint-disable-next-line no-await-in-loop
     await playBlob(blob, token);
