@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useMessage } from "naive-ui";
 import { request } from "@/service/request";
+import { getAuthorization } from "@/service/request/shared";
 import { getWolConfig, updateWolConfig } from "@/service/api";
+import { getServiceBaseURL } from "@/utils/service";
 import { $t } from "@/locales";
 
 defineOptions({ name: "SystemConfig" });
@@ -92,19 +94,42 @@ const ragChunkOverlap = ref(80);
 const ragTopK = ref(5);
 const savingTts = ref(false);
 const testingTts = ref(false);
-const showTtsApiKey = ref(false);
+const playingTts = ref(false);
 const ttsMode = ref("frontend");
-const ttsBaseUrl = ref("");
-const ttsApiKey = ref("");
 const ttsModel = ref("");
 const ttsVoice = ref("");
 const ttsEdgeVoiceEn = ref("");
 const ttsEdgeVoiceZh = ref("");
+let ttsTestAudio: HTMLAudioElement | null = null;
+let ttsTestUrl: string | null = null;
 const ttsModeOptions = computed(() => [
   { label: $t("page.system.config.ttsModeFrontend"), value: "frontend" },
   { label: $t("page.system.config.ttsModeOpenai"), value: "openai" },
   { label: $t("page.system.config.ttsModeEdge"), value: "edge" }
 ]);
+
+// 音色候选 (NAutoComplete 下拉可选, 也允许直接输入任意音色名)
+const openaiVoiceOptions = ["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse"].map(v => ({
+  label: v,
+  value: v
+}));
+const edgeVoiceEnOptions = [
+  { label: "Aria · 美式女声", value: "en-US-AriaNeural" },
+  { label: "Jenny · 美式女声", value: "en-US-JennyNeural" },
+  { label: "Emma · 多语女声", value: "en-US-EmmaMultilingualNeural" },
+  { label: "Andrew · 美式男声", value: "en-US-AndrewNeural" },
+  { label: "Guy · 美式男声", value: "en-US-GuyNeural" },
+  { label: "Sonia · 英式女声", value: "en-GB-SoniaNeural" },
+  { label: "Ryan · 英式男声", value: "en-GB-RyanNeural" }
+];
+const edgeVoiceZhOptions = [
+  { label: "晓晓 · 女声", value: "zh-CN-XiaoxiaoNeural" },
+  { label: "晓伊 · 女声", value: "zh-CN-XiaoyiNeural" },
+  { label: "云希 · 男声", value: "zh-CN-YunxiNeural" },
+  { label: "云健 · 男声", value: "zh-CN-YunjianNeural" },
+  { label: "晓曼 · 粤语女声", value: "zh-HK-HiuMaanNeural" },
+  { label: "曉臻 · 台湾女声", value: "zh-TW-HsiaoChenNeural" }
+];
 const savingMqtt = ref(false);
 const showMqttPassword = ref(false);
 const mqttHost = ref("");
@@ -166,8 +191,6 @@ async function loadConfig() {
       ragTopK.value = toNumber(cfg.rag_top_k, 5);
 
       ttsMode.value = cfg.tts_mode || "frontend";
-      ttsBaseUrl.value = cfg.tts_openai_base_url ?? "";
-      ttsApiKey.value = cfg.tts_openai_api_key ?? "";
       ttsModel.value = cfg.tts_openai_model ?? "";
       ttsVoice.value = cfg.tts_openai_voice ?? "";
       ttsEdgeVoiceEn.value = cfg.tts_edge_voice_en ?? "";
@@ -419,8 +442,6 @@ async function handleSaveTts() {
   try {
     const ok = await saveConfigs([
       ["tts_mode", ttsMode.value, $t("page.system.config.remarkTtsMode")],
-      ["tts_openai_base_url", ttsBaseUrl.value.trim(), $t("page.system.config.remarkTtsBaseUrl")],
-      ["tts_openai_api_key", ttsApiKey.value, $t("page.system.config.remarkTtsApiKey")],
       ["tts_openai_model", ttsModel.value.trim(), $t("page.system.config.remarkTtsModel")],
       ["tts_openai_voice", ttsVoice.value.trim(), $t("page.system.config.remarkTtsVoice")],
       ["tts_edge_voice_en", ttsEdgeVoiceEn.value.trim(), $t("page.system.config.remarkTtsEdgeVoiceEn")],
@@ -432,32 +453,74 @@ async function handleSaveTts() {
   }
 }
 
-async function handleTestTts() {
+// 原生 fetch 的 baseURL 与 axios 封装保持一致 (开发代理/生产直连)
+const isHttpProxy = import.meta.env.DEV && import.meta.env.VITE_HTTP_PROXY === "Y";
+const { baseURL: ttsFetchBaseURL } = getServiceBaseURL(import.meta.env, isHttpProxy);
+
+function stopTtsTest() {
+  if (ttsTestAudio) {
+    ttsTestAudio.pause();
+    ttsTestAudio = null;
+  }
+  if (ttsTestUrl) {
+    URL.revokeObjectURL(ttsTestUrl);
+    ttsTestUrl = null;
+  }
+  playingTts.value = false;
+}
+
+/** 播放测试: 用表单当前值 (未保存也可测) 合成样例并播放; 播放中再点即停止 */
+async function handlePlayTestTts() {
+  if (playingTts.value) {
+    stopTtsTest();
+    return;
+  }
   if (ttsMode.value === "frontend") {
     message.warning($t("page.system.config.ttsModeFrontend"));
     return;
   }
+  stopTtsTest();
   testingTts.value = true;
   try {
-    const { data, error } = await request<{ message: string }>({
-      url: "/api/admin/system-config/test-tts",
+    const Authorization = getAuthorization();
+    const res = await fetch(`${ttsFetchBaseURL}/api/admin/system-config/test-tts`, {
       method: "post",
-      data: {
+      headers: {
+        "Content-Type": "application/json",
+        ...(Authorization ? { Authorization } : {})
+      },
+      body: JSON.stringify({
         mode: ttsMode.value,
-        base_url: ttsBaseUrl.value.trim(),
-        api_key: ttsApiKey.value,
         model: ttsModel.value.trim(),
         voice: ttsVoice.value.trim(),
         voice_en: ttsEdgeVoiceEn.value.trim(),
         voice_zh: ttsEdgeVoiceZh.value.trim(),
         lang: "en-US"
-      }
+      })
     });
-    if (error || !data) {
-      message.error($t("page.system.config.ttsTestFailed", { error: error?.message || $t("page.system.config.unknownError") }));
+    const contentType = res.headers.get("content-type") || "";
+    if (!res.ok || contentType.includes("json")) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const json = await res.json();
+        msg = json?.msg || msg;
+      } catch {
+        /* 保留 HTTP 状态码提示 */
+      }
+      message.error($t("page.system.config.ttsTestFailed", { error: msg }));
       return;
     }
-    message.success(data.message);
+    const blob = await res.blob();
+    ttsTestUrl = URL.createObjectURL(blob);
+    const el = new Audio(ttsTestUrl);
+    ttsTestAudio = el;
+    el.addEventListener("ended", stopTtsTest);
+    el.addEventListener("error", stopTtsTest);
+    playingTts.value = true;
+    await el.play();
+  } catch (err: any) {
+    stopTtsTest();
+    message.error($t("page.system.config.ttsTestFailed", { error: err?.message || $t("page.system.config.unknownError") }));
   } finally {
     testingTts.value = false;
   }
@@ -557,6 +620,10 @@ async function handleSendTestEmail() {
 
 onMounted(() => {
   loadConfig();
+});
+
+onUnmounted(() => {
+  stopTtsTest();
 });
 </script>
 
@@ -1112,38 +1179,23 @@ onMounted(() => {
               <NFormItem :label="$t('page.system.config.ttsMode')">
                 <NSelect v-model:value="ttsMode" :options="ttsModeOptions" class="max-w-90" />
               </NFormItem>
+              <NAlert v-if="ttsMode === 'openai'" type="info" :bordered="false" class="mb-3">
+                {{ $t("page.system.config.ttsOpenaiHint") }}
+              </NAlert>
               <NGrid v-if="ttsMode === 'openai'" :cols="2" :x-gap="12" :y-gap="8">
-                <NFormItemGi :label="$t('page.system.config.ttsBaseUrl')" path="ttsBaseUrl">
-                  <NInput v-model:value="ttsBaseUrl" placeholder="https://api.openai.com/v1" />
-                </NFormItemGi>
-                <NFormItemGi label="API Key" path="ttsApiKey">
-                  <NInput
-                    v-model:value="ttsApiKey"
-                    :type="showTtsApiKey ? 'text' : 'password'"
-                    placeholder="sk-..."
-                  >
-                    <template #suffix>
-                      <div
-                        class="cursor-pointer text-gray-400 hover:text-gray-600"
-                        :class="showTtsApiKey ? 'i-mdi:eye-off' : 'i-mdi:eye'"
-                        @click="showTtsApiKey = !showTtsApiKey"
-                      />
-                    </template>
-                  </NInput>
-                </NFormItemGi>
                 <NFormItemGi :label="$t('page.system.config.ttsModel')" path="ttsModel">
                   <NInput v-model:value="ttsModel" placeholder="tts-1" />
                 </NFormItemGi>
                 <NFormItemGi :label="$t('page.system.config.ttsVoice')" path="ttsVoice">
-                  <NInput v-model:value="ttsVoice" placeholder="alloy" />
+                  <NAutoComplete v-model:value="ttsVoice" :options="openaiVoiceOptions" placeholder="alloy" clearable />
                 </NFormItemGi>
               </NGrid>
               <NGrid v-else-if="ttsMode === 'edge'" :cols="2" :x-gap="12" :y-gap="8">
                 <NFormItemGi :label="$t('page.system.config.ttsEdgeVoiceEn')" path="ttsEdgeVoiceEn">
-                  <NInput v-model:value="ttsEdgeVoiceEn" placeholder="en-US-AriaNeural" />
+                  <NAutoComplete v-model:value="ttsEdgeVoiceEn" :options="edgeVoiceEnOptions" placeholder="en-US-AriaNeural" clearable />
                 </NFormItemGi>
                 <NFormItemGi :label="$t('page.system.config.ttsEdgeVoiceZh')" path="ttsEdgeVoiceZh">
-                  <NInput v-model:value="ttsEdgeVoiceZh" placeholder="zh-CN-XiaoxiaoNeural" />
+                  <NAutoComplete v-model:value="ttsEdgeVoiceZh" :options="edgeVoiceZhOptions" placeholder="zh-CN-XiaoxiaoNeural" clearable />
                 </NFormItemGi>
               </NGrid>
               <NFormItem class="mt-4">
@@ -1155,9 +1207,12 @@ onMounted(() => {
                     secondary
                     :loading="testingTts"
                     :disabled="ttsMode === 'frontend'"
-                    @click="handleTestTts"
+                    @click="handlePlayTestTts"
                   >
-                    {{ $t("page.system.config.testConnection") }}
+                    <template #icon>
+                      <div :class="playingTts ? 'i-mdi:stop-circle-outline' : 'i-mdi:volume-high'" />
+                    </template>
+                    {{ playingTts ? $t("page.system.config.stopTtsTest") : $t("page.system.config.playTest") }}
                   </NButton>
                 </div>
               </NFormItem>

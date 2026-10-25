@@ -125,7 +125,8 @@ func edgeSHA256InitState(salt []byte) [8]uint32 {
 	words[30] = edgeSigma1(words[28]) + words[23] + edgeSigma0(words[15]) + words[14] + edgeSHA256Adjustment - edgeSHA256RoundConstants[14]
 	edgeExpandSchedule(words, 31)
 
-	var working [8]uint32 = edgeSHA256State
+	// 值拷贝进入压缩函数 (edgeSHA256State 是数组, 赋值即复制)
+	working := edgeSHA256State
 	edgeSHA256Rounds(&working, words, 14, true)
 
 	var out [8]uint32
@@ -158,7 +159,7 @@ func edgeSHA256Digest(data []byte) [32]byte {
 			words[i] = binary.BigEndian.Uint32(padded[off+i*4 : off+i*4+4])
 		}
 		edgeExpandSchedule(words, 16)
-		var working [8]uint32 = state
+		working := state
 		edgeSHA256Rounds(&working, words, 0, false)
 		for i := 0; i < 8; i++ {
 			state[i] += working[i]

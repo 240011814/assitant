@@ -129,8 +129,9 @@ func main() {
 	reminderHandler := api.NewReminderHandler(reminderService)
 	tools.SetReminderService(reminderService)
 
-	// TTS 语音合成 (tts_mode: frontend/openai/edge, 配置页保存后热刷新)
-	ttsService := service.NewTtsService(systemConfigService)
+	// TTS 语音合成 (tts_mode: frontend/openai/edge, 配置页保存后热刷新;
+	// openai 模式复用 AI 对话默认激活的 Provider, 不单独维护 key)
+	ttsService := service.NewTtsService(systemConfigService, aiAgentService)
 	ttsHandler := api.NewTtsHandler(ttsService)
 
 	systemConfigHandler := api.NewSystemConfigHandler(systemConfigService, telegramService, emailNotifier, aiAgentService)

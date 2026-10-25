@@ -41,21 +41,22 @@ const (
 	ttsMaxAudioBytes = 32 << 20
 )
 
-// ttsConfig TTS 运行配置快照 (mu 保护, 读时取快照)
+// ttsConfig TTS 运行配置快照 (mu 保护, 读时取快照)。
+// openai 模式的 base_url/api_key 不在此处: 复用 AI 对话默认激活的 Provider,
+// 合成时经 AIAgentService.ActiveOpenAIEndpoint 动态取 (Provider 变更即时生效)
 type ttsConfig struct {
-	Mode         string // frontend / openai / edge
-	OpenAIBaseURL string
-	OpenAIKey     string
-	OpenAIModel   string
-	OpenAIVoice   string
-	EdgeVoiceEN   string
-	EdgeVoiceZH   string
-	CacheDir      string
+	Mode        string // frontend / openai / edge
+	OpenAIModel string
+	OpenAIVoice string
+	EdgeVoiceEN string
+	EdgeVoiceZH string
+	CacheDir    string
 }
 
 // TtsService 语音合成门面: 配置热刷新 (tts_* 键) + OpenAI/Edge 合成 + 磁盘缓存
 type TtsService struct {
 	configSvc  *SystemConfigService
+	aiAgent    *AIAgentService
 	httpClient *http.Client
 	mu         sync.RWMutex
 	cfg        ttsConfig
@@ -63,10 +64,12 @@ type TtsService struct {
 	flights    map[string]chan struct{} // 进行中的合成请求去重 (并发同文本只合成一次)
 }
 
-// NewTtsService 构造并加载一次配置 (system_config 无 tts_* 键时为默认值)
-func NewTtsService(configSvc *SystemConfigService) *TtsService {
+// NewTtsService 构造并加载一次配置 (system_config 无 tts_* 键时为默认值);
+// aiAgent 提供 openai 模式所需的默认激活 Provider 端点, 允许 nil (openai 模式不可用)
+func NewTtsService(configSvc *SystemConfigService, aiAgent *AIAgentService) *TtsService {
 	s := &TtsService{
 		configSvc:  configSvc,
+		aiAgent:    aiAgent,
 		httpClient: &http.Client{Timeout: ttsSynthTimeout},
 		flights:    make(map[string]chan struct{}),
 	}
@@ -89,14 +92,12 @@ func (s *TtsService) RefreshConfig() {
 	}
 
 	cfg := ttsConfig{
-		Mode:          mode,
-		OpenAIBaseURL: getVal("tts_openai_base_url"),
-		OpenAIKey:     getVal("tts_openai_api_key"),
-		OpenAIModel:   getVal("tts_openai_model"),
-		OpenAIVoice:   getVal("tts_openai_voice"),
-		EdgeVoiceEN:   getVal("tts_edge_voice_en"),
-		EdgeVoiceZH:   getVal("tts_edge_voice_zh"),
-		CacheDir:      getVal("tts_cache_dir"),
+		Mode:        mode,
+		OpenAIModel: getVal("tts_openai_model"),
+		OpenAIVoice: getVal("tts_openai_voice"),
+		EdgeVoiceEN: getVal("tts_edge_voice_en"),
+		EdgeVoiceZH: getVal("tts_edge_voice_zh"),
+		CacheDir:    getVal("tts_cache_dir"),
 	}
 	if cfg.OpenAIModel == "" {
 		cfg.OpenAIModel = ttsDefaultModel
@@ -133,15 +134,14 @@ func (s *TtsService) SynthesizeWithConfig(ctx context.Context, cfg ttsConfig, te
 	return s.synthesize(ctx, cfg, text, lang, rate)
 }
 
-// TestConfig 用配置页表单值构建测试配置 (空字段回落默认值), 不影响运行配置
-func (s *TtsService) TestConfig(mode, baseURL, apiKey, model, voice, voiceEN, voiceZH string) ttsConfig {
+// TestConfig 用配置页表单值构建测试配置 (空字段回落默认值), 不影响运行配置;
+// openai 模式端点始终取默认激活 Provider
+func (s *TtsService) TestConfig(mode, model, voice, voiceEN, voiceZH string) ttsConfig {
 	if mode != TtsModeOpenAI && mode != TtsModeEdge {
 		mode = TtsModeOpenAI
 	}
 	cfg := s.snapshot()
 	cfg.Mode = mode
-	cfg.OpenAIBaseURL = baseURL
-	cfg.OpenAIKey = apiKey
 	if model != "" {
 		cfg.OpenAIModel = model
 	}
@@ -165,9 +165,6 @@ func (c ttsConfig) edgeVoiceFor(lang string) string {
 	return c.EdgeVoiceEN
 }
 
-// EdgeVoiceForLang edgeVoiceFor 的导出版 (api 层测试接口选默认样例文本用)
-func (c ttsConfig) EdgeVoiceForLang(lang string) string { return c.edgeVoiceFor(lang) }
-
 // Synthesize 合成 mp3。mode 为 openai/edge 时按配置出声, frontend 返回明确错误;
 // 相同 (模式/音色/语速/文本) 落盘缓存, 并发同 key 只合成一次。
 func (s *TtsService) Synthesize(ctx context.Context, text, lang string, rate float64) ([]byte, error) {
@@ -188,10 +185,17 @@ func (s *TtsService) synthesize(ctx context.Context, cfg ttsConfig, text, lang s
 	}
 	rate = clampRate(rate)
 
+	var openAIBaseURL, openAIKey string
 	switch cfg.Mode {
 	case TtsModeOpenAI:
-		if cfg.OpenAIBaseURL == "" || cfg.OpenAIKey == "" {
-			return nil, errors.New("OpenAI TTS 未配置 base_url / api_key")
+		// 复用 AI 对话默认激活的 Provider, 未配置时给出明确指引
+		if s.aiAgent == nil {
+			return nil, errors.New("OpenAI TTS 需要 AI Provider, 但 AI 服务未初始化")
+		}
+		var ok bool
+		openAIBaseURL, openAIKey, ok = s.aiAgent.ActiveOpenAIEndpoint()
+		if !ok || openAIBaseURL == "" || openAIKey == "" {
+			return nil, errors.New("未找到默认激活的 AI Provider, 请先在 AI 配置中启用")
 		}
 	case TtsModeEdge:
 		// Edge 无需密钥
@@ -236,7 +240,7 @@ func (s *TtsService) synthesize(ctx context.Context, cfg ttsConfig, text, lang s
 		err   error
 	)
 	if cfg.Mode == TtsModeOpenAI {
-		audio, err = s.synthOpenAI(ctx, cfg, text, rate)
+		audio, err = s.synthOpenAI(ctx, openAIBaseURL, openAIKey, cfg, text, rate)
 	} else {
 		audio, err = s.synthEdge(ctx, cfg.edgeVoiceFor(lang), rate, text)
 	}
@@ -296,19 +300,20 @@ func (s *TtsService) writeCache(cfg ttsConfig, key string, audio []byte) error {
 	}
 	name := tmp.Name()
 	if _, err := tmp.Write(audio); err != nil {
-		tmp.Close()
-		os.Remove(name)
+		_ = tmp.Close()
+		_ = os.Remove(name)
 		return err
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(name)
+		_ = os.Remove(name)
 		return err
 	}
 	return os.Rename(name, s.cachePath(cfg, key))
 }
 
-// synthOpenAI 调 OpenAI 兼容 /audio/speech (tts-1 等标准接口; 本地兼容服务亦可)
-func (s *TtsService) synthOpenAI(ctx context.Context, cfg ttsConfig, text string, rate float64) ([]byte, error) {
+// synthOpenAI 调 OpenAI 兼容 /audio/speech (tts-1 等标准接口; 本地兼容服务亦可)。
+// baseURL/key 来自默认激活的 AI Provider (与 AI 对话共用配置)
+func (s *TtsService) synthOpenAI(ctx context.Context, baseURL, apiKey string, cfg ttsConfig, text string, rate float64) ([]byte, error) {
 	payload, err := json.Marshal(map[string]any{
 		"model":           cfg.OpenAIModel,
 		"input":           text,
@@ -319,13 +324,13 @@ func (s *TtsService) synthOpenAI(ctx context.Context, cfg ttsConfig, text string
 	if err != nil {
 		return nil, err
 	}
-	url := strings.TrimRight(cfg.OpenAIBaseURL, "/") + "/audio/speech"
+	url := strings.TrimRight(baseURL, "/") + "/audio/speech"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(payload)))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+cfg.OpenAIKey)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -392,7 +397,7 @@ func (s *TtsService) synthEdgeOnce(ctx context.Context, voice string, rate float
 		}
 		return nil, fmt.Errorf("Edge TTS 连接失败: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ts := time.Now().UTC().Format("Mon Jan 02 2006 15:04:05 GMT+0000 (Coordinated Universal Time)")
 

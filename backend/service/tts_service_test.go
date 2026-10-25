@@ -81,8 +81,8 @@ func TestEdgeSHA256DigestShape(t *testing.T) {
 		for i := range data[7:] {
 			data[7+i] = byte(i)
 		}
-		if d := edgeSHA256Digest(data); len(d) != 32 {
-			t.Fatalf("长度 %d 输入摘要长度 %d", len(data), len(d))
+		if len(edgeSHA256Digest(data)) != 32 {
+			t.Fatalf("长度 %d 输入摘要长度异常", len(data))
 		}
 	}
 }
@@ -140,9 +140,9 @@ func TestSynthesizeModeGuard(t *testing.T) {
 		t.Fatal("frontend 模式应返回错误")
 	}
 
-	cfg.Mode = TtsModeOpenAI // 未配置 key
-	if _, err := s.synthesize(context.Background(), cfg, "hi", "en-US", 1.0); err == nil || !strings.Contains(err.Error(), "未配置") {
-		t.Fatalf("OpenAI 缺配置应报未配置, got %v", err)
+	cfg.Mode = TtsModeOpenAI // aiAgent 未注入 (nil)
+	if _, err := s.synthesize(context.Background(), cfg, "hi", "en-US", 1.0); err == nil || !strings.Contains(err.Error(), "Provider") {
+		t.Fatalf("OpenAI 缺 Provider 应报未配置, got %v", err)
 	}
 
 	// 空文本 / 超长文本
@@ -186,7 +186,9 @@ func TestEdgeSynthLive(t *testing.T) {
 		t.Fatalf("音频过小 (%d bytes), 疑似异常", len(audio))
 	}
 	// mp3 流应有 ID3 头或 MPEG 帧同步字
-	if !(audio[0] == 'I' && audio[1] == 'D' && audio[2] == '3') && !(audio[0] == 0xFF && audio[1]&0xE0 == 0xE0) {
+	hasID3 := audio[0] == 'I' && audio[1] == 'D' && audio[2] == '3'
+	hasSync := audio[0] == 0xFF && audio[1]&0xE0 == 0xE0
+	if !hasID3 && !hasSync {
 		t.Fatalf("返回内容不像 mp3, 前 4 字节: % x", audio[:4])
 	}
 	t.Logf("Edge live 合成成功: %d bytes", len(audio))

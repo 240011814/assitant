@@ -1,11 +1,9 @@
 package api
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"backend/service"
 
@@ -60,56 +58,45 @@ func (h *TtsHandler) HandleSynthesize(c *gin.Context) {
 	c.Data(http.StatusOK, "audio/mpeg", audio)
 }
 
-// HandleTestTts 管理端测试: 用配置页当前表单值 (未保存也可测) 合成一段样例文本
+// HandleTestTts 管理端播放测试: 用配置页当前表单值 (未保存也可测) 合成一段样例,
+// 成功直接返回 audio/mpeg 供前端播放, 失败返回统一 JSON 错误体
 func (h *TtsHandler) HandleTestTts(c *gin.Context) {
 	var req struct {
 		Mode    string `json:"mode"`
-		BaseURL string `json:"base_url"`
-		APIKey  string `json:"api_key"`
 		Model   string `json:"model"`
 		Voice   string `json:"voice"`
 		VoiceEN string `json:"voice_en"`
 		VoiceZH string `json:"voice_zh"`
 		Lang    string `json:"lang"`
-		Text    string `json:"text"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		SendError(c, "400", "请求参数错误")
 		return
 	}
 
+	lang := req.Lang
+	if lang == "" {
+		lang = "en-US"
+	}
 	cfg := h.svc.TestConfig(
 		strings.ToLower(strings.TrimSpace(req.Mode)),
-		strings.TrimSpace(req.BaseURL),
-		strings.TrimSpace(req.APIKey),
 		strings.TrimSpace(req.Model),
 		strings.TrimSpace(req.Voice),
 		strings.TrimSpace(req.VoiceEN),
 		strings.TrimSpace(req.VoiceZH),
 	)
 
-	text := strings.TrimSpace(req.Text)
-	if text == "" {
-		if strings.HasPrefix(strings.ToLower(cfg.EdgeVoiceForLang(req.Lang)), "zh") {
-			text = "你好，语音朗读已经配置成功。"
-		} else {
-			text = "Hello, text to speech is ready."
-		}
-	}
-	lang := req.Lang
-	if lang == "" {
-		lang = "en-US"
+	// 样例文本跟随测试语言, 听感贴近真实使用
+	text := "Hello, this is the text to speech test."
+	if strings.HasPrefix(strings.ToLower(strings.ReplaceAll(lang, "_", "-")), "zh") {
+		text = "你好，这是一段语音朗读测试。"
 	}
 
-	start := time.Now()
 	audio, err := h.svc.SynthesizeWithConfig(c.Request.Context(), cfg, text, lang, 1.0)
 	if err != nil {
 		SendError(c, "500", "TTS 测试失败: "+err.Error())
 		return
 	}
-	SendSuccess(c, gin.H{
-		"message":    fmt.Sprintf("合成成功: %d KB, 耗时 %d ms", len(audio)/1024, time.Since(start).Milliseconds()),
-		"bytes":      len(audio),
-		"elapsed_ms": time.Since(start).Milliseconds(),
-	})
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, "audio/mpeg", audio)
 }

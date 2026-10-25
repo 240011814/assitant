@@ -138,8 +138,8 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 		}
 	}
 
-	// TTS (语音朗读) 配置变更后热刷新
-	ttsKeys := []string{"tts_mode", "tts_openai_base_url", "tts_openai_api_key", "tts_openai_model", "tts_openai_voice", "tts_edge_voice_en", "tts_edge_voice_zh", "tts_cache_dir"}
+	// TTS (语音朗读) 配置变更后热刷新 (openai 模式端点复用 AI Provider, 无需单独 key)
+	ttsKeys := []string{"tts_mode", "tts_openai_model", "tts_openai_voice", "tts_edge_voice_en", "tts_edge_voice_zh", "tts_cache_dir"}
 	for _, key := range ttsKeys {
 		if req.Key == key {
 			if h.ttsSvc != nil {

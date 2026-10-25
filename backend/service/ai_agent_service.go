@@ -622,6 +622,17 @@ func (s *AIAgentService) HasActiveModel() bool {
 	return s.activeProvider != nil && s.activeModel != nil
 }
 
+// ActiveOpenAIEndpoint 当前默认激活 Provider 的 OpenAI 兼容端点快照。
+// TTS 等复用 AI 对话同一份 Provider 配置, 免去单独维护 base_url / api_key。
+func (s *AIAgentService) ActiveOpenAIEndpoint() (baseURL, apiKey string, ok bool) {
+	s.cacheMu.RLock()
+	defer s.cacheMu.RUnlock()
+	if s.activeProvider == nil {
+		return "", "", false
+	}
+	return s.activeProvider.BaseURL, s.activeProvider.APIKey, true
+}
+
 // ResolveModelCode 返回 modelOverride 实际对应的模型 code: override 非空返回自身,
 // 空串解析为当前默认模型的 code (即"空串=默认模型"的真实身份)。
 // 与 getModelWithRetry 同一套解析规则; 供 token 记账等需要真实模型归属的场合使用
