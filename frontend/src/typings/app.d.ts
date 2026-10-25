@@ -784,6 +784,9 @@ declare namespace App {
             tts: string;
             ttsDesc: string;
             ttsOpenaiHint: string;
+            ttsFrontendVoice: string;
+            ttsFrontendVoicePlaceholder: string;
+            ttsBrowserNoVoices: string;
             ttsMode: string;
             ttsModeFrontend: string;
             ttsModeOpenai: string;
@@ -802,6 +805,7 @@ declare namespace App {
             remarkTtsVoice: string;
             remarkTtsEdgeVoiceEn: string;
             remarkTtsEdgeVoiceZh: string;
+            remarkTtsFrontendVoice: string;
             mqtt: string;
             mqttDesc: string;
             mqttHost: string;

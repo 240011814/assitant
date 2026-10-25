@@ -26,3 +26,6 @@ yarn.lock
 .VSCodeCounter
 src-tauri/target
 .codegraph
+
+# TTS 运行时音频缓存
+backend/tts-cache/

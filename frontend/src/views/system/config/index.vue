@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { useMessage } from "naive-ui";
 import { request } from "@/service/request";
 import { getAuthorization } from "@/service/request/shared";
 import { getWolConfig, updateWolConfig } from "@/service/api";
 import { getServiceBaseURL } from "@/utils/service";
+import { speakLocal, stopSpeak, ensureBrowserVoices } from "@/utils/tts";
 import { $t } from "@/locales";
 
 defineOptions({ name: "SystemConfig" });
@@ -100,6 +101,9 @@ const ttsModel = ref("");
 const ttsVoice = ref("");
 const ttsEdgeVoiceEn = ref("");
 const ttsEdgeVoiceZh = ref("");
+const ttsFrontendVoice = ref("");
+const browserVoiceOptions = ref<{ label: string; value: string }[]>([]);
+const browserVoicesSupported = ref(true);
 let ttsTestAudio: HTMLAudioElement | null = null;
 let ttsTestUrl: string | null = null;
 const ttsModeOptions = computed(() => [
@@ -107,6 +111,22 @@ const ttsModeOptions = computed(() => [
   { label: $t("page.system.config.ttsModeOpenai"), value: "openai" },
   { label: $t("page.system.config.ttsModeEdge"), value: "edge" }
 ]);
+
+/** 切到浏览器本地模式时枚举当前浏览器的真实音源 (用户无需猜支持哪些) */
+async function loadBrowserVoiceOptions() {
+  if (browserVoiceOptions.value.length > 0) return;
+  const voices = await ensureBrowserVoices();
+  browserVoicesSupported.value = voices.length > 0;
+  browserVoiceOptions.value = voices
+    .map(v => ({ label: `${v.name} (${v.lang})`, value: v.name }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+watch(ttsMode, mode => {
+  if (mode === "frontend") {
+    void loadBrowserVoiceOptions();
+  }
+});
 
 // 音色候选 (NAutoComplete 下拉可选, 也允许直接输入任意音色名)
 const openaiVoiceOptions = ["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse"].map(v => ({
@@ -195,6 +215,7 @@ async function loadConfig() {
       ttsVoice.value = cfg.tts_openai_voice ?? "";
       ttsEdgeVoiceEn.value = cfg.tts_edge_voice_en ?? "";
       ttsEdgeVoiceZh.value = cfg.tts_edge_voice_zh ?? "";
+      ttsFrontendVoice.value = cfg.tts_frontend_voice ?? "";
     }
 
     // MQTT 连接配置 (设备管理, 存 wol_mqtt_* 键, 走 wol 专用接口)
@@ -446,6 +467,7 @@ async function handleSaveTts() {
       ["tts_openai_voice", ttsVoice.value.trim(), $t("page.system.config.remarkTtsVoice")],
       ["tts_edge_voice_en", ttsEdgeVoiceEn.value.trim(), $t("page.system.config.remarkTtsEdgeVoiceEn")],
       ["tts_edge_voice_zh", ttsEdgeVoiceZh.value.trim(), $t("page.system.config.remarkTtsEdgeVoiceZh")],
+      ["tts_frontend_voice", ttsFrontendVoice.value.trim(), $t("page.system.config.remarkTtsFrontendVoice")],
     ]);
     if (ok) message.success($t("page.system.config.ttsSaved"));
   } finally {
@@ -466,6 +488,8 @@ function stopTtsTest() {
     URL.revokeObjectURL(ttsTestUrl);
     ttsTestUrl = null;
   }
+  // 浏览器本地朗读一并停止 (speakLocal 的 Promise 会随之正常收尾)
+  stopSpeak();
   playingTts.value = false;
 }
 
@@ -475,11 +499,37 @@ async function handlePlayTestTts() {
     stopTtsTest();
     return;
   }
+  stopTtsTest();
+
+  // 浏览器本地模式: 直接用本机 speechSynthesis 发声, 音色取表单当前值
   if (ttsMode.value === "frontend") {
-    message.warning($t("page.system.config.ttsModeFrontend"));
+    if (!("speechSynthesis" in window)) {
+      message.error($t("page.system.config.ttsBrowserNoVoices"));
+      return;
+    }
+    const voiceName = ttsFrontendVoice.value.trim();
+    const voice = browserVoiceOptions.value.find(o => o.value === voiceName);
+    // 样例文本跟随所选音源的语言 (无匹配则英文)
+    const isZhVoice = voice ? /\(zh/i.test(voice.label) : false;
+    const sample = isZhVoice ? "你好，这是一段语音朗读测试。" : "Hello, this is the text to speech test.";
+    playingTts.value = true;
+    testingTts.value = true;
+    try {
+      await speakLocal(sample, {
+        lang: isZhVoice ? "zh-CN" : "en-US",
+        rate: 1,
+        voice: voiceName || undefined
+      });
+    } catch (err: any) {
+      message.error($t("page.system.config.ttsTestFailed", { error: err?.message || $t("page.system.config.unknownError") }));
+    } finally {
+      stopTtsTest();
+      testingTts.value = false;
+    }
     return;
   }
-  stopTtsTest();
+
+  // 服务端模式: 后端合成 mp3 播放
   testingTts.value = true;
   try {
     const Authorization = getAuthorization();
@@ -620,6 +670,10 @@ async function handleSendTestEmail() {
 
 onMounted(() => {
   loadConfig();
+  // 默认就是浏览器本地模式时, watch 不会触发, 手动枚举一次音源
+  if (ttsMode.value === "frontend") {
+    void loadBrowserVoiceOptions();
+  }
 });
 
 onUnmounted(() => {
@@ -1182,20 +1236,56 @@ onUnmounted(() => {
               <NAlert v-if="ttsMode === 'openai'" type="info" :bordered="false" class="mb-3">
                 {{ $t("page.system.config.ttsOpenaiHint") }}
               </NAlert>
+              <template v-if="ttsMode === 'frontend'">
+                <NAlert v-if="!browserVoicesSupported" type="warning" :bordered="false" class="mb-3">
+                  {{ $t("page.system.config.ttsBrowserNoVoices") }}
+                </NAlert>
+                <NFormItem :label="$t('page.system.config.ttsFrontendVoice')">
+                  <NSelect
+                    v-model:value="ttsFrontendVoice"
+                    :options="browserVoiceOptions"
+                    :placeholder="$t('page.system.config.ttsFrontendVoicePlaceholder')"
+                    filterable
+                    tag
+                    clearable
+                  />
+                </NFormItem>
+              </template>
               <NGrid v-if="ttsMode === 'openai'" :cols="2" :x-gap="12" :y-gap="8">
                 <NFormItemGi :label="$t('page.system.config.ttsModel')" path="ttsModel">
                   <NInput v-model:value="ttsModel" placeholder="tts-1" />
                 </NFormItemGi>
                 <NFormItemGi :label="$t('page.system.config.ttsVoice')" path="ttsVoice">
-                  <NAutoComplete v-model:value="ttsVoice" :options="openaiVoiceOptions" placeholder="alloy" clearable />
+                  <NSelect
+                    v-model:value="ttsVoice"
+                    :options="openaiVoiceOptions"
+                    placeholder="alloy"
+                    filterable
+                    tag
+                    clearable
+                  />
                 </NFormItemGi>
               </NGrid>
               <NGrid v-else-if="ttsMode === 'edge'" :cols="2" :x-gap="12" :y-gap="8">
                 <NFormItemGi :label="$t('page.system.config.ttsEdgeVoiceEn')" path="ttsEdgeVoiceEn">
-                  <NAutoComplete v-model:value="ttsEdgeVoiceEn" :options="edgeVoiceEnOptions" placeholder="en-US-AriaNeural" clearable />
+                  <NSelect
+                    v-model:value="ttsEdgeVoiceEn"
+                    :options="edgeVoiceEnOptions"
+                    placeholder="en-US-AriaNeural"
+                    filterable
+                    tag
+                    clearable
+                  />
                 </NFormItemGi>
                 <NFormItemGi :label="$t('page.system.config.ttsEdgeVoiceZh')" path="ttsEdgeVoiceZh">
-                  <NAutoComplete v-model:value="ttsEdgeVoiceZh" :options="edgeVoiceZhOptions" placeholder="zh-CN-XiaoxiaoNeural" clearable />
+                  <NSelect
+                    v-model:value="ttsEdgeVoiceZh"
+                    :options="edgeVoiceZhOptions"
+                    placeholder="zh-CN-XiaoxiaoNeural"
+                    filterable
+                    tag
+                    clearable
+                  />
                 </NFormItemGi>
               </NGrid>
               <NFormItem class="mt-4">
@@ -1203,12 +1293,7 @@ onUnmounted(() => {
                   <NButton type="primary" :loading="savingTts" @click="handleSaveTts">
                     {{ $t("page.system.config.saveTts") }}
                   </NButton>
-                  <NButton
-                    secondary
-                    :loading="testingTts"
-                    :disabled="ttsMode === 'frontend'"
-                    @click="handlePlayTestTts"
-                  >
+                  <NButton secondary :loading="testingTts" @click="handlePlayTestTts">
                     <template #icon>
                       <div :class="playingTts ? 'i-mdi:stop-circle-outline' : 'i-mdi:volume-high'" />
                     </template>

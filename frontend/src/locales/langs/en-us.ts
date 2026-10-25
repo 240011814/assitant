@@ -589,6 +589,10 @@ const local: App.I18n.Schema = {
           "Speech engine for word and article playback in reading, quizzes, etc. Browser mode needs no backend but voices vary by device; OpenAI-compatible and Edge modes synthesize MP3 on the backend so every browser gets the same voice (Edge online voices are free).",
         ttsOpenaiHint:
           "Synthesized via the default active AI provider; no separate URL or API key required.",
+        ttsFrontendVoice: "Browser Voice",
+        ttsFrontendVoicePlaceholder: "Pick from voices supported by this browser, type to filter",
+        ttsBrowserNoVoices:
+          "No speech voices detected in this browser; local playback will not work. Consider switching to the Edge online mode.",
         ttsMode: "Speech Engine",
         ttsModeFrontend: "Browser (local)",
         ttsModeOpenai: "OpenAI-compatible",
@@ -607,6 +611,8 @@ const local: App.I18n.Schema = {
         remarkTtsVoice: "Voice (alloy / echo / nova, etc.)",
         remarkTtsEdgeVoiceEn: "Edge English voice (default en-US-AriaNeural)",
         remarkTtsEdgeVoiceZh: "Edge Chinese voice (default zh-CN-XiaoxiaoNeural)",
+        remarkTtsFrontendVoice:
+          "Preferred browser-local voice (falls back automatically when unavailable on a device)",
         mqtt: "MQTT Server",
         mqttDesc:
           "MQTT broker connection for the WiFi wake-up (WOL) device manager. Save, then click Connect on the device page.",

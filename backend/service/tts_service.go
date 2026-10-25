@@ -45,12 +45,13 @@ const (
 // openai 模式的 base_url/api_key 不在此处: 复用 AI 对话默认激活的 Provider,
 // 合成时经 AIAgentService.ActiveOpenAIEndpoint 动态取 (Provider 变更即时生效)
 type ttsConfig struct {
-	Mode        string // frontend / openai / edge
-	OpenAIModel string
-	OpenAIVoice string
-	EdgeVoiceEN string
-	EdgeVoiceZH string
-	CacheDir    string
+	Mode          string // frontend / openai / edge
+	OpenAIModel   string
+	OpenAIVoice   string
+	EdgeVoiceEN   string
+	EdgeVoiceZH   string
+	FrontendVoice string // 浏览器本地模式首选音源名 (按设备可用性回落)
+	CacheDir      string
 }
 
 // TtsService 语音合成门面: 配置热刷新 (tts_* 键) + OpenAI/Edge 合成 + 磁盘缓存
@@ -84,6 +85,13 @@ func (s *TtsService) RefreshConfig() {
 		return strings.TrimSpace(v)
 	}
 
+	s.mu.Lock()
+	s.cfg = buildTtsConfig(getVal)
+	s.mu.Unlock()
+}
+
+// buildTtsConfig 纯函数: getVal 提供 system_config 取值, 空字段回落默认值
+func buildTtsConfig(getVal func(string) string) ttsConfig {
 	mode := strings.ToLower(getVal("tts_mode"))
 	switch mode {
 	case TtsModeOpenAI, TtsModeEdge, TtsModeFrontend:
@@ -92,12 +100,13 @@ func (s *TtsService) RefreshConfig() {
 	}
 
 	cfg := ttsConfig{
-		Mode:        mode,
-		OpenAIModel: getVal("tts_openai_model"),
-		OpenAIVoice: getVal("tts_openai_voice"),
-		EdgeVoiceEN: getVal("tts_edge_voice_en"),
-		EdgeVoiceZH: getVal("tts_edge_voice_zh"),
-		CacheDir:    getVal("tts_cache_dir"),
+		Mode:          mode,
+		OpenAIModel:   getVal("tts_openai_model"),
+		OpenAIVoice:   getVal("tts_openai_voice"),
+		EdgeVoiceEN:   getVal("tts_edge_voice_en"),
+		EdgeVoiceZH:   getVal("tts_edge_voice_zh"),
+		FrontendVoice: getVal("tts_frontend_voice"),
+		CacheDir:      getVal("tts_cache_dir"),
 	}
 	if cfg.OpenAIModel == "" {
 		cfg.OpenAIModel = ttsDefaultModel
@@ -114,10 +123,7 @@ func (s *TtsService) RefreshConfig() {
 	if cfg.CacheDir == "" {
 		cfg.CacheDir = ttsDefaultCacheDir
 	}
-
-	s.mu.Lock()
-	s.cfg = cfg
-	s.mu.Unlock()
+	return cfg
 }
 
 func (s *TtsService) snapshot() ttsConfig {
@@ -128,6 +134,9 @@ func (s *TtsService) snapshot() ttsConfig {
 
 // Mode 当前生效模式 (frontend 时前端走浏览器本地朗读, /api/tts 返回 404)
 func (s *TtsService) Mode() string { return s.snapshot().Mode }
+
+// FrontendVoice 浏览器本地模式的首选音源名 (空串表示由前端按平台自动挑选)
+func (s *TtsService) FrontendVoice() string { return s.snapshot().FrontendVoice }
 
 // SynthesizeWithConfig 用指定配置快照合成 (管理端测试接口: 表单值未保存也可验证)
 func (s *TtsService) SynthesizeWithConfig(ctx context.Context, cfg ttsConfig, text, lang string, rate float64) ([]byte, error) {

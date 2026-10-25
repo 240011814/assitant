@@ -20,14 +20,21 @@ const authHeaders = (): Record<string, string> => {
 // ===================== 模式解析 (后端 /api/tts/config, 短缓存) =====================
 
 const MODE_TTL = 30_000;
-let modeCache: { mode: TtsMode; at: number } | null = null;
-let modePromise: Promise<TtsMode> | null = null;
+interface TtsServerConfig {
+  mode: TtsMode;
+  /** 浏览器本地模式的首选音源名 (管理员配置, 设备无此音源时自动回落) */
+  frontendVoice: string;
+}
+let configCache: (TtsServerConfig & { at: number }) | null = null;
+let configPromise: Promise<TtsServerConfig> | null = null;
 
-const resolveMode = (): Promise<TtsMode> => {
-  if (modeCache && Date.now() - modeCache.at < MODE_TTL) return Promise.resolve(modeCache.mode);
-  if (modePromise) return modePromise;
+const resolveTtsConfig = (): Promise<TtsServerConfig> => {
+  if (configCache && Date.now() - configCache.at < MODE_TTL) {
+    return Promise.resolve({ mode: configCache.mode, frontendVoice: configCache.frontendVoice });
+  }
+  if (configPromise) return configPromise;
 
-  const p = (async (): Promise<TtsMode> => {
+  const p = (async (): Promise<TtsServerConfig> => {
     try {
       const ctrl = new AbortController();
       const timer = window.setTimeout(() => ctrl.abort(), 3000);
@@ -39,19 +46,24 @@ const resolveMode = (): Promise<TtsMode> => {
       const json = await res.json();
       const mode = json?.data?.mode;
       if (mode === 'openai' || mode === 'edge' || mode === 'frontend') {
-        modeCache = { mode, at: Date.now() };
-        return mode;
+        const cfg: TtsServerConfig = {
+          mode,
+          frontendVoice: typeof json?.data?.frontend_voice === 'string' ? json.data.frontend_voice : ''
+        };
+        configCache = { ...cfg, at: Date.now() };
+        return cfg;
       }
     } catch {
       /* 离线 / 旧后端: 回落前端本地朗读 */
     }
-    modeCache = { mode: 'frontend', at: Date.now() };
-    return 'frontend';
+    const fallback: TtsServerConfig = { mode: 'frontend', frontendVoice: '' };
+    configCache = { ...fallback, at: Date.now() };
+    return fallback;
   })();
 
-  modePromise = p;
+  configPromise = p;
   void p.finally(() => {
-    modePromise = null;
+    configPromise = null;
   });
   return p;
 };
@@ -163,7 +175,7 @@ export const listVoiceOptions = (lang?: string) => {
 
 /**
  * 按 lang 挑选 voice，格式兼容：en-US / en_US / en
- * 选择顺序：用户记忆的音源 > 音源优先级表 > 首个匹配项
+ * 选择顺序：用户记忆的音源 > 管理员配置的本地首选音源 > 音源优先级表 > 首个匹配项
  * 找不到就不设置 voice（安卓上仅靠 lang 即可发音）
  */
 const pickVoice = (voices: SpeechSynthesisVoice[], lang: string) => {
@@ -179,29 +191,43 @@ const pickVoice = (voices: SpeechSynthesisVoice[], lang: string) => {
   const pools = [voices.filter(sameLang), voices.filter(samePrimary)].filter(pool => pool.length > 0);
   if (!pools.length) return undefined;
 
-  // 1. 用户手动选过的音源优先
-  const preferred = getPreferredVoiceName();
-  if (preferred) {
+  const findNamed = (name: string) => {
+    if (!name) return undefined;
     for (const pool of pools) {
-      const hit = pool.find(v => v.name === preferred || v.voiceURI === preferred);
+      const hit = pool.find(v => v.name === name || v.voiceURI === name);
       if (hit) return hit;
     }
+    return undefined;
+  };
+
+  // 1. 用户手动选过的音源优先 (localStorage, 设备本地)
+  const preferred = getPreferredVoiceName();
+  if (preferred) {
+    const hit = findNamed(preferred);
+    if (hit) return hit;
   }
 
-  // 2. 按平台音源优先级表匹配，保证 macOS / Windows / 安卓听感尽量一致
+  // 2. 管理员配置的本地首选音源 (system_config tts_frontend_voice)
+  const hit = findNamed(serverFrontendVoice);
+  if (hit) return hit;
+
+  // 3. 按平台音源优先级表匹配，保证 macOS / Windows / 安卓听感尽量一致
   const patterns = VOICE_PRIORITY[primary];
   if (patterns) {
     for (const pool of pools) {
       for (const pattern of patterns) {
-        const hit = pool.find(v => pattern.test(v.name));
-        if (hit) return hit;
+        const byPattern = pool.find(v => pattern.test(v.name));
+        if (byPattern) return byPattern;
       }
     }
   }
 
-  // 3. 兜底：第一个语言匹配项（保持旧行为）
+  // 4. 兜底：第一个语言匹配项（保持旧行为）
   return pools[0][0];
 };
+
+/** 管理员配置的本地首选音源 (resolveTtsConfig 成功后写入) */
+let serverFrontendVoice = '';
 
 const isIOS = () => {
   if (typeof navigator === 'undefined') return false;
@@ -245,7 +271,8 @@ const speakUtterance = (
   lang: string,
   rate: number,
   token: number,
-  immediate: boolean
+  immediate: boolean,
+  voiceName?: string
 ): Promise<void> =>
   new Promise<void>((resolve, reject) => {
     const synth = window.speechSynthesis!;
@@ -253,7 +280,13 @@ const speakUtterance = (
     utterance.lang = lang;
     utterance.rate = rate;
 
-    const voice = pickVoice(getVoicesSafe(), lang);
+    const voices = getVoicesSafe();
+    let voice = voiceName
+      ? voices.find(v => v.name === voiceName || v.voiceURI === voiceName)
+      : undefined;
+    if (!voice) {
+      voice = pickVoice(voices, lang);
+    }
     if (voice) {
       utterance.voice = voice;
     }
@@ -359,12 +392,18 @@ const splitText = (text: string, maxLen: number): string[] => {
 /** 每次调用 speak 递增，用于让「已取消/已过时」的播放任务作废 */
 let speakToken = 0;
 
-const speakViaBrowser = async (text: string, lang: string, rate: number, token: number) => {
+const speakViaBrowser = async (
+  text: string,
+  lang: string,
+  rate: number,
+  token: number,
+  voiceName?: string
+) => {
   const chunks = splitText(text, 180);
   for (let i = 0; i < chunks.length; i += 1) {
     if (token !== speakToken) return;
     // eslint-disable-next-line no-await-in-loop
-    await speakUtterance(chunks[i], lang, rate, token, i === 0);
+    await speakUtterance(chunks[i], lang, rate, token, i === 0, voiceName);
   }
 };
 
@@ -503,10 +542,11 @@ export const speak = async (
   if (!clean) return;
 
   // 2. 解析模式 (短缓存; 后端不可达时回落本地)
-  const mode = await resolveMode();
+  const cfg = await resolveTtsConfig();
+  serverFrontendVoice = cfg.frontendVoice;
 
   // 3. 服务端合成优先 (openai / edge)
-  if (mode !== 'frontend') {
+  if (cfg.mode !== 'frontend') {
     try {
       await speakViaServer(clean, lang, rate, token);
       return;
@@ -528,7 +568,56 @@ export const speak = async (
     if (token !== speakToken) return;
   }
 
-  await speakViaBrowser(clean, lang, rate, token);
+  await speakViaBrowser(clean, lang, rate, token, undefined);
+};
+
+/**
+ * 强制浏览器本地朗读 (管理端配置页测试用): 不走模式分流,
+ * 可显式指定音源名 (未指定时按 用户记忆 > 平台优先级 挑选)
+ */
+export const speakLocal = async (
+  text: string,
+  options?: {
+    lang?: string;
+    rate?: number;
+    voice?: string;
+  }
+) => {
+  const lang = options?.lang || 'en-US';
+  const rate = options?.rate ?? 1;
+  const token = ++speakToken;
+
+  stopAudio();
+  if (window.speechSynthesis) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      /* 忽略 */
+    }
+  }
+
+  const clean = (text || '').trim();
+  if (!clean) return;
+  if (!window.speechSynthesis) {
+    throw new Error('SpeechSynthesis not supported');
+  }
+
+  if (!voicesReady) {
+    await ensureVoices();
+    if (token !== speakToken) return;
+  }
+
+  await speakViaBrowser(clean, lang, rate, token, options?.voice);
+};
+
+/**
+ * 等待浏览器音源列表就绪并返回 (管理端配置页枚举可选项用)。
+ * 浏览器不支持时返回空数组。
+ */
+export const ensureBrowserVoices = async (): Promise<SpeechSynthesisVoice[]> => {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return [];
+  await ensureVoices();
+  return getVoicesSafe();
 };
 
 /**

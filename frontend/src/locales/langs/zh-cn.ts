@@ -572,6 +572,9 @@ const local: App.I18n.Schema = {
         ttsDesc:
           "阅读/测验等界面的单词与文章朗读引擎。浏览器本地模式无需后端但各设备音色不一; OpenAI 兼容与 Edge 模式由后端合成 mp3, 所有浏览器音色一致 (Edge 在线语音免费)。",
         ttsOpenaiHint: "使用 AI 配置中默认激活的 Provider 合成, 无需单独填写服务地址与密钥。",
+        ttsFrontendVoice: "本地音色",
+        ttsFrontendVoicePlaceholder: "从当前浏览器支持的音色中选择, 可输入筛选",
+        ttsBrowserNoVoices: "当前浏览器未检测到可用音源, 本地朗读将不可用; 建议改用 Edge 在线语音模式。",
         ttsMode: "朗读引擎",
         ttsModeFrontend: "浏览器本地",
         ttsModeOpenai: "OpenAI 兼容",
@@ -590,6 +593,7 @@ const local: App.I18n.Schema = {
         remarkTtsVoice: "音色 (alloy / echo / nova 等)",
         remarkTtsEdgeVoiceEn: "Edge 英文音色 (默认 en-US-AriaNeural)",
         remarkTtsEdgeVoiceZh: "Edge 中文音色 (默认 zh-CN-XiaoxiaoNeural)",
+        remarkTtsFrontendVoice: "浏览器本地模式首选音色 (设备无此音色时自动回落)",
         mqtt: "MQTT 服务器",
         mqttDesc:
           "WiFi 唤醒 (WOL) 设备管理的 MQTT Broker 连接信息，保存后到设备管理页点击「连接」生效。",

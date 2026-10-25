@@ -108,6 +108,40 @@ func TestEdgeDRMReferenceVector(t *testing.T) {
 	}
 }
 
+// TestBuildTtsConfig 配置解析: 模式回落 / 默认值 / frontend 音色
+func TestBuildTtsConfig(t *testing.T) {
+	cfg := buildTtsConfig(func(string) string { return "" })
+	if cfg.Mode != TtsModeFrontend {
+		t.Errorf("空配置模式应回落 frontend, got %q", cfg.Mode)
+	}
+	if cfg.OpenAIModel != ttsDefaultModel || cfg.OpenAIVoice != ttsDefaultOpenAIVoice {
+		t.Errorf("默认模型/音色不对: %q %q", cfg.OpenAIModel, cfg.OpenAIVoice)
+	}
+	if cfg.EdgeVoiceEN != ttsDefaultEdgeVoiceEN || cfg.EdgeVoiceZH != ttsDefaultEdgeVoiceZH {
+		t.Errorf("默认 Edge 音色不对: %q %q", cfg.EdgeVoiceEN, cfg.EdgeVoiceZH)
+	}
+	if cfg.FrontendVoice != "" {
+		t.Errorf("frontend 音色默认应为空, got %q", cfg.FrontendVoice)
+	}
+
+	vals := map[string]string{
+		"tts_mode":           "EDGE",
+		"tts_frontend_voice": "Microsoft Aria Online (Natural)",
+	}
+	cfg = buildTtsConfig(func(key string) string { return vals[key] })
+	if cfg.Mode != TtsModeEdge {
+		t.Errorf("模式大小写应归一, got %q", cfg.Mode)
+	}
+	if cfg.FrontendVoice != vals["tts_frontend_voice"] {
+		t.Errorf("frontend 音色应透传, got %q", cfg.FrontendVoice)
+	}
+
+	vals["tts_mode"] = "invalid"
+	if cfg := buildTtsConfig(func(key string) string { return vals[key] }); cfg.Mode != TtsModeFrontend {
+		t.Errorf("非法模式应回落 frontend, got %q", cfg.Mode)
+	}
+}
+
 func TestTtsCacheRoundtrip(t *testing.T) {
 	dir := t.TempDir()
 	s := &TtsService{flights: map[string]chan struct{}{}}

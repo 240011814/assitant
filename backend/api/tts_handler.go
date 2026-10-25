@@ -20,9 +20,9 @@ func NewTtsHandler(svc *service.TtsService) *TtsHandler {
 	return &TtsHandler{svc: svc}
 }
 
-// HandleGetConfig 当前 TTS 模式 (登录用户即可访问; 前端缓存后决定朗读路径)
+// HandleGetConfig 当前 TTS 模式与浏览器本地首选音源 (登录用户即可访问; 前端缓存后决定朗读路径)
 func (h *TtsHandler) HandleGetConfig(c *gin.Context) {
-	SendSuccess(c, gin.H{"mode": h.svc.Mode()})
+	SendSuccess(c, gin.H{"mode": h.svc.Mode(), "frontend_voice": h.svc.FrontendVoice()})
 }
 
 // HandleSynthesize 合成并返回 audio/mpeg。frontend 模式返回 404 code, 前端据此回退本地朗读
