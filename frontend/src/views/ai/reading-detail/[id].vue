@@ -2,19 +2,16 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { useMessage } from "naive-ui";
-import {
-  fetchGetReadingDoc,
-  fetchAnnotateReadingDoc,
-  fetchLookupWord,
-  fetchAddVocabulary,
-} from "@/service/api";
-import type { DifficultWord, DictionaryEntry, ReadingDoc } from "@/service/api";
-import { speak } from "@/utils/tts";
+import { fetchGetReadingDoc, fetchAnnotateReadingDoc } from "@/service/api";
+import type { DifficultWord, ReadingDoc } from "@/service/api";
 import { useAppStore } from "@/store/modules/app";
+import { useRouterPush } from "@/hooks/common/router";
+import ReaderView from "@/components/custom/reader-view.vue";
 
 const appStore = useAppStore();
 const route = useRoute();
 const message = useMessage();
+const { routerPushByKey } = useRouterPush();
 
 const docId = Number(route.params.id);
 const doc = ref<(ReadingDoc & { content: string }) | null>(null);
@@ -23,12 +20,20 @@ const loading = ref(false);
 // 标注是异步任务 (Cloudflare 100s 源站响应上限), annotating 态由文档状态驱动
 const annotating = computed(() => doc.value?.status === "annotating");
 
-// 点词查词
-const showWordModal = ref(false);
-const wordLoading = ref(false);
-const activeWord = ref("");
-const wordEntry = ref<DictionaryEntry | null>(null);
-const addingWord = ref(false);
+const readerRef = ref<InstanceType<typeof ReaderView> | null>(null);
+
+const statusTag = (status: string) => {
+  switch (status) {
+    case "annotated":
+      return { type: "success" as const, label: "已标注" };
+    case "annotating":
+      return { type: "info" as const, label: "标注中" };
+    case "failed":
+      return { type: "error" as const, label: "标注失败" };
+    default:
+      return { type: "default" as const, label: "待标注" };
+  }
+};
 
 // 生词集合 (小写) 用于高亮
 const difficultSet = computed(() => {
@@ -61,6 +66,12 @@ const tokenize = (paragraph: string): RenderToken[] => {
     const hit = bare ? difficultSet.value.get(bare) : undefined;
     return { text: t, word: bare, isDifficult: !!hit, known: !!hit?.known };
   });
+};
+
+// 点词查词在 ReaderView 内置; 加入生词本后同步本地高亮状态
+const onWordAdded = (word: string) => {
+  const hit = difficultWords.value.find((w) => w.word.toLowerCase() === word.toLowerCase());
+  if (hit) hit.known = true;
 };
 
 const loadDoc = async () => {
@@ -127,43 +138,6 @@ const handleAnnotate = async () => {
   startAnnotatePolling();
 };
 
-const handleWordClick = async (word: string) => {
-  if (!word) return;
-  activeWord.value = word;
-  wordEntry.value = null;
-  showWordModal.value = true;
-  wordLoading.value = true;
-  const { data: resp, error } = await fetchLookupWord(word);
-  wordLoading.value = false;
-  if (error || !resp) {
-    message.error("查词失败");
-    showWordModal.value = false;
-    return;
-  }
-  wordEntry.value = resp;
-};
-
-const handleAddToVocabulary = async () => {
-  if (!wordEntry.value) return;
-  addingWord.value = true;
-  const { error } = await fetchAddVocabulary({
-    word: wordEntry.value.word,
-    phonetic: wordEntry.value.phonetic,
-    definition: wordEntry.value.translation || wordEntry.value.definition,
-    example: wordEntry.value.example,
-    sourceContext: doc.value?.title || "阅读",
-  });
-  addingWord.value = false;
-  if (error) {
-    message.error((error as any)?.message || "添加失败 (可能已存在)");
-    return;
-  }
-  message.success("已加入生词本");
-  // 更新本地标注状态
-  const hit = difficultWords.value.find((w) => w.word.toLowerCase() === wordEntry.value?.word.toLowerCase());
-  if (hit) hit.known = true;
-};
-
 onMounted(() => {
   loadDoc();
 });
@@ -174,73 +148,75 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex-col flex gap-4 overflow-auto" :class="appStore.isMobile ? 'p-2' : 'p-4'">
-    <NCard :bordered="false" :shadow="appStore.isMobile ? false : 'sm'" class="flex-1">
-      <template #header>
-        <div class="flex flex-wrap items-center gap-3">
-          <span class="font-bold text-18px">{{ doc?.title || '...' }}</span>
-          <NTag v-if="doc" size="small" :bordered="false">{{ doc.wordCount }} 词</NTag>
-          <NTag v-if="doc && doc.status === 'annotated'" size="small" type="warning" :bordered="false">
-            生词率 {{ Math.round(doc.unknownRate * 1000) / 10 }}%
-          </NTag>
-        </div>
-      </template>
-      <template #header-extra>
-        <div class="flex gap-2">
+  <div class="h-full flex" :class="appStore.isMobile ? 'p-2' : 'p-4'">
+    <div class="flex-1 min-w-0 rounded-lg overflow-hidden border border-gray-100 dark:border-gray-800 shadow-sm">
+      <ReaderView ref="readerRef" :title="doc?.title || ''" :loading="loading" @word-added="onWordAdded">
+        <template #toolbar-left>
+          <NButton quaternary circle size="small" title="返回列表" @click="routerPushByKey('ai_reading')">
+            <template #icon>
+              <SvgIcon icon="mdi:arrow-left" />
+            </template>
+          </NButton>
+          <span class="font-bold truncate min-w-0">{{ doc?.title || '...' }}</span>
+        </template>
+        <template #toolbar-actions>
           <NButton
+            size="small"
             type="primary"
+            class="ml-1"
             :loading="annotating"
             :disabled="annotating"
             @click="handleAnnotate"
           >
-            {{ annotating ? '标注中...' : (doc?.status === 'annotated' ? '重新标注生词' : 'AI 标注生词') }}
+            {{ annotating ? '标注中...' : (doc?.status === 'annotated' ? '重新标注生词' : doc?.status === 'failed' ? '重试标注' : 'AI 标注生词') }}
           </NButton>
-        </div>
-      </template>
+        </template>
+        <template #meta>
+          <span v-if="doc?.createdAt">{{ new Date(doc.createdAt).toLocaleString() }}</span>
+          <NTag v-if="doc" size="tiny" :bordered="false">{{ doc.wordCount }} 词</NTag>
+          <NTag v-if="doc && doc.status === 'annotated'" size="tiny" type="warning" :bordered="false">
+            生词率 {{ Math.round(doc.unknownRate * 1000) / 10 }}%
+          </NTag>
+          <NTag v-if="doc" size="tiny" :type="statusTag(doc.status).type" :bordered="false">
+            {{ statusTag(doc.status).label }}
+          </NTag>
+          <span class="hidden md:inline text-gray-300 dark:text-gray-600">
+            点击任意单词即可查词; 高亮为 AI 标注的生词 (灰色为已在生词本)
+          </span>
+        </template>
 
-      <NSpin :show="loading">
-        <div class="flex gap-6" :class="appStore.isMobile ? 'flex-col' : ''">
-          <!-- 正文 -->
-          <div class="flex-1 flex flex-col gap-4 leading-8 text-16px">
-            <div
-              v-for="(p, pi) in paragraphs"
-              :key="pi"
-              class="text-justify"
+        <p v-for="(p, pi) in paragraphs" :key="pi">
+          <template v-for="(tk, ti) in tokenize(p)" :key="ti">
+            <a
+              v-if="tk.isDifficult"
+              class="cursor-pointer rounded px-0.5 font-bold"
+              :class="tk.known ? 'bg-gray-200 dark:bg-gray-700 text-gray-500' : 'bg-warning/20 text-warning hover:bg-warning/40'"
             >
-              <template v-for="(tk, ti) in tokenize(p)" :key="ti">
-                <a
-                  v-if="tk.isDifficult"
-                  class="cursor-pointer rounded px-0.5 font-bold"
-                  :class="tk.known ? 'bg-gray-200 dark:bg-gray-700 text-gray-500' : 'bg-warning/20 text-warning hover:bg-warning/40'"
-                  @click="handleWordClick(tk.word)"
-                >
-                  {{ tk.text }}
-                </a>
-                <span
-                  v-else-if="tk.word"
-                  class="cursor-pointer hover:text-primary"
-                  @click="handleWordClick(tk.word)"
-                >
-                  {{ tk.text }}
-                </span>
-                <span v-else>{{ tk.text }}</span>
-              </template>
-            </div>
-            <NEmpty v-if="paragraphs.length === 0 && !loading" description="文档为空" />
-            <div class="text-xs text-gray-300">点击任意单词即可查词; 高亮为 AI 标注的生词 (灰色为已在生词本)。</div>
-          </div>
+              {{ tk.text }}
+            </a>
+            <span v-else-if="tk.word" class="cursor-pointer hover:text-primary">
+              {{ tk.text }}
+            </span>
+            <span v-else>{{ tk.text }}</span>
+          </template>
+        </p>
+        <NEmpty v-if="paragraphs.length === 0 && !loading" description="文档为空" />
 
-          <!-- 生词侧栏 -->
-          <div v-if="difficultWords.length > 0 && !appStore.isMobile" class="w-64 shrink-0">
-            <div class="font-bold mb-2">标注生词 ({{ difficultWords.length }})</div>
-            <div class="flex flex-col gap-2 max-h-[60vh] overflow-auto">
+        <template #aside>
+          <!-- 生词侧栏 (桌面) -->
+          <aside
+            v-if="difficultWords.length > 0 && !appStore.isMobile"
+            class="w-64 shrink-0 sticky top-4 self-start max-h-[calc(100vh-220px)] overflow-auto"
+          >
+            <div class="font-bold mb-2 text-15px text-gray-900 dark:text-gray-50">标注生词 ({{ difficultWords.length }})</div>
+            <div class="flex flex-col gap-2">
               <div
                 v-for="w in difficultWords"
                 :key="w.word"
                 class="rounded-lg border border-gray-200 dark:border-gray-700 p-2 text-sm"
               >
                 <div class="flex items-center justify-between">
-                  <a class="cursor-pointer font-bold text-primary" @click="handleWordClick(w.word)">{{ w.word }}</a>
+                  <a class="cursor-pointer font-bold text-primary" @click="readerRef?.lookupWord(w.word)">{{ w.word }}</a>
                   <NTag size="tiny" :type="w.known ? 'default' : 'warning'" :bordered="false">
                     {{ w.known ? '已收藏' : '生词' }}
                   </NTag>
@@ -248,34 +224,9 @@ onUnmounted(() => {
                 <div class="text-xs text-gray-500 mt-1">{{ w.meaning }}</div>
               </div>
             </div>
-          </div>
-        </div>
-      </NSpin>
-    </NCard>
-
-    <!-- 查词弹窗 -->
-    <NModal v-model:show="showWordModal" preset="card" :title="activeWord" :style="{ width: appStore.isMobile ? '92%' : '440px' }">
-      <NSpin :show="wordLoading">
-        <div v-if="wordEntry" class="flex flex-col gap-3 py-2">
-          <div class="flex items-center gap-3">
-            <span class="text-2xl font-bold text-primary">{{ wordEntry.word }}</span>
-            <span class="text-sm text-gray-400">{{ wordEntry.phonetic }}</span>
-            <NButton circle size="small" quaternary type="primary" @click="speak(wordEntry.word, { lang: 'en-US', rate: 0.9 })">
-              <template #icon>
-                <SvgIcon icon="mdi:volume-high" class="text-20px" />
-              </template>
-            </NButton>
-          </div>
-          <div class="text-sm text-gray-600 dark:text-gray-300">{{ wordEntry.definition }}</div>
-          <div class="text-sm font-bold">{{ wordEntry.translation }}</div>
-          <div v-if="wordEntry.example" class="rounded-lg bg-gray-50 dark:bg-gray-800 p-3 text-sm italic">
-            {{ wordEntry.example }}
-          </div>
-          <NButton type="primary" block :loading="addingWord" @click="handleAddToVocabulary">加入生词本</NButton>
-        </div>
-      </NSpin>
-    </NModal>
+          </aside>
+        </template>
+      </ReaderView>
+    </div>
   </div>
 </template>
-
-<style scoped></style>

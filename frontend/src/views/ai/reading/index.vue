@@ -18,40 +18,6 @@ const loading = ref(false);
 const docs = ref<any[]>([]);
 const keyword = ref("");
 
-// ===================== 常用网站收藏 (rss 为实测可用的 feed 地址) =====================
-interface FavoriteSite {
-  name: string;
-  url: string;
-  note: string;
-  rss?: string;
-  group: "分级新闻" | "真实语料";
-}
-
-const favoriteSites: FavoriteSite[] = [
-  { name: "News in Levels", url: "https://www.newsinlevels.com", note: "同一新闻 3 级难度 + 音频", rss: "https://www.newsinlevels.com/feed/", group: "分级新闻" },
-  { name: "VOA Learning English", url: "https://learningenglish.voanews.com", note: "词汇受控简明新闻, RSS 按栏目", rss: "https://learningenglish.voanews.com/rssfeeds", group: "分级新闻" },
-  { name: "Breaking News English", url: "https://www.breakingnewsenglish.com", note: "同一新闻 7 个难度 (有反爬, URL 导入待实测)", group: "分级新闻" },
-  { name: "ESL News Stories", url: "https://www.eslnewsstories.com", note: "A1~B2 分级短文", group: "分级新闻" },
-  { name: "British Council LearnEnglish", url: "https://learnenglish.britishcouncil.org", note: "B1~B2, RSS 已退役", group: "分级新闻" },
-  { name: "The Guardian", url: "https://www.theguardian.com", note: "免费综合大报, 版块加 /rss", rss: "https://www.theguardian.com/uk/rss", group: "真实语料" },
-  { name: "Aeon", url: "https://aeon.co", note: "思想类长文", rss: "https://aeon.co/feed.rss", group: "真实语料" },
-  { name: "Hacker News", url: "https://news.ycombinator.com", note: "科技资讯", rss: "https://hnrss.org/frontpage", group: "真实语料" },
-  { name: "Ars Technica", url: "https://arstechnica.com", note: "科技深度报道", rss: "https://feeds.arstechnica.com/arstechnica/index", group: "真实语料" },
-  { name: "Project Gutenberg", url: "https://www.gutenberg.org", note: "公版书, 建议整章文本导入", group: "真实语料" },
-];
-
-const siteGroups = ["分级新闻", "真实语料"] as const;
-const sitesOf = (group: string) => favoriteSites.filter((s) => s.group === group);
-
-const copyRss = async (url: string) => {
-  try {
-    await navigator.clipboard.writeText(url);
-    message.success("已复制 RSS 地址");
-  } catch {
-    message.error("复制失败");
-  }
-};
-
 // 导入
 const showImportModal = ref(false);
 const importTitle = ref("");
@@ -204,45 +170,6 @@ onMounted(() => {
         <div class="flex items-center justify-between w-full">
           <span class="font-bold text-18px">分级阅读</span>
           <div class="flex gap-2">
-            <NPopover trigger="click" placement="bottom-end" :width="460">
-              <template #trigger>
-                <NButton>常用网站</NButton>
-              </template>
-              <div class="max-h-[60vh] overflow-auto flex flex-col gap-3">
-                <div v-for="group in siteGroups" :key="group">
-                  <div class="text-xs font-bold text-gray-400 mb-1">{{ group }}</div>
-                  <div
-                    v-for="site in sitesOf(group)"
-                    :key="site.name"
-                    class="flex items-start justify-between gap-2 py-1.5 border-b border-gray-100 dark:border-gray-800 last:border-b-0"
-                  >
-                    <div>
-                      <a :href="site.url" target="_blank" rel="noopener noreferrer" class="text-primary font-bold text-sm">
-                        {{ site.name }}
-                      </a>
-                      <div class="text-xs text-gray-400">{{ site.note }}</div>
-                    </div>
-                    <NTag
-                      v-if="site.rss"
-                      size="tiny"
-                      type="success"
-                      :bordered="false"
-                      class="cursor-pointer shrink-0 mt-0.5"
-                      title="点击复制 RSS 地址"
-                      @click="copyRss(site.rss)"
-                    >
-                      RSS
-                    </NTag>
-                    <NTag v-else size="tiny" :bordered="false" class="shrink-0 mt-0.5">无 RSS</NTag>
-                  </div>
-                </div>
-                <div class="text-xs text-gray-300">
-                  点名称打开网站; 带 RSS 标记的可点击复制 feed 地址。
-                  无 RSS 的站点可自部署 RSSHub (docker run diygod/rsshub) 生成 feed;
-                  rsshub.app 公共实例有反爬盾, 程序抓取会 403, 别直接用。
-                </div>
-              </div>
-            </NPopover>
             <NButton type="primary" @click="showImportModal = true">导入文章</NButton>
           </div>
         </div>

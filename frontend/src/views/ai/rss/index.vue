@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onActivated, onBeforeUnmount, onMounted, ref } from "vue";
 import { NButton, NEmpty, NPopconfirm, NTag, useMessage } from "naive-ui";
 import { useRouterPush } from "@/hooks/common/router";
+import ReaderView from "@/components/custom/reader-view.vue";
 import {
   fetchRSSAddSource,
   fetchRSSListSources,
@@ -163,7 +164,7 @@ const handleFetchAll = async () => {
   loadSources();
 };
 
-// ===================== 阅读弹窗 (Folo 阅读页: 居中窄栏 + 可调排版 + j/k 导航) =====================
+// ===================== 阅读弹窗 (ReaderView 组件: 居中窄栏 + 可调排版 + 点词查词 + j/k 导航) =====================
 const showViewer = ref(false);
 const viewLoading = ref(false);
 const viewItem = ref<RSSItem | null>(null);
@@ -171,26 +172,7 @@ const viewContent = ref("");
 const viewHtml = ref("");
 const viewError = ref("");
 const importing = ref(false);
-const viewScrollRef = ref<HTMLElement | null>(null);
-const readProgress = ref(0);
-
-// 阅读偏好: 字号 14~20 + 版宽 舒适/宽敞, localStorage 持久化
-const READER_FONT_KEY = "rss_reader_font_size";
-const READER_WIDTH_KEY = "rss_reader_width";
-const readerFontSize = ref(Number(localStorage.getItem(READER_FONT_KEY)) || 17);
-const readerWidth = ref<"cozy" | "wide">(
-  localStorage.getItem(READER_WIDTH_KEY) === "wide" ? "wide" : "cozy"
-);
-const readerMaxWidth = computed(() => (readerWidth.value === "wide" ? 860 : 660));
-
-const setReaderFontSize = (size: number) => {
-  readerFontSize.value = Math.min(20, Math.max(14, size));
-  localStorage.setItem(READER_FONT_KEY, String(readerFontSize.value));
-};
-const toggleReaderWidth = () => {
-  readerWidth.value = readerWidth.value === "cozy" ? "wide" : "cozy";
-  localStorage.setItem(READER_WIDTH_KEY, readerWidth.value);
-};
+const readerRef = ref<InstanceType<typeof ReaderView> | null>(null);
 
 // feed 正文常自带与文章标题重复的 H1/H2, 阅读视图下去重 (内容已经服务端净化, 这里只删不加)
 const stripDuplicateHeading = (html: string, title: string) => {
@@ -218,11 +200,8 @@ const openItem = async (item: RSSItem) => {
   viewContent.value = "";
   viewHtml.value = "";
   viewError.value = "";
-  readProgress.value = 0;
   showViewer.value = true;
-  nextTick(() => {
-    if (viewScrollRef.value) viewScrollRef.value.scrollTop = 0;
-  });
+  readerRef.value?.scrollToTop();
   if (item.status === "unread") {
     item.status = "read";
     // 同步侧栏未读数
@@ -287,14 +266,6 @@ const handleReaderKey = (e: KeyboardEvent) => {
   if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) return;
   if (e.key === "j") navTo(1);
   else if (e.key === "k") navTo(-1);
-};
-
-// 顶部阅读进度条
-const onViewScroll = () => {
-  const el = viewScrollRef.value;
-  if (!el) return;
-  const max = el.scrollHeight - el.clientHeight;
-  readProgress.value = max > 10 ? Math.min(100, Math.round((el.scrollTop / max) * 100)) : 0;
 };
 
 async function handleImport(item: RSSItem) {
@@ -538,53 +509,30 @@ onActivated(() => {
       </div>
     </NModal>
 
-    <!-- 阅读视图 (Folo 风格: 居中窄栏 + 大标题 + 可调排版 + j/k 导航 + 阅读进度) -->
+    <!-- 阅读视图 (ReaderView 组件: 居中窄栏 + 大标题 + 可调排版 + 点词查词 + j/k 导航) -->
     <NModal v-model:show="showViewer" :auto-focus="false">
-      <div class="relative w-full h-full md:w-[min(94vw,960px)] md:h-[88vh] flex flex-col rounded-none md:rounded-xl bg-white dark:bg-[#18181c] shadow-2xl overflow-hidden">
-        <!-- 阅读进度条 -->
-        <div
-          class="absolute top-0 left-0 h-[2px] bg-primary z-10 transition-[width] duration-150"
-          :style="{ width: `${readProgress}%` }"
-        />
-        <!-- 顶栏: 源信息 + 排版设置 + 操作 -->
-        <div class="flex items-center gap-2 pl-5 pr-3 h-14 border-b border-gray-100 dark:border-gray-800 shrink-0">
-          <span
-            class="w-5 h-5 rounded-full text-white text-11px font-medium flex items-center justify-center shrink-0"
-            :style="{ background: avatarColor(viewItem?.sourceId || 0) }"
-          >
-            {{ sourceInitial(viewItem?.sourceId || 0) }}
-          </span>
-          <span class="text-13px text-gray-500 dark:text-gray-400 truncate min-w-0">
-            {{ viewItem ? sourceTitle(viewItem.sourceId) : '' }}
-          </span>
-          <template v-if="viewItem?.publishedAt">
-            <span class="text-gray-300 dark:text-gray-600">·</span>
-            <span class="text-13px text-gray-400 shrink-0">{{ relTime(viewItem.publishedAt) }}</span>
-          </template>
-          <template v-if="!viewLoading && viewStats.charCount > 0">
-            <span class="text-gray-300 dark:text-gray-600">·</span>
-            <span class="text-13px text-gray-400 shrink-0">约 {{ viewStats.minutes }} 分钟</span>
-          </template>
-          <div class="flex-1" />
-          <div class="flex items-center gap-0.5 shrink-0">
-            <NButton quaternary size="tiny" class="!px-1.5" title="减小字号" @click="setReaderFontSize(readerFontSize - 1)">
-              A-
-            </NButton>
-            <span class="text-11px text-gray-400 w-6 text-center tabular-nums">{{ readerFontSize }}</span>
-            <NButton quaternary size="tiny" class="!px-1.5" title="增大字号" @click="setReaderFontSize(readerFontSize + 1)">
-              A+
-            </NButton>
-            <NButton
-              quaternary
-              circle
-              size="small"
-              :title="readerWidth === 'cozy' ? '切换宽敞版式' : '切换舒适版式'"
-              @click="toggleReaderWidth"
+      <div class="w-full h-full md:w-[min(94vw,960px)] md:h-[88vh] flex flex-col rounded-none md:rounded-xl bg-white dark:bg-[#18181c] shadow-2xl overflow-hidden">
+        <ReaderView ref="readerRef" :title="viewItem?.title || ''" :loading="viewLoading">
+          <template #toolbar-left>
+            <span
+              class="w-5 h-5 rounded-full text-white text-11px font-medium flex items-center justify-center shrink-0"
+              :style="{ background: avatarColor(viewItem?.sourceId || 0) }"
             >
-              <template #icon>
-                <SvgIcon :icon="readerWidth === 'cozy' ? 'mdi:arrow-expand-horizontal' : 'mdi:arrow-collapse-horizontal'" />
-              </template>
-            </NButton>
+              {{ sourceInitial(viewItem?.sourceId || 0) }}
+            </span>
+            <span class="text-13px text-gray-500 dark:text-gray-400 truncate min-w-0">
+              {{ viewItem ? sourceTitle(viewItem.sourceId) : '' }}
+            </span>
+            <template v-if="viewItem?.publishedAt">
+              <span class="text-gray-300 dark:text-gray-600">·</span>
+              <span class="text-13px text-gray-400 shrink-0">{{ relTime(viewItem.publishedAt) }}</span>
+            </template>
+            <template v-if="!viewLoading && viewStats.charCount > 0">
+              <span class="text-gray-300 dark:text-gray-600">·</span>
+              <span class="text-13px text-gray-400 shrink-0">约 {{ viewStats.minutes }} 分钟</span>
+            </template>
+          </template>
+          <template #toolbar-actions>
             <a v-if="viewItem?.link" :href="viewItem.link" target="_blank" rel="noopener noreferrer">
               <NButton quaternary circle size="small" title="打开原文">
                 <template #icon>
@@ -622,45 +570,30 @@ onActivated(() => {
                 <SvgIcon icon="mdi:close" />
               </template>
             </NButton>
+          </template>
+          <template #meta>
+            <span v-if="viewItem?.publishedAt">{{ new Date(viewItem.publishedAt).toLocaleString() }}</span>
+            <NTag v-if="viewItem?.status === 'imported'" size="tiny" type="success" :bordered="false">已导入</NTag>
+            <span class="hidden md:inline text-gray-300 dark:text-gray-600">
+              j / k 键切换上一篇、下一篇; 点击英文单词可查词
+            </span>
+          </template>
+
+          <NAlert v-if="viewError" type="warning" :bordered="false" class="my-5">
+            正文抓取失败: {{ viewError }}<template v-if="viewHtml || viewerParagraphs.length">（以下为 feed 摘要）</template>
+          </NAlert>
+          <!-- 净化 HTML 渲染 (服务端白名单过滤, 含图片/链接/表格) -->
+          <!-- eslint-disable-next-line vue/no-v-html -- 内容为服务端白名单净化后的 HTML -->
+          <div v-if="viewHtml" class="article-html" v-html="viewHtml"></div>
+          <div v-else class="flex flex-col">
+            <p v-for="(p, i) in viewerParagraphs" :key="i">{{ p }}</p>
+            <NEmpty
+              v-if="!viewLoading && viewerParagraphs.length === 0"
+              description="未抓到正文且无摘要, 可打开原文链接查看"
+            />
           </div>
-        </div>
 
-        <!-- 正文滚动区 -->
-        <div ref="viewScrollRef" class="flex-1 overflow-y-auto" @scroll.passive="onViewScroll">
-          <article class="mx-auto w-full px-6 md:px-10 pt-8 pb-14" :style="{ maxWidth: `${readerMaxWidth + 80}px` }">
-            <h1 class="text-[26px] md:text-[30px] font-bold leading-[1.35] text-gray-900 dark:text-gray-50 mb-5">
-              {{ viewItem?.title }}
-            </h1>
-            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 pb-6 mb-2 border-b border-gray-100 dark:border-gray-800 text-13px text-gray-400">
-              <span v-if="viewItem?.publishedAt">{{ new Date(viewItem.publishedAt).toLocaleString() }}</span>
-              <NTag v-if="viewItem?.status === 'imported'" size="tiny" type="success" :bordered="false">已导入</NTag>
-              <span class="hidden md:inline text-gray-300 dark:text-gray-600">j / k 键切换上一篇、下一篇</span>
-            </div>
-            <NSpin :show="viewLoading">
-              <NAlert v-if="viewError" type="warning" :bordered="false" class="my-5">
-                正文抓取失败: {{ viewError }}<template v-if="viewHtml || viewerParagraphs.length">（以下为 feed 摘要）</template>
-              </NAlert>
-              <!-- 净化 HTML 渲染 (服务端白名单过滤, 含图片/链接/表格) -->
-              <!-- eslint-disable-next-line vue/no-v-html -- 内容为服务端白名单净化后的 HTML -->
-              <div
-                v-if="viewHtml"
-                class="article-html mt-6"
-                :style="{ fontSize: `${readerFontSize}px` }"
-                v-html="viewHtml"
-              ></div>
-              <div
-                v-else
-                class="mt-6 flex flex-col gap-5 leading-[1.9] text-gray-700 dark:text-gray-300"
-                :style="{ fontSize: `${readerFontSize}px` }"
-              >
-                <p v-for="(p, i) in viewerParagraphs" :key="i">{{ p }}</p>
-                <NEmpty
-                  v-if="!viewLoading && viewerParagraphs.length === 0"
-                  description="未抓到正文且无摘要, 可打开原文链接查看"
-                />
-              </div>
-            </NSpin>
-
+          <template #footer>
             <!-- 上一篇 / 下一篇 -->
             <div class="flex items-center justify-between gap-4 mt-14 pt-6 border-t border-gray-100 dark:border-gray-800">
               <NButton
@@ -686,8 +619,8 @@ onActivated(() => {
               </NButton>
               <span v-else class="text-13px text-gray-300 dark:text-gray-600">已是最后一篇</span>
             </div>
-          </article>
-        </div>
+          </template>
+        </ReaderView>
       </div>
     </NModal>
   </div>
@@ -701,16 +634,8 @@ onActivated(() => {
   overflow: hidden;
 }
 
-/* 净化 HTML 正文的阅读排版 (v-html 注入的节点须用 :deep), 字号以 em 相对单位随顶栏 A-/A+ 缩放 */
-.article-html {
-  line-height: 1.9;
-  color: #374151;
-  word-break: break-word;
-  letter-spacing: 0.01em;
-}
-.dark .article-html {
-  color: #d1d5db;
-}
+/* 净化 HTML 正文的富文本元素排版 (v-html 注入的节点须用 :deep);
+   基础排版 (字号/行高/颜色) 由 ReaderView 的 .reader-content 提供, 字号以 em 相对单位随 A-/A+ 缩放 */
 .article-html > :first-child {
   margin-top: 0;
 }
