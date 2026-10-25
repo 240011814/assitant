@@ -50,8 +50,9 @@ type AddRSSSourceRequest struct {
 
 // ListRSSItemsRequest 文章列表查询
 type ListRSSItemsRequest struct {
-	SourceID   uint `form:"sourceId"`
-	UnreadOnly bool `form:"unreadOnly"`
-	Page       int  `form:"page"`
-	PageSize   int  `form:"page_size"`
+	SourceID   uint   `form:"sourceId"`
+	UnreadOnly bool   `form:"unreadOnly"`
+	Sort       string `form:"sort"` // time_desc(默认)/time_asc, 按发布时间(缺失用创建时间)排序
+	Page       int    `form:"page"`
+	PageSize   int    `form:"page_size"`
 }

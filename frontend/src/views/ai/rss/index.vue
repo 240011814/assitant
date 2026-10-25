@@ -25,6 +25,7 @@ const sources = ref<(RSSSource & { unread?: number })[]>([]);
 const items = ref<RSSItem[]>([]);
 const filterSourceId = ref<number | null>(null);
 const unreadOnly = ref(false);
+const timeAsc = ref(false);
 const refreshingId = ref<number | null>(null);
 
 const pagination = ref({
@@ -137,6 +138,7 @@ async function loadItems() {
   const { data: resp, error } = await fetchRSSListItems({
     sourceId: filterSourceId.value || undefined,
     unreadOnly: unreadOnly.value || undefined,
+    sort: timeAsc.value ? "time_asc" : "time_desc",
     page: pagination.value.page,
     page_size: pagination.value.pageSize
   });
@@ -325,25 +327,25 @@ onActivated(() => {
           @click="selectSource(src.id)"
         >
           <span class="text-sm truncate flex-1" :title="src.title">{{ src.title }}</span>
-          <div class="flex items-center gap-1 shrink-0">
+          <!-- 原生 span 拦截冒泡: 操作按钮不触发行的切换 (SvgIcon 组件可能不透传事件修饰符) -->
+          <span class="flex items-center gap-1 shrink-0" @click.stop>
             <NTag v-if="(src.unread || 0) > 0" size="tiny" type="warning" :bordered="false">{{ src.unread }}</NTag>
             <SvgIcon
               icon="mdi:refresh"
               class="text-14px cursor-pointer text-gray-300 group-hover:text-primary"
               :class="{ 'animate-spin text-primary': refreshingId === src.id }"
-              @click.stop="handleFetchOne(src)"
+              @click="handleFetchOne(src)"
             />
             <NPopconfirm @positive-click="handleDeleteSource(src.id)">
               <template #trigger>
                 <SvgIcon
                   icon="mdi:delete-outline"
                   class="text-14px cursor-pointer text-gray-300 group-hover:text-error"
-                  @click.stop
                 />
               </template>
               删除「{{ src.title }}」及其全部文章?
             </NPopconfirm>
-          </div>
+          </span>
         </div>
         <NEmpty v-if="sources.length === 0" size="small" description="暂无订阅" class="py-4" />
       </div>
@@ -363,6 +365,16 @@ onActivated(() => {
                 @update:value="() => { pagination.page = 1; loadItems(); }"
               />
             </div>
+            <NButton
+              size="small"
+              :title="timeAsc ? '发布时间正序' : '发布时间倒序'"
+              @click="() => { timeAsc = !timeAsc; pagination.page = 1; loadItems(); }"
+            >
+              <template #icon>
+                <SvgIcon :icon="timeAsc ? 'mdi:sort-ascending' : 'mdi:sort-descending'" class="text-icon" />
+              </template>
+              时间{{ timeAsc ? '正序' : '倒序' }}
+            </NButton>
             <NButton size="small" :loading="fetchingAll" @click="handleFetchAll">全部刷新</NButton>
             <NButton size="small" @click="showAddModal = true">添加订阅</NButton>
           </div>

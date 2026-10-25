@@ -203,8 +203,7 @@ export const generatedRoutes: GeneratedRoute[] = [
           icon: 'mdi:rss',
           permissions: ['ai:vocabulary:view'],
           order: 11,
-          keepAlive: true,
-          hideInMenu: true
+          keepAlive: true
         }
       },
       {

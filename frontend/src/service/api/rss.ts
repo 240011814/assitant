@@ -59,8 +59,14 @@ export function fetchRSSFetchSource(id: number) {
   });
 }
 
-/** 文章列表 (分页 + 源/未读过滤) */
-export function fetchRSSListItems(params?: { sourceId?: number; unreadOnly?: boolean; page?: number; page_size?: number }) {
+/** 文章列表 (分页 + 源/未读过滤, sort=time_desc|time_asc) */
+export function fetchRSSListItems(params?: {
+  sourceId?: number;
+  unreadOnly?: boolean;
+  sort?: 'time_desc' | 'time_asc';
+  page?: number;
+  page_size?: number;
+}) {
   return request<{ list: RSSItem[]; total: number }>({
     url: '/api/rss/items',
     method: 'get',

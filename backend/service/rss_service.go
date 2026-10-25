@@ -257,9 +257,14 @@ func (s *RSSService) ListItems(userID uint, req model.ListRSSItemsRequest) ([]mo
 		return nil, 0, err
 	}
 
+	// 排序: 按发布时间(缺失用创建时间)升降序, 纯时间序不掺未读优先
+	order := "COALESCE(published_at, created_at) DESC"
+	if req.Sort == "time_asc" {
+		order = "COALESCE(published_at, created_at) ASC"
+	}
+
 	var list []model.RSSItem
-	// 未读优先, 其余按发布时间倒序 (无发布时间的按创建时间)
-	err := query.Order("status = 'unread' DESC, COALESCE(published_at, created_at) DESC").
+	err := query.Order(order).
 		Offset((req.Page - 1) * req.PageSize).Limit(req.PageSize).
 		Find(&list).Error
 	return list, total, err
