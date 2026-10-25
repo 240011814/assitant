@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
-import { fetchLookupWord, fetchAddVocabulary } from "@/service/api";
+import { fetchLookupWord, fetchAddVocabulary, fetchTranslateText, fetchReadingHeartbeat } from "@/service/api";
 import type { DictionaryEntry } from "@/service/api";
 import { speak } from "@/utils/tts";
 import { useReaderPreferences } from "@/hooks/common/reader-preferences";
 
 /**
  * ReaderView 共享阅读组件 (Folo 风格): RSS 阅读弹窗与分级阅读详情页共用。
- * - 顶栏: 左侧信息插槽 + A-/A+ 字号 / 舒适宽敞版宽 (localStorage 持久化, 双页共享) + 右侧操作插槽
+ * - 顶栏: 左侧信息插槽 + A-/A+ 字号 / 舒适宽敞版宽 (localStorage 持久化, 双页共享) + 朗读 + 右侧操作插槽
  * - 正文: 大标题 + 元信息行插槽 + 居中窄栏 + 阅读进度条
- * - 点词查词: 点击正文任意英文单词弹出查词弹窗, 可加入生词本 (wordAdded 事件通知外部更新状态)
+ * - 点词查词: 点击正文单词弹查词弹窗 (命中生词本显示状态并计一次阅读相遇); 划选文本翻译
+ * - 加入生词本带原文回链 (sourceKind/sourceRef) 与所在原句 (语境复习方向)
  */
 defineOptions({
   name: "ReaderView"
@@ -22,12 +23,18 @@ const props = withDefaults(
     title: string;
     /** 正文加载中 (NSpin) */
     loading?: boolean;
-    /** 是否开启点词查词 (只对英文单词生效) */
+    /** 是否开启点词查词/划词翻译 (只对英文单词/选中文本生效) */
     lookupEnabled?: boolean;
+    /** 生词回链来源: reading=分级阅读 / rss=RSS 条目 */
+    sourceKind?: string;
+    /** 来源文档/条目 ID */
+    sourceRef?: number;
   }>(),
   {
     loading: false,
-    lookupEnabled: true
+    lookupEnabled: true,
+    sourceKind: "",
+    sourceRef: 0
   }
 );
 
@@ -109,8 +116,8 @@ async function lookupWord(word: string) {
   wordEntry.value = resp;
 }
 
-/** 从点击坐标取所在文本节点里的英文单词 (caretRangeFromPoint / caretPositionFromPoint 双实现) */
-const wordAtPoint = (e: MouseEvent): string => {
+/** 从点击坐标取所在文本节点里的英文单词与所在句子 (caretRangeFromPoint 双实现) */
+const wordAtPoint = (e: MouseEvent): { word: string; sentence: string } => {
   const doc = document as Document & {
     caretRangeFromPoint?: (x: number, y: number) => Range | null;
     caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
@@ -126,28 +133,66 @@ const wordAtPoint = (e: MouseEvent): string => {
     node = pos?.offsetNode ?? null;
     offset = pos?.offset ?? 0;
   }
-  if (!node || node.nodeType !== Node.TEXT_NODE) return "";
+  if (!node || node.nodeType !== Node.TEXT_NODE) return { word: "", sentence: "" };
   const text = node.textContent || "";
   const isWordChar = (ch: string) => /[A-Za-z']/.test(ch);
   let start = Math.min(offset, text.length);
   let end = start;
   while (start > 0 && isWordChar(text[start - 1]!)) start -= 1;
   while (end < text.length && isWordChar(text[end]!)) end += 1;
-  return text
+  const word = text
     .slice(start, end)
     .replace(/^'+|'+$/g, "")
     .toLowerCase();
+  // 向两侧扩句子边界 (中英文句末标点), 作为加入生词本时的原句
+  let sStart = start;
+  let sEnd = end;
+  const isSentenceEnd = (ch: string) => /[.!?。！？]/.test(ch);
+  while (sStart > 0 && !isSentenceEnd(text[sStart - 1]!)) sStart -= 1;
+  while (sEnd < text.length && !isSentenceEnd(text[sEnd]!)) sEnd += 1;
+  if (sEnd < text.length) sEnd += 1; // 含句末标点
+  const sentence = text.slice(sStart, sEnd).trim().slice(0, 300);
+  return { word, sentence };
+};
+
+// 最近一次点词的所在句子 (加入生词本时随之上报)
+let lastSentence = "";
+
+// ===================== 划词翻译 =====================
+const showTranslateModal = ref(false);
+const translating = ref(false);
+const translateSource = ref("");
+const translateResult = ref("");
+
+const translateSelection = async (text: string) => {
+  translateSource.value = text;
+  translateResult.value = "";
+  showTranslateModal.value = true;
+  translating.value = true;
+  const { data: resp, error } = await fetchTranslateText(text);
+  translating.value = false;
+  if (error || !resp) {
+    message.error("翻译失败");
+    showTranslateModal.value = false;
+    return;
+  }
+  translateResult.value = resp.translation;
 };
 
 const onContentClick = (e: MouseEvent) => {
   if (!props.lookupEnabled) return;
-  // 划选文本 (拖动选择) 也派发 click, 有选区时不触发查词, 让用户正常复制
+  // 划选了文本: 弹翻译 (不打断 Ctrl+C 复制, 选区保留)
   const selection = window.getSelection();
-  if (selection && selection.toString().trim() !== "") return;
+  const selected = selection ? selection.toString().trim() : "";
+  if (selected.length >= 2) {
+    translateSelection(selected.slice(0, 500));
+    return;
+  }
   const target = e.target as HTMLElement | null;
   // 带链接的元素保持原生行为 (打开原文), 其余文本一律支持点词
   if (target?.closest("a[href], button, img, input, textarea, select")) return;
-  const word = wordAtPoint(e);
+  const { word, sentence } = wordAtPoint(e);
+  lastSentence = sentence;
   if (word) {
     lookupWord(word);
   }
@@ -161,7 +206,10 @@ async function handleAddToVocabulary() {
     phonetic: wordEntry.value.phonetic,
     definition: wordEntry.value.translation || wordEntry.value.definition,
     example: wordEntry.value.example,
-    sourceContext: props.title || "阅读"
+    sourceContext: props.title || "阅读",
+    sourceKind: props.sourceKind || undefined,
+    sourceRef: props.sourceRef || undefined,
+    contextSentence: lastSentence || undefined
   });
   addingWord.value = false;
   if (error) {
@@ -169,12 +217,100 @@ async function handleAddToVocabulary() {
     return;
   }
   message.success("已加入生词本");
+  if (wordEntry.value) wordEntry.value.inVocabulary = true;
   emit("wordAdded", wordEntry.value.word);
 }
 
 defineExpose({
   lookupWord,
   scrollToTop
+});
+
+// ===================== 全文朗读 (逐块高亮跟随) =====================
+const speaking = ref(false);
+let speakQueue: HTMLElement[] = [];
+let speakIndex = 0;
+
+const contentLang = () => {
+  const text = (scrollRef.value?.textContent || "").slice(0, 2000);
+  let cjk = 0;
+  for (const ch of text) {
+    if (ch >= "\u4e00" && ch <= "\u9fff") cjk += 1;
+  }
+  return cjk * 2 > text.length ? "zh-CN" : "en-US";
+};
+
+const clearSpeakingHighlight = () => {
+  scrollRef.value?.querySelectorAll(".reader-speaking").forEach((el) => el.classList.remove("reader-speaking"));
+};
+
+const speakNext = () => {
+  if (!speaking.value || speakIndex >= speakQueue.length) {
+    stopSpeaking();
+    return;
+  }
+  const el = speakQueue[speakIndex];
+  clearSpeakingHighlight();
+  el.classList.add("reader-speaking");
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  const utter = new SpeechSynthesisUtterance(el.textContent || "");
+  utter.lang = contentLang();
+  utter.rate = 0.95;
+  utter.onend = () => {
+    speakIndex += 1;
+    speakNext();
+  };
+  utter.onerror = () => stopSpeaking();
+  window.speechSynthesis.speak(utter);
+};
+
+const toggleSpeaking = () => {
+  if (speaking.value) {
+    stopSpeaking();
+    return;
+  }
+  const blocks = Array.from(
+    scrollRef.value?.querySelectorAll(".reader-content p, .reader-content h1, .reader-content h2, .reader-content h3, .reader-content li, .reader-content blockquote") || []
+  ).filter((el) => (el.textContent || "").trim() !== "") as HTMLElement[];
+  if (blocks.length === 0) {
+    message.info("没有可朗读的内容");
+    return;
+  }
+  speakQueue = blocks;
+  speakIndex = 0;
+  speaking.value = true;
+  speakNext();
+};
+
+function stopSpeaking() {
+  speaking.value = false;
+  window.speechSynthesis.cancel();
+  clearSpeakingHighlight();
+}
+
+// 标题变化 (切文章) 时停止朗读
+watch(
+  () => props.title,
+  () => {
+    stopSpeaking();
+  }
+);
+
+// ===================== 阅读时长心跳 (30s 一次, 组件挂载期间有效) =====================
+let heartbeatTimer: number | null = null;
+heartbeatTimer = window.setInterval(() => {
+  // 标题非空视为正在阅读 (弹窗关闭时 RSS 场景组件会被 v-if 销毁, 不用额外判断)
+  if (props.title) {
+    fetchReadingHeartbeat(30);
+  }
+}, 30_000);
+
+onBeforeUnmount(() => {
+  stopSpeaking();
+  if (heartbeatTimer !== null) {
+    window.clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
 });
 
 const contentStyle = computed(() => ({ fontSize: `${readerFontSize.value}px` }));
@@ -187,6 +323,18 @@ const contentStyle = computed(() => ({ fontSize: `${readerFontSize.value}px` }))
       <slot name="toolbar-left" />
       <div class="flex-1" />
       <div class="flex items-center gap-0.5 shrink-0">
+        <NButton
+          quaternary
+          circle
+          size="small"
+          :title="speaking ? '停止朗读' : '朗读全文'"
+          :aria-label="speaking ? '停止朗读' : '朗读全文'"
+          @click="toggleSpeaking"
+        >
+          <template #icon>
+            <SvgIcon :icon="speaking ? 'mdi:stop-circle-outline' : 'mdi:play-circle-outline'" :class="speaking ? 'text-primary' : ''" />
+          </template>
+        </NButton>
         <NButton
           quaternary
           size="tiny"
@@ -276,9 +424,25 @@ const contentStyle = computed(() => ({ fontSize: `${readerFontSize.value}px` }))
           <div v-if="wordEntry.example" class="rounded-lg bg-gray-50 dark:bg-gray-800 p-3 text-sm italic">
             {{ wordEntry.example }}
           </div>
-          <NButton type="primary" block :loading="addingWord" @click="handleAddToVocabulary">加入生词本</NButton>
+          <NButton v-if="wordEntry.inVocabulary" disabled block>
+            已在生词本<span v-if="(wordEntry.encounters || 0) > 1" class="ml-1 text-xs opacity-70">· 阅读中已遇 {{ wordEntry.encounters }} 次</span>
+          </NButton>
+          <NButton v-else type="primary" block :loading="addingWord" @click="handleAddToVocabulary">加入生词本</NButton>
         </div>
       </NSpin>
+    </NModal>
+
+    <!-- 划词翻译弹窗 -->
+    <NModal v-model:show="showTranslateModal" preset="card" title="翻译" :style="{ width: 'min(92vw, 480px)' }">
+      <div class="flex flex-col gap-3 py-2">
+        <div class="text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-lg p-3 max-h-40 overflow-auto">
+          {{ translateSource }}
+        </div>
+        <NSpin :show="translating">
+          <div v-if="translateResult" class="text-15px leading-relaxed">{{ translateResult }}</div>
+          <div v-else class="text-xs text-gray-400 py-2">翻译中...</div>
+        </NSpin>
+      </div>
     </NModal>
   </div>
 </template>
@@ -300,5 +464,11 @@ const contentStyle = computed(() => ({ fontSize: `${readerFontSize.value}px` }))
 }
 .reader-content :deep(p:last-child) {
   margin-bottom: 0;
+}
+/* 朗读跟随高亮 */
+.reader-content :deep(.reader-speaking) {
+  background: rgba(100, 108, 255, 0.14);
+  border-radius: 6px;
+  transition: background 0.2s;
 }
 </style>

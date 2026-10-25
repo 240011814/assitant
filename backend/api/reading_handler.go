@@ -137,3 +137,71 @@ func (h *ReadingHandler) HandleGeneratePassage(c *gin.Context) {
 	}
 	SendSuccess(c, job)
 }
+
+// HandleTranslate 划词翻译 (ReaderView 选中文本, 双向: 中→英 / 其他→中)
+func (h *ReadingHandler) HandleTranslate(c *gin.Context) {
+	userId := GetUserID(c)
+	var req model.TranslateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请求参数错误")
+		return
+	}
+	result, err := h.svc.TranslateText(userId, req.Text)
+	if err != nil {
+		SendError(c, "500", err.Error())
+		return
+	}
+	SendSuccess(c, gin.H{"translation": result})
+}
+
+// HandleReadingHeartbeat 阅读时长心跳 (前端每 30s 上报一次停留秒数)
+func (h *ReadingHandler) HandleReadingHeartbeat(c *gin.Context) {
+	userId := GetUserID(c)
+	var req struct {
+		Seconds int `json:"seconds" binding:"required,min=1,max=120"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请求参数错误")
+		return
+	}
+	service.LogReadingEvent(userId, "read_seconds", req.Seconds)
+	SendSuccess(c, nil)
+}
+
+// HandleStartVocabTest 启动词汇量测试 (异步出题, 返回 job 前端轮询)
+func (h *ReadingHandler) HandleStartVocabTest(c *gin.Context) {
+	userId := GetUserID(c)
+	job, err := h.svc.StartVocabTest(userId)
+	if err != nil {
+		SendError(c, "500", "启动测试失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, job)
+}
+
+// HandleSubmitVocabTest 提交词汇量测试答卷, 返回 CEFR 与估算词汇量
+func (h *ReadingHandler) HandleSubmitVocabTest(c *gin.Context) {
+	userId := GetUserID(c)
+	var req model.VocabTestSubmitRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请求参数错误")
+		return
+	}
+	result, err := h.svc.SubmitVocabTest(userId, req)
+	if err != nil {
+		SendError(c, "500", "提交失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, result)
+}
+
+// HandleLatestVocabTest 最近一次词汇量评估 (无记录返回 null)
+func (h *ReadingHandler) HandleLatestVocabTest(c *gin.Context) {
+	userId := GetUserID(c)
+	a, err := service.GetLatestVocabTest(userId)
+	if err != nil {
+		SendSuccess(c, nil)
+		return
+	}
+	SendSuccess(c, a)
+}

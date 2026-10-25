@@ -13,7 +13,12 @@ import {
   fetchSubmitReviewFSRS,
   fetchAssistVocabulary,
   fetchImportVocabularyFile,
+  fetchStartVocabTest,
+  fetchGetGenerationJob,
+  fetchSubmitVocabTest,
+  fetchLatestVocabTest,
 } from "@/service/api";
+import type { VocabTestQuestion } from "@/service/api";
 import { onKeyStroke } from "@vueuse/core";
 import { speak } from "@/utils/tts";
 import { $t } from "@/locales";
@@ -32,6 +37,95 @@ const isSelectionMode = ref(false);
 const activeTab = ref<"new" | "mastered">("new");
 const showRandomPractice = ref(false);
 const practiceCount = ref(10);
+
+// 回到原文: RSS 条目 → RSS 页并自动打开该文章; 分级阅读文档 → 详情页
+const goSourceArticle = (row: any) => {
+  if (row.sourceKind === "rss" && row.sourceRef) {
+    localStorage.setItem("rss_open_item", String(row.sourceRef));
+    routerPushByKey("ai_rss");
+    return;
+  }
+  if (row.sourceKind === "reading" && row.sourceRef) {
+    routerPushByKey("ai_reading-detail", { params: { id: String(row.sourceRef) } });
+  }
+};
+
+// ===================== 词汇量测试 =====================
+const showVocabTest = ref(false);
+const vocabTestQuestions = ref<VocabTestQuestion[]>([]);
+const vocabTestLoading = ref(false);
+const vocabTestJobId = ref(0);
+const vocabTestAnswers = ref<Record<string, number>>({});
+const vocabTestResult = ref<{ cefr: string; estSize: number; bands: Record<string, string> } | null>(null);
+const vocabTestLatest = ref<{ cefr: string; estSize: number; createdAt: string } | null>(null);
+let vocabTestPollTimer: number | null = null;
+
+const stopVocabTestPoll = () => {
+  if (vocabTestPollTimer !== null) {
+    window.clearInterval(vocabTestPollTimer);
+    vocabTestPollTimer = null;
+  }
+};
+
+const openVocabTest = async () => {
+  showVocabTest.value = true;
+  vocabTestResult.value = null;
+  vocabTestQuestions.value = [];
+  vocabTestAnswers.value = {};
+  if (!vocabTestLatest.value) {
+    const { data: latest } = await fetchLatestVocabTest();
+    vocabTestLatest.value = latest || null;
+  }
+};
+
+const startVocabTest = async () => {
+  vocabTestLoading.value = true;
+  const { data: job, error } = await fetchStartVocabTest();
+  if (error || !job) {
+    vocabTestLoading.value = false;
+    message.error(`启动测试失败: ${(error as any)?.message || "未知错误"}`);
+    return;
+  }
+  vocabTestJobId.value = job.id;
+  vocabTestPollTimer = window.setInterval(async () => {
+    const { data: j, error: jErr } = await fetchGetGenerationJob(job.id);
+    if (jErr || !j) {
+      stopVocabTestPoll();
+      vocabTestLoading.value = false;
+      return;
+    }
+    if (j.status === "running") return;
+    stopVocabTestPoll();
+    vocabTestLoading.value = false;
+    if (j.status === "failed") {
+      message.error(`出题失败: ${j.error || "未知错误"}`);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(j.resultJson || "{}");
+      vocabTestQuestions.value = parsed.questions || [];
+    } catch {
+      message.error("测试题数据异常");
+    }
+  }, 2500);
+};
+
+const submitVocabTest = async () => {
+  const answered = Object.keys(vocabTestAnswers.value).length;
+  if (answered < vocabTestQuestions.value.length) {
+    message.warning(`还有 ${vocabTestQuestions.value.length - answered} 题未作答`);
+    return;
+  }
+  vocabTestLoading.value = true;
+  const { data: result, error } = await fetchSubmitVocabTest(vocabTestJobId.value, vocabTestAnswers.value);
+  vocabTestLoading.value = false;
+  if (error || !result) {
+    message.error(`提交失败: ${(error as any)?.message || "未知错误"}`);
+    return;
+  }
+  vocabTestResult.value = result;
+  vocabTestLatest.value = { cefr: result.cefr, estSize: result.estSize, createdAt: new Date().toISOString() };
+};
 
 const columns = computed<DataTableColumns<any>>(() => {
   const cols: DataTableColumns<any> = [
@@ -87,6 +181,24 @@ const columns = computed<DataTableColumns<any>>(() => {
       fixed: "right",
       render(row) {
         const actions = [
+          row.sourceKind === "rss" || row.sourceKind === "reading"
+            ? h(
+                NButton,
+                {
+                  size: "small",
+                  quaternary: true,
+                  title: "回到原文",
+                  onClick: () => goSourceArticle(row),
+                },
+                {
+                  icon: () =>
+                    h(resolveComponent("SvgIcon"), {
+                      icon: "mdi:book-open-outline",
+                      class: "text-18px text-primary",
+                    }),
+                }
+              )
+            : null,
           h(
             NButton,
             {
@@ -294,7 +406,7 @@ const lastGraded = ref<{ word: string; next: string } | null>(null);
 const cardShownAt = ref(0);
 
 const currentCard = computed(() => reviewCards.value[reviewIndex.value] || null);
-// 正面显示英文的卡: en2zh (再认) 与 listen (听音辨词); zh2en 正面显示中文释义 (主动回忆)
+// 正面显示英文的卡: en2zh (再认) / listen (听音辨词) / context (原句挖空); zh2en 正面显示中文释义 (主动回忆)
 const isFrontEnglish = computed(() => currentCard.value?.direction !== "zh2en");
 const directionLabel = computed(() => {
   switch (currentCard.value?.direction) {
@@ -302,9 +414,18 @@ const directionLabel = computed(() => {
       return "中 → 英";
     case "listen":
       return "听音辨词";
+    case "context":
+      return "原文语境";
     default:
       return "英 → 中";
   }
+});
+// 语境方向: 原句挖空 (目标词替换为 ____) 供正面显示
+const contextBlank = computed(() => {
+  const w = currentCard.value?.word;
+  if (!w?.contextSentence) return "";
+  const re = new RegExp(`\\b${w.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
+  return w.contextSentence.replace(re, "____");
 });
 
 const loadReviewStats = async () => {
@@ -443,6 +564,12 @@ onMounted(() => {
               </div>
             </NTab>
           </NTabs>
+          <NButton size="small" @click="openVocabTest">
+            <template #icon>
+              <SvgIcon icon="mdi:chart-bar" />
+            </template>
+            词汇量测试
+          </NButton>
         </div>
       </template>
       <div class="flex flex-col h-full gap-4">
@@ -727,7 +854,13 @@ onMounted(() => {
           >
             <!-- 正面 -->
             <template v-if="!reviewFlipped">
-              <template v-if="isFrontEnglish">
+              <template v-if="currentCard.direction === 'context' && contextBlank">
+                <div class="text-lg text-gray-700 dark:text-gray-200 leading-relaxed max-w-xl text-center">
+                  {{ contextBlank }}
+                </div>
+                <div class="mt-2 text-xs text-gray-400">回想 ____ 处的单词</div>
+              </template>
+              <template v-else-if="isFrontEnglish">
                 <div class="flex items-center gap-2">
                   <span v-if="currentCard.direction !== 'listen'" class="text-3xl font-bold text-primary">
                     {{ currentCard.word.word }}
@@ -762,6 +895,9 @@ onMounted(() => {
               <div class="mt-3 text-lg text-gray-700 dark:text-gray-200">{{ currentCard.word.definition }}</div>
               <div v-if="currentCard.word.example" class="mt-3 text-sm text-gray-500 italic">
                 {{ currentCard.word.example }}
+              </div>
+              <div v-if="currentCard.word.contextSentence" class="mt-2 text-xs text-gray-400 max-w-xl text-center">
+                📖 原文: {{ currentCard.word.contextSentence }}
               </div>
               <div v-if="currentCard.word.assistMnemonic" class="mt-2 text-xs text-warning">
                 💡 {{ currentCard.word.assistMnemonic }}
@@ -836,6 +972,63 @@ onMounted(() => {
               朗读例句
             </NButton>
           </div>
+        </div>
+      </NSpin>
+    </NModal>
+
+    <!-- 词汇量测试 -->
+    <NModal v-model:show="showVocabTest" preset="card" title="词汇量测试" :style="{ width: 'min(94vw, 640px)' }">
+      <NSpin :show="vocabTestLoading">
+        <!-- 结果页 -->
+        <div v-if="vocabTestResult" class="flex flex-col gap-4 py-2">
+          <div class="text-center">
+            <div class="text-4xl font-bold text-primary">{{ vocabTestResult.cefr }}</div>
+            <div class="mt-2 text-gray-500">估算词汇量 ≈ {{ vocabTestResult.estSize }} 词</div>
+          </div>
+          <div class="flex justify-center gap-2 flex-wrap">
+            <NTag v-for="(v, band) in vocabTestResult.bands" :key="band" size="small" :bordered="false">
+              {{ band }}: {{ v }}
+            </NTag>
+          </div>
+          <div class="text-xs text-gray-400 text-center">
+            结果会用于 AI 课文难度校准与文章难度预估。隔段时间可重新测试。
+          </div>
+          <NButton block @click="showVocabTest = false">完成</NButton>
+        </div>
+        <!-- 答题页 -->
+        <div v-else-if="vocabTestQuestions.length > 0" class="flex flex-col gap-3 py-2 max-h-[70vh] overflow-auto">
+          <div
+            v-for="(q, qi) in vocabTestQuestions"
+            :key="q.id"
+            class="rounded-lg border border-gray-200 dark:border-gray-700 p-3"
+          >
+            <div class="flex items-center gap-2">
+              <NTag size="tiny" :bordered="false">{{ q.band }}</NTag>
+              <span class="font-bold">{{ qi + 1 }}. {{ q.word }}</span>
+            </div>
+            <NRadioGroup v-model:value="vocabTestAnswers[q.id]" class="mt-2" size="small">
+              <div class="flex flex-col gap-1.5">
+                <NRadio v-for="(opt, oi) in q.options" :key="oi" :value="oi" :label="opt" />
+              </div>
+            </NRadioGroup>
+          </div>
+          <NButton type="primary" block @click="submitVocabTest">
+            提交 ({{ Object.keys(vocabTestAnswers).length }}/{{ vocabTestQuestions.length }})
+          </NButton>
+        </div>
+        <!-- 首屏 -->
+        <div v-else class="flex flex-col gap-3 py-2">
+          <div class="text-sm text-gray-500">
+            24 道分层单选题 (A1~C2 各 4 题), 根据各频段正确率估算词汇量与 CEFR 等级。
+            结果用于 AI 课文难度校准。
+          </div>
+          <div v-if="vocabTestLatest" class="text-xs text-gray-400">
+            上次测试: {{ vocabTestLatest.cefr }} ≈ {{ vocabTestLatest.estSize }} 词
+            ({{ new Date(vocabTestLatest.createdAt).toLocaleDateString() }})
+          </div>
+          <NButton type="primary" block :loading="vocabTestLoading" @click="startVocabTest">
+            {{ vocabTestLoading ? 'AI 出题中 (约半分钟)...' : '开始测试' }}
+          </NButton>
         </div>
       </NSpin>
     </NModal>

@@ -64,7 +64,7 @@ func (QuizSession) TableName() string {
 type QuizAnswerResult struct {
 	QuestionID string `json:"questionId"`
 	Correct    bool   `json:"correct"`
-	Answer     string `json:"answer"` // 正确答案
+	Answer     string `json:"answer"`   // 正确答案
 	Recorded   bool   `json:"recorded"` // 是否已计入错题本
 }
 
@@ -72,18 +72,20 @@ type QuizAnswerResult struct {
 
 // ReadingDoc 阅读文档 (纯文本, 段落以空行分隔)
 type ReadingDoc struct {
-	ID             uint      `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID         uint      `gorm:"not null;index:idx_reading_user,priority:1" json:"userId"`
-	Title          string    `gorm:"size:200;not null" json:"title"`
-	SourceType     string    `gorm:"size:20;not null;default:'text'" json:"sourceType"` // url/text
-	SourceURL      string    `gorm:"size:500" json:"sourceUrl"`
-	Content        string    `gorm:"type:mediumtext;not null" json:"content"`
-	WordCount      int       `gorm:"not null;default:0" json:"wordCount"`
-	DifficultWords string    `gorm:"type:mediumtext" json:"-"` // JSON: [{word,meaning,reason,known}]
-	UnknownRate    float64   `gorm:"not null;default:0" json:"unknownRate"`
-	Status         string    `gorm:"size:20;not null;default:'pending'" json:"status"` // pending/annotating/annotated/failed
-	CreatedAt      time.Time `gorm:"index:idx_reading_user,priority:2" json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	ID               uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID           uint      `gorm:"not null;index:idx_reading_user,priority:1" json:"userId"`
+	Title            string    `gorm:"size:200;not null" json:"title"`
+	SourceType       string    `gorm:"size:20;not null;default:'text'" json:"sourceType"` // url/text
+	SourceURL        string    `gorm:"size:500" json:"sourceUrl"`
+	Content          string    `gorm:"type:mediumtext;not null" json:"content"`
+	WordCount        int       `gorm:"not null;default:0" json:"wordCount"`
+	DifficultWords   string    `gorm:"type:mediumtext" json:"-"` // JSON: [{word,meaning,reason,known}]
+	UnknownRate      float64   `gorm:"not null;default:0" json:"unknownRate"`
+	Status           string    `gorm:"size:20;not null;default:'pending'" json:"status"` // pending/annotating/annotated/failed
+	EstUnknownRate   float64   `gorm:"not null;default:0" json:"estUnknownRate"`         // 导入时预估生词率 (生词本交集+长词启发, 免 LLM)
+	AnnotateProgress int       `gorm:"not null;default:0" json:"annotateProgress"`       // 分块标注进度 0-100
+	CreatedAt        time.Time `gorm:"index:idx_reading_user,priority:2" json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 // TableName 指定表名
@@ -101,14 +103,14 @@ type DifficultWord struct {
 
 // DictionaryCache 点词即查的词典缓存 (LLM 结果全局复用)
 type DictionaryCache struct {
-	ID         uint      `gorm:"primaryKey;autoIncrement" json:"id"`
-	Word       string    `gorm:"size:100;not null;uniqueIndex" json:"word"`
-	Phonetic   string    `gorm:"size:100" json:"phonetic"`
-	Definition string    `gorm:"type:text" json:"definition"`
-	Translation string   `gorm:"type:text" json:"translation"`
-	Example    string    `gorm:"type:text" json:"example"`
-	CreatedAt  time.Time `json:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	ID          uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	Word        string    `gorm:"size:100;not null;uniqueIndex" json:"word"`
+	Phonetic    string    `gorm:"size:100" json:"phonetic"`
+	Definition  string    `gorm:"type:text" json:"definition"`
+	Translation string    `gorm:"type:text" json:"translation"`
+	Example     string    `gorm:"type:text" json:"example"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 // TableName 指定表名
@@ -121,14 +123,15 @@ func (DictionaryCache) TableName() string {
 // AITextJob 慢 LLM 生成任务 (AI 写课文等): Cloudflare 对源站响应有 100s 上限,
 // 此类操作必须异步执行, 任务行供前端轮询
 type AITextJob struct {
-	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID    uint      `gorm:"not null;index:idx_ai_text_job_user,priority:1" json:"userId"`
-	Kind      string    `gorm:"size:30;not null" json:"kind"` // passage
-	Status    string    `gorm:"size:20;not null;default:'running'" json:"status"` // running/done/failed
-	ResultID  uint      `gorm:"not null;default:0" json:"resultId"`
-	Error     string    `gorm:"type:text" json:"error"`
-	CreatedAt time.Time `gorm:"index:idx_ai_text_job_user,priority:2" json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID         uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID     uint      `gorm:"not null;index:idx_ai_text_job_user,priority:1" json:"userId"`
+	Kind       string    `gorm:"size:30;not null" json:"kind"`                     // passage / vocab_test / rss_annotate
+	Status     string    `gorm:"size:20;not null;default:'running'" json:"status"` // running/done/failed
+	ResultID   uint      `gorm:"not null;default:0" json:"resultId"`
+	ResultJSON string    `gorm:"type:longtext" json:"resultJson"` // 任务结果 JSON (词汇量测试题面等)
+	Error      string    `gorm:"type:text" json:"error"`
+	CreatedAt  time.Time `gorm:"index:idx_ai_text_job_user,priority:2" json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 // TableName 指定表名
@@ -153,18 +156,18 @@ type ReviewCardItem struct {
 
 // ReviewSessionResponse 复习会话: 到期复习 + 新词 (受每日限额约束)
 type ReviewSessionResponse struct {
-	Reviews        []ReviewCardItem `json:"reviews"`
-	NewWords       []ReviewCardItem `json:"newWords"`
-	NewLimit       int              `json:"newLimit"`
-	NewStartedToday int             `json:"newStartedToday"`
-	EstimatedMin   int              `json:"estimatedMin"`
+	Reviews         []ReviewCardItem `json:"reviews"`
+	NewWords        []ReviewCardItem `json:"newWords"`
+	NewLimit        int              `json:"newLimit"`
+	NewStartedToday int              `json:"newStartedToday"`
+	EstimatedMin    int              `json:"estimatedMin"`
 }
 
 // CreateQuizSessionRequest 创建练习会话
 type CreateQuizSessionRequest struct {
-	Size  int      `json:"size"`  // 题目数量, 默认 10
-	Types []string `json:"types"` // 为空则全部题型
-	Source string  `json:"source"` // all / due / errorbook
+	Size   int      `json:"size"`   // 题目数量, 默认 10
+	Types  []string `json:"types"`  // 为空则全部题型
+	Source string   `json:"source"` // all / due / errorbook
 }
 
 // QuizAnswerRequest 提交答案
@@ -182,12 +185,12 @@ type SentencePracticeRequest struct {
 
 // SentencePracticeResult 造句批改结果
 type SentencePracticeResult struct {
-	Score     int      `json:"score"` // 0~100
-	Correct   bool     `json:"correct"`
-	Grammar   []string `json:"grammar"`   // 语法问题
-	Improved  string   `json:"improved"`  // 改进版本
-	Comment   string   `json:"comment"`   // 点评
-	Word      string   `json:"word"`      // 目标词
+	Score    int      `json:"score"` // 0~100
+	Correct  bool     `json:"correct"`
+	Grammar  []string `json:"grammar"`  // 语法问题
+	Improved string   `json:"improved"` // 改进版本
+	Comment  string   `json:"comment"`  // 点评
+	Word     string   `json:"word"`     // 目标词
 }
 
 // ReadingImportRequest 导入阅读材料
@@ -198,10 +201,30 @@ type ReadingImportRequest struct {
 	Content    string `json:"content"`
 }
 
+// TranslateRequest 划词翻译 (ReaderView 选中文本)
+type TranslateRequest struct {
+	Text string `json:"text" binding:"required,min=2,max=2000"`
+}
+
+// VocabTestQuestion 词汇量测试单题 (LLM 按频段分层生成)
+type VocabTestQuestion struct {
+	ID      string   `json:"id"`
+	Band    string   `json:"band"` // A1/A2/B1/B2/C1/C2
+	Word    string   `json:"word"`
+	Options []string `json:"options"` // 4 个中文释义 (含正确答案)
+	Answer  int      `json:"answer"`  // 正确选项下标 (仅存服务端)
+}
+
+// VocabTestSubmitRequest 词汇量测试提交
+type VocabTestSubmitRequest struct {
+	JobID   int            `json:"jobId" binding:"required"`
+	Answers map[string]int `json:"answers"` // 题目ID -> 选项下标
+}
+
 // GeneratePassageRequest AI 生成个性化课文 (把指定新词织进课文)
 type GeneratePassageRequest struct {
-	WordIDs      []uint `json:"wordIds"`      // 为空则自动取今日新词
-	SentenceCount int   `json:"sentenceCount"` // 默认 8
+	WordIDs       []uint `json:"wordIds"`       // 为空则自动取今日新词
+	SentenceCount int    `json:"sentenceCount"` // 默认 8
 }
 
 // ImportWordItem 词书导入条目

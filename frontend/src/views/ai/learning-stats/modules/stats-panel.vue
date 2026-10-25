@@ -81,7 +81,8 @@ const troubleColumns = ref<DataTableColumns<Api.Vocabulary.Item>>([
 const statCards = computed(() => {
   if (!stats.value) return [];
   const s = stats.value;
-  return [
+  const r = s.reading;
+  const cards = [
     { label: "总词数", value: s.total, color: "text-primary" },
     { label: "已掌握", value: s.mastered, color: "text-success" },
     { label: "待学习新词", value: s.newWords, color: "text-warning" },
@@ -91,6 +92,15 @@ const statCards = computed(() => {
     { label: "总复习次数", value: s.totalReviews, color: "text-info" },
     { label: "每掌握一词复习", value: Math.round(s.avgReviewsPerMastered * 10) / 10, color: "text-warning" },
   ];
+  if (r) {
+    cards.push(
+      { label: "阅读文章 (90天)", value: r.totalOpens, color: "text-primary" },
+      { label: "查词 (90天)", value: r.totalLookups, color: "text-warning" },
+      { label: "阅读加词 (90天)", value: r.totalWordsAdded, color: "text-success" },
+      { label: "阅读时长 (90天)", value: `${r.totalReadMinutes} 分`, color: "text-info" }
+    );
+  }
+  return cards;
 });
 
 const loadData = async () => {

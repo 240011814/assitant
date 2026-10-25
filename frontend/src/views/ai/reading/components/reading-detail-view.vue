@@ -178,7 +178,14 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <ReaderView ref="readerRef" :title="doc?.title || ''" :loading="loading" @word-added="onWordAdded">
+  <ReaderView
+    ref="readerRef"
+    :title="doc?.title || ''"
+    :loading="loading"
+    source-kind="reading"
+    :source-ref="doc?.id || 0"
+    @word-added="onWordAdded"
+  >
     <template #toolbar-left>
       <NButton
         v-if="mode === 'modal'"
@@ -217,7 +224,7 @@ onUnmounted(() => {
         :disabled="annotating"
         @click="handleAnnotate"
       >
-        {{ annotating ? '标注中...' : (doc?.status === 'annotated' ? '重新标注生词' : doc?.status === 'failed' ? '重试标注' : 'AI 标注生词') }}
+        {{ annotating ? `标注中 ${doc?.annotateProgress || 0}%` : (doc?.status === 'annotated' ? '重新标注生词' : doc?.status === 'failed' ? '重试标注' : 'AI 标注生词') }}
       </NButton>
     </template>
     <template #meta>

@@ -21,6 +21,14 @@ declare namespace Api {
       fsrsLapses: number
       assistExample: string
       assistMnemonic: string
+      /** 来源: reading=分级阅读 / rss=RSS 条目 (空=手动) */
+      sourceKind: string
+      /** 来源文档/条目 ID (回链原文) */
+      sourceRef: number
+      /** 阅读中再次相遇次数 */
+      encounters: number
+      /** 加入生词本时所在的原句 (语境复习方向) */
+      contextSentence: string
       createdAt: string
       updatedAt: string
     }
@@ -32,8 +40,8 @@ declare namespace Api {
       stateDist: Record<string, number>
     }
 
-    /** 复习方向: en2zh 再认 / zh2en 主动回忆 / listen 听音辨词 */
-    type ReviewDirection = 'en2zh' | 'zh2en' | 'listen'
+    /** 复习方向: en2zh 再认 / zh2en 主动回忆 / listen 听音辨词 / context 原文语境 */
+    type ReviewDirection = 'en2zh' | 'zh2en' | 'listen' | 'context'
 
     /** 复习卡: 词 + 本卡方向 */
     interface ReviewCard {
@@ -74,6 +82,14 @@ declare namespace Api {
       troubleWords: Item[]
       totalReviews: number
       avgReviewsPerMastered: number
+      /** 阅读维度 (近90天: 打开/查词/加词/阅读分钟) */
+      reading?: {
+        totalOpens: number
+        totalLookups: number
+        totalWordsAdded: number
+        totalReadMinutes: number
+        daily: Array<{ date: string; opens: number; lookups: number; wordsAdded: number; readMinutes: number }>
+      }
     }
 
     /** 词书导入条目 */

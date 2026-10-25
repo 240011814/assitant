@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from "vue";
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from "vue";
 import { NButton, NEmpty, NPopconfirm, NTag, useMessage } from "naive-ui";
 import { useRouterPush } from "@/hooks/common/router";
 import ReaderView from "@/components/custom/reader-view.vue";
@@ -12,7 +12,11 @@ import {
   fetchRSSMarkRead,
   fetchRSSItemContent,
   fetchRSSImportItem,
+  fetchRSSAnnotateItem,
+  fetchGetGenerationJob,
+  fetchAddVocabulary,
 } from "@/service/api";
+import type { DifficultWord } from "@/service/api";
 import type { RSSItem, RSSSource } from "@/service/api";
 import { useAppStore } from "@/store/modules/app";
 
@@ -26,6 +30,15 @@ const items = ref<RSSItem[]>([]);
 const filterSourceId = ref<number | null>(null);
 const unreadOnly = ref(false);
 const timeAsc = ref(false);
+const easyOnly = ref(false);
+
+// 难度标签: 按预估生词率分档 (0=未算不显示)
+const difficultyTag = (rate?: number) => {
+  if (!rate || rate <= 0) return null;
+  if (rate < 0.03) return { label: "易", type: "success" as const };
+  if (rate <= 0.08) return { label: "适中", type: "info" as const };
+  return { label: "难", type: "warning" as const };
+};
 
 const pagination = ref({
   page: 1,
@@ -85,6 +98,7 @@ async function loadItems() {
   const { data: resp, error } = await fetchRSSListItems({
     sourceId: filterSourceId.value || undefined,
     unreadOnly: unreadOnly.value || undefined,
+    easyOnly: easyOnly.value || undefined,
     sort: timeAsc.value ? "time_asc" : "time_desc",
     page: pagination.value.page,
     page_size: pagination.value.pageSize
@@ -174,6 +188,140 @@ const viewError = ref("");
 const importing = ref(false);
 const readerRef = ref<InstanceType<typeof ReaderView> | null>(null);
 
+// 一键提取生词: 轮询 job, 完成后刷新详情并高亮
+const annotatingItem = ref(false);
+const viewDifficultWords = ref<DifficultWord[]>([]);
+
+const parseDifficultWords = (json?: string): DifficultWord[] => {
+  if (!json) return [];
+  try {
+    const arr = JSON.parse(json);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+};
+
+// 正文生词高亮: 遍历 .article-html 文本节点, 命中词包 <mark class="rss-dw">
+const applyHighlight = () => {
+  nextTick(() => {
+    const root = document.querySelector(".article-html");
+    if (!root || viewDifficultWords.value.length === 0) return;
+    const words = new Set(viewDifficultWords.value.map((w) => w.word.toLowerCase()));
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+    const re = /[A-Za-z][A-Za-z'-]*/g;
+    for (const node of nodes) {
+      const text = node.data;
+      if (!/[A-Za-z]/.test(text)) continue;
+      const frag = document.createDocumentFragment();
+      let last = 0;
+      let m: RegExpExecArray | null;
+      re.lastIndex = 0;
+      while ((m = re.exec(text)) !== null) {
+        if (words.has(m[0].toLowerCase())) {
+          frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+          const mark = document.createElement("mark");
+          mark.className = "rss-dw";
+          mark.textContent = m[0];
+          frag.appendChild(mark);
+          last = m.index + m[0].length;
+        }
+      }
+      if (last === 0) continue;
+      frag.appendChild(document.createTextNode(text.slice(last)));
+      node.parentNode?.replaceChild(frag, node);
+    }
+  });
+};
+
+const pollAnnotateJob = (jobId: number) => {
+  const timer = window.setInterval(async () => {
+    const { data: job, error } = await fetchGetGenerationJob(jobId);
+    if (error || !job) {
+      window.clearInterval(timer);
+      annotatingItem.value = false;
+      return;
+    }
+    if (job.status === "running") return;
+    window.clearInterval(timer);
+    annotatingItem.value = false;
+    if (job.status === "failed") {
+      message.error(`提取失败: ${job.error || "未知错误"}`);
+      return;
+    }
+    // 完成: 刷新详情拿到 difficultWords 并高亮
+    const itemId = viewItem.value?.id;
+    if (itemId) {
+      const { data: fresh } = await fetchRSSItemContent(itemId);
+      if (fresh) {
+        viewDifficultWords.value = parseDifficultWords(fresh.difficultWords);
+        applyHighlight();
+      }
+    }
+    message.success(`提取完成: ${viewDifficultWords.value.length} 个生词`);
+  }, 2500);
+};
+
+const handleAnnotateItem = async () => {
+  if (!viewItem.value || annotatingItem.value) return;
+  if (viewDifficultWords.value.length > 0) {
+    message.info("本文已提取过生词");
+    return;
+  }
+  annotatingItem.value = true;
+  const { data: job, error } = await fetchRSSAnnotateItem(viewItem.value.id);
+  if (error || !job) {
+    annotatingItem.value = false;
+    message.error(`启动提取失败: ${(error as any)?.message || "未知错误"}`);
+    return;
+  }
+  if (job.status === "done") {
+    // 已有缓存: 直接刷新
+    const itemId = viewItem.value.id;
+    const { data: fresh } = await fetchRSSItemContent(itemId);
+    if (fresh) viewDifficultWords.value = parseDifficultWords(fresh.difficultWords);
+    annotatingItem.value = false;
+    applyHighlight();
+    return;
+  }
+  pollAnnotateJob(job.id);
+};
+
+// 侧栏生词: 点击查词
+const lookupDw = (word: string) => {
+  readerRef.value?.lookupWord(word);
+};
+
+// 一键全部加入生词本 (已存在/失败的逐个跳过)
+const addingAll = ref(false);
+const addAllDifficultWords = async () => {
+  if (addingAll.value) return;
+  const targets = viewDifficultWords.value.filter((w) => !w.known);
+  if (targets.length === 0) {
+    message.info("生词都已加入");
+    return;
+  }
+  addingAll.value = true;
+  let added = 0;
+  for (const w of targets) {
+    const { error } = await fetchAddVocabulary({
+      word: w.word,
+      definition: w.meaning,
+      sourceContext: viewItem.value?.title || "RSS 阅读",
+      sourceKind: "rss",
+      sourceRef: viewItem.value?.id
+    });
+    if (!error) {
+      added += 1;
+      w.known = true;
+    }
+  }
+  addingAll.value = false;
+  message.success(`已加入 ${added} 个生词${targets.length - added > 0 ? `, 跳过 ${targets.length - added} 个` : ""}`);
+};
+
 // feed 正文常自带与文章标题重复的 H1/H2, 阅读视图下去重 (内容已经服务端净化, 这里只删不加)
 const stripDuplicateHeading = (html: string, title: string) => {
   if (!html || !title) return html;
@@ -200,6 +348,7 @@ const openItem = async (item: RSSItem) => {
   viewContent.value = "";
   viewHtml.value = "";
   viewError.value = "";
+  viewDifficultWords.value = [];
   showViewer.value = true;
   readerRef.value?.scrollToTop();
   if (item.status === "unread") {
@@ -227,6 +376,9 @@ const openItem = async (item: RSSItem) => {
     viewHtml.value = stripDuplicateHeading(resp.contentHtml || "", resp.title);
   }
   viewItem.value = resp;
+  // 之前提取过的生词直接展示并高亮
+  viewDifficultWords.value = parseDifficultWords(resp.difficultWords);
+  applyHighlight();
 };
 
 const viewerParagraphs = computed(() =>
@@ -287,6 +439,21 @@ async function handleImport(item: RSSItem) {
 onMounted(() => {
   reloadAll();
   window.addEventListener("keydown", handleReaderKey);
+  // 生词本"回到原文"跳转: 打开指定条目 (localStorage 传递, 用完即清)
+  const openRef = Number(localStorage.getItem("rss_open_item"));
+  if (openRef > 0) {
+    localStorage.removeItem("rss_open_item");
+    nextTick(async () => {
+      // 等列表加载完再找条目
+      await loadItems();
+      const target = items.value.find((i) => i.id === openRef);
+      if (target) {
+        openItem(target);
+      } else {
+        message.info("该文章不在当前列表 (可能已翻页), 请手动查找");
+      }
+    });
+  }
 });
 
 onBeforeUnmount(() => {
@@ -382,6 +549,14 @@ onDeactivated(() => {
                 @update:value="() => { pagination.page = 1; loadItems(); }"
               />
             </div>
+            <div class="flex items-center gap-2 mr-2">
+              <span class="text-xs text-gray-400">适合我的水平</span>
+              <NSwitch
+                v-model:value="easyOnly"
+                size="small"
+                @update:value="() => { pagination.page = 1; loadItems(); }"
+              />
+            </div>
             <NButton
               size="small"
               :title="timeAsc ? '发布时间正序' : '发布时间倒序'"
@@ -461,6 +636,9 @@ onDeactivated(() => {
                   {{ sourceInitial(row.sourceId) }}
                 </span>
                 <span class="text-xs text-gray-400 dark:text-gray-500 truncate">{{ sourceTitle(row.sourceId) }}</span>
+                <NTag v-if="difficultyTag(row.estUnknownRate)" size="tiny" :type="difficultyTag(row.estUnknownRate)!.type" :bordered="false" class="shrink-0">
+                  {{ difficultyTag(row.estUnknownRate)!.label }}
+                </NTag>
                 <NTag v-if="row.status === 'imported'" size="tiny" type="success" :bordered="false" class="shrink-0">
                   已导入
                 </NTag>
@@ -517,7 +695,13 @@ onDeactivated(() => {
     <!-- 阅读视图 (ReaderView 组件: 居中窄栏 + 大标题 + 可调排版 + 点词查词 + j/k 导航) -->
     <NModal v-model:show="showViewer" :auto-focus="false">
       <div class="w-full h-full md:w-[min(94vw,960px)] md:h-[88vh] flex flex-col rounded-none md:rounded-xl bg-white dark:bg-[#18181c] shadow-2xl overflow-hidden">
-        <ReaderView ref="readerRef" :title="viewItem?.title || ''" :loading="viewLoading">
+        <ReaderView
+          ref="readerRef"
+          :title="viewItem?.title || ''"
+          :loading="viewLoading"
+          source-kind="rss"
+          :source-ref="viewItem?.id || 0"
+        >
           <template #toolbar-left>
             <span
               class="w-5 h-5 rounded-full text-white text-11px font-medium flex items-center justify-center shrink-0"
@@ -538,6 +722,16 @@ onDeactivated(() => {
             </template>
           </template>
           <template #toolbar-actions>
+            <NButton
+              size="tiny"
+              class="mr-1"
+              :loading="annotatingItem"
+              :disabled="viewDifficultWords.length > 0"
+              :title="viewDifficultWords.length > 0 ? '本文已提取过生词' : 'AI 提取本文生词并高亮'"
+              @click="handleAnnotateItem"
+            >
+              {{ viewDifficultWords.length > 0 ? `生词 ${viewDifficultWords.length}` : '提取生词' }}
+            </NButton>
             <a v-if="viewItem?.link" :href="viewItem.link" target="_blank" rel="noopener noreferrer">
               <NButton quaternary circle size="small" title="打开原文">
                 <template #icon>
@@ -625,6 +819,32 @@ onDeactivated(() => {
               <span v-else class="text-13px text-gray-300 dark:text-gray-600">已是最后一篇</span>
             </div>
           </template>
+
+          <!-- 提取出的生词侧栏 (点击查词, 可一键全部加入生词本) -->
+          <template v-if="viewDifficultWords.length > 0 && !appStore.isMobile" #aside>
+            <aside class="w-60 shrink-0 sticky top-4 self-start max-h-[calc(100vh-220px)] overflow-auto">
+              <div class="flex items-center justify-between mb-2">
+                <span class="font-bold text-15px text-gray-900 dark:text-gray-50">本文生词 ({{ viewDifficultWords.length }})</span>
+                <NButton size="tiny" type="primary" :loading="addingAll" @click="addAllDifficultWords">全部加入</NButton>
+              </div>
+              <div class="flex flex-col gap-2">
+                <div
+                  v-for="w in viewDifficultWords"
+                  :key="w.word"
+                  class="rounded-lg border border-gray-200 dark:border-gray-700 p-2 text-sm cursor-pointer hover:border-primary"
+                  @click="lookupDw(w.word)"
+                >
+                  <div class="flex items-center justify-between">
+                    <span class="font-bold text-primary">{{ w.word }}</span>
+                    <NTag size="tiny" :type="w.known ? 'default' : 'warning'" :bordered="false">
+                      {{ w.known ? '已收藏' : '生词' }}
+                    </NTag>
+                  </div>
+                  <div class="text-xs text-gray-500 mt-1">{{ w.meaning }}</div>
+                </div>
+              </div>
+            </aside>
+          </template>
         </ReaderView>
       </div>
     </NModal>
@@ -637,6 +857,18 @@ onDeactivated(() => {
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* 一键提取后的生词高亮 (applyHighlight 注入的 mark 节点) */
+.article-html :deep(mark.rss-dw) {
+  background: rgba(250, 204, 21, 0.35);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.dark .article-html :deep(mark.rss-dw) {
+  background: rgba(250, 204, 21, 0.22);
 }
 
 /* 净化 HTML 正文的富文本元素排版 (v-html 注入的节点须用 :deep);

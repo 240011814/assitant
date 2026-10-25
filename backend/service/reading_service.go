@@ -75,6 +75,8 @@ func (s *ReadingService) ImportDoc(userID uint, req model.ReadingImportRequest) 
 		WordCount:  len(wordTokenRe.FindAllString(content, -1)),
 		Status:     "pending",
 	}
+	// 导入即算个性化难度预估 (免 LLM): 生词本交集 + 长词启发
+	doc.EstUnknownRate = estimateUnknownRate(userID, content)
 	if err := DB.Create(doc).Error; err != nil {
 		return nil, err
 	}
@@ -438,6 +440,7 @@ func (s *ReadingService) GetDoc(userID, id uint) (*model.ReadingDoc, []model.Dif
 	if err := DB.Where("id = ? AND user_id = ?", id, userID).First(&doc).Error; err != nil {
 		return nil, nil, errors.New("文档不存在")
 	}
+	LogReadingEvent(userID, "open", 1)
 	var words []model.DifficultWord
 	if doc.DifficultWords != "" {
 		_ = json.Unmarshal([]byte(doc.DifficultWords), &words)
@@ -489,7 +492,8 @@ func (s *ReadingService) StartAnnotate(userID, id uint) (*model.ReadingDoc, erro
 	return &doc, nil
 }
 
-// annotateDocSync 标注主体 (后台协程执行): 产出超纲词清单 + 生词率, 失败置 failed 供重试
+// annotateDocSync 标注主体 (后台协程执行): 产出超纲词清单 + 生词率, 失败置 failed 供重试。
+// 长文分块标注, 每块完成即落部分结果 (annotate_progress 逐块推进), 前端轮询可见进度与部分生词
 func (s *ReadingService) annotateDocSync(userID, id uint) error {
 	var doc model.ReadingDoc
 	if err := DB.Where("id = ?", id).First(&doc).Error; err != nil {
@@ -501,86 +505,155 @@ func (s *ReadingService) annotateDocSync(userID, id uint) error {
 		// 按 rune 截断: 字节截断会切断多字节字符, 中文文章会产生非法 UTF-8 发给 LLM
 		text = truncateRunes(text, 15000)
 	}
+	chunks := splitAnnotationChunks(text, 3)
+
+	all := make([]model.DifficultWord, 0, 40)
+	var known []string
+	if err := DB.Model(&model.Vocabulary{}).Where("user_id = ?", userID).Pluck("word", &known).Error; err == nil {
+	}
+	knownSet := make(map[string]bool, len(known))
+	for _, w := range known {
+		knownSet[strings.ToLower(w)] = true
+	}
+
+	for i, chunk := range chunks {
+		flagged, err := s.AnnotateWordsForText(userID, chunk)
+		if err != nil {
+			DB.Model(&doc).Updates(map[string]interface{}{"status": "failed"})
+			return err
+		}
+		// 标记已在生词本中的词
+		for j := range flagged {
+			flagged[j].Known = knownSet[strings.ToLower(flagged[j].Word)]
+		}
+		all = append(all, flagged...)
+		// 部分结果先落库 (status 保持 annotating, 前端轮询可见生词逐块出现)
+		rawWords, _ := json.Marshal(all)
+		progress := (i + 1) * 100 / len(chunks)
+		if err := DB.Model(&doc).Updates(map[string]interface{}{
+			"difficult_words":   string(rawWords),
+			"annotate_progress": progress,
+		}).Error; err != nil {
+			return err
+		}
+	}
+	// 解析成功但 0 个生词是合法结果 (文章全在掌握范围内), 正常落 annotated
+	if len(all) == 0 {
+		log.Printf("reading annotate #%d 标注结果为空 (模型未找出超纲词)", id)
+	}
+
+	unknownCount := 0
+	for _, f := range all {
+		if !f.Known {
+			unknownCount++
+		}
+	}
+	// 分母 = 实际送去标注的文本词数 (截断/分块后的口径), 与分子同口径
+	annotatedWordCount := len(wordTokenRe.FindAllString(text, -1))
+	unknownRate := 0.0
+	if annotatedWordCount > 0 {
+		unknownRate = float64(unknownCount) / float64(annotatedWordCount)
+	}
+	rawWords, _ := json.Marshal(all)
+	return DB.Model(&doc).Updates(map[string]interface{}{
+		"difficult_words":   string(rawWords),
+		"unknown_rate":      unknownRate,
+		"status":            "annotated",
+		"annotate_progress": 100,
+	}).Error
+}
+
+// AnnotateWordsForText 对一段文本做 LLM 生词标注 (分级阅读与 RSS 一键提取共用)
+func (s *ReadingService) AnnotateWordsForText(userID uint, text string) ([]model.DifficultWord, error) {
+	if s.agentSvc == nil {
+		return nil, errors.New("AI 服务未启用")
+	}
 	system := `你是英语分级阅读标注助手。找出文中对学习者构成障碍的超纲生词 (低频词、习语、专有表达; 排除最常用 3000 词和普通专有名词), 给出中文释义。只输出 JSON 数组:
 [{"word": "<原文中的词或短语>", "meaning": "<中文释义>", "reason": "<低频/习语/术语>"}]`
 	user := fmt.Sprintf("文章:\n%s\n\n最多标注 40 个。", text)
 	raw, err := s.agentSvc.GenerateTextWithTimeout(userID, "", system, user, slowGenTimeout)
 	if err != nil {
-		DB.Model(&doc).Update("status", "failed")
-		return fmt.Errorf("标注失败: %w", err)
+		return nil, fmt.Errorf("标注失败: %w", err)
 	}
-
 	var flagged []model.DifficultWord
 	if err := decodeLLMArray(raw, &flagged); err != nil {
-		DB.Model(&doc).Update("status", "failed")
-		return errors.New("标注失败: AI 返回格式异常 (详见后端日志)")
+		return nil, errors.New("标注失败: AI 返回格式异常 (详见后端日志)")
 	}
-	// 解析成功但 0 个生词是合法结果 (文章全在掌握范围内), 正常落 annotated
-	if len(flagged) == 0 {
-		log.Printf("reading annotate #%d 标注结果为空 (模型未找出超纲词)", id)
-	}
-
-	// 标记已在生词本中的词
-	var known []string
-	if err := DB.Model(&model.Vocabulary{}).Where("user_id = ?", userID).Pluck("word", &known).Error; err == nil {
-		knownSet := make(map[string]bool, len(known))
-		for _, w := range known {
-			knownSet[strings.ToLower(w)] = true
-		}
-		for i := range flagged {
-			flagged[i].Known = knownSet[strings.ToLower(flagged[i].Word)]
-		}
-	}
-	unknownCount := 0
-	for _, f := range flagged {
-		if !f.Known {
-			unknownCount++
-		}
-	}
-	unknownRate := 0.0
-	if doc.WordCount > 0 {
-		unknownRate = float64(unknownCount) / float64(doc.WordCount)
-	}
-	rawWords, _ := json.Marshal(flagged)
-	return DB.Model(&doc).Updates(map[string]interface{}{
-		"difficult_words": string(rawWords),
-		"unknown_rate":    unknownRate,
-		"status":          "annotated",
-	}).Error
+	return flagged, nil
 }
 
-// LookupWord 点词即查: 词典缓存优先, 未命中走 LLM 并写入缓存
-func (s *ReadingService) LookupWord(userID uint, word string) (*model.DictionaryCache, error) {
+// splitAnnotationChunks 把文本按段落边界近似均分成 n 块 (不足 n 段时返回实际块数)
+func splitAnnotationChunks(text string, n int) []string {
+	paragraphs := strings.Split(text, "\n\n")
+	if len(paragraphs) <= n {
+		return paragraphs
+	}
+	chunks := make([]string, n)
+	per := len(paragraphs) / n
+	extra := len(paragraphs) % n
+	idx := 0
+	for i := 0; i < n; i++ {
+		take := per
+		if i < extra {
+			take++
+		}
+		chunks[i] = strings.Join(paragraphs[idx:idx+take], "\n\n")
+		idx += take
+	}
+	return chunks
+}
+
+// LookupWord 点词即查: 词典缓存优先; 未命中先打免费词典 (dictionaryapi.dev) 只让 LLM 补中文,
+// 免费词典也没有再走 LLM 全量; 命中生词本顺带计一次阅读相遇。结果写缓存。
+func (s *ReadingService) LookupWord(userID uint, word string) (*LookupWordResponse, error) {
 	word = strings.ToLower(strings.TrimSpace(word))
 	if word == "" || len(word) > 100 {
 		return nil, errors.New("单词不合法")
 	}
-
-	var cached model.DictionaryCache
-	if err := DB.Where("word = ?", word).First(&cached).Error; err == nil {
-		return &cached, nil
-	}
-	if s.agentSvc == nil {
-		return nil, errors.New("AI 服务未启用")
-	}
-
-	system := `你是英语词典助手。查一个词并给出词典式解释。只输出 JSON:
-{"phonetic": "<音标, 可空>", "definition": "<英文释义, 一句>", "translation": "<中文释义>", "example": "<一个自然例句>"}`
-	raw, err := s.agentSvc.GenerateText(userID, "", system, "单词: "+word)
-	if err != nil {
-		return nil, fmt.Errorf("查词失败: %w", err)
-	}
+	LogReadingEvent(userID, "lookup", 1)
 
 	var entry model.DictionaryCache
-	if err := decodeLLMObject(raw, &entry); err != nil {
-		return nil, errors.New("查词失败: AI 返回格式异常 (详见后端日志)")
+	var cached model.DictionaryCache
+	if err := DB.Where("word = ?", word).First(&cached).Error; err == nil {
+		entry = cached
+	} else {
+		found := false
+		if phonetic, definition, example, ok := lookupFreeDictionary(word); ok {
+			// 免费词典命中: LLM 只补一句中文释义 (短调用, 秒级)
+			translation := ""
+			if s.agentSvc != nil {
+				if raw, err := s.agentSvc.GenerateText(userID, "", "把这句英文释义翻译成简体中文, 只输出译文本身, 不要解释。", definition); err == nil {
+					translation = strings.TrimSpace(raw)
+				}
+			}
+			entry = model.DictionaryCache{
+				Word: word, Phonetic: phonetic, Definition: definition,
+				Translation: translation, Example: example,
+			}
+			found = translation != ""
+		}
+		if !found {
+			if s.agentSvc == nil {
+				return nil, errors.New("AI 服务未启用")
+			}
+			system := `你是英语词典助手。查一个词并给出词典式解释。只输出 JSON:
+{"phonetic": "<音标, 可空>", "definition": "<英文释义, 一句>", "translation": "<中文释义>", "example": "<一个自然例句>"}`
+			raw, err := s.agentSvc.GenerateText(userID, "", system, "单词: "+word)
+			if err != nil {
+				return nil, fmt.Errorf("查词失败: %w", err)
+			}
+			if err := decodeLLMObject(raw, &entry); err != nil {
+				return nil, errors.New("查词失败: AI 返回格式异常 (详见后端日志)")
+			}
+			entry.Word = word
+		}
+		if err := DB.Where("word = ?", word).FirstOrCreate(&entry).Error; err != nil {
+			// 缓存写失败不影响查询结果
+		}
 	}
-	entry.Word = word
-	if err := DB.Where("word = ?", word).FirstOrCreate(&entry).Error; err != nil {
-		// 缓存写失败不影响查询结果
-		return &entry, nil
-	}
-	return &entry, nil
+	resp := &LookupWordResponse{DictionaryCache: entry}
+	attachVocabularyState(userID, resp, word)
+	return resp, nil
 }
 
 // StartGeneratePassage 异步启动 AI 写课文: 建 ai_text_jobs 任务行后立即返回,
@@ -616,6 +689,13 @@ func (s *ReadingService) GetGenerationJob(userID, jobID uint) (*model.AITextJob,
 	if err := DB.Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
 		return nil, errors.New("任务不存在")
 	}
+	// 词汇量测试的题面下发前剥离正确答案 (result_json 替换为无答案版)
+	if job.Kind == "vocab_test" && job.ResultJSON != "" {
+		if questions := stripVocabTestQuestions(job.ResultJSON); questions != nil {
+			raw, _ := json.Marshal(map[string]interface{}{"questions": questions})
+			job.ResultJSON = string(raw)
+		}
+	}
 	return &job, nil
 }
 
@@ -648,8 +728,13 @@ func (s *ReadingService) generatePassageSync(userID uint, req model.GeneratePass
 	for _, w := range words {
 		wordList = append(wordList, w.Word)
 	}
-	system := `你是英语课文编写助手。写一篇短文, 把指定的每个单词都自然地用到至少一个句子里 (不要生硬堆砌), 难度约 CEFR B1。只输出 JSON:
-{"title": "<英文标题>", "sentences": [{"en": "<英文句子>", "zh": "<中文翻译>"}]}`
+	// 难度按最近一次词汇量测试校准 (没测过默认 B1)
+	level := "B1"
+	if a, err := GetLatestVocabTest(userID); err == nil && a.CEFR != "" {
+		level = a.CEFR
+	}
+	system := fmt.Sprintf(`你是英语课文编写助手。写一篇短文, 把指定的每个单词都自然地用到至少一个句子里 (不要生硬堆砌), 难度约 CEFR %s。只输出 JSON:
+{"title": "<英文标题>", "sentences": [{"en": "<英文句子>", "zh": "<中文翻译>"}]}`, level)
 	user := fmt.Sprintf("必须使用的单词: %s\n句子数量: %d 句左右。", strings.Join(wordList, ", "), count)
 	raw, err := s.agentSvc.GenerateTextWithTimeout(userID, "", system, user, slowGenTimeout)
 	if err != nil {

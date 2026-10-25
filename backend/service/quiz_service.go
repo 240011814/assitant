@@ -122,7 +122,7 @@ func (s *QuizService) CreateSession(userID uint, req model.CreateQuizSessionRequ
 	case "due":
 		now := time.Now()
 		err = DB.Where("user_id = ? AND is_mastered = ? AND fsrs_state != ? AND next_review_at <= ?", userID, false, model.FsrsStateNew, now).
-			Order("next_review_at ASC, fsrs_lapses DESC").Limit(size * 3).Find(&pool).Error
+			Order("next_review_at ASC, fsrs_lapses DESC, encounters ASC").Limit(size * 3).Find(&pool).Error
 	case "errorbook":
 		var errBook []model.ErrorBook
 		err = DB.Where("user_id = ? AND source_type = ?", userID, "vocabulary").

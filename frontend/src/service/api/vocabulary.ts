@@ -10,6 +10,11 @@ export function fetchAddVocabulary(data: {
   definition?: string;
   example?: string;
   sourceContext?: string;
+  /** 来源: reading / rss (回链原文) */
+  sourceKind?: string;
+  sourceRef?: number;
+  /** 加入时所在原句 (语境复习方向) */
+  contextSentence?: string;
 }) {
   return request<Api.Vocabulary.Item>({
     url: '/api/vocabulary',

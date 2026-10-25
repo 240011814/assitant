@@ -23,11 +23,12 @@ func NewVocabularyService(agentSvc *AIAgentService, docSvc *UserDocumentService,
 	return &VocabularyService{agentSvc: agentSvc, docSvc: docSvc, prefSvc: prefSvc}
 }
 
-// reviewDirections 双向卡方向轮换: 再认 → 主动回忆 → 听音辨词
+// reviewDirections 双向卡方向轮换: 再认 → 主动回忆 → 听音辨词 → 原文语境 (有原句时)
 var reviewDirections = []string{
 	model.ReviewDirectionEn2Zh,
 	model.ReviewDirectionZh2En,
 	model.ReviewDirectionListen,
+	model.ReviewDirectionContext,
 }
 
 // AddWord 添加生词
@@ -44,18 +45,22 @@ func (s *VocabularyService) AddWord(userID uint, req model.CreateVocabularyReque
 	}
 
 	word := model.Vocabulary{
-		UserID:         userID,
-		Word:           req.Word,
-		Phonetic:       req.Phonetic,
-		Definition:     req.Definition,
-		Example:        req.Example,
-		SourceContext:  req.SourceContext,
-		ConfusingWords: req.ConfusingWords,
+		UserID:          userID,
+		Word:            req.Word,
+		Phonetic:        req.Phonetic,
+		Definition:      req.Definition,
+		Example:         req.Example,
+		SourceContext:   req.SourceContext,
+		ConfusingWords:  req.ConfusingWords,
+		SourceKind:      req.SourceKind,
+		SourceRef:       req.SourceRef,
+		ContextSentence: req.ContextSentence,
 	}
 
 	if err := DB.Create(&word).Error; err != nil {
 		return nil, err
 	}
+	LogReadingEvent(userID, "add_word", 1)
 	return &word, nil
 }
 
@@ -135,10 +140,12 @@ func (s *VocabularyService) countNewStartedToday(userID uint) (int64, error) {
 func buildCards(words []model.Vocabulary) []model.ReviewCardItem {
 	cards := make([]model.ReviewCardItem, 0, len(words))
 	for i, w := range words {
-		cards = append(cards, model.ReviewCardItem{
-			Direction: reviewDirections[i%len(reviewDirections)],
-			Word:      w,
-		})
+		dir := reviewDirections[i%len(reviewDirections)]
+		// 语境方向必须有原句, 没有就退回再认方向
+		if dir == model.ReviewDirectionContext && strings.TrimSpace(w.ContextSentence) == "" {
+			dir = model.ReviewDirectionEn2Zh
+		}
+		cards = append(cards, model.ReviewCardItem{Direction: dir, Word: w})
 	}
 	return cards
 }
@@ -216,7 +223,7 @@ func (s *VocabularyService) GetQuickSession(userID uint, minutes int) (*model.Re
 
 	var dueWords []model.Vocabulary
 	if err := DB.Where("user_id = ? AND is_mastered = ? AND fsrs_state != ? AND next_review_at <= ?", userID, false, model.FsrsStateNew, now).
-		Order("fsrs_lapses DESC, next_review_at ASC").
+		Order("fsrs_lapses DESC, encounters ASC, next_review_at ASC").
 		Limit(n).
 		Find(&dueWords).Error; err != nil {
 		return nil, err
@@ -446,10 +453,10 @@ func (s *VocabularyService) GetLearningStats(userID uint) (map[string]interface{
 		cursor = cursor.AddDate(0, 0, -1)
 	}
 
-	// 易错词 Top10 (按遗忘次数)
+	// 易错词 Top10 (按遗忘次数; 相同遗忘次数优先"阅读中从未再遇到"的词——语境最弱最易忘)
 	var troubleWords []model.Vocabulary
 	if err := DB.Where("user_id = ? AND is_mastered = ? AND fsrs_lapses >= 1", userID, false).
-		Order("fsrs_lapses DESC, next_review_at ASC").
+		Order("fsrs_lapses DESC, encounters ASC, next_review_at ASC").
 		Limit(10).
 		Find(&troubleWords).Error; err != nil {
 		return nil, err
@@ -475,6 +482,10 @@ func (s *VocabularyService) GetLearningStats(userID uint) (map[string]interface{
 	stats["troubleWords"] = troubleWords
 	stats["totalReviews"] = totalReviews
 	stats["avgReviewsPerMastered"] = avgPerMastered
+	// 阅读维度 (打开/查词/加词/阅读分钟, 近90天): 阅读事件埋点聚合
+	if reading, err := GetReadingStats(userID); err == nil {
+		stats["reading"] = reading
+	}
 	return stats, nil
 }
 

@@ -20,12 +20,16 @@ export interface RSSItem {
   title: string;
   link: string;
   summary: string;
+  /** 摘要预估生词率 (个性化难度, 0=未算) */
+  estUnknownRate?: number;
   publishedAt: string | null;
   status: 'unread' | 'read' | 'imported';
   importedDocId: number;
   createdAt: string;
   /** 净化后的 HTML 正文 (仅详情接口返回) */
   contentHtml?: string;
+  /** AI 提取的生词 JSON 字符串 (仅详情接口返回, 一键提取结果) */
+  difficultWords?: string;
 }
 
 /** 添加订阅 (先验证 feed 可解析) */
@@ -61,10 +65,11 @@ export function fetchRSSFetchSource(id: number) {
   });
 }
 
-/** 文章列表 (分页 + 源/未读过滤, sort=time_desc|time_asc) */
+/** 文章列表 (分页 + 源/未读/难度过滤, sort=time_desc|time_asc) */
 export function fetchRSSListItems(params?: {
   sourceId?: number;
   unreadOnly?: boolean;
+  easyOnly?: boolean;
   sort?: 'time_desc' | 'time_asc';
   page?: number;
   page_size?: number;
@@ -96,6 +101,14 @@ export function fetchRSSItemContent(id: number) {
 export function fetchRSSImportItem(id: number) {
   return request<{ id: number; title: string }>({
     url: `/api/rss/items/${id}/import`,
+    method: 'post'
+  });
+}
+
+/** 一键提取本文生词 (异步 job, 轮询 /api/reading/generation-jobs/:id) */
+export function fetchRSSAnnotateItem(id: number) {
+  return request<{ id: number; kind: string; status: string; resultId: number }>({
+    url: `/api/rss/items/${id}/annotate`,
     method: 'post'
   });
 }

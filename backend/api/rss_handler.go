@@ -136,3 +136,19 @@ func (h *RSSHandler) HandleImportRSSItem(c *gin.Context) {
 	}
 	SendSuccess(c, doc)
 }
+
+// HandleAnnotateRSSItem 一键提取本文生词 (异步 job, 前端轮询 generation-jobs/:id)
+func (h *RSSHandler) HandleAnnotateRSSItem(c *gin.Context) {
+	userId := GetUserID(c)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		SendError(c, "400", "文章 ID 不合法")
+		return
+	}
+	job, err := h.svc.StartItemAnnotate(userId, uint(id))
+	if err != nil {
+		SendError(c, "500", "启动提取失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, job)
+}

@@ -208,6 +208,11 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			readingGroup.GET("/lookup", readingHandler.HandleLookupWord)
 			readingGroup.GET("/generation-jobs/:id", readingHandler.HandleGetGenerationJob)
 			readingGroup.POST("/generate-passage", readingHandler.HandleGeneratePassage)
+			readingGroup.POST("/translate", readingHandler.HandleTranslate)
+			readingGroup.POST("/heartbeat", readingHandler.HandleReadingHeartbeat)
+			readingGroup.POST("/vocab-test/start", readingHandler.HandleStartVocabTest)
+			readingGroup.POST("/vocab-test/submit", readingHandler.HandleSubmitVocabTest)
+			readingGroup.GET("/vocab-test/latest", readingHandler.HandleLatestVocabTest)
 		}
 
 		// RSS 阅读 (挂 vocabulary 权限域)
@@ -222,6 +227,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			rssGroup.POST("/items/:id/read", rssHandler.HandleMarkRSSItemRead)
 			rssGroup.GET("/items/:id/content", rssHandler.HandleGetRSSItemContent)
 			rssGroup.POST("/items/:id/import", rssHandler.HandleImportRSSItem)
+			rssGroup.POST("/items/:id/annotate", rssHandler.HandleAnnotateRSSItem)
 		}
 
 		noteGroup := apiGroup.Group("/notes")

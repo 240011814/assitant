@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -161,6 +162,11 @@ func (s *RSSService) upsertItems(userID, sourceID uint, feed *gofeed.Feed) int {
 	}
 
 	inserted := 0
+	// 批量难度预估共用一次生词本集合查询
+	unknownSet, err := loadUnmasteredSet(userID)
+	if err != nil {
+		unknownSet = map[string]bool{}
+	}
 	for _, item := range items {
 		guid := item.GUID
 		if guid == "" {
@@ -187,6 +193,7 @@ func (s *RSSService) upsertItems(userID, sourceID uint, feed *gofeed.Feed) int {
 			Link:        truncateRunes(item.Link, 500),
 			Summary:     summary,
 			PublishedAt: item.PublishedParsed,
+			EstUnknownRate: estimateUnknownRateFromSet(summary+"\n"+title, unknownSet),
 		}
 		if newItem.Link == "" {
 			continue
@@ -297,6 +304,10 @@ func (s *RSSService) ListItems(userID uint, req model.ListRSSItemsRequest) ([]mo
 	if req.UnreadOnly {
 		query = query.Where("status = ?", "unread")
 	}
+	if req.EasyOnly {
+		// 适合当前水平: 已算难度且预估生词率 <= 8% (est=0 是未算的历史数据, 不算简单)
+		query = query.Where("est_unknown_rate > 0 AND est_unknown_rate <= 0.08")
+	}
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -311,7 +322,7 @@ func (s *RSSService) ListItems(userID uint, req model.ListRSSItemsRequest) ([]mo
 
 	var list []model.RSSItem
 	// 列表不取正文 (mediumtext, 体积大且列表用不到), 详情接口按需抓取后返回
-	err := query.Select("id, user_id, source_id, guid, title, link, summary, published_at, status, imported_doc_id, created_at").
+	err := query.Select("id, user_id, source_id, guid, title, link, summary, est_unknown_rate, published_at, status, imported_doc_id, created_at").
 		Order(order).
 		Offset((req.Page - 1) * req.PageSize).Limit(req.PageSize).
 		Find(&list).Error
@@ -335,6 +346,7 @@ func (s *RSSService) GetItemContent(userID, id uint) (*model.RSSItem, error) {
 	if err := DB.Where("id = ? AND user_id = ?", id, userID).First(&item).Error; err != nil {
 		return nil, errors.New("文章不存在")
 	}
+	LogReadingEvent(userID, "open", 1)
 	if item.Content == "" && item.ContentHTML == "" {
 		muAny, _ := rssItemContentLocks.LoadOrStore(item.ID, &sync.Mutex{})
 		mu := muAny.(*sync.Mutex)
@@ -406,4 +418,68 @@ func (s *RSSService) ImportToReading(userID, id uint) (*model.ReadingDoc, error)
 	item.Status = "imported"
 	item.ImportedDocID = doc.ID
 	return doc, nil
+}
+
+// StartItemAnnotate 一键提取本文生词 (异步 job): 结果缓存在条目上, 与分级阅读标注同源。
+// 正文未缓存时先抓正文; 都没有用摘要兜底。
+func (s *RSSService) StartItemAnnotate(userID, id uint) (*model.AITextJob, error) {
+	var item model.RSSItem
+	if err := DB.Where("id = ? AND user_id = ?", id, userID).First(&item).Error; err != nil {
+		return nil, errors.New("文章不存在")
+	}
+	if item.DifficultWords != "" {
+		// 已提取过: 返回一个即时完成的 job, 前端直接刷新详情
+		return &model.AITextJob{UserID: userID, Kind: "rss_annotate", Status: "done", ResultID: item.ID}, nil
+	}
+	// 确保正文可用 (利用 GetItemContent 的缓存/抓取/摘要兜底链路)
+	full, err := s.GetItemContent(userID, id)
+	if err != nil {
+		return nil, err
+	}
+	text := full.Content
+	if strings.TrimSpace(text) == "" {
+		text = full.Summary
+	}
+	if strings.TrimSpace(text) == "" {
+		return nil, errors.New("本文没有可标注的文本")
+	}
+	if len(text) > 15000 {
+		text = truncateRunes(text, 15000)
+	}
+	job := &model.AITextJob{UserID: userID, Kind: "rss_annotate", Status: "running", ResultID: item.ID}
+	if err := DB.Create(job).Error; err != nil {
+		return nil, err
+	}
+	SafeGo("rss:annotate-item", func() {
+		updates := map[string]interface{}{}
+		flagged, err := s.readingSvc.AnnotateWordsForText(userID, text)
+		if err != nil {
+			updates["status"] = "failed"
+			updates["error"] = err.Error()
+		} else {
+			// 标记已在生词本中的词
+			var known []string
+			if e := DB.Model(&model.Vocabulary{}).Where("user_id = ?", userID).Pluck("word", &known).Error; e == nil {
+				knownSet := make(map[string]bool, len(known))
+				for _, w := range known {
+					knownSet[strings.ToLower(w)] = true
+				}
+				for i := range flagged {
+					flagged[i].Known = knownSet[strings.ToLower(flagged[i].Word)]
+				}
+			}
+			raw, _ := json.Marshal(flagged)
+			if e := DB.Model(&model.RSSItem{}).Where("id = ?", item.ID).
+				Update("difficult_words", string(raw)).Error; e != nil {
+				updates["status"] = "failed"
+				updates["error"] = e.Error()
+			} else {
+				updates["status"] = "done"
+			}
+		}
+		if err := DB.Model(&model.AITextJob{}).Where("id = ?", job.ID).Updates(updates).Error; err != nil {
+			log.Printf("rss annotate job #%d update failed: %v", job.ID, err)
+		}
+	})
+	return job, nil
 }

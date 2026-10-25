@@ -69,6 +69,19 @@ const columns = ref<DataTableColumns<any>>([
   },
   { title: "词数", key: "wordCount", width: 90 },
   {
+    title: "预估难度",
+    key: "estUnknownRate",
+    width: 90,
+    render(row) {
+      const rate = row.estUnknownRate;
+      if (!rate || rate <= 0) return "—";
+      const pct = Math.round(rate * 1000) / 10;
+      const type = rate < 0.03 ? "success" : rate <= 0.08 ? "info" : "warning";
+      const label = rate < 0.03 ? "易" : rate <= 0.08 ? "适中" : "难";
+      return h(NTag, { size: "small", type, bordered: false }, { default: () => `${label} ${pct}%` });
+    },
+  },
+  {
     title: "生词率",
     key: "unknownRate",
     width: 110,

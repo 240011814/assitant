@@ -7,6 +7,10 @@ export interface ReadingDoc {
   sourceUrl: string;
   wordCount: number;
   unknownRate: number;
+  /** 导入时预估生词率 (免 LLM 个性化难度) */
+  estUnknownRate: number;
+  /** 分块标注进度 0-100 */
+  annotateProgress: number;
   status: 'pending' | 'annotating' | 'annotated' | 'failed';
   createdAt: string;
 }
@@ -30,15 +34,45 @@ export interface DictionaryEntry {
   definition: string;
   translation: string;
   example: string;
+  /** 是否已在生词本 (查词命中时后端顺带计一次阅读相遇) */
+  inVocabulary?: boolean;
+  /** 阅读中已相遇次数 */
+  encounters?: number;
 }
 
 /** 慢 LLM 生成任务 (Cloudflare 对源站有 100s 上限, 此类操作一律异步 + 轮询) */
 export interface AITextJob {
   id: number;
-  kind: 'passage' | string;
+  kind: 'passage' | 'vocab_test' | 'rss_annotate' | string;
   status: 'running' | 'done' | 'failed';
   resultId: number;
+  /** 任务结果 JSON (vocab_test 下发前已剥离答案: {questions:[{id,band,word,options}]} ) */
+  resultJson?: string;
   error: string;
+}
+
+/** 词汇量测试题 (下发版, 无答案) */
+export interface VocabTestQuestion {
+  id: string;
+  band: string;
+  word: string;
+  options: string[];
+}
+
+/** 词汇量测试结果 */
+export interface VocabTestResult {
+  cefr: string;
+  estSize: number;
+  bands: Record<string, string>;
+}
+
+/** 阅读维度统计 (近90天) */
+export interface ReadingStats {
+  totalOpens: number;
+  totalLookups: number;
+  totalWordsAdded: number;
+  totalReadMinutes: number;
+  daily: Array<{ date: string; opens: number; lookups: number; wordsAdded: number; readMinutes: number }>;
 }
 
 /** 导入阅读材料 (URL 或文本) */
@@ -83,7 +117,7 @@ export function fetchAnnotateReadingDoc(id: number) {
   });
 }
 
-/** 点词即查 (词典缓存) */
+/** 点词即查 (词典缓存优先; 命中生词本返回 inVocabulary + encounters) */
 export function fetchLookupWord(word: string) {
   return request<DictionaryEntry>({
     url: '/api/reading/lookup',
@@ -105,6 +139,49 @@ export function fetchGeneratePassage(data: { wordIds?: number[]; sentenceCount?:
 export function fetchGetGenerationJob(id: number) {
   return request<AITextJob>({
     url: `/api/reading/generation-jobs/${id}`,
+    method: 'get'
+  });
+}
+
+/** 划词翻译 (双向: 中文→英文 / 其他→中文) */
+export function fetchTranslateText(text: string) {
+  return request<{ translation: string }>({
+    url: '/api/reading/translate',
+    method: 'post',
+    data: { text }
+  });
+}
+
+/** 阅读时长心跳 (每 30s 上报停留秒数, 聚合进学习统计) */
+export function fetchReadingHeartbeat(seconds: number) {
+  return request({
+    url: '/api/reading/heartbeat',
+    method: 'post',
+    data: { seconds }
+  });
+}
+
+/** 启动词汇量测试 (异步出题, 轮询 fetchGetGenerationJob 取题面) */
+export function fetchStartVocabTest() {
+  return request<AITextJob>({
+    url: '/api/reading/vocab-test/start',
+    method: 'post'
+  });
+}
+
+/** 提交词汇量测试答卷, 返回 CEFR 与估算词汇量 */
+export function fetchSubmitVocabTest(jobId: number, answers: Record<string, number>) {
+  return request<VocabTestResult>({
+    url: '/api/reading/vocab-test/submit',
+    method: 'post',
+    data: { jobId, answers }
+  });
+}
+
+/** 最近一次词汇量评估 (无记录返回 null) */
+export function fetchLatestVocabTest() {
+  return request<{ cefr: string; estSize: number; createdAt: string } | null>({
+    url: '/api/reading/vocab-test/latest',
     method: 'get'
   });
 }
