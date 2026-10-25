@@ -3,7 +3,6 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
 import { fetchGetReadingDoc, fetchAnnotateReadingDoc } from "@/service/api";
 import type { DifficultWord, ReadingDoc } from "@/service/api";
-import { useAppStore } from "@/store/modules/app";
 import { useRouterPush } from "@/hooks/common/router";
 import ReaderView from "@/components/custom/reader-view.vue";
 
@@ -29,7 +28,6 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-const appStore = useAppStore();
 const message = useMessage();
 const { routerPushByKey } = useRouterPush();
 
@@ -259,10 +257,10 @@ onUnmounted(() => {
     <NEmpty v-if="paragraphs.length === 0 && !loading" description="文档为空" />
 
     <template #aside>
-      <!-- 生词侧栏 (桌面) -->
+      <!-- 生词侧栏 (桌面右侧 / 移动端正文下方) -->
       <aside
-        v-if="difficultWords.length > 0 && !appStore.isMobile"
-        class="w-64 shrink-0 sticky top-4 self-start max-h-[calc(100vh-220px)] overflow-auto"
+        v-if="difficultWords.length > 0"
+        class="w-full md:w-64 md:shrink-0 md:sticky md:top-4 md:self-start max-h-[40vh] md:max-h-[calc(100vh-220px)] overflow-auto"
       >
         <div class="font-bold mb-2 text-15px text-gray-900 dark:text-gray-50">标注生词 ({{ difficultWords.length }})</div>
         <div class="flex flex-col gap-2">

@@ -360,6 +360,7 @@ const contentStyle = computed(() => ({ fontSize: `${readerFontSize.value}px` }))
           quaternary
           circle
           size="small"
+          class="hidden sm:inline-flex"
           :title="readerWidth === 'cozy' ? '切换宽敞版式' : '切换舒适版式'"
           :aria-label="readerWidth === 'cozy' ? '切换宽敞版式' : '切换舒适版式'"
           @click="toggleReaderWidth"
@@ -380,7 +381,8 @@ const contentStyle = computed(() => ({ fontSize: `${readerFontSize.value}px` }))
         :style="{ width: `${readProgress}%` }"
       />
       <div ref="scrollRef" class="h-full overflow-y-auto" @scroll.passive="onScroll">
-        <div class="flex justify-center gap-8 px-6 pt-8 pb-14">
+        <!-- 移动端纵向堆叠 (aside 侧栏落到正文下方), 桌面居中双栏 -->
+        <div class="flex flex-col md:flex-row md:justify-center gap-6 md:gap-8 px-4 md:px-6 pt-8 pb-14">
           <!-- 正文 (大标题 + 元信息 + 居中窄栏) -->
           <article class="w-full min-w-0" :style="{ maxWidth: `${readerMaxWidth}px` }">
             <h1 class="text-[26px] md:text-[30px] font-bold leading-[1.35] text-gray-900 dark:text-gray-50 mb-5">

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { h, onMounted, ref } from "vue";
-import { NButton, NPopconfirm, NTag, useMessage } from "naive-ui";
+import { NButton, NEmpty, NPopconfirm, NSpin, NTag, useMessage } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
 import {
   fetchImportReading,
@@ -201,7 +201,7 @@ onMounted(() => {
         </div>
       </template>
       <template #header-extra>
-        <span class="text-xs text-gray-400">生词率 &lt;5% 适合泛读, 5%~10% 适合精读; AI 写课文在课程包页</span>
+        <span class="text-xs text-gray-400 hidden md:inline">生词率 &lt;5% 适合泛读, 5%~10% 适合精读; AI 写课文在课程包页</span>
       </template>
 
       <div class="flex gap-2 mb-4" :class="appStore.isMobile ? '' : 'w-96'">
@@ -219,7 +219,63 @@ onMounted(() => {
         </NButton>
       </div>
 
-      <NDataTable :columns="columns" :data="docs" :loading="loading" :row-key="(row: any) => row.id" />
+      <!-- PC: 表格 -->
+      <NDataTable
+        v-if="!appStore.isMobile"
+        :columns="columns"
+        :data="docs"
+        :loading="loading"
+        :row-key="(row: any) => row.id"
+      />
+
+      <!-- 移动端: 卡片列表 -->
+      <div v-else class="flex flex-col gap-3">
+        <NSpin :show="loading">
+          <div
+            v-for="row in docs"
+            :key="row.id"
+            class="rounded-lg border border-gray-100 dark:border-gray-800 p-3 flex flex-col gap-2 cursor-pointer active:bg-gray-50 dark:active:bg-gray-800"
+            @click="openDoc(row.id)"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-bold text-15px truncate">{{ row.title }}</span>
+              <NTag size="tiny" :type="statusTag(row.status).type" :bordered="false" class="shrink-0">
+                {{ statusTag(row.status).label }}
+              </NTag>
+            </div>
+            <div class="flex items-center gap-2 text-xs text-gray-400 flex-wrap">
+              <span>{{ row.sourceType === "url" ? "网页" : "文本" }}</span>
+              <span>· {{ row.wordCount }} 词</span>
+              <NTag
+                v-if="row.estUnknownRate > 0"
+                size="tiny"
+                :bordered="false"
+                :type="row.estUnknownRate < 0.03 ? 'success' : row.estUnknownRate <= 0.08 ? 'info' : 'warning'"
+                class="shrink-0"
+              >
+                {{ row.estUnknownRate < 0.03 ? "易" : row.estUnknownRate <= 0.08 ? "适中" : "难" }}
+                {{ Math.round(row.estUnknownRate * 1000) / 10 }}%
+              </NTag>
+              <NTag v-if="row.status === 'annotated'" size="tiny" type="warning" :bordered="false" class="shrink-0">
+                生词率 {{ Math.round(row.unknownRate * 1000) / 10 }}%
+              </NTag>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-gray-400">{{ row.createdAt ? new Date(row.createdAt).toLocaleDateString() : "" }}</span>
+              <span class="flex gap-1" @click.stop>
+                <NButton size="tiny" quaternary type="primary" @click="openDoc(row.id)">阅读</NButton>
+                <NPopconfirm @positive-click="handleDelete(row.id)">
+                  <template #trigger>
+                    <NButton size="tiny" quaternary type="error">删除</NButton>
+                  </template>
+                  确认删除该文档?
+                </NPopconfirm>
+              </span>
+            </div>
+          </div>
+        </NSpin>
+        <NEmpty v-if="docs.length === 0 && !loading" class="py-10" description="暂无文档, 点右上角导入" />
+      </div>
     </NCard>
 
     <!-- 导入 -->

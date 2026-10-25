@@ -730,7 +730,11 @@ onDeactivated(() => {
               :title="viewDifficultWords.length > 0 ? '本文已提取过生词' : 'AI 提取本文生词并高亮'"
               @click="handleAnnotateItem"
             >
-              {{ viewDifficultWords.length > 0 ? `生词 ${viewDifficultWords.length}` : '提取生词' }}
+              <template #icon>
+                <SvgIcon icon="mdi:text-box-search-outline" />
+              </template>
+              <span v-if="viewDifficultWords.length > 0"> {{ viewDifficultWords.length }}</span>
+              <span v-else class="hidden sm:inline">提取生词</span>
             </NButton>
             <a v-if="viewItem?.link" :href="viewItem.link" target="_blank" rel="noopener noreferrer">
               <NButton quaternary circle size="small" title="打开原文">
@@ -820,9 +824,9 @@ onDeactivated(() => {
             </div>
           </template>
 
-          <!-- 提取出的生词侧栏 (点击查词, 可一键全部加入生词本) -->
-          <template v-if="viewDifficultWords.length > 0 && !appStore.isMobile" #aside>
-            <aside class="w-60 shrink-0 sticky top-4 self-start max-h-[calc(100vh-220px)] overflow-auto">
+          <!-- 提取出的生词侧栏 (桌面右侧/移动端正文下方, 点击查词, 可一键全部加入生词本) -->
+          <template v-if="viewDifficultWords.length > 0" #aside>
+            <aside class="w-full md:w-60 md:shrink-0 md:sticky md:top-4 md:self-start max-h-[40vh] md:max-h-[calc(100vh-220px)] overflow-auto">
               <div class="flex items-center justify-between mb-2">
                 <span class="font-bold text-15px text-gray-900 dark:text-gray-50">本文生词 ({{ viewDifficultWords.length }})</span>
                 <NButton size="tiny" type="primary" :loading="addingAll" @click="addAllDifficultWords">全部加入</NButton>
