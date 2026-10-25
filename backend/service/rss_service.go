@@ -190,13 +190,13 @@ func (s *RSSService) upsertItems(userID, sourceID uint, feed *gofeed.Feed) int {
 		summary = truncateRunes(strings.Join(strings.Fields(summary), " "), rssSummaryLimit)
 
 		newItem := model.RSSItem{
-			UserID:      userID,
-			SourceID:    sourceID,
-			GUID:        guid,
-			Title:       truncateRunes(title, 500),
-			Link:        truncateRunes(item.Link, 500),
-			Summary:     summary,
-			PublishedAt: item.PublishedParsed,
+			UserID:         userID,
+			SourceID:       sourceID,
+			GUID:           guid,
+			Title:          truncateRunes(title, 500),
+			Link:           truncateRunes(item.Link, 500),
+			Summary:        summary,
+			PublishedAt:    item.PublishedParsed,
 			EstUnknownRate: estimateUnknownRateFromSet(summary+"\n"+title, unknownSet),
 		}
 		if newItem.Link == "" {
@@ -235,7 +235,7 @@ func (s *RSSService) ListSourcesWithUnread(userID uint) ([]RSSSourceWithUnread, 
 		return nil, err
 	}
 	type cntRow struct {
-		SourceID uint `gorm:"column:source_id"`
+		SourceID uint  `gorm:"column:source_id"`
 		Cnt      int64 `gorm:"column:cnt"`
 	}
 	var rows []cntRow

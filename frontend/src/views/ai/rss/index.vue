@@ -392,6 +392,11 @@ const openItem = async (item: RSSItem) => {
 function normalizeArticleHtml() {
   const container = document.querySelector(".article-html");
   if (!container) return;
+  // 图片懒加载: 视口外的图不与首屏争带宽 (BBC 图床慢)
+  container.querySelectorAll("img").forEach(im => {
+    im.loading = "lazy";
+    im.decoding = "async";
+  });
   const INLINE = new Set([
     "A", "STRONG", "B", "EM", "I", "U", "S", "DEL", "INS", "SMALL", "MARK",
     "SUB", "SUP", "CODE", "KBD", "BR", "IMG"
@@ -1085,6 +1090,18 @@ onDeactivated(() => {
 }
 .dark .article-html :deep(mark) {
   background: rgba(250, 204, 21, 0.28);
+}
+/* BBC 图床 (ichef.bbci.co.uk) 加载慢 (每张 3-9s), 占位底色避免"空白像挂了" */
+.article-html :deep(img) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.75em auto;
+  border-radius: 6px;
+  background: repeating-linear-gradient(45deg, #f1f1f1, #f1f1f1 12px, #e7e7e7 12px, #e7e7e7 24px);
+}
+.dark .article-html :deep(img) {
+  background: repeating-linear-gradient(45deg, #2a2a2a, #2a2a2a 12px, #333 12px, #333 24px);
 }
 .article-html :deep(hr) {
   border: none;

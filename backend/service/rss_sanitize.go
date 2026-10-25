@@ -28,12 +28,14 @@ var sanitizeAllowed = map[string]bool{
 }
 
 // skipElems 危险/无意义标签: 连内容一起丢弃 (区别于剥壳留内容的结构标签)
+// figcaption: BBC 等站的 "Image source, Getty Images"/"Image caption, ..." 读屏标注, 纯噪音
 var sanitizeSkip = map[string]bool{
 	"script": true, "style": true, "noscript": true, "iframe": true, "frame": true, "frameset": true,
 	"object": true, "embed": true, "applet": true, "form": true, "input": true, "button": true,
 	"select": true, "textarea": true, "option": true, "svg": true, "math": true, "canvas": true,
 	"audio": true, "video": true, "source": true, "track": true, "link": true, "meta": true,
 	"title": true, "template": true, "dialog": true,
+	"figcaption": true,
 }
 
 var sanitizeVoid = map[string]bool{"br": true, "img": true, "hr": true}

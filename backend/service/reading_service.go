@@ -174,6 +174,10 @@ func htmlToText(body string) (string, string, error) {
 				return
 			case "script", "style", "noscript":
 				return
+			// BBC 等站的图片说明 (<figcaption>: "Image source, Getty Images"/"Image caption, ...")
+			// 是给读屏器的无障碍标注, 对阅读与朗读均为噪音, 连内容一起跳过
+			case "figcaption":
+				return
 			}
 		}
 		if n.Type == html.TextNode {
