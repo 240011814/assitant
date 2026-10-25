@@ -509,8 +509,7 @@ func (s *ReadingService) annotateDocSync(userID, id uint) error {
 
 	all := make([]model.DifficultWord, 0, 40)
 	var known []string
-	if err := DB.Model(&model.Vocabulary{}).Where("user_id = ?", userID).Pluck("word", &known).Error; err == nil {
-	}
+	_ = DB.Model(&model.Vocabulary{}).Where("user_id = ?", userID).Pluck("word", &known).Error
 	knownSet := make(map[string]bool, len(known))
 	for _, w := range known {
 		knownSet[strings.ToLower(w)] = true
@@ -647,9 +646,8 @@ func (s *ReadingService) LookupWord(userID uint, word string) (*LookupWordRespon
 			}
 			entry.Word = word
 		}
-		if err := DB.Where("word = ?", word).FirstOrCreate(&entry).Error; err != nil {
-			// 缓存写失败不影响查询结果
-		}
+		// 缓存写失败不影响查询结果
+		_ = DB.Where("word = ?", word).FirstOrCreate(&entry).Error
 	}
 	resp := &LookupWordResponse{DictionaryCache: entry}
 	attachVocabularyState(userID, resp, word)

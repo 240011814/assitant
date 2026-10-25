@@ -162,6 +162,7 @@ func (s *RSSService) upsertItems(userID, sourceID uint, feed *gofeed.Feed) int {
 	}
 
 	inserted := 0
+
 	// 批量难度预估共用一次生词本集合查询
 	unknownSet, err := loadUnmasteredSet(userID)
 	if err != nil {
