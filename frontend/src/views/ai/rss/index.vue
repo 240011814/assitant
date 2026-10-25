@@ -329,10 +329,13 @@ onActivated(() => {
             <NTag v-if="(src.unread || 0) > 0" size="tiny" type="warning" :bordered="false">{{ src.unread }}</NTag>
             <NPopconfirm @positive-click="handleDeleteSource(src.id)">
               <template #trigger>
-                <SvgIcon
-                  icon="mdi:delete-outline"
-                  class="text-14px cursor-pointer text-gray-300 group-hover:text-error"
-                />
+                <!-- SvgIcon inheritAttrs=false 会吞掉事件监听, 交互触发必须用原生元素包一层 -->
+                <span
+                  class="inline-flex cursor-pointer text-gray-300 group-hover:text-error"
+                  title="删除订阅"
+                >
+                  <SvgIcon icon="mdi:delete-outline" class="text-14px" />
+                </span>
               </template>
               删除「{{ src.title }}」及其全部文章?
             </NPopconfirm>

@@ -24,7 +24,7 @@ func (RSSSource) TableName() string {
 // RSSItem RSS 文章条目 (正文按需抓取缓存)
 type RSSItem struct {
 	ID            uint       `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID        uint       `gorm:"not null;index:idx_rss_item_user,priority:1" json:"userId"`
+	UserID        uint       `gorm:"not null;index:idx_rss_item_user,priority:1;uniqueIndex:uk_rss_user_guid,priority:1" json:"userId"`
 	SourceID      uint       `gorm:"not null;index:idx_rss_item_source,priority:1" json:"sourceId"`
 	GUID          string     `gorm:"size:255;not null;uniqueIndex:uk_rss_user_guid,priority:2" json:"-"`
 	Title         string     `gorm:"size:500;not null" json:"title"`
