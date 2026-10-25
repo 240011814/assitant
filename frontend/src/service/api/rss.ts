@@ -24,6 +24,8 @@ export interface RSSItem {
   status: 'unread' | 'read' | 'imported';
   importedDocId: number;
   createdAt: string;
+  /** 净化后的 HTML 正文 (仅详情接口返回) */
+  contentHtml?: string;
 }
 
 /** 添加订阅 (先验证 feed 可解析) */
@@ -82,9 +84,9 @@ export function fetchRSSMarkRead(id: number) {
   });
 }
 
-/** 取条目正文 (按需抓取原文页并缓存) */
+/** 取条目正文 (按需抓取原文页并缓存, 返回纯文本 + 净化 HTML 双格式) */
 export function fetchRSSItemContent(id: number) {
-  return request<RSSItem & { content: string }>({
+  return request<RSSItem & { content: string; contentHtml?: string }>({
     url: `/api/rss/items/${id}/content`,
     method: 'get'
   });

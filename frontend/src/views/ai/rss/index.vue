@@ -221,12 +221,14 @@ const showViewer = ref(false);
 const viewLoading = ref(false);
 const viewItem = ref<RSSItem | null>(null);
 const viewContent = ref("");
+const viewHtml = ref("");
 const viewError = ref("");
 const importing = ref(false);
 
 const openItem = async (item: RSSItem) => {
   viewItem.value = item;
   viewContent.value = "";
+  viewHtml.value = "";
   viewError.value = "";
   showViewer.value = true;
   if (item.status === "unread") {
@@ -246,10 +248,12 @@ const openItem = async (item: RSSItem) => {
     return;
   }
   viewContent.value = resp.content;
-  if (!viewContent.value && item.summary) {
-    // 原文页没提取到正文 (纯 JS 渲染等): 用 feed 摘要兜底
+  viewHtml.value = resp.contentHtml || "";
+  if (!viewContent.value && !viewHtml.value && item.summary) {
+    // 原文页没提取到正文 (纯 JS 渲染等): 用 feed 摘要兜底 (后端已随响应附带净化摘要 HTML)
     viewError.value = "原文页未提取到正文";
     viewContent.value = item.summary;
+    viewHtml.value = resp.contentHtml || "";
   }
   viewItem.value = resp;
 };
@@ -260,6 +264,18 @@ const viewerParagraphs = computed(() =>
     .map((p) => p.trim())
     .filter(Boolean)
 );
+
+// 预计阅读时长: 中文按 350 字/分, 英文按 200 词/分 (从纯文本口径统计)
+const viewStats = computed(() => {
+  const text = viewContent.value;
+  const latin = text.match(/[A-Za-z]+(?:'[A-Za-z]+)?/g) || [];
+  let cjk = 0;
+  for (const r of text) {
+    if (r >= "\u4e00" && r <= "\u9fff") cjk += 1;
+  }
+  const minutes = Math.max(1, Math.round(cjk / 350 + latin.length / 200));
+  return { charCount: [...text].length, minutes };
+});
 
 async function handleImport(item: RSSItem) {
   importing.value = true;
@@ -460,46 +476,69 @@ onActivated(() => {
       </div>
     </NModal>
 
-    <!-- 阅读弹窗 -->
-    <NModal v-model:show="showViewer" preset="card" :title="viewItem?.title" :style="{ width: appStore.isMobile ? '96%' : '760px' }">
-      <template #header-extra>
-        <div class="flex gap-2">
-          <a v-if="viewItem?.link" :href="viewItem.link" target="_blank" rel="noopener noreferrer">
-            <NButton size="small" quaternary>打开原文</NButton>
-          </a>
-          <NButton
-            v-if="viewItem && viewItem.status !== 'imported'"
-            size="small"
-            type="primary"
-            :loading="importing"
-            @click="handleImport(viewItem)"
-          >
-            导入分级阅读
-          </NButton>
-          <NButton
-            v-else-if="viewItem?.importedDocId"
-            size="small"
-            type="primary"
-            quaternary
-            @click="routerPushByKey('ai_reading-detail', { params: { id: String(viewItem.importedDocId) } })"
-          >
-            去标注
+    <!-- 阅读视图 (借鉴 Miniflux: 无干扰阅读列, 大标题 + 元信息行) -->
+    <NModal v-model:show="showViewer" :auto-focus="false">
+      <div class="w-[94%] md:w-[780px] max-h-[88vh] flex flex-col rounded-lg bg-white dark:bg-[#18181c] shadow-2xl overflow-hidden">
+        <div class="flex items-center justify-between gap-3 px-7 pt-5 shrink-0">
+          <div class="flex items-center gap-1.5 text-xs text-gray-400 truncate min-w-0">
+            <span class="truncate">{{ viewItem ? sourceTitle(viewItem.sourceId) : '' }}</span>
+            <template v-if="viewItem?.publishedAt">
+              <span>·</span>
+              <span class="shrink-0">{{ new Date(viewItem.publishedAt).toLocaleString() }}</span>
+            </template>
+            <template v-if="!viewLoading && viewStats.charCount > 0">
+              <span>·</span>
+              <span class="shrink-0">约 {{ viewStats.minutes }} 分钟读完</span>
+            </template>
+          </div>
+          <NButton quaternary circle size="small" @click="showViewer = false">
+            <template #icon>
+              <SvgIcon icon="mdi:close" />
+            </template>
           </NButton>
         </div>
-      </template>
-      <NSpin :show="viewLoading">
-        <NAlert v-if="viewError" type="warning" :bordered="false" class="mb-3">
-          正文抓取失败: {{ viewError }}<template v-if="viewerParagraphs.length">（以下为 feed 摘要）</template>
-        </NAlert>
-        <div class="text-xs text-gray-400 mb-3">
-          {{ viewItem ? sourceTitle(viewItem.sourceId) : '' }}
-          <template v-if="viewItem?.publishedAt"> · {{ new Date(viewItem.publishedAt).toLocaleString() }}</template>
+        <div class="flex-1 overflow-auto px-7 pb-8 pt-4">
+          <h1 class="text-22px font-bold leading-snug mb-4">{{ viewItem?.title }}</h1>
+          <div class="flex flex-wrap items-center gap-2 mb-5 pb-4 border-b border-gray-100 dark:border-gray-800">
+            <a v-if="viewItem?.link" :href="viewItem.link" target="_blank" rel="noopener noreferrer">
+              <NButton size="small" quaternary>打开原文</NButton>
+            </a>
+            <NButton
+              v-if="viewItem && viewItem.status !== 'imported'"
+              size="small"
+              type="primary"
+              :loading="importing"
+              @click="handleImport(viewItem)"
+            >
+              导入分级阅读
+            </NButton>
+            <NButton
+              v-else-if="viewItem?.importedDocId"
+              size="small"
+              quaternary
+              type="primary"
+              @click="routerPushByKey('ai_reading-detail', { params: { id: String(viewItem.importedDocId) } })"
+            >
+              去标注
+            </NButton>
+          </div>
+          <NSpin :show="viewLoading">
+            <NAlert v-if="viewError" type="warning" :bordered="false" class="mb-5">
+              正文抓取失败: {{ viewError }}<template v-if="viewHtml || viewerParagraphs.length">（以下为 feed 摘要）</template>
+            </NAlert>
+            <!-- 净化 HTML 渲染 (服务端白名单过滤, 含图片/链接/表格) -->
+            <!-- eslint-disable-next-line vue/no-v-html -- 内容为服务端白名单净化后的 HTML -->
+            <div v-if="viewHtml" class="article-html" v-html="viewHtml"></div>
+            <div v-else class="flex flex-col gap-5 text-17px leading-[2] text-gray-700 dark:text-gray-300">
+              <p v-for="(p, i) in viewerParagraphs" :key="i">{{ p }}</p>
+              <NEmpty
+                v-if="!viewLoading && viewerParagraphs.length === 0"
+                description="未抓到正文且无摘要, 可打开原文链接查看"
+              />
+            </div>
+          </NSpin>
         </div>
-        <div class="flex flex-col gap-3 leading-8 text-16px max-h-[65vh] overflow-auto">
-          <p v-for="(p, i) in viewerParagraphs" :key="i" class="text-justify">{{ p }}</p>
-          <NEmpty v-if="!viewLoading && viewerParagraphs.length === 0" description="未抓到正文且无摘要, 可打开原文链接查看" />
-        </div>
-      </NSpin>
+      </div>
     </NModal>
   </div>
 </template>
@@ -510,5 +549,116 @@ onActivated(() => {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* 净化 HTML 正文的阅读排版 (v-html 注入的节点须用 :deep) */
+.article-html {
+  font-size: 17px;
+  line-height: 2;
+  color: #374151;
+  word-break: break-word;
+}
+.dark .article-html {
+  color: #d1d5db;
+}
+.article-html :deep(p) {
+  margin: 0 0 1.25em;
+}
+.article-html :deep(p:empty) {
+  display: none;
+}
+.article-html :deep(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 0.5em 0;
+}
+.article-html :deep(a) {
+  color: var(--primary-color);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.article-html :deep(h1),
+.article-html :deep(h2),
+.article-html :deep(h3),
+.article-html :deep(h4) {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.5;
+  margin: 1.6em 0 0.8em;
+}
+.article-html :deep(h5),
+.article-html :deep(h6) {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 1.4em 0 0.7em;
+}
+.article-html :deep(blockquote) {
+  border-left: 3px solid rgba(128, 128, 128, 0.35);
+  padding-left: 1em;
+  margin: 0 0 1.25em;
+  color: #6b7280;
+}
+.dark .article-html :deep(blockquote) {
+  color: #9ca3af;
+}
+.article-html :deep(ul) {
+  list-style: disc;
+  padding-left: 1.6em;
+  margin: 0 0 1.25em;
+}
+.article-html :deep(ol) {
+  list-style: decimal;
+  padding-left: 1.6em;
+  margin: 0 0 1.25em;
+}
+.article-html :deep(li) {
+  margin-bottom: 0.35em;
+}
+.article-html :deep(pre) {
+  background: rgba(128, 128, 128, 0.12);
+  padding: 1em;
+  border-radius: 8px;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0 0 1.25em;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.article-html :deep(code) {
+  font-family: Menlo, Consolas, monospace;
+  font-size: 13px;
+  background: rgba(128, 128, 128, 0.12);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+.article-html :deep(pre code) {
+  background: transparent;
+  padding: 0;
+}
+.article-html :deep(hr) {
+  border: none;
+  border-top: 1px solid rgba(128, 128, 128, 0.25);
+  margin: 2em 0;
+}
+.article-html :deep(table) {
+  border-collapse: collapse;
+  margin: 0 0 1.25em;
+  width: 100%;
+  font-size: 15px;
+  display: block;
+  overflow-x: auto;
+}
+.article-html :deep(th),
+.article-html :deep(td) {
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  padding: 0.4em 0.6em;
+  text-align: left;
+}
+.article-html :deep(figcaption) {
+  font-size: 13px;
+  color: #9ca3af;
+  margin-top: 0.4em;
 }
 </style>

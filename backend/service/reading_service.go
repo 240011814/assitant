@@ -46,7 +46,7 @@ func (s *ReadingService) ImportDoc(userID uint, req model.ReadingImportRequest) 
 		if req.SourceURL == "" {
 			return nil, errors.New("缺少 URL")
 		}
-		text, pageTitle, err := s.fetchArticleText(req.SourceURL)
+		text, pageTitle, _, err := s.fetchArticle(req.SourceURL)
 		if err != nil {
 			return nil, fmt.Errorf("抓取网页失败: %w", err)
 		}
@@ -85,28 +85,37 @@ type httpStatusError struct{ Code int }
 
 func (e *httpStatusError) Error() string { return fmt.Sprintf("HTTP %d", e.Code) }
 
-// fetchURLText 抓取网页并提取正文纯文本
-func fetchURLText(rawURL string) (string, string, error) {
+// fetchPageRaw 拉取页面原始 HTML (浏览器 UA, 15s 超时, 2MB 上限)
+func fetchPageRaw(rawURL string) (string, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", "", &httpStatusError{Code: resp.StatusCode}
+		return "", &httpStatusError{Code: resp.StatusCode}
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFetchBytes))
 	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
+// fetchURLText 抓取网页并提取正文纯文本 (fetchPageRaw + htmlToText)
+func fetchURLText(rawURL string) (string, string, error) {
+	body, err := fetchPageRaw(rawURL)
+	if err != nil {
 		return "", "", err
 	}
-	return htmlToText(string(body))
+	return htmlToText(body)
 }
 
 // htmlToText HTML → 纯文本 (段落以空行分隔), 附带 <title>
@@ -156,39 +165,41 @@ func htmlToText(body string) (string, string, error) {
 	return strings.TrimSpace(text), title, nil
 }
 
-// fetchArticleText 抓文章正文: 直抓优先; 被盾 (403/429) 且配置了 flaresolverr_url 时,
-// 走 FlareSolverr 无头浏览器回退 (仅用于订阅自己有权访问的公开内容)
-func (s *ReadingService) fetchArticleText(pageURL string) (string, string, error) {
-	text, title, err := fetchURLText(pageURL)
-	if err == nil {
-		return text, title, nil
+// fetchArticle 抓文章页: 返回纯文本 + 净化 HTML 双输出。
+// 直抓被盾 (403/429) 且配置了 flaresolverr_url 时, 走 FlareSolverr 无头浏览器回退
+// (仅用于订阅自己有权访问的公开内容)
+func (s *ReadingService) fetchArticle(pageURL string) (text, title, htmlOut string, err error) {
+	body, err := fetchPageRaw(pageURL)
+	if err != nil {
+		var statusErr *httpStatusError
+		if !errors.As(err, &statusErr) || (statusErr.Code != http.StatusForbidden && statusErr.Code != http.StatusTooManyRequests) {
+			return "", "", "", err
+		}
+		if s.systemCfg == nil {
+			return "", "", "", err
+		}
+		fsURL := ""
+		if v, e := s.systemCfg.GetValue("flaresolverr_url"); e == nil {
+			fsURL = strings.TrimSpace(v)
+		}
+		if fsURL == "" {
+			return "", "", "", err
+		}
+		body, err = fetchViaFlareSolverrHTML(fsURL, pageURL)
+		if err != nil {
+			return "", "", "", fmt.Errorf("直抓 %w; FlareSolverr 回退失败: %v", &httpStatusError{Code: statusErr.Code}, err)
+		}
 	}
-	var statusErr *httpStatusError
-	if !errors.As(err, &statusErr) || (statusErr.Code != http.StatusForbidden && statusErr.Code != http.StatusTooManyRequests) {
-		return "", "", err
+	text, title, err = htmlToText(body)
+	if err != nil {
+		return "", "", "", err
 	}
-	if s.systemCfg == nil {
-		return "", "", err
-	}
-	fsURL := ""
-	if v, e := s.systemCfg.GetValue("flaresolverr_url"); e == nil {
-		fsURL = strings.TrimSpace(v)
-	}
-	if fsURL == "" {
-		return "", "", err
-	}
-	fsText, fsTitle, fsErr := fetchViaFlareSolverr(fsURL, pageURL)
-	if fsErr != nil {
-		return "", "", fmt.Errorf("直抓 %v; FlareSolverr 回退失败: %w", err, fsErr)
-	}
-	if title == "" {
-		title = fsTitle
-	}
-	return fsText, title, nil
+	htmlOut = sanitizeArticleHTML(pageURL, body)
+	return text, title, htmlOut, nil
 }
 
-// fetchViaFlareSolverr 通过 FlareSolverr 服务 (无头浏览器) 抓取被盾页面
-func fetchViaFlareSolverr(fsURL, pageURL string) (string, string, error) {
+// fetchViaFlareSolverrHTML 通过 FlareSolverr 服务 (无头浏览器) 抓取被盾页面, 返回原始 HTML
+func fetchViaFlareSolverrHTML(fsURL, pageURL string) (string, error) {
 	client := &http.Client{Timeout: 90 * time.Second}
 	payload, err := json.Marshal(map[string]interface{}{
 		"cmd":        "request.get",
@@ -196,11 +207,11 @@ func fetchViaFlareSolverr(fsURL, pageURL string) (string, string, error) {
 		"maxTimeout": 60000,
 	})
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	resp, err := client.Post(strings.TrimRight(fsURL, "/")+"/v1", "application/json", bytes.NewReader(payload))
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	defer resp.Body.Close()
 	var out struct {
@@ -211,12 +222,12 @@ func fetchViaFlareSolverr(fsURL, pageURL string) (string, string, error) {
 		} `json:"solution"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(&out); err != nil {
-		return "", "", err
+		return "", err
 	}
 	if out.Status != "ok" || out.Solution.Response == "" {
-		return "", "", fmt.Errorf("%s: %s", out.Status, out.Message)
+		return "", fmt.Errorf("%s: %s", out.Status, out.Message)
 	}
-	return htmlToText(out.Solution.Response)
+	return out.Solution.Response, nil
 }
 
 // ListDocs 文档列表 (不含正文, keyword 模糊匹配标题与正文)

@@ -279,29 +279,34 @@ func (s *RSSService) MarkItemRead(userID, id uint) error {
 		Update("status", "read").Error
 }
 
-// GetItemContent 取条目正文: 缓存优先, 未命中则抓原文页并缓存
+// GetItemContent 取条目正文: 双格式 (纯文本 + 净化 HTML) 缓存优先, 未命中则抓原文页。
+// 旧缓存只有纯文本时, 阅读视图回退用 feed 摘要的净化 HTML
 func (s *RSSService) GetItemContent(userID, id uint) (*model.RSSItem, error) {
 	var item model.RSSItem
 	if err := DB.Where("id = ? AND user_id = ?", id, userID).First(&item).Error; err != nil {
 		return nil, errors.New("文章不存在")
 	}
-	if item.Content != "" {
-		return &item, nil
+	if item.Content == "" && item.ContentHTML == "" {
+		// 直抓被盾且配置了 FlareSolverr 时自动回退 (readingSvc 在 main 中始终注入)
+		text, _, htmlOut, err := s.readingSvc.fetchArticle(item.Link)
+		if err != nil {
+			return nil, fmt.Errorf("抓取原文失败: %w", err)
+		}
+		if len(text) > 100_000 {
+			// 按 rune 截断: 字节截断会切断多字节字符, 导致 utf8mb4 写入失败
+			text = truncateRunes(text, 100_000)
+		}
+		updates := map[string]interface{}{"content": text, "content_html": htmlOut}
+		if err := DB.Model(&item).Updates(updates).Error; err != nil {
+			return nil, err
+		}
+		item.Content = text
+		item.ContentHTML = htmlOut
 	}
-
-	// 直抓被盾且配置了 FlareSolverr 时自动回退 (readingSvc 在 main 中始终注入)
-	text, _, err := s.readingSvc.fetchArticleText(item.Link)
-	if err != nil {
-		return nil, fmt.Errorf("抓取原文失败: %w", err)
+	// 缓存无 HTML (旧数据) 或抓取失败时, 用 feed 摘要的净化 HTML 兜底 (不落库)
+	if item.ContentHTML == "" && strings.TrimSpace(item.Summary) != "" {
+		item.ContentHTML = sanitizeArticleHTML(item.Link, item.Summary)
 	}
-	if len(text) > 100_000 {
-		// 按 rune 截断: 字节截断会切断多字节字符, 导致 utf8mb4 写入失败
-		text = truncateRunes(text, 100_000)
-	}
-	if err := DB.Model(&item).Update("content", text).Error; err != nil {
-		return nil, err
-	}
-	item.Content = text
 	return &item, nil
 }
 
