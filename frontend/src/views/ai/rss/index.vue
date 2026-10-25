@@ -368,7 +368,7 @@ const openItem = async (item: RSSItem) => {
     return;
   }
   viewContent.value = resp.content;
-  viewHtml.value = stripDuplicateHeading(resp.contentHtml || "", resp.title);
+  viewHtml.value = pickViewHtml(stripDuplicateHeading(resp.contentHtml || "", resp.title), resp.content);
   if (!viewContent.value && !viewHtml.value && item.summary) {
     // 原文页没提取到正文 (纯 JS 渲染等): 用 feed 摘要兜底 (后端已随响应附带净化摘要 HTML)
     viewError.value = "原文页未提取到正文";
@@ -380,6 +380,20 @@ const openItem = async (item: RSSItem) => {
   viewDifficultWords.value = parseDifficultWords(resp.difficultWords);
   applyHighlight();
 };
+
+/**
+ * 净化 HTML 与纯文本双轨择优: 部分原文页 (BBC 弹墙/重 JS 布局) 提取出的净化 HTML
+ * 只剩只言片语, 而纯文本版本有完整正文。若 HTML 可见文本明显少于纯文本,
+ * 回退纯文本分段渲染 (朗读的段落选择器也依赖 <p> 结构), 避免正文缺失/朗读无段可读。
+ */
+function pickViewHtml(html: string, text: string): string {
+  if (!html) return "";
+  const htmlText = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  if (!htmlText) return "";
+  const textNorm = text.replace(/\s+/g, " ").trim();
+  if (textNorm.length > 200 && htmlText.length < textNorm.length * 0.5) return "";
+  return html;
+}
 
 const viewerParagraphs = computed(() =>
   viewContent.value
