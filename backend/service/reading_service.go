@@ -31,6 +31,9 @@ func NewReadingService(agentSvc *AIAgentService, courseSvc *CourseService, syste
 
 var wordTokenRe = regexp.MustCompile(`[A-Za-z]+(?:'[a-zA-Z]+)?`)
 
+// htmlTagRe 检测 text 导入中粘贴的 HTML 标签 (<p>/<br>/带属性的标签)
+var htmlTagRe = regexp.MustCompile(`</?(p|br|div|span|h[1-6]|li|ul|ol|blockquote)\b[^>]*>`)
+
 // maxFetchBytes URL 抓取大小上限
 const maxFetchBytes = 2 << 20
 
@@ -57,6 +60,14 @@ func (s *ReadingService) ImportDoc(userID uint, req model.ReadingImportRequest) 
 		}
 	} else if content == "" {
 		return nil, errors.New("正文不能为空")
+	}
+	// text 来源粘贴 HTML 时 (带 <p>/<br> 等标签) 转为纯文本分段,
+	// 否则标签会被当正文渲染/朗读, 且整篇退化成单一段落
+	if req.SourceType == "text" && htmlTagRe.MatchString(content) {
+		text, _, err := htmlToText(content)
+		if err == nil && strings.TrimSpace(text) != "" {
+			content = text
+		}
 	}
 	if title == "" {
 		title = "未命名文章"

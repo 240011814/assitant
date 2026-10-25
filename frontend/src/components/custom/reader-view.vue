@@ -255,8 +255,10 @@ const speakNext = async () => {
   el.scrollIntoView({ behavior: "smooth", block: "center" });
   try {
     await speak(el.textContent || "", { lang: contentLang(), rate: 0.95 });
-  } catch (err) {
+  } catch (err: any) {
     console.error("朗读失败:", err);
+    // 中断原因必须可见: 音频加载失败 (如生产 CSP 拦截) 时静默停止会被当成"读一句就停"
+    message.error(`朗读中断: ${err?.message || "未知错误"}`);
     stopSpeaking();
     return;
   }
