@@ -30,7 +30,8 @@ http {
 
     # CSP 只写一次, 各 location 经变量引用 (location 内出现任何 add_header 都不再继承 server 级头, 需重复声明)
     # connect-src 放行 api.iconify.design: SvgIcon 的 iconify 图标运行时从该 API 拉取数据
-    set $csp "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://api.iconify.design; worker-src 'self' blob:; frame-src https://quote.eastmoney.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
+    # media-src 放行 blob:: TTS 语音合成经 fetch 拿到音频后用 blob URL 播放
+    set $csp "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' https://api.iconify.design; worker-src 'self' blob:; frame-src https://quote.eastmoney.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
 
     # ---- 安全响应头 ----
     add_header X-Content-Type-Options "nosniff" always;
