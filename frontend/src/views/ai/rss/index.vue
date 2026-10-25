@@ -26,7 +26,6 @@ const items = ref<RSSItem[]>([]);
 const filterSourceId = ref<number | null>(null);
 const unreadOnly = ref(false);
 const timeAsc = ref(false);
-const refreshingId = ref<number | null>(null);
 
 const pagination = ref({
   page: 1,
@@ -189,23 +188,11 @@ const handleAdd = async () => {
 const handleDeleteSource = async (id: number) => {
   const { error } = await fetchRSSDeleteSource(id);
   if (error) {
-    message.error("删除失败");
+    message.error(`删除失败: ${(error as any)?.message || "未知错误"}`);
     return;
   }
+  message.success("已删除订阅");
   reloadAll();
-};
-
-const handleFetchOne = async (source: RSSSource) => {
-  refreshingId.value = source.id;
-  const { data: resp, error } = await fetchRSSFetchSource(source.id);
-  refreshingId.value = null;
-  if (error) {
-    message.error(`「${source.title}」抓取失败`);
-    return;
-  }
-  message.success(`「${source.title}」新增 ${resp?.inserted ?? 0} 篇`);
-  loadSources();
-  loadItems();
 };
 
 // 逐源顺序抓取: 每个请求都短, 避免 Cloudflare 100s 上限
@@ -234,11 +221,13 @@ const showViewer = ref(false);
 const viewLoading = ref(false);
 const viewItem = ref<RSSItem | null>(null);
 const viewContent = ref("");
+const viewError = ref("");
 const importing = ref(false);
 
 const openItem = async (item: RSSItem) => {
   viewItem.value = item;
   viewContent.value = "";
+  viewError.value = "";
   showViewer.value = true;
   if (item.status === "unread") {
     item.status = "read";
@@ -251,10 +240,17 @@ const openItem = async (item: RSSItem) => {
   const { data: resp, error } = await fetchRSSItemContent(item.id);
   viewLoading.value = false;
   if (error || !resp) {
-    message.error("抓取正文失败, 可打开原文链接查看");
+    // 抓取失败: 展示失败原因 + feed 摘要兜底
+    viewError.value = (error as any)?.message || "未知错误";
+    viewContent.value = item.summary || "";
     return;
   }
   viewContent.value = resp.content;
+  if (!viewContent.value && item.summary) {
+    // 原文页没提取到正文 (纯 JS 渲染等): 用 feed 摘要兜底
+    viewError.value = "原文页未提取到正文";
+    viewContent.value = item.summary;
+  }
   viewItem.value = resp;
 };
 
@@ -322,20 +318,15 @@ onActivated(() => {
         <div
           v-for="src in sources"
           :key="src.id"
-          class="group flex items-center justify-between rounded px-2 py-1.5 cursor-pointer"
+          class="group flex items-center justify-between rounded px-2 py-1.5"
           :class="filterSourceId === src.id ? 'bg-primary/10' : 'hover:bg-gray-100 dark:hover:bg-gray-800'"
-          @click="selectSource(src.id)"
         >
-          <span class="text-sm truncate flex-1" :title="src.title">{{ src.title }}</span>
-          <!-- 原生 span 拦截冒泡: 操作按钮不触发行的切换 (SvgIcon 组件可能不透传事件修饰符) -->
+          <!-- 切换只绑在标题上: 行内操作按钮永远不会误触发切换 -->
+          <span class="text-sm truncate flex-1 cursor-pointer" :title="src.title" @click="selectSource(src.id)">
+            {{ src.title }}
+          </span>
           <span class="flex items-center gap-1 shrink-0" @click.stop>
             <NTag v-if="(src.unread || 0) > 0" size="tiny" type="warning" :bordered="false">{{ src.unread }}</NTag>
-            <SvgIcon
-              icon="mdi:refresh"
-              class="text-14px cursor-pointer text-gray-300 group-hover:text-primary"
-              :class="{ 'animate-spin text-primary': refreshingId === src.id }"
-              @click="handleFetchOne(src)"
-            />
             <NPopconfirm @positive-click="handleDeleteSource(src.id)">
               <template #trigger>
                 <SvgIcon
@@ -494,13 +485,16 @@ onActivated(() => {
         </div>
       </template>
       <NSpin :show="viewLoading">
+        <NAlert v-if="viewError" type="warning" :bordered="false" class="mb-3">
+          正文抓取失败: {{ viewError }}<template v-if="viewerParagraphs.length">（以下为 feed 摘要）</template>
+        </NAlert>
         <div class="text-xs text-gray-400 mb-3">
           {{ viewItem ? sourceTitle(viewItem.sourceId) : '' }}
           <template v-if="viewItem?.publishedAt"> · {{ new Date(viewItem.publishedAt).toLocaleString() }}</template>
         </div>
         <div class="flex flex-col gap-3 leading-8 text-16px max-h-[65vh] overflow-auto">
           <p v-for="(p, i) in viewerParagraphs" :key="i" class="text-justify">{{ p }}</p>
-          <NEmpty v-if="!viewLoading && viewerParagraphs.length === 0" description="未抓到正文, 可打开原文链接查看" />
+          <NEmpty v-if="!viewLoading && viewerParagraphs.length === 0" description="未抓到正文且无摘要, 可打开原文链接查看" />
         </div>
       </NSpin>
     </NModal>

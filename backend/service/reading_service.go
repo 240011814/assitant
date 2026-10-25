@@ -61,7 +61,8 @@ func (s *ReadingService) ImportDoc(userID uint, req model.ReadingImportRequest) 
 		title = "未命名文章"
 	}
 	if len(content) > maxFetchBytes {
-		content = content[:maxFetchBytes]
+		// 按 rune 截断: 字节截断会切断多字节字符, 导致 utf8mb4 写入失败
+		content = truncateRunes(content, maxFetchBytes/4)
 	}
 
 	doc := &model.ReadingDoc{

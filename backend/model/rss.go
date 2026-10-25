@@ -30,7 +30,7 @@ type RSSItem struct {
 	Title         string     `gorm:"size:500;not null" json:"title"`
 	Link          string     `gorm:"size:500;not null" json:"link"`
 	Summary       string     `gorm:"type:text" json:"summary"`
-	Content       string     `gorm:"type:mediumtext" json:"-"` // 按需抓取缓存, 不随列表下发
+	Content       string     `gorm:"type:mediumtext" json:"content,omitempty"` // 正文: 列表查询不 SELECT 此列, 详情接口返回
 	PublishedAt   *time.Time `json:"publishedAt"`
 	Status        string     `gorm:"size:20;not null;default:'unread';index:idx_rss_item_source,priority:2" json:"status"` // unread/read/imported
 	ImportedDocID uint       `gorm:"not null;default:0" json:"importedDocId"`

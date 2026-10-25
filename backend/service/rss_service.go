@@ -264,7 +264,9 @@ func (s *RSSService) ListItems(userID uint, req model.ListRSSItemsRequest) ([]mo
 	}
 
 	var list []model.RSSItem
-	err := query.Order(order).
+	// 列表不取正文 (mediumtext, 体积大且列表用不到), 详情接口按需抓取后返回
+	err := query.Select("id, user_id, source_id, guid, title, link, summary, published_at, status, imported_doc_id, created_at").
+		Order(order).
 		Offset((req.Page - 1) * req.PageSize).Limit(req.PageSize).
 		Find(&list).Error
 	return list, total, err
@@ -293,7 +295,8 @@ func (s *RSSService) GetItemContent(userID, id uint) (*model.RSSItem, error) {
 		return nil, fmt.Errorf("抓取原文失败: %w", err)
 	}
 	if len(text) > 100_000 {
-		text = text[:100_000]
+		// 按 rune 截断: 字节截断会切断多字节字符, 导致 utf8mb4 写入失败
+		text = truncateRunes(text, 100_000)
 	}
 	if err := DB.Model(&item).Update("content", text).Error; err != nil {
 		return nil, err
