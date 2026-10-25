@@ -378,8 +378,57 @@ const openItem = async (item: RSSItem) => {
   viewItem.value = resp;
   // 之前提取过的生词直接展示并高亮
   viewDifficultWords.value = parseDifficultWords(resp.difficultWords);
+  await nextTick();
+  // 结构标签剥壳产生的裸文本包进 <p>: 朗读按段落元素取块, 裸文本会被整体跳过
+  normalizeArticleHtml();
   applyHighlight();
 };
+
+/**
+ * v-html 归一化: 净化 HTML 剥掉 div/span 等结构标签后, 部分正文以裸文本节点存在
+ * (段落 <p> 之外), 显示无段落间距且朗读选择器 (.reader-content p 等) 取不到。
+ * 把 .article-html 顶层的裸文本连同相邻行内元素包进 <p>, <br> 作为分段点。幂等。
+ */
+function normalizeArticleHtml() {
+  const container = document.querySelector(".article-html");
+  if (!container) return;
+  const INLINE = new Set([
+    "A", "STRONG", "B", "EM", "I", "U", "S", "DEL", "INS", "SMALL", "MARK",
+    "SUB", "SUP", "CODE", "KBD", "BR", "IMG"
+  ]);
+  let run: Node[] = [];
+  let hasText = false;
+  const wrapRun = () => {
+    if (!hasText || run.length === 0) {
+      run = [];
+      hasText = false;
+      return;
+    }
+    const p = document.createElement("p");
+    container.insertBefore(p, run[0]);
+    run.forEach(n => p.appendChild(n));
+    run = [];
+    hasText = false;
+  };
+  Array.from(container.childNodes).forEach(node => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      if ((node.textContent || "").trim()) {
+        run.push(node);
+        hasText = true;
+      } else if (run.length) {
+        run.push(node);
+      }
+      return;
+    }
+    if (node.nodeType === Node.ELEMENT_NODE && INLINE.has((node as Element).tagName)) {
+      run.push(node);
+      if ((node as Element).tagName === "BR") wrapRun();
+      return;
+    }
+    wrapRun();
+  });
+  wrapRun();
+}
 
 /**
  * 净化 HTML 与纯文本双轨择优: 部分原文页 (BBC 弹墙/重 JS 布局) 提取出的净化 HTML

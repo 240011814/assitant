@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -214,6 +215,15 @@ func main() {
 		// 操作审计日志清理 (默认种子任务: 每日 4 点, 保留 90 天, 可在任务管理页调整)
 		jobScheduler.RegisterTask("audit.cleanup", "清理过期的操作审计日志 (参数 retentionDays 为保留天数)", json.RawMessage(`{"retentionDays":90}`), func(_ *model.JobDefinition, params json.RawMessage) error {
 			return service.CleanupAuditLogs(params)
+		})
+		// RSS 订阅自动刷新 (种子任务: 每 30 分钟, 可在任务管理页调整 cron)
+		jobScheduler.RegisterTask("rss.refresh_all", "刷新全部 RSS 订阅源 (抓取新文章, 并发限流)", json.RawMessage(`{}`), func(_ *model.JobDefinition, _ json.RawMessage) error {
+			sources, inserted, failed := rssService.RefreshAllSources()
+			if sources > 0 && failed == sources {
+				return fmt.Errorf("全部 %d 个订阅源抓取失败", sources)
+			}
+			log.Printf("[rss.refresh_all] 源 %d, 新增 %d 条, 失败 %d", sources, inserted, failed)
+			return nil
 		})
 		mihoyoService.RegisterCronTasks(jobScheduler)
 	}

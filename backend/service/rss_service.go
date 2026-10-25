@@ -33,6 +33,9 @@ const (
 	rssFetchMaxBytes = 2 << 20
 	rssFetchMaxItems = 100
 	rssSummaryLimit  = 1000
+
+	// rssRefreshConcurrency 定时刷新全部源的并发上限
+	rssRefreshConcurrency = 4
 )
 
 var rssTagRe = regexp.MustCompile(`(?s)<[^>]*>`)
@@ -287,6 +290,54 @@ func (s *RSSService) FetchSource(userID, id uint) (int, error) {
 		"last_error":      "",
 	})
 	return inserted, nil
+}
+
+// RefreshAllSources 定时任务入口: 抓取全部用户的全部启用订阅源。
+// 复用 FetchSource 的单源逻辑 (错误落到 last_error, 条目按 GUID 去重),
+// 并发限流 rssRefreshConcurrency 避免瞬时打满出网; 单源失败不影响其余源。
+// 返回 (源数, 新增条目数, 失败源数)。
+func (s *RSSService) RefreshAllSources() (int, int, int) {
+	// 字段必须导出, 否则 GORM Scan 映射不到列
+	type sourceRef struct {
+		UserID uint
+		ID     uint
+	}
+	var refs []sourceRef
+	if err := DB.Model(&model.RSSSource{}).
+		Where("enabled = ?", true).
+		Order("user_id, id").
+		Select("user_id, id").
+		Scan(&refs).Error; err != nil {
+		log.Printf("[rss.refresh] 读取订阅源列表失败: %v", err)
+		return 0, 0, 0
+	}
+
+	var (
+		mu        sync.Mutex
+		inserted  int
+		failed    int
+		wg        sync.WaitGroup
+		semaphore = make(chan struct{}, rssRefreshConcurrency)
+	)
+	for _, ref := range refs {
+		wg.Add(1)
+		go func(ref sourceRef) {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			n, err := s.FetchSource(ref.UserID, ref.ID)
+			mu.Lock()
+			defer mu.Unlock()
+			inserted += n
+			if err != nil {
+				failed += 1
+				log.Printf("[rss.refresh] 源 %d (用户 %d) 抓取失败: %v", ref.ID, ref.UserID, err)
+			}
+		}(ref)
+	}
+	wg.Wait()
+	log.Printf("[rss.refresh] 完成: %d 个源, 新增 %d 条, 失败 %d 个", len(refs), inserted, failed)
+	return len(refs), inserted, failed
 }
 
 // ListItems 文章列表 (分页, 可按源/未读过滤)
