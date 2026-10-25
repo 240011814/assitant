@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, h, onActivated, onMounted, ref } from "vue";
-import { NButton, NPopconfirm, NTag, useMessage } from "naive-ui";
-import type { DataTableColumns } from "naive-ui";
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref } from "vue";
+import { NButton, NEmpty, NPopconfirm, NTag, useMessage } from "naive-ui";
 import { useRouterPush } from "@/hooks/common/router";
 import {
   fetchRSSAddSource,
@@ -47,81 +46,29 @@ const pagination = ref({
 const totalUnread = computed(() => sources.value.reduce((sum, s) => sum + (s.unread || 0), 0));
 const sourceTitle = (sourceId: number) => sources.value.find((s) => s.id === sourceId)?.title || `源 #${sourceId}`;
 
-const statusTag = (status: string) => {
-  switch (status) {
-    case "unread":
-      return { type: "warning" as const, label: "未读" };
-    case "imported":
-      return { type: "success" as const, label: "已导入" };
-    default:
-      return { type: "default" as const, label: "已读" };
-  }
+// ===================== Folo 风格辅助: 源头像 / 相对时间 =====================
+const avatarColor = (id: number) => `hsl(${(id * 67) % 360}, 62%, 52%)`;
+const sourceInitial = (sourceId: number) => {
+  const title = sources.value.find((s) => s.id === sourceId)?.title?.trim();
+  return (title || "?").charAt(0).toUpperCase();
 };
 
-const columns = ref<DataTableColumns<RSSItem>>([
-  {
-    title: "标题",
-    key: "title",
-    minWidth: 280,
-    render(row) {
-      return h(
-        "a",
-        {
-          class: "cursor-pointer font-bold",
-          style: row.status === "unread" ? "color: var(--primary-color)" : "",
-          // eslint-disable-next-line @typescript-eslint/no-use-before-define
-          onClick: () => openItem(row)
-        },
-        row.title
-      );
-    }
-  },
-  {
-    title: "源",
-    key: "sourceId",
-    width: 140,
-    ellipsis: { tooltip: true },
-    render(row) {
-      return h("span", { class: "text-xs text-gray-400" }, sourceTitle(row.sourceId));
-    }
-  },
-  {
-    title: "状态",
-    key: "status",
-    width: 90,
-    render(row) {
-      const s = statusTag(row.status);
-      return h(NTag, { size: "small", type: s.type, bordered: false }, { default: () => s.label });
-    }
-  },
-  {
-    title: "发布时间",
-    key: "publishedAt",
-    width: 160,
-    render(row) {
-      return row.publishedAt ? new Date(row.publishedAt).toLocaleString() : "-";
-    }
-  },
-  {
-    title: "操作",
-    key: "actions",
-    width: 130,
-    render(row) {
-      if (row.status === "imported") {
-        return h(
-          NButton,
-          { size: "small", quaternary: true, type: "primary", onClick: () => routerPushByKey("ai_reading-detail", { params: { id: String(row.importedDocId) } }) },
-          { default: () => "去标注" }
-        );
-      }
-      return h(
-        NButton,
-        { size: "small", quaternary: true, type: "info", onClick: () => handleImport(row) },
-        { default: () => "导入阅读" }
-      );
-    }
-  }
-]);
+/** 相对时间: 刚刚 / n 分钟前 / n 小时前 / 昨天 / n 天前 / 日期 */
+const relTime = (iso?: string | null) => {
+  if (!iso) return "";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";
+  const diff = Date.now() - t;
+  const minute = 60_000;
+  const hour = 3_600_000;
+  const day = 86_400_000;
+  if (diff < minute) return "刚刚";
+  if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`;
+  if (diff < day) return `${Math.floor(diff / hour)} 小时前`;
+  if (diff < 2 * day) return "昨天";
+  if (diff < 7 * day) return `${Math.floor(diff / day)} 天前`;
+  return new Date(iso).toLocaleDateString();
+};
 
 const loadSources = async () => {
   const { data: resp, error } = await fetchRSSListSources();
@@ -216,7 +163,7 @@ const handleFetchAll = async () => {
   loadSources();
 };
 
-// ===================== 阅读弹窗 =====================
+// ===================== 阅读弹窗 (Folo 阅读页: 居中窄栏 + 可调排版 + j/k 导航) =====================
 const showViewer = ref(false);
 const viewLoading = ref(false);
 const viewItem = ref<RSSItem | null>(null);
@@ -224,13 +171,58 @@ const viewContent = ref("");
 const viewHtml = ref("");
 const viewError = ref("");
 const importing = ref(false);
+const viewScrollRef = ref<HTMLElement | null>(null);
+const readProgress = ref(0);
+
+// 阅读偏好: 字号 14~20 + 版宽 舒适/宽敞, localStorage 持久化
+const READER_FONT_KEY = "rss_reader_font_size";
+const READER_WIDTH_KEY = "rss_reader_width";
+const readerFontSize = ref(Number(localStorage.getItem(READER_FONT_KEY)) || 17);
+const readerWidth = ref<"cozy" | "wide">(
+  localStorage.getItem(READER_WIDTH_KEY) === "wide" ? "wide" : "cozy"
+);
+const readerMaxWidth = computed(() => (readerWidth.value === "wide" ? 860 : 660));
+
+const setReaderFontSize = (size: number) => {
+  readerFontSize.value = Math.min(20, Math.max(14, size));
+  localStorage.setItem(READER_FONT_KEY, String(readerFontSize.value));
+};
+const toggleReaderWidth = () => {
+  readerWidth.value = readerWidth.value === "cozy" ? "wide" : "cozy";
+  localStorage.setItem(READER_WIDTH_KEY, readerWidth.value);
+};
+
+// feed 正文常自带与文章标题重复的 H1/H2, 阅读视图下去重 (内容已经服务端净化, 这里只删不加)
+const stripDuplicateHeading = (html: string, title: string) => {
+  if (!html || !title) return html;
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const first = doc.body.querySelector("h1, h2");
+    const norm = (s: string) => s.replace(/\s+/g, "").toLowerCase();
+    if (first) {
+      const heading = norm(first.textContent || "");
+      const artTitle = norm(title);
+      if (heading && (artTitle.includes(heading) || heading.includes(artTitle))) {
+        first.remove();
+        return doc.body.innerHTML;
+      }
+    }
+  } catch {
+    // 解析失败按原文渲染
+  }
+  return html;
+};
 
 const openItem = async (item: RSSItem) => {
   viewItem.value = item;
   viewContent.value = "";
   viewHtml.value = "";
   viewError.value = "";
+  readProgress.value = 0;
   showViewer.value = true;
+  nextTick(() => {
+    if (viewScrollRef.value) viewScrollRef.value.scrollTop = 0;
+  });
   if (item.status === "unread") {
     item.status = "read";
     // 同步侧栏未读数
@@ -248,12 +240,12 @@ const openItem = async (item: RSSItem) => {
     return;
   }
   viewContent.value = resp.content;
-  viewHtml.value = resp.contentHtml || "";
+  viewHtml.value = stripDuplicateHeading(resp.contentHtml || "", resp.title);
   if (!viewContent.value && !viewHtml.value && item.summary) {
     // 原文页没提取到正文 (纯 JS 渲染等): 用 feed 摘要兜底 (后端已随响应附带净化摘要 HTML)
     viewError.value = "原文页未提取到正文";
     viewContent.value = item.summary;
-    viewHtml.value = resp.contentHtml || "";
+    viewHtml.value = stripDuplicateHeading(resp.contentHtml || "", resp.title);
   }
   viewItem.value = resp;
 };
@@ -277,6 +269,34 @@ const viewStats = computed(() => {
   return { charCount: [...text].length, minutes };
 });
 
+// j/k 切换上一篇/下一篇 (与 Folo 一致; 不劫持方向键以免干扰滚动)
+const viewIndex = computed(() => items.value.findIndex((i) => i.id === viewItem.value?.id));
+const prevItem = computed(() => (viewIndex.value > 0 ? items.value[viewIndex.value - 1] : null));
+const nextItem = computed(() =>
+  viewIndex.value >= 0 && viewIndex.value < items.value.length - 1 ? items.value[viewIndex.value + 1] : null
+);
+
+const navTo = (dir: -1 | 1) => {
+  const target = dir === -1 ? prevItem.value : nextItem.value;
+  if (target) openItem(target);
+};
+
+const handleReaderKey = (e: KeyboardEvent) => {
+  if (!showViewer.value || viewLoading.value) return;
+  const target = e.target as HTMLElement | null;
+  if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) return;
+  if (e.key === "j") navTo(1);
+  else if (e.key === "k") navTo(-1);
+};
+
+// 顶部阅读进度条
+const onViewScroll = () => {
+  const el = viewScrollRef.value;
+  if (!el) return;
+  const max = el.scrollHeight - el.clientHeight;
+  readProgress.value = max > 10 ? Math.min(100, Math.round((el.scrollTop / max) * 100)) : 0;
+};
+
 async function handleImport(item: RSSItem) {
   importing.value = true;
   const { data: resp, error } = await fetchRSSImportItem(item.id);
@@ -295,6 +315,11 @@ async function handleImport(item: RSSItem) {
 
 onMounted(() => {
   reloadAll();
+  window.addEventListener("keydown", handleReaderKey);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", handleReaderKey);
 });
 
 // KeepAlive 缓存下再次激活时刷新
@@ -322,23 +347,29 @@ onActivated(() => {
       <template #header-extra>
         <NButton size="tiny" quaternary type="primary" @click="showAddModal = true">添加</NButton>
       </template>
-      <div class="flex flex-col gap-1">
+      <div class="flex flex-col gap-0.5">
         <div
-          class="flex items-center justify-between rounded px-2 py-1.5 cursor-pointer"
+          class="flex items-center gap-2 rounded px-2 py-1.5 cursor-pointer"
           :class="filterSourceId === null ? 'bg-primary/10' : 'hover:bg-gray-100 dark:hover:bg-gray-800'"
           @click="selectSource(null)"
         >
-          <span class="text-sm font-bold">全部</span>
+          <span class="flex-1 min-w-0 text-sm font-bold truncate">全部</span>
           <NTag v-if="totalUnread > 0" size="tiny" type="warning" :bordered="false">{{ totalUnread }}</NTag>
         </div>
         <div
           v-for="src in sources"
           :key="src.id"
-          class="group flex items-center justify-between rounded px-2 py-1.5"
+          class="group flex items-center gap-2 rounded px-2 py-1.5"
           :class="filterSourceId === src.id ? 'bg-primary/10' : 'hover:bg-gray-100 dark:hover:bg-gray-800'"
         >
+          <span
+            class="w-[18px] h-[18px] rounded-full text-white text-10px font-medium flex items-center justify-center shrink-0"
+            :style="{ background: avatarColor(src.id) }"
+          >
+            {{ sourceInitial(src.id) }}
+          </span>
           <!-- 切换只绑在标题上: 行内操作按钮永远不会误触发切换 -->
-          <span class="text-sm truncate flex-1 cursor-pointer" :title="src.title" @click="selectSource(src.id)">
+          <span class="flex-1 min-w-0 text-sm truncate cursor-pointer" :title="src.title" @click="selectSource(src.id)">
             {{ src.title }}
           </span>
           <span class="flex items-center gap-1 shrink-0" @click.stop>
@@ -361,7 +392,7 @@ onActivated(() => {
       </div>
     </NCard>
 
-    <!-- 主区: 工具栏 + 文章列表 -->
+    <!-- 主区: 工具栏 + Folo 时间线文章列表 -->
     <NCard :bordered="false" :shadow="appStore.isMobile ? false : 'sm'" class="flex-1 min-w-0">
       <template #header>
         <div class="flex flex-wrap items-center justify-between gap-2 w-full">
@@ -414,53 +445,84 @@ onActivated(() => {
         </NTag>
       </div>
 
-      <!-- PC: DataTable -->
-      <NDataTable
-        v-if="!appStore.isMobile"
-        :columns="columns"
-        :data="items"
-        :loading="loading"
-        remote
-        :pagination="pagination"
-        :row-key="(row: any) => row.id"
-        size="small"
-        striped
-      />
-
-      <!-- Mobile: 卡片列表 -->
-      <NSpin v-if="appStore.isMobile && loading" class="flex justify-center py-8" />
-      <div v-else-if="appStore.isMobile" class="flex flex-col gap-3">
-        <NCard v-for="row in items" :key="row.id" size="small" :bordered="true">
-          <div class="flex flex-col gap-2">
-            <div class="flex items-center justify-between gap-2">
-              <NTag size="tiny" :type="statusTag(row.status).type" :bordered="false">
-                {{ statusTag(row.status).label }}
-              </NTag>
-              <span class="text-xs text-gray-400 truncate">{{ sourceTitle(row.sourceId) }}</span>
+      <!-- 文章列表 (桌面/移动共用 Folo 时间线风格) -->
+      <NSpin :show="loading">
+        <div class="flex flex-col">
+          <div
+            v-for="row in items"
+            :key="row.id"
+            class="group flex gap-2.5 px-3 py-3 rounded-lg cursor-pointer transition-colors hover:bg-gray-100 dark:hover:bg-gray-800/60"
+            @click="openItem(row)"
+          >
+            <!-- 未读圆点占位: 未读显示主题色圆点, 已读占位保持缩进 -->
+            <span v-if="row.status === 'unread'" class="w-1.5 h-1.5 rounded-full bg-primary mt-[9px] shrink-0" />
+            <span v-else class="w-1.5 shrink-0" />
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-3">
+                <span
+                  class="truncate"
+                  :class="
+                    row.status === 'unread'
+                      ? 'font-semibold text-15px text-gray-900 dark:text-gray-50'
+                      : 'text-15px text-gray-500 dark:text-gray-400'
+                  "
+                  :title="row.title"
+                >
+                  {{ row.title }}
+                </span>
+                <span class="text-xs text-gray-400 dark:text-gray-500 shrink-0" :title="row.publishedAt ? new Date(row.publishedAt).toLocaleString() : ''">
+                  {{ relTime(row.publishedAt) }}
+                </span>
+              </div>
+              <div v-if="row.summary" class="line-clamp-1 mt-1 text-13px text-gray-400 dark:text-gray-500">
+                {{ row.summary }}
+              </div>
+              <div class="flex items-center gap-1.5 mt-1.5 min-w-0">
+                <span
+                  class="w-4 h-4 rounded-full text-white text-9px font-medium flex items-center justify-center shrink-0"
+                  :style="{ background: avatarColor(row.sourceId) }"
+                >
+                  {{ sourceInitial(row.sourceId) }}
+                </span>
+                <span class="text-xs text-gray-400 dark:text-gray-500 truncate">{{ sourceTitle(row.sourceId) }}</span>
+                <NTag v-if="row.status === 'imported'" size="tiny" type="success" :bordered="false" class="shrink-0">
+                  已导入
+                </NTag>
+              </div>
             </div>
-            <a class="font-bold cursor-pointer" @click="openItem(row)">{{ row.title }}</a>
-            <div v-if="row.summary" class="text-xs text-gray-400 line-clamp-2">{{ row.summary }}</div>
-            <div class="flex items-center justify-between">
-              <span class="text-xs text-gray-400">{{ row.publishedAt ? new Date(row.publishedAt).toLocaleDateString() : '' }}</span>
-              <NButton size="tiny" quaternary type="info" @click="handleImport(row)">
-                {{ row.status === 'imported' ? '已导入' : '导入阅读' }}
+            <!-- 行内操作: 桌面悬停显现, 移动端常显 -->
+            <div
+              class="self-center shrink-0 transition-opacity md:opacity-0 md:group-hover:opacity-100"
+              @click.stop
+            >
+              <NButton
+                v-if="row.status === 'imported'"
+                size="tiny"
+                quaternary
+                type="primary"
+                @click="routerPushByKey('ai_reading-detail', { params: { id: String(row.importedDocId) } })"
+              >
+                去标注
               </NButton>
+              <NButton v-else size="tiny" quaternary type="info" @click="handleImport(row)">导入阅读</NButton>
             </div>
           </div>
-        </NCard>
-        <NEmpty v-if="items.length === 0 && !loading" class="py-8" />
-        <NPagination
-          v-if="pagination.itemCount > pagination.pageSize"
-          class="mt-2 justify-center"
-          :page="pagination.page"
-          :item-count="pagination.itemCount"
-          :page-size="pagination.pageSize"
-          :page-slot="5"
-          @update:page="(p: number) => pagination.onChange(p)"
-        />
-      </div>
+        </div>
+        <NEmpty v-if="items.length === 0 && !loading" class="py-10" description="暂无文章, 从左侧添加订阅开始" />
+      </NSpin>
 
-      <NEmpty v-if="!appStore.isMobile && items.length === 0 && !loading" class="py-10" description="暂无文章, 从左侧添加订阅开始" />
+      <NPagination
+        v-if="pagination.itemCount > pagination.pageSize"
+        class="mt-3 justify-center"
+        :page="pagination.page"
+        :item-count="pagination.itemCount"
+        :page-size="pagination.pageSize"
+        :page-slot="5"
+        show-size-picker
+        :page-sizes="pagination.pageSizes"
+        @update:page="(p: number) => pagination.onChange(p)"
+        @update:page-size="(s: number) => pagination.onUpdatePageSize(s)"
+      />
     </NCard>
 
     <!-- 添加订阅 -->
@@ -476,67 +538,155 @@ onActivated(() => {
       </div>
     </NModal>
 
-    <!-- 阅读视图 (借鉴 Miniflux: 无干扰阅读列, 大标题 + 元信息行) -->
+    <!-- 阅读视图 (Folo 风格: 居中窄栏 + 大标题 + 可调排版 + j/k 导航 + 阅读进度) -->
     <NModal v-model:show="showViewer" :auto-focus="false">
-      <div class="w-[94%] md:w-[780px] max-h-[88vh] flex flex-col rounded-lg bg-white dark:bg-[#18181c] shadow-2xl overflow-hidden">
-        <div class="flex items-center justify-between gap-3 px-7 pt-5 shrink-0">
-          <div class="flex items-center gap-1.5 text-xs text-gray-400 truncate min-w-0">
-            <span class="truncate">{{ viewItem ? sourceTitle(viewItem.sourceId) : '' }}</span>
-            <template v-if="viewItem?.publishedAt">
-              <span>·</span>
-              <span class="shrink-0">{{ new Date(viewItem.publishedAt).toLocaleString() }}</span>
-            </template>
-            <template v-if="!viewLoading && viewStats.charCount > 0">
-              <span>·</span>
-              <span class="shrink-0">约 {{ viewStats.minutes }} 分钟读完</span>
-            </template>
-          </div>
-          <NButton quaternary circle size="small" @click="showViewer = false">
-            <template #icon>
-              <SvgIcon icon="mdi:close" />
-            </template>
-          </NButton>
-        </div>
-        <div class="flex-1 overflow-auto px-7 pb-8 pt-4">
-          <h1 class="text-22px font-bold leading-snug mb-4">{{ viewItem?.title }}</h1>
-          <div class="flex flex-wrap items-center gap-2 mb-5 pb-4 border-b border-gray-100 dark:border-gray-800">
+      <div class="relative w-full h-full md:w-[min(94vw,960px)] md:h-[88vh] flex flex-col rounded-none md:rounded-xl bg-white dark:bg-[#18181c] shadow-2xl overflow-hidden">
+        <!-- 阅读进度条 -->
+        <div
+          class="absolute top-0 left-0 h-[2px] bg-primary z-10 transition-[width] duration-150"
+          :style="{ width: `${readProgress}%` }"
+        />
+        <!-- 顶栏: 源信息 + 排版设置 + 操作 -->
+        <div class="flex items-center gap-2 pl-5 pr-3 h-14 border-b border-gray-100 dark:border-gray-800 shrink-0">
+          <span
+            class="w-5 h-5 rounded-full text-white text-11px font-medium flex items-center justify-center shrink-0"
+            :style="{ background: avatarColor(viewItem?.sourceId || 0) }"
+          >
+            {{ sourceInitial(viewItem?.sourceId || 0) }}
+          </span>
+          <span class="text-13px text-gray-500 dark:text-gray-400 truncate min-w-0">
+            {{ viewItem ? sourceTitle(viewItem.sourceId) : '' }}
+          </span>
+          <template v-if="viewItem?.publishedAt">
+            <span class="text-gray-300 dark:text-gray-600">·</span>
+            <span class="text-13px text-gray-400 shrink-0">{{ relTime(viewItem.publishedAt) }}</span>
+          </template>
+          <template v-if="!viewLoading && viewStats.charCount > 0">
+            <span class="text-gray-300 dark:text-gray-600">·</span>
+            <span class="text-13px text-gray-400 shrink-0">约 {{ viewStats.minutes }} 分钟</span>
+          </template>
+          <div class="flex-1" />
+          <div class="flex items-center gap-0.5 shrink-0">
+            <NButton quaternary size="tiny" class="!px-1.5" title="减小字号" @click="setReaderFontSize(readerFontSize - 1)">
+              A-
+            </NButton>
+            <span class="text-11px text-gray-400 w-6 text-center tabular-nums">{{ readerFontSize }}</span>
+            <NButton quaternary size="tiny" class="!px-1.5" title="增大字号" @click="setReaderFontSize(readerFontSize + 1)">
+              A+
+            </NButton>
+            <NButton
+              quaternary
+              circle
+              size="small"
+              :title="readerWidth === 'cozy' ? '切换宽敞版式' : '切换舒适版式'"
+              @click="toggleReaderWidth"
+            >
+              <template #icon>
+                <SvgIcon :icon="readerWidth === 'cozy' ? 'mdi:arrow-expand-horizontal' : 'mdi:arrow-collapse-horizontal'" />
+              </template>
+            </NButton>
             <a v-if="viewItem?.link" :href="viewItem.link" target="_blank" rel="noopener noreferrer">
-              <NButton size="small" quaternary>打开原文</NButton>
+              <NButton quaternary circle size="small" title="打开原文">
+                <template #icon>
+                  <SvgIcon icon="mdi:open-in-new" />
+                </template>
+              </NButton>
             </a>
             <NButton
               v-if="viewItem && viewItem.status !== 'imported'"
+              quaternary
+              circle
               size="small"
-              type="primary"
+              title="导入分级阅读"
               :loading="importing"
               @click="handleImport(viewItem)"
             >
-              导入分级阅读
+              <template #icon>
+                <SvgIcon icon="mdi:import" />
+              </template>
             </NButton>
             <NButton
               v-else-if="viewItem?.importedDocId"
-              size="small"
               quaternary
-              type="primary"
+              circle
+              size="small"
+              title="去标注"
               @click="routerPushByKey('ai_reading-detail', { params: { id: String(viewItem.importedDocId) } })"
             >
-              去标注
+              <template #icon>
+                <SvgIcon icon="mdi:pencil-outline" />
+              </template>
+            </NButton>
+            <NButton quaternary circle size="small" title="关闭 (Esc)" @click="showViewer = false">
+              <template #icon>
+                <SvgIcon icon="mdi:close" />
+              </template>
             </NButton>
           </div>
-          <NSpin :show="viewLoading">
-            <NAlert v-if="viewError" type="warning" :bordered="false" class="mb-5">
-              正文抓取失败: {{ viewError }}<template v-if="viewHtml || viewerParagraphs.length">（以下为 feed 摘要）</template>
-            </NAlert>
-            <!-- 净化 HTML 渲染 (服务端白名单过滤, 含图片/链接/表格) -->
-            <!-- eslint-disable-next-line vue/no-v-html -- 内容为服务端白名单净化后的 HTML -->
-            <div v-if="viewHtml" class="article-html" v-html="viewHtml"></div>
-            <div v-else class="flex flex-col gap-5 text-17px leading-[2] text-gray-700 dark:text-gray-300">
-              <p v-for="(p, i) in viewerParagraphs" :key="i">{{ p }}</p>
-              <NEmpty
-                v-if="!viewLoading && viewerParagraphs.length === 0"
-                description="未抓到正文且无摘要, 可打开原文链接查看"
-              />
+        </div>
+
+        <!-- 正文滚动区 -->
+        <div ref="viewScrollRef" class="flex-1 overflow-y-auto" @scroll.passive="onViewScroll">
+          <article class="mx-auto w-full px-6 md:px-10 pt-8 pb-14" :style="{ maxWidth: `${readerMaxWidth + 80}px` }">
+            <h1 class="text-[26px] md:text-[30px] font-bold leading-[1.35] text-gray-900 dark:text-gray-50 mb-5">
+              {{ viewItem?.title }}
+            </h1>
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 pb-6 mb-2 border-b border-gray-100 dark:border-gray-800 text-13px text-gray-400">
+              <span v-if="viewItem?.publishedAt">{{ new Date(viewItem.publishedAt).toLocaleString() }}</span>
+              <NTag v-if="viewItem?.status === 'imported'" size="tiny" type="success" :bordered="false">已导入</NTag>
+              <span class="hidden md:inline text-gray-300 dark:text-gray-600">j / k 键切换上一篇、下一篇</span>
             </div>
-          </NSpin>
+            <NSpin :show="viewLoading">
+              <NAlert v-if="viewError" type="warning" :bordered="false" class="my-5">
+                正文抓取失败: {{ viewError }}<template v-if="viewHtml || viewerParagraphs.length">（以下为 feed 摘要）</template>
+              </NAlert>
+              <!-- 净化 HTML 渲染 (服务端白名单过滤, 含图片/链接/表格) -->
+              <!-- eslint-disable-next-line vue/no-v-html -- 内容为服务端白名单净化后的 HTML -->
+              <div
+                v-if="viewHtml"
+                class="article-html mt-6"
+                :style="{ fontSize: `${readerFontSize}px` }"
+                v-html="viewHtml"
+              ></div>
+              <div
+                v-else
+                class="mt-6 flex flex-col gap-5 leading-[1.9] text-gray-700 dark:text-gray-300"
+                :style="{ fontSize: `${readerFontSize}px` }"
+              >
+                <p v-for="(p, i) in viewerParagraphs" :key="i">{{ p }}</p>
+                <NEmpty
+                  v-if="!viewLoading && viewerParagraphs.length === 0"
+                  description="未抓到正文且无摘要, 可打开原文链接查看"
+                />
+              </div>
+            </NSpin>
+
+            <!-- 上一篇 / 下一篇 -->
+            <div class="flex items-center justify-between gap-4 mt-14 pt-6 border-t border-gray-100 dark:border-gray-800">
+              <NButton
+                v-if="prevItem"
+                size="small"
+                quaternary
+                class="max-w-[45%]"
+                :title="prevItem.title"
+                @click="navTo(-1)"
+              >
+                ← <span class="truncate ml-1">{{ prevItem.title }}</span>
+              </NButton>
+              <span v-else class="text-13px text-gray-300 dark:text-gray-600">已是最新一篇</span>
+              <NButton
+                v-if="nextItem"
+                size="small"
+                quaternary
+                class="max-w-[45%]"
+                :title="nextItem.title"
+                @click="navTo(1)"
+              >
+                <span class="truncate mr-1">{{ nextItem.title }}</span> →
+              </NButton>
+              <span v-else class="text-13px text-gray-300 dark:text-gray-600">已是最后一篇</span>
+            </div>
+          </article>
         </div>
       </div>
     </NModal>
@@ -544,121 +694,200 @@ onActivated(() => {
 </template>
 
 <style scoped>
-.line-clamp-2 {
+.line-clamp-1 {
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-/* 净化 HTML 正文的阅读排版 (v-html 注入的节点须用 :deep) */
+/* 净化 HTML 正文的阅读排版 (v-html 注入的节点须用 :deep), 字号以 em 相对单位随顶栏 A-/A+ 缩放 */
 .article-html {
-  font-size: 17px;
-  line-height: 2;
+  line-height: 1.9;
   color: #374151;
   word-break: break-word;
+  letter-spacing: 0.01em;
 }
 .dark .article-html {
   color: #d1d5db;
 }
+.article-html > :first-child {
+  margin-top: 0;
+}
 .article-html :deep(p) {
-  margin: 0 0 1.25em;
+  margin: 0 0 1.5em;
 }
 .article-html :deep(p:empty) {
   display: none;
 }
 .article-html :deep(img) {
+  display: block;
   max-width: 100%;
   height: auto;
-  border-radius: 6px;
-  margin: 0.5em 0;
+  border-radius: 12px;
+  margin: 0.35em auto 1.5em;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+.article-html :deep(figcaption) {
+  text-align: center;
+  font-size: 0.8em;
+  line-height: 1.6;
+  color: #9ca3af;
+  margin: -0.75em 0 1.5em;
 }
 .article-html :deep(a) {
   color: var(--primary-color);
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-underline-offset: 3px;
+}
+.article-html :deep(a:hover) {
+  opacity: 0.8;
 }
 .article-html :deep(h1),
 .article-html :deep(h2),
 .article-html :deep(h3),
-.article-html :deep(h4) {
-  font-size: 20px;
+.article-html :deep(h4),
+.article-html :deep(h5),
+.article-html :deep(h6) {
   font-weight: 700;
-  line-height: 1.5;
-  margin: 1.6em 0 0.8em;
+  line-height: 1.45;
+  color: #1f2937;
+}
+.dark .article-html :deep(h1),
+.dark .article-html :deep(h2),
+.dark .article-html :deep(h3),
+.dark .article-html :deep(h4),
+.dark .article-html :deep(h5),
+.dark .article-html :deep(h6) {
+  color: #f3f4f6;
+}
+.article-html :deep(h1) {
+  font-size: 1.6em;
+  margin: 1.8em 0 0.75em;
+}
+.article-html :deep(h2) {
+  font-size: 1.35em;
+  margin: 1.7em 0 0.7em;
+}
+.article-html :deep(h3) {
+  font-size: 1.18em;
+  margin: 1.5em 0 0.65em;
+}
+.article-html :deep(h4) {
+  font-size: 1.05em;
+  margin: 1.4em 0 0.6em;
 }
 .article-html :deep(h5),
 .article-html :deep(h6) {
-  font-size: 17px;
-  font-weight: 700;
-  margin: 1.4em 0 0.7em;
+  font-size: 1em;
+  margin: 1.4em 0 0.6em;
 }
 .article-html :deep(blockquote) {
-  border-left: 3px solid rgba(128, 128, 128, 0.35);
-  padding-left: 1em;
-  margin: 0 0 1.25em;
+  border-left: 3px solid var(--primary-color);
+  background: rgba(128, 128, 128, 0.08);
+  border-radius: 0 8px 8px 0;
+  padding: 0.6em 1.2em;
+  margin: 0 0 1.5em;
   color: #6b7280;
 }
 .dark .article-html :deep(blockquote) {
+  background: rgba(255, 255, 255, 0.06);
   color: #9ca3af;
+}
+.article-html :deep(blockquote p:last-child) {
+  margin-bottom: 0;
 }
 .article-html :deep(ul) {
   list-style: disc;
   padding-left: 1.6em;
-  margin: 0 0 1.25em;
+  margin: 0 0 1.5em;
 }
 .article-html :deep(ol) {
   list-style: decimal;
   padding-left: 1.6em;
-  margin: 0 0 1.25em;
+  margin: 0 0 1.5em;
 }
 .article-html :deep(li) {
-  margin-bottom: 0.35em;
+  margin-bottom: 0.4em;
 }
 .article-html :deep(pre) {
   background: rgba(128, 128, 128, 0.12);
-  padding: 1em;
-  border-radius: 8px;
+  padding: 1.2em;
+  border-radius: 10px;
   overflow: auto;
-  font-size: 13px;
-  line-height: 1.6;
-  margin: 0 0 1.25em;
+  font-size: 0.85em;
+  line-height: 1.7;
+  margin: 0 0 1.5em;
   white-space: pre-wrap;
   word-break: break-all;
 }
+.dark .article-html :deep(pre) {
+  background: rgba(255, 255, 255, 0.06);
+}
 .article-html :deep(code) {
   font-family: Menlo, Consolas, monospace;
-  font-size: 13px;
+  font-size: 0.875em;
   background: rgba(128, 128, 128, 0.12);
-  padding: 0.1em 0.35em;
-  border-radius: 4px;
+  padding: 0.15em 0.45em;
+  border-radius: 5px;
+}
+.dark .article-html :deep(code) {
+  background: rgba(255, 255, 255, 0.1);
 }
 .article-html :deep(pre code) {
   background: transparent;
   padding: 0;
+  font-size: inherit;
+}
+.article-html :deep(kbd) {
+  font-family: Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0.1em 0.4em;
+  background: rgba(128, 128, 128, 0.08);
+}
+.article-html :deep(mark) {
+  background: #fde68a;
+  color: inherit;
+  padding: 0 0.15em;
+  border-radius: 3px;
+}
+.dark .article-html :deep(mark) {
+  background: rgba(250, 204, 21, 0.28);
 }
 .article-html :deep(hr) {
   border: none;
   border-top: 1px solid rgba(128, 128, 128, 0.25);
-  margin: 2em 0;
+  margin: 2.5em 0;
 }
 .article-html :deep(table) {
   border-collapse: collapse;
-  margin: 0 0 1.25em;
+  margin: 0 0 1.5em;
   width: 100%;
-  font-size: 15px;
+  font-size: 0.9em;
   display: block;
   overflow-x: auto;
 }
 .article-html :deep(th),
 .article-html :deep(td) {
   border: 1px solid rgba(128, 128, 128, 0.3);
-  padding: 0.4em 0.6em;
+  padding: 0.5em 0.8em;
   text-align: left;
 }
-.article-html :deep(figcaption) {
-  font-size: 13px;
-  color: #9ca3af;
-  margin-top: 0.4em;
+.article-html :deep(th) {
+  font-weight: 600;
+  background: rgba(128, 128, 128, 0.08);
+}
+.article-html :deep(tbody tr:nth-child(2n)) {
+  background: rgba(128, 128, 128, 0.05);
+}
+.dark .article-html :deep(tbody tr:nth-child(2n)) {
+  background: rgba(255, 255, 255, 0.04);
+}
+.article-html :deep(del),
+.article-html :deep(s) {
+  opacity: 0.65;
 }
 </style>
