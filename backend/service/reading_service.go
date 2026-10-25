@@ -165,6 +165,168 @@ func htmlToText(body string) (string, string, error) {
 	return strings.TrimSpace(text), title, nil
 }
 
+// narrowToArticle 正文定位:
+// 1) 页面有 <article> 且内容够长 -> 只保留该子树;
+// 2) 否则按 <p> 文本密度找最紧的正文容器 (导航/菜单是 ul>li>a 结构, 没有 p, 会被剔掉);
+// 3) 都不奏效则原样返回整页。
+func narrowToArticle(body string) string {
+	root, err := html.Parse(strings.NewReader(body))
+	if err != nil {
+		return body
+	}
+	var bodyNode *html.Node
+	var findBody func(n *html.Node)
+	findBody = func(n *html.Node) {
+		if bodyNode != nil {
+			return
+		}
+		if n.Type == html.ElementNode && n.Data == "body" {
+			bodyNode = n
+			return
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			findBody(c)
+		}
+	}
+	findBody(root)
+	if bodyNode == nil {
+		return body
+	}
+
+	var article *html.Node
+	var findArticle func(n *html.Node)
+	findArticle = func(n *html.Node) {
+		if article != nil || n.Type != html.ElementNode {
+			return
+		}
+		if n.Data == "article" {
+			article = n
+			return
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			findArticle(c)
+		}
+	}
+	findArticle(bodyNode)
+	if article != nil {
+		var sb strings.Builder
+		if err := html.Render(&sb, article); err == nil {
+			out := sb.String()
+			if len([]rune(stripTagsRE.ReplaceAllString(out, ""))) >= 200 {
+				return out
+			}
+		}
+	}
+
+	pTextOf := map[*html.Node]int{}
+	depthOf := map[*html.Node]int{}
+	var walk func(n *html.Node, depth int) int
+	walk = func(n *html.Node, depth int) int {
+		sum := 0
+		if n.Type == html.ElementNode {
+			depthOf[n] = depth
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			if c.Type == html.ElementNode && c.Data == "p" {
+				t := len([]rune(stripTagsRE.ReplaceAllString(renderNode(c), "")))
+				sum += t
+				continue
+			}
+			sum += walk(c, depth+1)
+		}
+		if n.Type == html.ElementNode {
+			pTextOf[n] = sum
+		}
+		return sum
+	}
+	totalP := walk(bodyNode, 0)
+	if totalP < 300 {
+		return body
+	}
+	best := bodyNode
+	bestDepth := -1
+	for n, t := range pTextOf {
+		if t*10 >= totalP*9 && t >= 300 && depthOf[n] > bestDepth {
+			best = n
+			bestDepth = depthOf[n]
+		}
+	}
+	if best == bodyNode {
+		return body
+	}
+	return renderNode(best)
+}
+
+// renderNode 序列化单个节点子树
+func renderNode(n *html.Node) string {
+	var sb strings.Builder
+	if err := html.Render(&sb, n); err != nil {
+		return ""
+	}
+	return sb.String()
+}
+
+// stripMenuLists 剔除菜单列表: 链接数 >=4 且链接文本占列表总文本 80% 以上的 ul/ol
+// (站点导航的典型形态; 正文列表极少长这样)
+func stripMenuLists(body string) string {
+	root, err := html.Parse(strings.NewReader(body))
+	if err != nil {
+		return body
+	}
+	var remove []*html.Node
+	var walk func(n *html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && (n.Data == "ul" || n.Data == "ol") {
+			links, textLen := 0, 0
+			var count func(c *html.Node)
+			count = func(c *html.Node) {
+				if c.Type == html.TextNode {
+					textLen += len(strings.TrimSpace(c.Data))
+					return
+				}
+				if c.Type == html.ElementNode {
+					if c.Data == "a" {
+						links++
+						for t := c.FirstChild; t != nil; t = t.NextSibling {
+							if t.Type == html.TextNode {
+								textLen += len(strings.TrimSpace(t.Data))
+							}
+						}
+						return
+					}
+					if c.Data == "p" {
+						return
+					}
+				}
+				for cc := c.FirstChild; cc != nil; cc = cc.NextSibling {
+					count(cc)
+				}
+			}
+			count(n)
+			if links >= 4 && links*5 >= textLen {
+				remove = append(remove, n)
+				return
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(root)
+	for _, n := range remove {
+		if n.Parent != nil {
+			n.Parent.RemoveChild(n)
+		}
+	}
+	var sb strings.Builder
+	if err := html.Render(&sb, root); err != nil {
+		return body
+	}
+	return sb.String()
+}
+
+var stripTagsRE = regexp.MustCompile(`(?s)<[^>]*>`)
+
 // fetchArticle 抓文章页: 返回纯文本 + 净化 HTML 双输出。
 // 直抓被盾 (403/429) 且配置了 flaresolverr_url 时, 走 FlareSolverr 无头浏览器回退
 // (仅用于订阅自己有权访问的公开内容)
@@ -190,6 +352,8 @@ func (s *ReadingService) fetchArticle(pageURL string) (text, title, htmlOut stri
 			return "", "", "", fmt.Errorf("直抓 %w; FlareSolverr 回退失败: %v", &httpStatusError{Code: statusErr.Code}, err)
 		}
 	}
+	body = narrowToArticle(body)
+	body = stripMenuLists(body)
 	text, title, err = htmlToText(body)
 	if err != nil {
 		return "", "", "", err

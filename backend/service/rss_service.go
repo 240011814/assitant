@@ -44,6 +44,13 @@ func (s *RSSService) AddSource(userID uint, req model.AddRSSSourceRequest) (*mod
 		return nil, fmt.Errorf("订阅源无法解析: %w", err)
 	}
 
+	// 同一用户重复订阅同一 feed: 直接拒绝, 避免产生没有条目的空壳源
+	var dupCount int64
+	DB.Model(&model.RSSSource{}).Where("user_id = ? AND url = ?", userID, truncateRunes(feedURL, 500)).Count(&dupCount)
+	if dupCount > 0 {
+		return nil, errors.New("该 feed 已订阅过, 请勿重复添加")
+	}
+
 	title := strings.TrimSpace(req.Title)
 	if title == "" {
 		title = feed.Title
