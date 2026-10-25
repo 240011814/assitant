@@ -87,15 +87,19 @@ const wordLoading = ref(false);
 const activeWord = ref("");
 const wordEntry = ref<DictionaryEntry | null>(null);
 const addingWord = ref(false);
+// 请求序号: 连续点词时慢的旧请求返回后直接丢弃, 避免覆盖新词的弹窗内容/误关弹窗
+let lookupSeq = 0;
 
 async function lookupWord(word: string) {
   const w = word.trim();
   if (!w) return;
+  const seq = ++lookupSeq;
   activeWord.value = w;
   wordEntry.value = null;
   showWordModal.value = true;
   wordLoading.value = true;
   const { data: resp, error } = await fetchLookupWord(w);
+  if (seq !== lookupSeq) return; // 已被更新的点击取代
   wordLoading.value = false;
   if (error || !resp) {
     message.error("查词失败");
@@ -137,6 +141,9 @@ const wordAtPoint = (e: MouseEvent): string => {
 
 const onContentClick = (e: MouseEvent) => {
   if (!props.lookupEnabled) return;
+  // 划选文本 (拖动选择) 也派发 click, 有选区时不触发查词, 让用户正常复制
+  const selection = window.getSelection();
+  if (selection && selection.toString().trim() !== "") return;
   const target = e.target as HTMLElement | null;
   // 带链接的元素保持原生行为 (打开原文), 其余文本一律支持点词
   if (target?.closest("a[href], button, img, input, textarea, select")) return;
@@ -180,11 +187,25 @@ const contentStyle = computed(() => ({ fontSize: `${readerFontSize.value}px` }))
       <slot name="toolbar-left" />
       <div class="flex-1" />
       <div class="flex items-center gap-0.5 shrink-0">
-        <NButton quaternary size="tiny" class="!px-1.5" title="减小字号" @click="setReaderFontSize(readerFontSize - 1)">
+        <NButton
+          quaternary
+          size="tiny"
+          class="!px-1.5"
+          title="减小字号"
+          aria-label="减小字号"
+          @click="setReaderFontSize(readerFontSize - 1)"
+        >
           A-
         </NButton>
-        <span class="text-11px text-gray-400 w-6 text-center tabular-nums">{{ readerFontSize }}</span>
-        <NButton quaternary size="tiny" class="!px-1.5" title="增大字号" @click="setReaderFontSize(readerFontSize + 1)">
+        <span class="text-11px text-gray-400 w-6 text-center tabular-nums" aria-live="polite">{{ readerFontSize }}</span>
+        <NButton
+          quaternary
+          size="tiny"
+          class="!px-1.5"
+          title="增大字号"
+          aria-label="增大字号"
+          @click="setReaderFontSize(readerFontSize + 1)"
+        >
           A+
         </NButton>
         <NButton
@@ -192,6 +213,7 @@ const contentStyle = computed(() => ({ fontSize: `${readerFontSize.value}px` }))
           circle
           size="small"
           :title="readerWidth === 'cozy' ? '切换宽敞版式' : '切换舒适版式'"
+          :aria-label="readerWidth === 'cozy' ? '切换宽敞版式' : '切换舒适版式'"
           @click="toggleReaderWidth"
         >
           <template #icon>

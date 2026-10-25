@@ -15,6 +15,7 @@ import (
 	"golang.org/x/net/html"
 
 	"backend/model"
+	"backend/service/tools"
 )
 
 // ReadingService 分级阅读: 导入文章 → LLM 标注生词 → 点词即查即加 → AI 生成个性化课文
@@ -86,8 +87,32 @@ type httpStatusError struct{ Code int }
 func (e *httpStatusError) Error() string { return fmt.Sprintf("HTTP %d", e.Code) }
 
 // fetchPageRaw 拉取页面原始 HTML (浏览器 UA, 15s 超时, 2MB 上限)
-func fetchPageRaw(rawURL string) (string, error) {
-	client := &http.Client{Timeout: 15 * time.Second}
+// outboundAllowPrivate 是否允许抓取环回/私网地址 (system_config rss_allow_private_network, 默认允许:
+// 自部署内网 RSSHub 是文档化用法)。链路本地/云元数据地址 (169.254.0.0/16) 无论开关始终拒绝。
+func (s *ReadingService) outboundAllowPrivate() bool {
+	if s.systemCfg == nil {
+		return true
+	}
+	if v, err := s.systemCfg.GetValue("rss_allow_private_network"); err == nil {
+		return strings.TrimSpace(v) != "0"
+	}
+	return true
+}
+
+// fetchPageRaw 拉取页面原始 HTML (浏览器 UA, 15s 超时, 2MB 上限, 重定向逐跳复检目标地址)
+func fetchPageRaw(rawURL string, allowPrivate bool) (string, error) {
+	if err := tools.ValidateOutboundURL(rawURL, allowPrivate); err != nil {
+		return "", err
+	}
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("重定向次数过多")
+			}
+			return tools.ValidateOutboundURL(req.URL.String(), allowPrivate)
+		},
+	}
 	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
 		return "", err
@@ -110,8 +135,8 @@ func fetchPageRaw(rawURL string) (string, error) {
 }
 
 // fetchURLText 抓取网页并提取正文纯文本 (fetchPageRaw + htmlToText)
-func fetchURLText(rawURL string) (string, string, error) {
-	body, err := fetchPageRaw(rawURL)
+func fetchURLText(rawURL string, allowPrivate bool) (string, string, error) {
+	body, err := fetchPageRaw(rawURL, allowPrivate)
 	if err != nil {
 		return "", "", err
 	}
@@ -331,7 +356,7 @@ var stripTagsRE = regexp.MustCompile(`(?s)<[^>]*>`)
 // 直抓被盾 (403/429) 且配置了 flaresolverr_url 时, 走 FlareSolverr 无头浏览器回退
 // (仅用于订阅自己有权访问的公开内容)
 func (s *ReadingService) fetchArticle(pageURL string) (text, title, htmlOut string, err error) {
-	body, err := fetchPageRaw(pageURL)
+	body, err := fetchPageRaw(pageURL, s.outboundAllowPrivate())
 	if err != nil {
 		var statusErr *httpStatusError
 		if !errors.As(err, &statusErr) || (statusErr.Code != http.StatusForbidden && statusErr.Code != http.StatusTooManyRequests) {
@@ -473,7 +498,8 @@ func (s *ReadingService) annotateDocSync(userID, id uint) error {
 
 	text := doc.Content
 	if len(text) > 15000 {
-		text = text[:15000]
+		// 按 rune 截断: 字节截断会切断多字节字符, 中文文章会产生非法 UTF-8 发给 LLM
+		text = truncateRunes(text, 15000)
 	}
 	system := `你是英语分级阅读标注助手。找出文中对学习者构成障碍的超纲生词 (低频词、习语、专有表达; 排除最常用 3000 词和普通专有名词), 给出中文释义。只输出 JSON 数组:
 [{"word": "<原文中的词或短语>", "meaning": "<中文释义>", "reason": "<低频/习语/术语>"}]`

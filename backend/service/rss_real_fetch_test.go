@@ -12,7 +12,7 @@ func TestRSSBBCRealFetch(t *testing.T) {
 	if os.Getenv("RSS_REAL_NET_TEST") == "" {
 		t.Skip("真实网络自测默认关闭, 设 RSS_REAL_NET_TEST=1 启用")
 	}
-	feed, err := fetchRSSFeed("https://feeds.bbci.co.uk/news/world/rss.xml")
+	feed, err := fetchRSSFeed("https://feeds.bbci.co.uk/news/world/rss.xml", true)
 	if err != nil {
 		t.Skipf("无法访问 BBC feed: %v", err)
 	}
@@ -26,7 +26,7 @@ func TestRSSBBCRealFetch(t *testing.T) {
 		t.Fatal("条目 link 为空")
 	}
 
-	text, title, err := fetchURLText(item.Link)
+	text, title, err := fetchURLText(item.Link, true)
 	if err != nil {
 		t.Skipf("无法访问 BBC 文章页: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestRSSReachableSourceRealFetch(t *testing.T) {
 	if os.Getenv("RSS_REAL_NET_TEST") == "" {
 		t.Skip("真实网络自测默认关闭, 设 RSS_REAL_NET_TEST=1 启用")
 	}
-	feed, err := fetchRSSFeed("https://www.newsinlevels.com/feed/")
+	feed, err := fetchRSSFeed("https://www.newsinlevels.com/feed/", true)
 	if err != nil {
 		t.Skipf("无法访问 newsinlevels: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestRSSReachableSourceRealFetch(t *testing.T) {
 	item := feed.Items[0]
 	t.Logf("item[0] title=%q link=%q", item.Title, item.Link)
 
-	text, title, err := fetchURLText(item.Link)
+	text, title, err := fetchURLText(item.Link, true)
 	if err != nil {
 		t.Fatalf("可达源的文章页抓取失败 (提取器问题): %v", err)
 	}

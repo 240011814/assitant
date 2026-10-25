@@ -95,8 +95,11 @@ func checkFetchIP(ip net.IP, allowLoopback bool) error {
 	return nil
 }
 
-// validateFetchURL 校验 scheme 与主机解析后的 IP, 拒绝内网/环回目标
-func validateFetchURL(raw string, allowLoopback bool) error {
+// ipCheckPolicy 单个 IP 的放行策略
+type ipCheckPolicy func(net.IP) error
+
+// validateURLWith 校验 scheme + 主机解析出的全部 IP 是否满足策略
+func validateURLWith(raw string, policy ipCheckPolicy) error {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
 		return fmt.Errorf("URL 解析失败: %w", err)
@@ -109,7 +112,7 @@ func validateFetchURL(raw string, allowLoopback bool) error {
 		return fmt.Errorf("URL 缺少主机名")
 	}
 	if ip := net.ParseIP(host); ip != nil {
-		return checkFetchIP(ip, allowLoopback)
+		return policy(ip)
 	}
 	ips, err := net.LookupIP(host)
 	if err != nil {
@@ -119,11 +122,31 @@ func validateFetchURL(raw string, allowLoopback bool) error {
 		return fmt.Errorf("域名无解析结果: %s", host)
 	}
 	for _, ip := range ips {
-		if err := checkFetchIP(ip, allowLoopback); err != nil {
+		if err := policy(ip); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// ValidateOutboundURL 供 service 层复用的外访校验:
+// allowPrivate=true 放行环回与私网 (自部署内网 RSSHub 场景), 但始终拒绝链路本地地址
+// (169.254.0.0/16 含云元数据服务); allowPrivate=false 拒绝全部内网/环回目标。
+func ValidateOutboundURL(raw string, allowPrivate bool) error {
+	if !allowPrivate {
+		return validateFetchURL(raw, false)
+	}
+	return validateURLWith(raw, func(ip net.IP) error {
+		if ip == nil || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("禁止访问链路本地/云元数据地址 (%s)", ip)
+		}
+		return nil
+	})
+}
+
+// validateFetchURL 校验 scheme 与主机解析后的 IP, 拒绝内网/环回目标
+func validateFetchURL(raw string, allowLoopback bool) error {
+	return validateURLWith(raw, func(ip net.IP) error { return checkFetchIP(ip, allowLoopback) })
 }
 
 func (t *fetchURLTool) httpClient() *http.Client {

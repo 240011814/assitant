@@ -4,15 +4,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mmcdole/gofeed"
 	"gorm.io/gorm"
 
 	"backend/model"
+	"backend/service/tools"
 )
 
 // RSSService RSS 订阅: gofeed 解析 feed, 条目按 GUID 去重入库, 正文按需抓取缓存
@@ -33,22 +36,25 @@ const (
 
 var rssTagRe = regexp.MustCompile(`(?s)<[^>]*>`)
 
-// AddSource 添加订阅: 先验证 feed 可解析, 成功后入库并抓首批条目
+// AddSource 添加订阅: 先本地查重再验证 feed 可解析 (重复添加不必先付一次网络往返), 成功后入库并抓首批条目
 func (s *RSSService) AddSource(userID uint, req model.AddRSSSourceRequest) (*model.RSSSource, error) {
 	feedURL := strings.TrimSpace(req.URL)
 	if !strings.HasPrefix(feedURL, "http://") && !strings.HasPrefix(feedURL, "https://") {
 		return nil, errors.New("订阅地址必须是 http(s) URL")
 	}
-	feed, err := fetchRSSFeed(feedURL)
-	if err != nil {
-		return nil, fmt.Errorf("订阅源无法解析: %w", err)
-	}
+	feedURL = truncateRunes(feedURL, 500)
 
 	// 同一用户重复订阅同一 feed: 直接拒绝, 避免产生没有条目的空壳源
+	// (并发双击的漏网由 uk_rss_user_url 唯一索引兜底)
 	var dupCount int64
-	DB.Model(&model.RSSSource{}).Where("user_id = ? AND url = ?", userID, truncateRunes(feedURL, 500)).Count(&dupCount)
+	DB.Model(&model.RSSSource{}).Where("user_id = ? AND url = ?", userID, feedURL).Count(&dupCount)
 	if dupCount > 0 {
 		return nil, errors.New("该 feed 已订阅过, 请勿重复添加")
+	}
+
+	feed, err := s.fetchFeed(feedURL)
+	if err != nil {
+		return nil, fmt.Errorf("订阅源无法解析: %w", err)
 	}
 
 	title := strings.TrimSpace(req.Title)
@@ -63,10 +69,13 @@ func (s *RSSService) AddSource(userID uint, req model.AddRSSSourceRequest) (*mod
 	source := &model.RSSSource{
 		UserID:  userID,
 		Title:   title,
-		URL:     truncateRunes(feedURL, 500),
+		URL:     feedURL,
 		Enabled: true,
 	}
 	if err := DB.Create(source).Error; err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique") || strings.Contains(strings.ToLower(err.Error()), "duplicate") {
+			return nil, errors.New("该 feed 已订阅过, 请勿重复添加")
+		}
 		return nil, err
 	}
 	inserted := s.upsertItems(userID, source.ID, feed)
@@ -77,9 +86,33 @@ func (s *RSSService) AddSource(userID uint, req model.AddRSSSourceRequest) (*mod
 	return source, nil
 }
 
-// fetchRSSFeed 抓取并解析 feed (浏览器 UA, 15s 超时, 2MB 上限)
-func fetchRSSFeed(feedURL string) (*gofeed.Feed, error) {
-	client := &http.Client{Timeout: 15 * time.Second}
+// fetchFeed 按当前私网策略抓取并解析 feed
+func (s *RSSService) fetchFeed(feedURL string) (*gofeed.Feed, error) {
+	return fetchRSSFeed(feedURL, s.privateNetAllowed())
+}
+
+// privateNetAllowed 是否允许环回/私网 feed 地址 (与阅读抓取共用 system_config 开关)
+func (s *RSSService) privateNetAllowed() bool {
+	if s.readingSvc == nil {
+		return true
+	}
+	return s.readingSvc.outboundAllowPrivate()
+}
+
+// fetchRSSFeed 抓取并解析 feed (浏览器 UA, 15s 超时, 2MB 上限, 重定向逐跳复检目标地址)
+func fetchRSSFeed(feedURL string, allowPrivate bool) (*gofeed.Feed, error) {
+	if err := tools.ValidateOutboundURL(feedURL, allowPrivate); err != nil {
+		return nil, err
+	}
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("重定向次数过多")
+			}
+			return tools.ValidateOutboundURL(req.URL.String(), allowPrivate)
+		},
+	}
 	req, err := http.NewRequest(http.MethodGet, feedURL, nil)
 	if err != nil {
 		return nil, err
@@ -158,9 +191,15 @@ func (s *RSSService) upsertItems(userID, sourceID uint, feed *gofeed.Feed) int {
 		if newItem.Link == "" {
 			continue
 		}
-		if err := DB.Create(&newItem).Error; err == nil {
-			inserted++
+		if err := DB.Create(&newItem).Error; err != nil {
+			// 唯一键冲突 (并发抓取同源) 静默跳过; 其余错误记日志, 避免条目悄悄丢失无迹可查
+			msg := strings.ToLower(err.Error())
+			if !strings.Contains(msg, "unique") && !strings.Contains(msg, "duplicate") {
+				log.Printf("rss insert item source=%d guid=%s: %v", sourceID, guid, err)
+			}
+			continue
 		}
+		inserted++
 	}
 	return inserted
 }
@@ -226,7 +265,7 @@ func (s *RSSService) FetchSource(userID, id uint) (int, error) {
 		return 0, errors.New("订阅源已停用")
 	}
 
-	feed, err := fetchRSSFeed(source.URL)
+	feed, err := s.fetchFeed(source.URL)
 	if err != nil {
 		DB.Model(&source).Updates(map[string]interface{}{
 			"last_fetched_at": time.Now(),
@@ -286,6 +325,9 @@ func (s *RSSService) MarkItemRead(userID, id uint) error {
 		Update("status", "read").Error
 }
 
+// rssItemContentLocks 按条目 ID 串行化正文抓取, 防并发缓存击穿 (同篇被重复抓取+双写)
+var rssItemContentLocks sync.Map
+
 // GetItemContent 取条目正文: 双格式 (纯文本 + 净化 HTML) 缓存优先, 未命中则抓原文页。
 // 旧缓存只有纯文本时, 阅读视图回退用 feed 摘要的净化 HTML
 func (s *RSSService) GetItemContent(userID, id uint) (*model.RSSItem, error) {
@@ -294,27 +336,46 @@ func (s *RSSService) GetItemContent(userID, id uint) (*model.RSSItem, error) {
 		return nil, errors.New("文章不存在")
 	}
 	if item.Content == "" && item.ContentHTML == "" {
-		// 直抓被盾且配置了 FlareSolverr 时自动回退 (readingSvc 在 main 中始终注入)
-		text, _, htmlOut, err := s.readingSvc.fetchArticle(item.Link)
+		muAny, _ := rssItemContentLocks.LoadOrStore(item.ID, &sync.Mutex{})
+		mu := muAny.(*sync.Mutex)
+		mu.Lock()
+		err := s.fillItemContent(&item)
+		mu.Unlock()
 		if err != nil {
-			return nil, fmt.Errorf("抓取原文失败: %w", err)
-		}
-		if len(text) > 100_000 {
-			// 按 rune 截断: 字节截断会切断多字节字符, 导致 utf8mb4 写入失败
-			text = truncateRunes(text, 100_000)
-		}
-		updates := map[string]interface{}{"content": text, "content_html": htmlOut}
-		if err := DB.Model(&item).Updates(updates).Error; err != nil {
 			return nil, err
 		}
-		item.Content = text
-		item.ContentHTML = htmlOut
 	}
 	// 缓存无 HTML (旧数据) 或抓取失败时, 用 feed 摘要的净化 HTML 兜底 (不落库)
 	if item.ContentHTML == "" && strings.TrimSpace(item.Summary) != "" {
 		item.ContentHTML = sanitizeArticleHTML(item.Link, item.Summary)
 	}
 	return &item, nil
+}
+
+// fillItemContent 抓取原文页并写缓存 (调用方需持有该条目的抓取锁)
+func (s *RSSService) fillItemContent(item *model.RSSItem) error {
+	// 双检: 等锁期间缓存可能已被并发请求填充
+	var fresh model.RSSItem
+	if err := DB.Where("id = ?", item.ID).First(&fresh).Error; err == nil &&
+		(fresh.Content != "" || fresh.ContentHTML != "") {
+		*item = fresh
+		return nil
+	}
+	// 直抓被盾且配置了 FlareSolverr 时自动回退 (readingSvc 在 main 中始终注入)
+	text, _, htmlOut, err := s.readingSvc.fetchArticle(item.Link)
+	if err != nil {
+		return fmt.Errorf("抓取原文失败: %w", err)
+	}
+	if len(text) > 100_000 {
+		// 按 rune 截断: 字节截断会切断多字节字符, 导致 utf8mb4 写入失败
+		text = truncateRunes(text, 100_000)
+	}
+	if err := DB.Model(item).Updates(map[string]interface{}{"content": text, "content_html": htmlOut}).Error; err != nil {
+		return err
+	}
+	item.Content = text
+	item.ContentHTML = htmlOut
+	return nil
 }
 
 // ImportToReading 把条目导入分级阅读 (正文已缓存则直接复用), 返回阅读文档

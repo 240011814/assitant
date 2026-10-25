@@ -2,17 +2,16 @@
 import { h, onMounted, ref } from "vue";
 import { NButton, NPopconfirm, NTag, useMessage } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
-import { useRouterPush } from "@/hooks/common/router";
 import {
   fetchImportReading,
   fetchGetReadingDocs,
   fetchDeleteReadingDoc,
 } from "@/service/api";
 import { useAppStore } from "@/store/modules/app";
+import ReadingDetailView from "./components/reading-detail-view.vue";
 
 const appStore = useAppStore();
 const message = useMessage();
-const { routerPushByKey } = useRouterPush();
 
 const loading = ref(false);
 const docs = ref<any[]>([]);
@@ -39,6 +38,13 @@ const statusTag = (status: string) => {
   }
 };
 
+// ===================== 阅读弹窗 (与 RSS 阅读弹窗同款容器) =====================
+const activeDocId = ref<number | null>(null);
+
+const openDoc = (id: number) => {
+  activeDocId.value = id;
+};
+
 const columns = ref<DataTableColumns<any>>([
   {
     title: "标题",
@@ -49,7 +55,7 @@ const columns = ref<DataTableColumns<any>>([
         "a",
         {
           class: "text-primary cursor-pointer font-bold",
-          onClick: () => routerPushByKey("ai_reading-detail", { params: { id: String(row.id) } }),
+          onClick: () => openDoc(row.id)
         },
         row.title
       );
@@ -90,7 +96,7 @@ const columns = ref<DataTableColumns<any>>([
       return h("div", { class: "flex gap-1" }, [
         h(
           NButton,
-          { size: "small", quaternary: true, type: "primary", onClick: () => routerPushByKey("ai_reading-detail", { params: { id: String(row.id) } }) },
+          { size: "small", quaternary: true, type: "primary", onClick: () => openDoc(row.id) },
           { default: () => "阅读" }
         ),
         h(
@@ -109,6 +115,7 @@ const columns = ref<DataTableColumns<any>>([
   },
 ]);
 
+// ===================== 数据加载 =====================
 const loadData = async () => {
   loading.value = true;
   const { data: resp, error } = await fetchGetReadingDocs({ keyword: keyword.value.trim() || undefined });
@@ -118,6 +125,12 @@ const loadData = async () => {
     return;
   }
   docs.value = resp || [];
+};
+
+// 关闭弹窗后刷新列表: 阅读中可能完成标注/加入生词, 状态列需要同步
+const closeDoc = () => {
+  activeDocId.value = null;
+  loadData();
 };
 
 const handleImport = async () => {
@@ -213,6 +226,12 @@ onMounted(() => {
           :autosize="{ minRows: 8 }"
         />
         <NButton type="primary" block :loading="importing" @click="handleImport">导入</NButton>
+      </div>
+    </NModal>
+    <!-- 阅读弹窗 (与 RSS 阅读弹窗同款: 卡片容器 + ReaderView 排版) -->
+    <NModal :show="activeDocId !== null" :auto-focus="false" @update:show="(v: boolean) => { if (!v) closeDoc(); }">
+      <div class="w-full h-full md:w-[min(94vw,960px)] md:h-[88vh] flex flex-col rounded-none md:rounded-xl bg-white dark:bg-[#18181c] shadow-2xl overflow-hidden">
+        <ReadingDetailView v-if="activeDocId !== null" :doc-id="activeDocId" mode="modal" @close="closeDoc" />
       </div>
     </NModal>
   </div>

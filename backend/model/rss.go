@@ -7,9 +7,9 @@ import (
 // RSSSource RSS 订阅源
 type RSSSource struct {
 	ID            uint       `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID        uint       `gorm:"not null;index:idx_rss_source_user,priority:1" json:"userId"`
+	UserID        uint       `gorm:"not null;index:idx_rss_source_user,priority:1;uniqueIndex:uk_rss_user_url,priority:1" json:"userId"`
 	Title         string     `gorm:"size:100;not null" json:"title"`
-	URL           string     `gorm:"size:500;not null" json:"url"`
+	URL           string     `gorm:"size:500;not null;uniqueIndex:uk_rss_user_url,priority:2" json:"url"`
 	Enabled       bool       `gorm:"not null;default:true" json:"enabled"`
 	LastFetchedAt *time.Time `json:"lastFetchedAt"`
 	LastError     string     `gorm:"size:500" json:"lastError"`

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onActivated, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from "vue";
 import { NButton, NEmpty, NPopconfirm, NTag, useMessage } from "naive-ui";
 import { useRouterPush } from "@/hooks/common/router";
 import ReaderView from "@/components/custom/reader-view.vue";
@@ -293,14 +293,19 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleReaderKey);
 });
 
-// KeepAlive 缓存下再次激活时刷新
+// KeepAlive 缓存下再次激活时刷新; 失活时摘除 j/k 监听 (路由切走但弹窗未关时按键不再后台拉文章)
 let hasActivated = false;
 onActivated(() => {
+  window.addEventListener("keydown", handleReaderKey);
   if (hasActivated) {
     reloadAll();
   } else {
     hasActivated = true;
   }
+});
+
+onDeactivated(() => {
+  window.removeEventListener("keydown", handleReaderKey);
 });
 </script>
 
