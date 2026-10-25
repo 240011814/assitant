@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { useMessage } from "naive-ui";
+import type { SelectOption } from "naive-ui";
 import { request } from "@/service/request";
 import { getAuthorization } from "@/service/request/shared";
 import { getWolConfig, updateWolConfig } from "@/service/api";
@@ -128,7 +129,17 @@ watch(ttsMode, mode => {
   }
 });
 
-// 音色候选 (NAutoComplete 下拉可选, 也允许直接输入任意音色名)
+/** 音色下拉过滤: 同时匹配显示名与值 (用户可直接输入 en-US-AriaNeural 这类音色名), 大小写不敏感 */
+function voiceFilter(pattern: string, option: SelectOption): boolean {
+  const p = pattern.trim().toLowerCase();
+  if (!p) return true;
+  return (
+    String(option.label ?? "").toLowerCase().includes(p) ||
+    String(option.value ?? "").toLowerCase().includes(p)
+  );
+}
+
+// 音色候选 (NSelect filterable+tag: 下拉可选, 也允许直接输入任意音色名)
 const openaiVoiceOptions = ["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse"].map(v => ({
   label: v,
   value: v
@@ -530,6 +541,9 @@ async function handlePlayTestTts() {
   }
 
   // 服务端模式: 后端合成 mp3 播放
+  // 样例语言跟随用户配置: 配了英文音色用英文样例, 只配了中文音色则用中文样例 (否则听不到所选音色)
+  const testLang =
+    ttsMode.value === "edge" && !ttsEdgeVoiceEn.value.trim() && ttsEdgeVoiceZh.value.trim() ? "zh-CN" : "en-US";
   testingTts.value = true;
   try {
     const Authorization = getAuthorization();
@@ -545,7 +559,7 @@ async function handlePlayTestTts() {
         voice: ttsVoice.value.trim(),
         voice_en: ttsEdgeVoiceEn.value.trim(),
         voice_zh: ttsEdgeVoiceZh.value.trim(),
-        lang: "en-US"
+        lang: testLang
       })
     });
     const contentType = res.headers.get("content-type") || "";
@@ -1243,6 +1257,7 @@ onUnmounted(() => {
                 <NFormItem :label="$t('page.system.config.ttsFrontendVoice')">
                   <NSelect
                     v-model:value="ttsFrontendVoice"
+                    :filter="voiceFilter"
                     :options="browserVoiceOptions"
                     :placeholder="$t('page.system.config.ttsFrontendVoicePlaceholder')"
                     filterable
@@ -1258,6 +1273,7 @@ onUnmounted(() => {
                 <NFormItemGi :label="$t('page.system.config.ttsVoice')" path="ttsVoice">
                   <NSelect
                     v-model:value="ttsVoice"
+                    :filter="voiceFilter"
                     :options="openaiVoiceOptions"
                     placeholder="alloy"
                     filterable
@@ -1270,6 +1286,7 @@ onUnmounted(() => {
                 <NFormItemGi :label="$t('page.system.config.ttsEdgeVoiceEn')" path="ttsEdgeVoiceEn">
                   <NSelect
                     v-model:value="ttsEdgeVoiceEn"
+                    :filter="voiceFilter"
                     :options="edgeVoiceEnOptions"
                     placeholder="en-US-AriaNeural"
                     filterable
@@ -1280,6 +1297,7 @@ onUnmounted(() => {
                 <NFormItemGi :label="$t('page.system.config.ttsEdgeVoiceZh')" path="ttsEdgeVoiceZh">
                   <NSelect
                     v-model:value="ttsEdgeVoiceZh"
+                    :filter="voiceFilter"
                     :options="edgeVoiceZhOptions"
                     placeholder="zh-CN-XiaoxiaoNeural"
                     filterable
