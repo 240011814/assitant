@@ -100,6 +100,12 @@ const statCards = computed(() => {
       { label: "阅读时长 (90天)", value: `${r.totalReadMinutes} 分`, color: "text-info" }
     );
   }
+  if (s.quiz && s.quiz.answered > 0) {
+    cards.push(
+      { label: "练习题数 (30天)", value: s.quiz.answered, color: "text-primary" },
+      { label: "练习正确率 (30天)", value: `${Math.round(s.quiz.accuracy * 100)}%`, color: s.quiz.accuracy >= 0.8 ? "text-success" : "text-warning" }
+    );
+  }
   return cards;
 });
 

@@ -48,6 +48,17 @@ func (h *QuizHandler) HandleGetQuizSession(c *gin.Context) {
 	SendSuccess(c, gin.H{"session": session, "questions": questions})
 }
 
+// HandleGetActiveQuizSession 最近一个进行中的会话 (48h 内), 供前端"继续练习"; 无则返回 null
+func (h *QuizHandler) HandleGetActiveQuizSession(c *gin.Context) {
+	userId := GetUserID(c)
+	session, questions, err := h.svc.GetLatestActiveSession(userId)
+	if err != nil {
+		SendSuccess(c, nil)
+		return
+	}
+	SendSuccess(c, gin.H{"session": session, "questions": questions})
+}
+
 // HandleSubmitQuizAnswer 提交单题答案 (服务端判分)
 func (h *QuizHandler) HandleSubmitQuizAnswer(c *gin.Context) {
 	userId := GetUserID(c)

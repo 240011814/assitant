@@ -1,9 +1,9 @@
 import { request } from '../request';
 
 /** 出题练习题型 */
-export type QuizType = 'word2def' | 'def2word' | 'cloze' | 'confusing' | 'spell' | 'translate';
+export type QuizType = 'word2def' | 'def2word' | 'cloze' | 'confusing' | 'context' | 'spell' | 'translate';
 
-/** 服务端题目 (答案剥离) */
+/** 服务端题目 (答案剥离, 判分结果随下发) */
 export interface QuizQuestion {
   id: string;
   type: QuizType;
@@ -14,6 +14,8 @@ export interface QuizQuestion {
   options?: string[];
   word?: string;
   done: boolean;
+  /** 判分结果 (Done 后有效) */
+  correct: boolean;
 }
 
 export interface QuizSession {
@@ -21,7 +23,7 @@ export interface QuizSession {
   total: number;
   answered: number;
   correct: number;
-  status: 'active' | 'finished';
+  status: 'active' | 'finished' | 'abandoned';
 }
 
 export interface QuizAnswerResult {
@@ -29,6 +31,10 @@ export interface QuizAnswerResult {
   correct: boolean;
   answer: string;
   recorded: boolean;
+  /** 答对是否消了一条对应错题 */
+  decayed?: boolean;
+  /** 答错讲解 (词义/例句/易混对比) */
+  explanation?: string;
 }
 
 /** 创建练习会话 */
@@ -48,7 +54,15 @@ export function fetchGetQuizSession(id: number) {
   });
 }
 
-/** 提交单题答案 (服务端判分, 答错自动进错题本) */
+/** 最近一个进行中的会话 (48h 内, 供"继续练习"); 无则 data 为 null */
+export function fetchGetActiveQuizSession() {
+  return request<{ session: QuizSession; questions: QuizQuestion[] } | null>({
+    url: '/api/vocabulary/quiz/sessions/active',
+    method: 'get'
+  });
+}
+
+/** 提交单题答案 (服务端判分, 答错自动进错题本/答对消错, 结果回流 FSRS) */
 export function fetchSubmitQuizAnswer(id: number, data: { questionId: string; answer: string; durationMs?: number }) {
   return request<{ result: QuizAnswerResult; session: QuizSession; questions: QuizQuestion[] }>({
     url: `/api/vocabulary/quiz/sessions/${id}/answer`,

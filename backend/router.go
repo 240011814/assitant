@@ -191,6 +191,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 		quizGroup.Use(api.RequirePermission("ai:vocabulary:view"))
 		{
 			quizGroup.POST("/sessions", quizHandler.HandleCreateQuizSession)
+			quizGroup.GET("/sessions/active", quizHandler.HandleGetActiveQuizSession)
 			quizGroup.GET("/sessions/:id", quizHandler.HandleGetQuizSession)
 			quizGroup.POST("/sessions/:id/answer", api.RequirePermission("ai:vocabulary:edit"), quizHandler.HandleSubmitQuizAnswer)
 			quizGroup.POST("/sentence-practice", quizHandler.HandleSentencePractice)

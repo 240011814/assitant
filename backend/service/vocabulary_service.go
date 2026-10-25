@@ -486,6 +486,27 @@ func (s *VocabularyService) GetLearningStats(userID uint) (map[string]interface{
 	if reading, err := GetReadingStats(userID); err == nil {
 		stats["reading"] = reading
 	}
+	// 练习维度 (近30天): 题数/正确数/正确率/会话数
+	var quizAgg struct {
+		Sessions int64 `gorm:"column:sessions"`
+		Answered int64 `gorm:"column:answered"`
+		Correct  int64 `gorm:"column:correct"`
+	}
+	if err := DB.Model(&model.QuizSession{}).
+		Select("COUNT(*) as sessions, COALESCE(SUM(answered),0) as answered, COALESCE(SUM(correct),0) as correct").
+		Where("user_id = ? AND created_at >= ?", userID, now.AddDate(0, 0, -30)).
+		Scan(&quizAgg).Error; err == nil {
+		accuracy := 0.0
+		if quizAgg.Answered > 0 {
+			accuracy = float64(quizAgg.Correct) / float64(quizAgg.Answered)
+		}
+		stats["quiz"] = map[string]interface{}{
+			"sessions": quizAgg.Sessions,
+			"answered": quizAgg.Answered,
+			"correct":  quizAgg.Correct,
+			"accuracy": accuracy,
+		}
+	}
 	return stats, nil
 }
 

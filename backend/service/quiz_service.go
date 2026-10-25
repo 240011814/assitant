@@ -11,14 +11,16 @@ import (
 	"backend/model"
 )
 
-// QuizService 自动出题引擎: 词汇选择/例句挖空/易混词辨析/听音拼写/句子翻译 (模板确定性出题)
-// + 造句批改 (LLM 判分)
+// QuizService 自动出题引擎: 词汇选择/例句挖空/原文语境/易混词辨析/听音拼写/句子翻译 (模板确定性出题)
+// + 造句批改 (LLM 判分)。答题结果回流 FSRS (可关) 并联动错题本消错。
 type QuizService struct {
-	agentSvc *AIAgentService
+	agentSvc  *AIAgentService
+	vocabSvc  *VocabularyService
+	systemCfg *SystemConfigService
 }
 
-func NewQuizService(agentSvc *AIAgentService) *QuizService {
-	return &QuizService{agentSvc: agentSvc}
+func NewQuizService(agentSvc *AIAgentService, vocabSvc *VocabularyService, systemCfg *SystemConfigService) *QuizService {
+	return &QuizService{agentSvc: agentSvc, vocabSvc: vocabSvc, systemCfg: systemCfg}
 }
 
 // quizTypes 全部题型
@@ -27,8 +29,9 @@ var quizTypes = map[string]bool{
 	"def2word":  true, // 释义 → 单词选择
 	"cloze":     true, // 例句挖空选择
 	"confusing": true, // 易混词辨析 (confusing_words 字段)
-	"spell":     true, // 听音拼写
-	"translate": true, // 课程句对中译英
+	"context":   true, // 原文语境挖空 (context_sentence, 加入生词本时的原句)
+	"spell":     true, // 听音拼写 (有例句时读例句, 题面挖空)
+	"translate": true, // 中译英 (课程句对优先, 无课程回退用户读过的文章句)
 }
 
 // normalizeAnswer 判分归一: 小写、去首尾、压缩空白、去标点
@@ -162,36 +165,66 @@ func (s *QuizService) CreateSession(userID uint, req model.CreateQuizSessionRequ
 	// 打乱题型顺序
 	rand.Shuffle(len(types), func(i, j int) { types[i], types[j] = types[j], types[i] })
 
+	// 翻译题去重 (课程句 + 文章句共用)
+	usedSentences := map[string]bool{}
+
+	buildOne := func(t string, word *model.Vocabulary, i int) *model.QuizQuestion {
+		switch t {
+		case "word2def":
+			return s.buildWord2Def(word, distractors, i)
+		case "def2word":
+			return s.buildDef2Word(word, distractors, i)
+		case "cloze":
+			return s.buildCloze(word, distractors, i)
+		case "confusing":
+			return s.buildConfusing(word, i)
+		case "context":
+			return s.buildContext(word, distractors, i)
+		case "spell":
+			return s.buildSpell(word, i)
+		case "translate":
+			return s.buildTranslate(userID, i, usedSentences)
+		}
+		return nil
+	}
+
 	usedWords := map[uint]bool{}
 	for i := 0; i < size; i++ {
 		t := types[i%len(types)]
+		if t == "translate" {
+			// 翻译题不占词; 课程句对不足时回退文章翻译题 (批量, 最多 3 题)
+			if q := buildOne(t, nil, i); q != nil {
+				questions = append(questions, *q)
+			}
+			continue
+		}
 		word := s.pickWord(pool, usedWords, t)
 		if word == nil {
 			continue
 		}
 		usedWords[word.ID] = true
-
-		var q *model.QuizQuestion
-		switch t {
-		case "word2def":
-			q = s.buildWord2Def(word, distractors, i)
-		case "def2word":
-			q = s.buildDef2Word(word, distractors, i)
-		case "cloze":
-			q = s.buildCloze(word, distractors, i)
-		case "confusing":
-			q = s.buildConfusing(word, i)
-		case "spell":
-			q = &model.QuizQuestion{
-				ID: fmt.Sprintf("q%d-%d", time.Now().UnixNano(), i), Type: t,
-				WordID: word.ID, Word: word.Word, Prompt: "听音拼写单词", Hint: word.Word,
-				Answer: word.Word,
-			}
-		case "translate":
-			q = s.buildTranslate(userID, i)
-		}
-		if q != nil {
+		if q := buildOne(t, word, i); q != nil {
 			questions = append(questions, *q)
+		}
+	}
+	// 题量补足: 主循环因词汇数据不适配缩水时, 放宽题型约束再补一轮
+	if len(questions) < size {
+		fallbackTypes := []string{"word2def", "def2word", "context", "spell"}
+		for i := range pool {
+			if len(questions) >= size {
+				break
+			}
+			w := &pool[i]
+			if usedWords[w.ID] || w.Definition == "" {
+				continue
+			}
+			for _, t := range fallbackTypes {
+				if q := buildOne(t, w, 1000+len(questions)); q != nil {
+					questions = append(questions, *q)
+					usedWords[w.ID] = true
+					break
+				}
+			}
 		}
 	}
 	if len(questions) == 0 {
@@ -202,6 +235,8 @@ func (s *QuizService) CreateSession(userID uint, req model.CreateQuizSessionRequ
 	if err != nil {
 		return nil, nil, err
 	}
+	// 新建前把旧 active 会话收口 (一个用户同时只保留一个 active, 恢复入口无歧义)
+	abandonActiveSessions(userID)
 	session := &model.QuizSession{
 		UserID:    userID,
 		Questions: string(raw),
@@ -212,9 +247,7 @@ func (s *QuizService) CreateSession(userID uint, req model.CreateQuizSessionRequ
 		return nil, nil, err
 	}
 	// 下发时剥离答案
-	for i := range questions {
-		questions[i].Answer = ""
-	}
+	stripAnswers(questions)
 	return session, questions, nil
 }
 
@@ -234,6 +267,10 @@ func (s *QuizService) pickWord(pool []model.Vocabulary, used map[uint]bool, quiz
 			if w.Example != "" && strings.Contains(strings.ToLower(w.Example), strings.ToLower(w.Word)) {
 				return w
 			}
+		case "context":
+			if w.ContextSentence != "" && strings.Contains(strings.ToLower(w.ContextSentence), strings.ToLower(w.Word)) {
+				return w
+			}
 		case "confusing":
 			if w.ConfusingWords != "" {
 				return w
@@ -246,8 +283,10 @@ func (s *QuizService) pickWord(pool []model.Vocabulary, used map[uint]bool, quiz
 }
 
 func (s *QuizService) buildWord2Def(word *model.Vocabulary, distractors []model.Vocabulary, idx int) *model.QuizQuestion {
+	// 干扰释义先按"与目标词形态相近"排序, 避免一眼荒谬的选项
+	sorted := sortDistractorsBySimilarity(word.Word, distractors)
 	options := []string{word.Definition}
-	for _, d := range distractors {
+	for _, d := range sorted {
 		if len(options) >= 4 {
 			break
 		}
@@ -267,8 +306,9 @@ func (s *QuizService) buildWord2Def(word *model.Vocabulary, distractors []model.
 }
 
 func (s *QuizService) buildDef2Word(word *model.Vocabulary, distractors []model.Vocabulary, idx int) *model.QuizQuestion {
+	sorted := sortDistractorsBySimilarity(word.Word, distractors)
 	options := []string{word.Word}
-	for _, d := range distractors {
+	for _, d := range sorted {
 		if len(options) >= 4 {
 			break
 		}
@@ -303,7 +343,7 @@ func (s *QuizService) buildCloze(word *model.Vocabulary, distractors []model.Voc
 			options = append(options, cw)
 		}
 	}
-	for _, d := range distractors {
+	for _, d := range sortDistractorsBySimilarity(word.Word, distractors) {
 		if len(options) >= 4 {
 			break
 		}
@@ -318,6 +358,62 @@ func (s *QuizService) buildCloze(word *model.Vocabulary, distractors []model.Voc
 	return &model.QuizQuestion{
 		ID: fmt.Sprintf("q%d-%d", time.Now().UnixNano(), idx), Type: "cloze",
 		WordID: word.ID, Word: word.Word, Prompt: cloze, Hint: word.Definition, Options: options,
+		Answer: word.Word,
+	}
+}
+
+// buildContext 原文语境挖空: 加入生词本时所在的原句 (用户真实读过的语料, 记忆钩子最强)
+func (s *QuizService) buildContext(word *model.Vocabulary, distractors []model.Vocabulary, idx int) *model.QuizQuestion {
+	if word.ContextSentence == "" {
+		return nil
+	}
+	lower := strings.ToLower(word.ContextSentence)
+	pos := strings.Index(lower, strings.ToLower(word.Word))
+	if pos < 0 {
+		return nil
+	}
+	cloze := word.ContextSentence[:pos] + "____" + word.ContextSentence[pos+len(word.Word):]
+	options := []string{word.Word}
+	for _, cw := range strings.Split(word.ConfusingWords, ",") {
+		cw = strings.TrimSpace(cw)
+		if cw != "" && len(options) < 4 && !containsStr(options, cw) {
+			options = append(options, cw)
+		}
+	}
+	for _, d := range sortDistractorsBySimilarity(word.Word, distractors) {
+		if len(options) >= 4 {
+			break
+		}
+		if d.Word != "" && d.ID != word.ID && !containsStr(options, d.Word) {
+			options = append(options, d.Word)
+		}
+	}
+	if len(options) < 2 {
+		return nil
+	}
+	shuffleOptions(options)
+	return &model.QuizQuestion{
+		ID: fmt.Sprintf("q%d-%d", time.Now().UnixNano(), idx), Type: "context",
+		WordID: word.ID, Word: word.Word, Prompt: cloze, Hint: "出自你读过的原文", Options: options,
+		Answer: word.Word,
+	}
+}
+
+// buildSpell 听音拼写: 有例句时读例句 + 题面挖空 (答案需"听出来"), 无例句退化为读单词
+func (s *QuizService) buildSpell(word *model.Vocabulary, idx int) *model.QuizQuestion {
+	if word.Example != "" && strings.Contains(strings.ToLower(word.Example), strings.ToLower(word.Word)) {
+		lower := strings.ToLower(word.Example)
+		pos := strings.Index(lower, strings.ToLower(word.Word))
+		cloze := word.Example[:pos] + "____" + word.Example[pos+len(word.Word):]
+		return &model.QuizQuestion{
+			ID: fmt.Sprintf("q%d-%d", time.Now().UnixNano(), idx), Type: "spell",
+			WordID: word.ID, Word: word.Word, Prompt: cloze, Hint: word.Example,
+			Answer: word.Word,
+		}
+	}
+	return &model.QuizQuestion{
+		ID: fmt.Sprintf("q%d-%d", time.Now().UnixNano(), idx), Type: "spell",
+		WordID: word.ID, Word: word.Word, Prompt: "听音拼写单词", Hint: word.Word,
 		Answer: word.Word,
 	}
 }
@@ -351,8 +447,8 @@ func (s *QuizService) buildConfusing(word *model.Vocabulary, idx int) *model.Qui
 	}
 }
 
-// buildTranslate 课程句对中译英
-func (s *QuizService) buildTranslate(userID uint, idx int) *model.QuizQuestion {
+// buildTranslate 中译英: 课程句对优先 (带查重), 无句对时回退用户读过的文章句 (LLM 翻译缓存)
+func (s *QuizService) buildTranslate(userID uint, idx int, usedSentences map[string]bool) *model.QuizQuestion {
 	var item model.CourseItem
 	err := DB.Joins("JOIN courses ON courses.id = course_items.course_id").
 		Where("courses.user_id = ? OR courses.is_public = ?", userID, true).
@@ -360,14 +456,19 @@ func (s *QuizService) buildTranslate(userID uint, idx int) *model.QuizQuestion {
 		Order("RAND()").
 		Select("course_items.*").
 		First(&item).Error
-	if err != nil {
-		return nil
+	if err == nil && !usedSentences[item.EnglishSentence] {
+		usedSentences[item.EnglishSentence] = true
+		return &model.QuizQuestion{
+			ID: fmt.Sprintf("q%d-%d", time.Now().UnixNano(), idx), Type: "translate",
+			CourseID: item.CourseID, Prompt: item.ChineseTranslation,
+			Hint: "用英语说出/写出这句话", Answer: item.EnglishSentence,
+		}
 	}
-	return &model.QuizQuestion{
-		ID: fmt.Sprintf("q%d-%d", time.Now().UnixNano(), idx), Type: "translate",
-		CourseID: item.CourseID, Prompt: item.ChineseTranslation,
-		Hint: "用英语说出/写出这句话", Answer: item.EnglishSentence,
+	// 课程句对缺失或已用过: 从阅读文章出题 (批量最多 3 题, 主循环每轮只取 1)
+	for _, q := range s.buildTranslateFromDocs(userID, idx, usedSentences) {
+		return q
 	}
+	return nil
 }
 
 func containsStr(list []string, s string) bool {
@@ -440,14 +541,26 @@ func (s *QuizService) SubmitAnswer(userID, sessionID uint, req model.QuizAnswerR
 		Answer:     q.Answer,
 	}
 
-	// 答错自动进错题本
+	// 答错自动进错题本 + 答错讲解 (词义/例句/易混)
 	if !correct {
 		recorded := s.recordToErrorBook(userID, q, sessionID)
 		result.Recorded = recorded
+		result.Explanation = explanationFor(q)
+	} else {
+		// 答对消一条对应错题 (词题消词, 翻译题消句子), 让错题本有收敛
+		eb := NewErrorBookService()
+		if q.Word != "" {
+			result.Decayed = eb.DecayError(userID, "word", q.Word)
+		} else if q.Type == "translate" {
+			result.Decayed = eb.DecayError(userID, "sentence", q.Answer)
+		}
 	}
+	// 答题结果回流 FSRS (答错=Again / 秒答对=Easy / 答对=Good), 让练习与复习调度合一
+	s.applyFSRSFeedback(userID, q, correct, req.DurationMs)
 
 	// 更新会话
 	q.Done = true
+	q.Correct = correct
 	session.Answered++
 	if correct {
 		session.Correct++
@@ -473,10 +586,11 @@ func (s *QuizService) SubmitAnswer(userID, sessionID uint, req model.QuizAnswerR
 func gradeQuestion(q *model.QuizQuestion, answer string) bool {
 	switch q.Type {
 	case "translate":
-		// 翻译容忍少量笔误 (相似度 >= 0.9)
-		return textSimilarity(answer, q.Answer) >= 0.9
+		// 词级重叠 + 编辑距离双通道, 换序/少量漏词不误判
+		return gradeTranslateV2(answer, q.Answer)
 	case "spell":
-		return normalizeAnswer(answer) == normalizeAnswer(q.Answer)
+		// 容忍英美拼写与屈折变体 (colour/color, 漏写 s/es/ed)
+		return spellTolerantEqual(answer, q.Answer)
 	default:
 		return normalizeAnswer(answer) == normalizeAnswer(q.Answer)
 	}

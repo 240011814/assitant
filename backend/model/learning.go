@@ -31,7 +31,7 @@ func (VocabularyReviewLog) TableName() string {
 // QuizQuestion 单道题 (持久化为 JSON, Answer 只存服务端不下发前端)
 type QuizQuestion struct {
 	ID       string   `json:"id"`
-	Type     string   `json:"type"` // word2def / def2word / cloze / confusing / spell / translate
+	Type     string   `json:"type"` // word2def / def2word / cloze / confusing / spell / translate / context
 	WordID   uint     `json:"wordId,omitempty"`
 	CourseID uint     `json:"courseId,omitempty"`
 	Prompt   string   `json:"prompt"`
@@ -39,7 +39,8 @@ type QuizQuestion struct {
 	Options  []string `json:"options,omitempty"`
 	Answer   string   `json:"answer,omitempty"` // 正确答案: 随会话 JSON 落库, 返回前端前必须剥离
 	Word     string   `json:"word,omitempty"`
-	Done     bool     `json:"done"` // 已作答
+	Done     bool     `json:"done"`    // 已作答
+	Correct  bool     `json:"correct"` // 判分结果 (Done 后有效, 下发保留)
 }
 
 // QuizSession 一次练习会话
@@ -62,10 +63,25 @@ func (QuizSession) TableName() string {
 
 // QuizAnswerResult 答题结果
 type QuizAnswerResult struct {
-	QuestionID string `json:"questionId"`
-	Correct    bool   `json:"correct"`
-	Answer     string `json:"answer"`   // 正确答案
-	Recorded   bool   `json:"recorded"` // 是否已计入错题本
+	QuestionID  string `json:"questionId"`
+	Correct     bool   `json:"correct"`
+	Answer      string `json:"answer"`     // 正确答案
+	Recorded    bool   `json:"recorded"`   // 是否已计入错题本
+	Decayed     bool   `json:"decayed"`    // 答对是否消了一条错题
+	Explanation string `json:"explanation"` // 答错讲解 (词义/例句/易混对比)
+}
+
+// QuizSentenceZH 文档句子中文翻译缓存 (文章翻译题题面, 全局共享)
+type QuizSentenceZH struct {
+	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	Sentence  string    `gorm:"size:1000;not null;uniqueIndex:uk_qsz_sentence" json:"sentence"`
+	ZH        string    `gorm:"size:1000;not null" json:"zh"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// TableName 指定表名
+func (QuizSentenceZH) TableName() string {
+	return "quiz_sentence_zh"
 }
 
 // ===== 分级阅读 =====

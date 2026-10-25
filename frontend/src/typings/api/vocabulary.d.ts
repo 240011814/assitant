@@ -90,6 +90,13 @@ declare namespace Api {
         totalReadMinutes: number
         daily: Array<{ date: string; opens: number; lookups: number; wordsAdded: number; readMinutes: number }>
       }
+      /** 练习维度 (近30天) */
+      quiz?: {
+        sessions: number
+        answered: number
+        correct: number
+        accuracy: number
+      }
     }
 
     /** 词书导入条目 */
