@@ -156,6 +156,12 @@ frontend/
 - Lint 门禁: `golangci-lint run ./...` 必须 0 issues (配置在 `backend/.golangci.yml`; defer 关闭资源写显式 `_ =`; 中文错误串不受 ST1005 约束)
 - Handler 取当前用户一律 `currentUserID(c)` (api/auth_ctx.go), 禁止裸 `c.Get("userId")` 断言; 分页页码用 `service.NormalizePage`; SSE 响应头/串行写出用 `setupSSE`/`newSSEEmitter` (api/sse.go)
 - 多步写必须 `DB.Transaction` 包事务 (扣减+建记录这类组合); 编译器/服务层的纯逻辑抽成同包函数便于表驱动测试 (测试用标准库、无外部依赖)
+- **内置 LLM 提示词禁止硬编码在业务函数里**, 一律走 `service/prompt_config.go` 的注册表:
+  - 新增提示词 = 在 `promptOrder` 加 key 常量 (`prompt_<域>_<用途>`) + 在 `builtinPrompts` 填 `Remark` (配置页展示名) 与 `Default` (内置默认文本), 再在调用点写 `system := GetPrompt(PromptKeyXxx)`
+  - 取值链路: `system_config` 表覆盖值 > 内置默认值; `GetPrompt` 带进程内缓存 (含负缓存), 首次访问才查库, 配置页保存 `prompt_*` 键后由 handler 自动调 `RefreshPromptCache()` 立即生效
+  - 提示词里需要动态值用占位符 (如写课文难度 `{level}`), 业务侧用 `strings.ReplaceAll` 替换; **禁用 `fmt.Sprintf` 拼提示词** —— 用户自定义文本里的 `%` 会被 Sprintf 破坏
+  - `system_config.value` 已是 TEXT (迁移 `20261026120000`), 可存数千字符; 提示词文本只作为内置默认值存在代码里, 不做种子 SQL (留空即回落默认, 避免代码改了 DB 还留旧值)
+  - 管理界面: 系统配置页「AI 提示词」区块 (GET `/api/admin/system-config/prompts`, 权限 R_SUPER), 编辑/恢复默认均走既有 `PUT /api/admin/system-config`; 新增提示词后前端无需改代码, 自动出现在列表里
 
 ### 前端
 
