@@ -4,6 +4,7 @@ import (
 	crand "crypto/rand"
 	"errors"
 	"math/big"
+	"strings"
 
 	"backend/model"
 	"golang.org/x/crypto/bcrypt"
@@ -459,7 +460,21 @@ func (s *AdminService) ListAIModels() ([]model.AIModel, error) {
 	return models, err
 }
 
+func normalizeAIModelType(t string) string {
+	switch strings.ToLower(strings.TrimSpace(t)) {
+	case model.AIModelTypeTTS:
+		return model.AIModelTypeTTS
+	case model.AIModelTypeASR:
+		return model.AIModelTypeASR
+	case model.AIModelTypeEmbedding:
+		return model.AIModelTypeEmbedding
+	default:
+		return model.AIModelTypeChat
+	}
+}
+
 func (s *AdminService) CreateAIModel(m model.AIModel) error {
+	m.ModelType = normalizeAIModelType(m.ModelType)
 	return DB.Transaction(func(tx *gorm.DB) error {
 		if m.IsDefault {
 			// 将同一 provider 下的其他模型设为非默认
@@ -478,6 +493,7 @@ func (s *AdminService) CreateAIModel(m model.AIModel) error {
 }
 
 func (s *AdminService) UpdateAIModel(id int, m model.AIModel) error {
+	m.ModelType = normalizeAIModelType(m.ModelType)
 	return DB.Transaction(func(tx *gorm.DB) error {
 		if m.IsDefault {
 			if err := tx.Model(&model.AIModel{}).Where("provider_id = ? AND id != ?", m.ProviderID, id).Update("is_default", false).Error; err != nil {
@@ -491,7 +507,7 @@ func (s *AdminService) UpdateAIModel(id int, m model.AIModel) error {
 		}
 		// 显式指定字段以包含 bool 类型的 false
 		return tx.Model(&model.AIModel{}).Where("id = ?", id).
-			Select("model_code", "display_name", "is_default", "is_default_tts", "config_json").
+			Select("model_code", "display_name", "model_type", "is_default", "is_default_tts", "config_json").
 			Updates(m).Error
 	})
 }

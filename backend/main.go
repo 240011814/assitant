@@ -298,6 +298,9 @@ func main() {
 	<-quit
 	log.Println("Shutting down server...")
 
+	// 主动停止 Telegram long-poll, 避免进程重启后旧请求仍占用 getUpdates 导致 409
+	telegramService.Shutdown()
+
 	if jobScheduler != nil {
 		if err := jobScheduler.Shutdown(); err != nil {
 			log.Printf("job scheduler shutdown: %v", err)

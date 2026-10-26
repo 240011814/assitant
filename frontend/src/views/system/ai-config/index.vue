@@ -2,6 +2,7 @@
 import { computed, h, onMounted, ref } from "vue";
 import { useAppStore } from "@/store/modules/app";
 import {
+  NAlert,
   NButton,
   NCard,
   NDataTable,
@@ -10,6 +11,7 @@ import {
   NInput,
   NModal,
   NPopconfirm,
+  NSelect,
   NSpace,
   NSwitch,
   NTabPane,
@@ -82,9 +84,30 @@ const currentProviderId = ref<number | null>(null);
 const modelForm = ref<Partial<Api.Admin.AIModel>>({
   model_code: "",
   display_name: "",
+  model_type: "chat",
   is_default: false,
   config_json: "{}",
 });
+
+const modelTypeOptions = computed(() => [
+  { label: $t("page.system.aiConfig.modelTypeChat"), value: "chat" },
+  { label: $t("page.system.aiConfig.modelTypeTts"), value: "tts" },
+  { label: $t("page.system.aiConfig.modelTypeAsr"), value: "asr" },
+  { label: $t("page.system.aiConfig.modelTypeEmbedding"), value: "embedding" }
+]);
+
+const modelTypeLabel = (type?: string) => {
+  switch (type) {
+    case "tts":
+      return $t("page.system.aiConfig.modelTypeTts");
+    case "asr":
+      return $t("page.system.aiConfig.modelTypeAsr");
+    case "embedding":
+      return $t("page.system.aiConfig.modelTypeEmbedding");
+    default:
+      return $t("page.system.aiConfig.modelTypeChat");
+  }
+};
 
 const columns = computed<DataTableColumns<Api.Admin.AIProvider>>(() => [
   { title: $t("page.system.aiConfig.providerName"), key: "name", width: 120 },
@@ -396,6 +419,17 @@ const modelColumns = computed<DataTableColumns<Api.Admin.AIModel>>(() => [
   { title: $t("page.system.aiConfig.modelCode"), key: "model_code" },
   { title: $t("page.system.aiConfig.displayName"), key: "display_name" },
   {
+    title: $t("page.system.aiConfig.modelType"),
+    key: "model_type",
+    render(row) {
+      return h(
+        NTag,
+        { type: row.model_type === "chat" ? "default" : "info" },
+        { default: () => modelTypeLabel(row.model_type) }
+      );
+    },
+  },
+  {
     title: $t("page.system.aiConfig.default"),
     key: "is_default",
     render(row) {
@@ -478,6 +512,7 @@ function handleAddModel() {
     provider_id: currentProviderId.value!,
     model_code: "",
     display_name: "",
+    model_type: "chat",
     is_default: activeModels.value.length === 0,
     is_default_tts: false,
     config_json: "{}",
@@ -741,12 +776,18 @@ onMounted(() => {
             :placeholder="$t('page.system.aiConfig.displayNamePlaceholder')"
           />
         </NFormItem>
+        <NFormItem :label="$t('page.system.aiConfig.modelType')" path="model_type">
+          <NSelect v-model:value="modelForm.model_type" :options="modelTypeOptions" />
+        </NFormItem>
         <NFormItem :label="$t('page.system.aiConfig.setDefault')" path="is_default">
           <NSwitch v-model:value="modelForm.is_default" />
         </NFormItem>
         <NFormItem :label="$t('page.system.aiConfig.setDefaultTts')" path="is_default_tts">
           <NSwitch v-model:value="modelForm.is_default_tts" />
         </NFormItem>
+        <NAlert v-if="modelForm.model_type === 'tts'" type="info" :bordered="false" class="mb-3">
+          {{ $t("page.system.aiConfig.modelTypeTtsHint") }}
+        </NAlert>
         <NFormItem :label="$t('page.system.aiConfig.runParams')" path="config_json">
           <NInput
             v-model:value="modelForm.config_json"

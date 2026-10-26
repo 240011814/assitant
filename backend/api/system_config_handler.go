@@ -81,13 +81,10 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 	}
 
 	// Telegram Bot Token 变更后重启 Bot
+	// 配置页会连续保存多个 telegram_* 键, 这里做防抖, 避免多次 Stop/Start 与旧 long-poll 请求冲突
 	if req.Key == "telegram_bot_token" || req.Key == "telegram_enabled" || req.Key == "telegram_webhook_url" {
 		if h.telegramService != nil {
-			service.SafeGo("system_config:restart-telegram", func() {
-				if err := h.telegramService.RestartBot(); err != nil {
-					log.Printf("[system_config] 重启 Telegram Bot 失败: %v", err)
-				}
-			})
+			h.telegramService.ScheduleRestart(800 * time.Millisecond)
 		}
 	}
 

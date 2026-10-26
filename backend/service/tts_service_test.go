@@ -212,6 +212,70 @@ func TestEdgeVoiceForLang(t *testing.T) {
 	}
 }
 
+// TestIsDashScopeBaseURL 百炼域名识别 (含业务空间专属域名)
+func TestIsDashScopeBaseURL(t *testing.T) {
+	for _, u := range []string{
+		"https://ws-f2klssymrsc1x05g.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+		"https://dashscope.aliyuncs.com/compatible-mode/v1",
+		"https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+	} {
+		if !isDashScopeBaseURL(u) {
+			t.Errorf("%s 应识别为百炼端点", u)
+		}
+	}
+	for _, u := range []string{"https://api.openai.com/v1", "https://api.deepseek.com/v1"} {
+		if isDashScopeBaseURL(u) {
+			t.Errorf("%s 不应识别为百炼端点", u)
+		}
+	}
+}
+
+// TestDashScopeVoice 音色映射: OpenAI 音色按性别映射, 百炼音色透传
+func TestDashScopeVoice(t *testing.T) {
+	for _, v := range []string{"", "alloy", "nova", "shimmer", "coral", "sage", "fable", "ballad"} {
+		if got := dashScopeVoice(v); got != dashScopeFemaleVoice {
+			t.Errorf("dashScopeVoice(%q) = %q, want %q", v, got, dashScopeFemaleVoice)
+		}
+	}
+	for _, v := range []string{"echo", "onyx", "ash", "verse"} {
+		if got := dashScopeVoice(v); got != dashScopeMaleVoice {
+			t.Errorf("dashScopeVoice(%q) = %q, want %q", v, got, dashScopeMaleVoice)
+		}
+	}
+	if got := dashScopeVoice("longanhuan_v3.1"); got != "longanhuan_v3.1" {
+		t.Errorf("百炼音色应透传, got %q", got)
+	}
+	if got := dashScopeVoice("Emily_v3.1"); got != "Emily_v3.1" {
+		t.Errorf("百炼音色应透传, got %q", got)
+	}
+}
+
+// TestDashScopeTTSEndpoint 端点推导: qwen-audio 走业务空间 SpeechSynthesizer,
+// qwen3-tts 只支持标准地域域名的 multimodal-generation
+func TestDashScopeTTSEndpoint(t *testing.T) {
+	workspace := "https://ws-abc.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+	got := dashScopeTTSEndpoint(workspace, "qwen-audio-3.1-tts-flash")
+	want := "https://ws-abc.cn-beijing.maas.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer"
+	if got != want {
+		t.Errorf("qwen-audio 端点 = %s, want %s", got, want)
+	}
+	if got := dashScopeTTSEndpoint("https://dashscope.aliyuncs.com/compatible-mode/v1", "cosyvoice-v3-flash"); got != "https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer" {
+		t.Errorf("dashscope 域名端点 = %s", got)
+	}
+	if got := dashScopeTTSEndpoint(workspace, "qwen3-tts-flash"); got != "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation" {
+		t.Errorf("qwen3 北京端点 = %s", got)
+	}
+	if got := dashScopeTTSEndpoint("https://ws-abc.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1", "qwen3-tts-flash"); got != "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation" {
+		t.Errorf("qwen3 新加坡端点 = %s", got)
+	}
+}
+
+func TestDashScopeLanguageType(t *testing.T) {
+	if dashScopeLanguageType("zh-CN") != "Chinese" || dashScopeLanguageType("en-US") != "English" || dashScopeLanguageType("ja-JP") != "Auto" {
+		t.Error("language_type 映射不符合预期")
+	}
+}
+
 // TestEdgeSynthLive 真连 Edge 朗读服务, 验证库连通性 (鉴权/协议由依赖库处理)。
 // 默认跳过, 需要时 TTS_LIVE=1 go test -run TestEdgeSynthLive
 func TestEdgeSynthLive(t *testing.T) {

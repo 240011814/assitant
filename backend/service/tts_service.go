@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -18,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"backend/model"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -25,6 +28,8 @@ import (
 // 模式存 system_config tts_mode: frontend(浏览器本地 Web Speech) / openai(OpenAI 兼容 /audio/speech) /
 // edge(微软 Edge 在线朗读, 免费, 走 wss 朗读协议)。openai/edge 模式下前端经 /api/tts 取 mp3 播放,
 // 按内容 hash 落盘缓存 (单词/例句重复播放零成本)。
+// 注意: OpenAI 兼容 Provider 若 base_url 指向阿里云百炼, 其兼容层不含 /audio/speech,
+// 后端透明改调百炼原生 TTS 端点 (synthDashScope), 对使用方式无任何变化。
 const (
 	TtsModeFrontend = "frontend"
 	TtsModeOpenAI   = "openai"
@@ -35,6 +40,11 @@ const (
 	ttsDefaultEdgeVoiceEN = "en-US-AriaNeural"
 	ttsDefaultEdgeVoiceZH = "zh-CN-XiaoxiaoNeural"
 	ttsDefaultCacheDir    = "tts-cache"
+
+	// 阿里云百炼原生 TTS 兜底: 未在模型管理标记默认 TTS 模型时使用的模型与音色
+	dashScopeDefaultModel = "qwen-audio-3.1-tts-flash"
+	dashScopeFemaleVoice  = "longanhuan_v3.1" // 多语种女声
+	dashScopeMaleVoice    = "xunanchuan_v3.1" // 多语种男声
 
 	ttsSynthTimeout  = 60 * time.Second
 	ttsMaxTextRunes  = 4000 // 单次合成文本上限 (rune), 与 OpenAI 4096 限制留余量
@@ -202,11 +212,23 @@ func (s *TtsService) synthesize(ctx context.Context, cfg ttsConfig, text, lang s
 			return nil, errors.New("未找到默认激活的 AI Provider, 请先在 AI 配置中启用")
 		}
 		// 模型管理里标记的默认 TTS 模型优先, 未标记时回落到 tts-1
-		if modelCode, ok := s.aiAgent.ActiveTTSModelCode(); ok {
+		// 误把 ASR 模型标成默认 TTS 时给出明确指引, 而不是让服务商返回难懂的 400/404
+		if modelCode, modelType, ok := s.aiAgent.ActiveTTSModel(); ok {
+			if modelType == model.AIModelTypeASR {
+				return nil, fmt.Errorf("默认 TTS 模型 %q 是语音识别 (ASR) 模型, 请在模型管理中改标语音合成模型", modelCode)
+			}
 			cfg.OpenAIModel = modelCode
 		}
 		if cfg.OpenAIModel == "" {
 			cfg.OpenAIModel = ttsDefaultModel
+		}
+		// 阿里云百炼: OpenAI 兼容层没有 /audio/speech, 透明改用原生 TTS 端点。
+		// 模型/音色先解析成百炼取值再算缓存 key, 避免与真正的 OpenAI 音频互相串缓存。
+		if isDashScopeBaseURL(openAIBaseURL) {
+			if cfg.OpenAIModel == ttsDefaultModel {
+				cfg.OpenAIModel = dashScopeDefaultModel
+			}
+			cfg.OpenAIVoice = dashScopeVoice(cfg.OpenAIVoice)
 		}
 	case TtsModeEdge:
 		// Edge 无需密钥
@@ -251,7 +273,7 @@ func (s *TtsService) synthesize(ctx context.Context, cfg ttsConfig, text, lang s
 		err   error
 	)
 	if cfg.Mode == TtsModeOpenAI {
-		audio, err = s.synthOpenAI(ctx, openAIBaseURL, openAIKey, cfg, text, rate)
+		audio, err = s.synthOpenAI(ctx, openAIBaseURL, openAIKey, cfg, text, lang, rate)
 	} else {
 		audio, err = s.synthEdge(ctx, cfg.edgeVoiceFor(lang), rate, text)
 	}
@@ -327,8 +349,13 @@ func (s *TtsService) writeCache(cfg ttsConfig, key string, audio []byte) error {
 }
 
 // synthOpenAI 调 OpenAI 兼容 /audio/speech (tts-1 等标准接口; 本地兼容服务亦可)。
-// baseURL/key 来自默认激活的 AI Provider (与 AI 对话共用配置)
-func (s *TtsService) synthOpenAI(ctx context.Context, baseURL, apiKey string, cfg ttsConfig, text string, rate float64) ([]byte, error) {
+// baseURL/key 来自默认激活的 AI Provider (与 AI 对话共用配置);
+// base_url 指向阿里云百炼时其兼容层无 /audio/speech, 透明转发到 synthDashScope。
+func (s *TtsService) synthOpenAI(ctx context.Context, baseURL, apiKey string, cfg ttsConfig, text string, lang string, rate float64) ([]byte, error) {
+	if isDashScopeBaseURL(baseURL) {
+		return s.synthDashScope(ctx, baseURL, apiKey, cfg, text, lang, rate)
+	}
+
 	payload, err := json.Marshal(map[string]any{
 		"model":           cfg.OpenAIModel,
 		"input":           text,
@@ -360,6 +387,147 @@ func (s *TtsService) synthOpenAI(ctx context.Context, baseURL, apiKey string, cf
 	audio, err := io.ReadAll(io.LimitReader(resp.Body, ttsMaxAudioBytes))
 	if err != nil {
 		return nil, fmt.Errorf("读取音频失败: %w", err)
+	}
+	return audio, nil
+}
+
+// isDashScopeBaseURL 判断 OpenAI 兼容 Provider 是否指向阿里云百炼 (含业务空间专属域名)。
+func isDashScopeBaseURL(baseURL string) bool {
+	lower := strings.ToLower(baseURL)
+	return strings.Contains(lower, "aliyuncs.com") || strings.Contains(lower, "dashscope")
+}
+
+// dashScopeVoice 把 OpenAI 音色名映射为百炼多语种音色; 已是百炼音色名时原样透传。
+func dashScopeVoice(voice string) string {
+	voice = strings.TrimSpace(voice)
+	switch strings.ToLower(voice) {
+	case "", "alloy", "nova", "shimmer", "coral", "sage", "fable", "ballad":
+		return dashScopeFemaleVoice
+	case "echo", "onyx", "ash", "verse":
+		return dashScopeMaleVoice
+	default:
+		return voice // 用户直接填了百炼音色 (如 longanhuan_v3.1 / Emily_v3.1)
+	}
+}
+
+// dashScopeLanguageType 语言码 -> 百炼 multimodal-generation 的 language_type 取值
+func dashScopeLanguageType(lang string) string {
+	switch {
+	case strings.HasPrefix(strings.ToLower(strings.ReplaceAll(lang, "_", "-")), "zh"):
+		return "Chinese"
+	case strings.HasPrefix(strings.ToLower(strings.ReplaceAll(lang, "_", "-")), "en"):
+		return "English"
+	default:
+		return "Auto"
+	}
+}
+
+// dashScopeTTSEndpoint 由 Provider 的 compatible-mode 端点推导百炼原生 TTS 端点。
+// qwen-audio/cosyvoice 走业务空间域名的 SpeechSynthesizer (返回 mp3 URL);
+// qwen3-tts 仅支持标准地域域名的 multimodal-generation (业务空间域名不支持, 实测 400)。
+func dashScopeTTSEndpoint(baseURL, model string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "qwen3-tts") {
+		host := "https://dashscope.aliyuncs.com"
+		if strings.Contains(strings.ToLower(baseURL), "ap-southeast-1") || strings.Contains(strings.ToLower(baseURL), "dashscope-intl") {
+			host = "https://dashscope-intl.aliyuncs.com"
+		}
+		return host + "/api/v1/services/aigc/multimodal-generation/generation"
+	}
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	base = strings.TrimSuffix(base, "/compatible-mode/v1")
+	base = strings.TrimSuffix(base, "/compatible-mode")
+	base = strings.TrimSuffix(base, "/api/v1")
+	return base + "/api/v1/services/audio/tts/SpeechSynthesizer"
+}
+
+// synthDashScope 阿里云百炼原生 TTS: 非流式返回音频 URL, 下载后即为 mp3。
+// 在 OpenAI 模式内透明调用, 对外接口/缓存/前端播放链路与标准 /audio/speech 完全一致。
+func (s *TtsService) synthDashScope(ctx context.Context, baseURL, apiKey string, cfg ttsConfig, text string, lang string, rate float64) ([]byte, error) {
+	modelCode := strings.TrimSpace(cfg.OpenAIModel)
+	if modelCode == "" {
+		modelCode = dashScopeDefaultModel
+	}
+	voice := dashScopeVoice(cfg.OpenAIVoice)
+
+	input := map[string]any{"text": text, "voice": voice}
+	if strings.HasPrefix(strings.ToLower(modelCode), "qwen3-tts") {
+		input["language_type"] = dashScopeLanguageType(lang)
+	} else {
+		input["format"] = "mp3"
+		input["sample_rate"] = 24000
+		input["rate"] = rate
+	}
+	payload, err := json.Marshal(map[string]any{"model": modelCode, "input": input})
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, dashScopeTTSEndpoint(baseURL, modelCode), strings.NewReader(string(payload)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("百炼 TTS 请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, ttsMaxAudioBytes))
+	if err != nil {
+		return nil, fmt.Errorf("读取百炼 TTS 响应失败: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("百炼 TTS 返回 %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var result struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+		Output  struct {
+			Audio struct {
+				URL  string `json:"url"`
+				Data string `json:"data"`
+			} `json:"audio"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("解析百炼 TTS 响应失败: %w", err)
+	}
+	if result.Code != "" {
+		if result.Message == "" {
+			result.Message = result.Code
+		}
+		return nil, fmt.Errorf("百炼 TTS 错误: %s", result.Message)
+	}
+	if result.Output.Audio.Data != "" {
+		audio, err := base64.StdEncoding.DecodeString(result.Output.Audio.Data)
+		if err != nil {
+			return nil, fmt.Errorf("解码百炼 TTS 音频失败: %w", err)
+		}
+		return audio, nil
+	}
+	if result.Output.Audio.URL == "" {
+		return nil, errors.New("百炼 TTS 未返回音频地址")
+	}
+
+	audioReq, err := http.NewRequestWithContext(ctx, http.MethodGet, result.Output.Audio.URL, nil)
+	if err != nil {
+		return nil, err
+	}
+	audioResp, err := s.httpClient.Do(audioReq)
+	if err != nil {
+		return nil, fmt.Errorf("下载百炼 TTS 音频失败: %w", err)
+	}
+	defer audioResp.Body.Close()
+	if audioResp.StatusCode != http.StatusOK {
+		audioBody, _ := io.ReadAll(io.LimitReader(audioResp.Body, 1024))
+		return nil, fmt.Errorf("下载百炼 TTS 音频返回 %d: %s", audioResp.StatusCode, strings.TrimSpace(string(audioBody)))
+	}
+	audio, err := io.ReadAll(io.LimitReader(audioResp.Body, ttsMaxAudioBytes))
+	if err != nil {
+		return nil, fmt.Errorf("读取百炼 TTS 音频失败: %w", err)
 	}
 	return audio, nil
 }

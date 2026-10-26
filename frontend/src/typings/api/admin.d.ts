@@ -106,6 +106,7 @@ declare namespace Api {
       provider_id: number;
       model_code: string;
       display_name: string;
+      model_type: 'chat' | 'tts' | 'asr' | 'embedding';
       is_default: boolean;
       is_default_tts: boolean;
       config_json: string;

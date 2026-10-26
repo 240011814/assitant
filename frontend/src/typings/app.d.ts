@@ -661,6 +661,12 @@ declare namespace App {
             modelCodePlaceholder: string;
             displayName: string;
             displayNamePlaceholder: string;
+            modelType: string;
+            modelTypeChat: string;
+            modelTypeTts: string;
+            modelTypeAsr: string;
+            modelTypeEmbedding: string;
+            modelTypeTtsHint: string;
             setDefault: string;
             defaultTts: string;
             setDefaultTts: string;

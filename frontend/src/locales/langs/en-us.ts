@@ -451,6 +451,13 @@ const local: App.I18n.Schema = {
         modelCodePlaceholder: "e.g. deepseek-chat",
         displayName: "Display Name",
         displayNamePlaceholder: "e.g. DeepSeek Chat",
+        modelType: "Model Type",
+        modelTypeChat: "Chat",
+        modelTypeTts: "Text to Speech (TTS)",
+        modelTypeAsr: "Speech Recognition (ASR)",
+        modelTypeEmbedding: "Embedding",
+        modelTypeTtsHint:
+          "TTS models must be supported by the reading engine: the OpenAI-compatible mode requires the provider to implement /audio/speech (e.g. OpenAI tts-1). For Alibaba Cloud Bailian providers the backend transparently uses native TTS — mark qwen-audio-3.1-tts-flash / qwen3-tts-flash. Speech recognition (ASR) models cannot be used for playback.",
         setDefault: "Set as Default",
         defaultTts: "Default TTS",
         setDefaultTts: "Set as Default TTS",
@@ -590,7 +597,7 @@ const local: App.I18n.Schema = {
         ttsDesc:
           "Speech engine for word and article playback in reading, quizzes, etc. Browser mode needs no backend but voices vary by device; OpenAI-compatible and Edge modes synthesize MP3 on the backend so every browser gets the same voice (Edge online voices are free).",
         ttsOpenaiHint:
-          "Synthesized via the default active AI provider and the model marked as Default TTS in model management; no separate URL, key, or model required.",
+          "Synthesized via the default active AI provider and the model marked as Default TTS in model management; no separate URL, key, or model required. The provider must implement OpenAI /audio/speech; if it is Alibaba Cloud Bailian (whose compatible layer lacks that endpoint), the backend transparently falls back to Bailian native TTS — mark a speech model like qwen-audio-3.1-tts-flash as Default TTS.",
         ttsFrontendVoice: "Browser Voice",
         ttsFrontendVoicePlaceholder: "Pick from voices supported by this browser, type to filter",
         ttsBrowserNoVoices:

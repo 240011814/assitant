@@ -443,6 +443,13 @@ const local: App.I18n.Schema = {
         modelCodePlaceholder: "如 deepseek-chat",
         displayName: "显示名称",
         displayNamePlaceholder: "如 DeepSeek Chat",
+        modelType: "模型类型",
+        modelTypeChat: "对话 (Chat)",
+        modelTypeTts: "语音合成 (TTS)",
+        modelTypeAsr: "语音识别 (ASR)",
+        modelTypeEmbedding: "向量 (Embedding)",
+        modelTypeTtsHint:
+          "TTS 模型须由朗读引擎支持：OpenAI 兼容模式要求服务商实现 /audio/speech 接口 (如 OpenAI tts-1); 阿里云百炼 Provider 会自动改用原生 TTS, 可标记 qwen-audio-3.1-tts-flash / qwen3-tts-flash。语音识别 (ASR) 模型不能作为朗读模型使用。",
         setDefault: "设为默认",
         defaultTts: "默认 TTS",
         setDefaultTts: "设为默认 TTS",
@@ -574,7 +581,7 @@ const local: App.I18n.Schema = {
         ttsDesc:
           "阅读/测验等界面的单词与文章朗读引擎。浏览器本地模式无需后端但各设备音色不一; OpenAI 兼容与 Edge 模式由后端合成 mp3, 所有浏览器音色一致 (Edge 在线语音免费)。",
         ttsOpenaiHint:
-          "使用 AI 配置中默认激活的 Provider 和模型管理中标记为「默认 TTS」的模型合成, 无需单独填写服务地址、密钥与模型。",
+          "使用 AI 配置中默认激活的 Provider 和模型管理中标记为「默认 TTS」的模型合成, 无需单独填写服务地址、密钥与模型。要求服务商实现 OpenAI /audio/speech 接口; 若 Provider 是阿里云百炼 (兼容层无此接口), 后端会自动改用百炼原生 TTS, 模型请标记 qwen-audio-3.1-tts-flash 之类的语音合成模型。",
         ttsFrontendVoice: "本地音色",
         ttsFrontendVoicePlaceholder: "从当前浏览器支持的音色中选择, 可输入筛选",
         ttsBrowserNoVoices: "当前浏览器未检测到可用音源, 本地朗读将不可用; 建议改用 Edge 在线语音模式。",

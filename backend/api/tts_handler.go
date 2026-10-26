@@ -55,7 +55,16 @@ func (h *TtsHandler) HandleSynthesize(c *gin.Context) {
 	}
 
 	c.Header("Cache-Control", "private, max-age=86400")
-	c.Data(http.StatusOK, "audio/mpeg", audio)
+	c.Data(http.StatusOK, audioContentType(audio), audio)
+}
+
+// audioContentType 按文件头识别音频格式: 标准 OpenAI/Edge/百炼返回 mp3,
+// 少数兼容服务可能返回 WAV, 用对的 MIME 浏览器才不会拒绝播放。
+func audioContentType(audio []byte) string {
+	if len(audio) >= 12 && string(audio[0:4]) == "RIFF" && string(audio[8:12]) == "WAVE" {
+		return "audio/wav"
+	}
+	return "audio/mpeg"
 }
 
 // HandleTestTts 管理端播放测试: 用配置页当前表单值 (未保存也可测) 合成一段样例,
@@ -96,5 +105,5 @@ func (h *TtsHandler) HandleTestTts(c *gin.Context) {
 		return
 	}
 	c.Header("Cache-Control", "no-store")
-	c.Data(http.StatusOK, "audio/mpeg", audio)
+	c.Data(http.StatusOK, audioContentType(audio), audio)
 }

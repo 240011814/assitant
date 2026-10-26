@@ -14,11 +14,19 @@ type AIProvider struct {
 	Models    []AIModel `json:"models" gorm:"foreignKey:ProviderID"`
 }
 
+const (
+	AIModelTypeChat      = "chat"
+	AIModelTypeTTS       = "tts"
+	AIModelTypeASR       = "asr"
+	AIModelTypeEmbedding = "embedding"
+)
+
 type AIModel struct {
 	ID           int       `json:"id" gorm:"primaryKey"`
 	ProviderID   int       `json:"provider_id"`
 	ModelCode    string    `json:"model_code"`
 	DisplayName  string    `json:"display_name"`
+	ModelType    string    `json:"model_type" gorm:"size:20;default:chat"` // chat/tts/asr/embedding
 	IsDefault    bool      `json:"is_default"`
 	IsDefaultTTS bool      `json:"is_default_tts"` // 是否为该 Provider 的默认 TTS 模型
 	ConfigJSON   string    `json:"config_json"`    // JSON string for parameters

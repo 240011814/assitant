@@ -350,6 +350,7 @@ func (h *AdminHandler) HandleTestAIConnection(c *gin.Context) {
 		return
 	}
 	// 列表接口不再返回明文 API Key, 测试连接时按 model_id/provider_id 从库里补齐
+	modelType := model.AIModelTypeChat
 	if req.ModelID > 0 {
 		m, err := h.svc.GetAIModel(req.ModelID)
 		if err != nil {
@@ -358,6 +359,19 @@ func (h *AdminHandler) HandleTestAIConnection(c *gin.Context) {
 		}
 		req.ProviderID = m.ProviderID
 		req.ModelCode = m.ModelCode
+		modelType = m.ModelType
+	}
+	// 非对话模型不能走 Chat Completions 测试, 否则各家服务端会返回难以理解的 URL/参数错误
+	switch modelType {
+	case model.AIModelTypeTTS:
+		SendError(c, "400", "该模型是 TTS 语音合成模型，请到「系统配置 -> 语音朗读」中播放测试")
+		return
+	case model.AIModelTypeASR:
+		SendError(c, "400", "该模型是 ASR 语音识别模型，不支持 Chat 连接测试")
+		return
+	case model.AIModelTypeEmbedding:
+		SendError(c, "400", "该模型是 Embedding 向量模型，不支持 Chat 连接测试")
+		return
 	}
 	if req.ProviderID > 0 {
 		provider, err := h.svc.GetAIProvider(req.ProviderID)

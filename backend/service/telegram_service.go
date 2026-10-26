@@ -22,6 +22,8 @@ type TelegramService struct {
 	stopCh        chan struct{}
 	mu            sync.RWMutex // 保护 bot/running/webhookURL
 	startMu       sync.Mutex
+	restartMu     sync.Mutex
+	restartTimer  *time.Timer
 	webhookURL    string
 	running       bool
 }
@@ -100,6 +102,9 @@ func (s *TelegramService) StartBot() error {
 	token := s.sysCfgService.GetTelegramBotToken()
 	if token == "" {
 		log.Println("[Telegram] Bot Token not configured, skipping bot start")
+		s.mu.Lock()
+		s.running = false
+		s.mu.Unlock()
 		return nil
 	}
 
@@ -108,6 +113,9 @@ func (s *TelegramService) StartBot() error {
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		log.Printf("[Telegram] Failed to create bot: %v", err)
+		s.mu.Lock()
+		s.running = false
+		s.mu.Unlock()
 		return fmt.Errorf("failed to create bot: %w", err)
 	}
 
@@ -202,6 +210,31 @@ func (s *TelegramService) RestartBot() error {
 	return s.StartBot()
 }
 
+// ScheduleRestart 防抖重启: 配置页连续保存多个 telegram_* 键时只重启一次。
+func (s *TelegramService) ScheduleRestart(delay time.Duration) {
+	s.restartMu.Lock()
+	defer s.restartMu.Unlock()
+	if s.restartTimer != nil {
+		s.restartTimer.Stop()
+	}
+	s.restartTimer = time.AfterFunc(delay, func() {
+		if err := s.RestartBot(); err != nil {
+			log.Printf("[Telegram] 重启 Bot 失败: %v", err)
+		}
+	})
+}
+
+// Shutdown 停止待执行的重启并释放 long-poll 连接 (进程退出前调用)。
+func (s *TelegramService) Shutdown() {
+	s.restartMu.Lock()
+	if s.restartTimer != nil {
+		s.restartTimer.Stop()
+		s.restartTimer = nil
+	}
+	s.restartMu.Unlock()
+	s.StopBot()
+}
+
 // setupWebhook 设置 Webhook
 func (s *TelegramService) setupWebhook(webhookURL string) error {
 	bot := s.getBot()
@@ -287,7 +320,11 @@ func (s *TelegramService) listenUpdates(bot *tgbotapi.BotAPI) {
 		case <-s.stopCh:
 			log.Println("[Telegram] Stop signal received")
 			return
-		case update := <-updates:
+		case update, ok := <-updates:
+			if !ok {
+				log.Println("[Telegram] Update channel closed")
+				return
+			}
 			if update.Message != nil {
 				log.Printf("[Telegram] Received message from %s: %s", update.Message.From.UserName, update.Message.Text)
 				s.handleMessage(update.Message)
