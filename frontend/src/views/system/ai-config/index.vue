@@ -421,6 +421,7 @@ const modelColumns = computed<DataTableColumns<Api.Admin.AIModel>>(() => [
   {
     title: $t("page.system.aiConfig.modelType"),
     key: "model_type",
+    width: 130,
     render(row) {
       return h(
         NTag,
@@ -458,10 +459,11 @@ const modelColumns = computed<DataTableColumns<Api.Admin.AIModel>>(() => [
   {
     title: $t("page.system.aiConfig.actions"),
     key: "actions",
+    width: 240,
     render(row) {
       return h(
         NSpace,
-        {},
+        { wrap: false },
         {
           default: () => [
             h(
@@ -752,7 +754,7 @@ onMounted(() => {
       v-model:show="showModelModal"
       :title="modelDialogTitle"
       preset="card"
-      :class="modelModalMode === 'list' ? 'w-800px max-w-[96vw]' : 'w-500px max-w-[96vw]'"
+      :class="modelModalMode === 'list' ? 'w-920px max-w-[96vw]' : 'w-500px max-w-[96vw]'"
     >
       <div v-if="modelModalMode === 'list'">
         <div class="mb-4 flex justify-end">
@@ -760,7 +762,7 @@ onMounted(() => {
             {{ $t("page.system.aiConfig.addModel") }}
           </NButton>
         </div>
-        <NDataTable :columns="modelColumns" :data="activeModels" :scroll-x="700" />
+        <NDataTable :columns="modelColumns" :data="activeModels" :scroll-x="860" />
       </div>
 
       <NForm v-else :model="modelForm" label-placement="left" :label-width="100">
