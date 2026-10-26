@@ -555,9 +555,6 @@ onDeactivated(() => {
       class="w-60 shrink-0 self-start"
       :title="`订阅源 (${sources.length})`"
     >
-      <template #header-extra>
-        <NButton size="tiny" quaternary type="primary" @click="showAddModal = true">添加</NButton>
-      </template>
       <div class="flex flex-col gap-0.5">
         <div
           class="flex items-center gap-2 rounded px-2 py-1.5 cursor-pointer"
