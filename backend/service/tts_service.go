@@ -215,30 +215,32 @@ func (s *TtsService) synthesize(ctx context.Context, cfg ttsConfig, text, lang s
 		if !ok || openAIBaseURL == "" || openAIKey == "" {
 			return nil, errors.New("未找到默认激活的 AI Provider, 请先在 AI 配置中启用")
 		}
-		// 模型管理里标记的默认 TTS 模型优先, 未标记时回落到 tts-1
-		// 误把 ASR 模型标成默认 TTS 时给出明确指引, 而不是让服务商返回难懂的 400/404
-		if modelCode, modelType, ok := s.aiAgent.ActiveTTSModel(); ok {
+		// 模型管理里标记的默认 TTS 模型优先; 误把 ASR 模型标成默认 TTS 时给出明确指引,
+		// 而不是让服务商返回难懂的 400/404
+		modelCode, modelType, hasMarkedTTS := s.aiAgent.ActiveTTSModel()
+		if hasMarkedTTS {
 			if modelType == model.AIModelTypeASR {
 				return nil, fmt.Errorf("默认 TTS 模型 %q 是语音识别 (ASR) 模型, 请在模型管理中改标语音合成模型", modelCode)
 			}
 			cfg.OpenAIModel = modelCode
 		}
-		if cfg.OpenAIModel == "" {
-			cfg.OpenAIModel = ttsDefaultModel
-		}
-		// 阿里云百炼 / 小米 MiMo: OpenAI 兼容层没有 /audio/speech, 透明改用各自的原生 TTS 协议。
-		// 模型/音色先解析成对应取值再算缓存 key, 避免与真正的 OpenAI 音频互相串缓存。
+		// 真 OpenAI 未标记时回落 tts-1; 阿里云百炼 / 小米 MiMo 的模型名不做猜测,
+		// 未标记默认 TTS 模型直接报错, 避免"看似能用其实用错模型"
 		switch {
 		case isDashScopeBaseURL(openAIBaseURL):
-			if cfg.OpenAIModel == ttsDefaultModel {
-				cfg.OpenAIModel = dashScopeDefaultModel
+			if !hasMarkedTTS {
+				return nil, fmt.Errorf("未在模型管理中标记默认 TTS 模型, 阿里云百炼不支持自动选择, 请标记 %s 等语音合成模型", dashScopeDefaultModel)
 			}
 			cfg.OpenAIVoice = dashScopeVoice(cfg.OpenAIVoice)
 		case isXiaomiBaseURL(openAIBaseURL):
-			if cfg.OpenAIModel == ttsDefaultModel {
-				cfg.OpenAIModel = mimoDefaultModel
+			if !hasMarkedTTS {
+				return nil, fmt.Errorf("未在模型管理中标记默认 TTS 模型, 小米 MiMo 不支持自动选择, 请标记 %s 等语音合成模型", mimoDefaultModel)
 			}
-			cfg.OpenAIVoice = mimoVoice(cfg.OpenAIVoice)
+			cfg.OpenAIVoice = mimoVoice(cfg.OpenAIVoice, lang)
+		default:
+			if cfg.OpenAIModel == "" {
+				cfg.OpenAIModel = ttsDefaultModel
+			}
 		}
 	case TtsModeEdge:
 		// Edge 无需密钥
@@ -367,7 +369,7 @@ func (s *TtsService) synthOpenAI(ctx context.Context, baseURL, apiKey string, cf
 		return s.synthDashScope(ctx, baseURL, apiKey, cfg, text, lang, rate)
 	}
 	if isXiaomiBaseURL(baseURL) {
-		return s.synthXiaomi(ctx, baseURL, apiKey, cfg, text, rate)
+		return s.synthXiaomi(ctx, baseURL, apiKey, cfg, text, lang, rate)
 	}
 
 	payload, err := json.Marshal(map[string]any{
@@ -459,7 +461,7 @@ func dashScopeTTSEndpoint(baseURL, model string) string {
 func (s *TtsService) synthDashScope(ctx context.Context, baseURL, apiKey string, cfg ttsConfig, text string, lang string, rate float64) ([]byte, error) {
 	modelCode := strings.TrimSpace(cfg.OpenAIModel)
 	if modelCode == "" {
-		modelCode = dashScopeDefaultModel
+		return nil, errors.New("阿里云百炼 TTS 未配置模型, 请在模型管理中标记默认 TTS 模型 (如 qwen-audio-3.1-tts-flash)")
 	}
 	voice := dashScopeVoice(cfg.OpenAIVoice)
 
@@ -552,17 +554,32 @@ func isXiaomiBaseURL(baseURL string) bool {
 	return strings.Contains(lower, "xiaomimimo.com") || strings.Contains(lower, "mimo.xiaomi.com")
 }
 
-// mimoVoice 音色解析: OpenAI 标准音色名映射为 MiMo 预置音色, 其余 (MiMo 音色名) 原样透传
-func mimoVoice(voice string) string {
+// mimoVoice 音色解析 (按语言区分, 见预置音色列表: 冰糖/茉莉/苏打/白桦为中文, Mia/Chloe/Milo/Dean 为英文):
+// OpenAI 标准音色名按性别映射, 其余 (MiMo 音色名 / data URI) 原样透传
+func mimoVoice(voice, lang string) string {
 	voice = strings.TrimSpace(voice)
-	switch strings.ToLower(voice) {
-	case "", "alloy", "nova", "shimmer", "coral", "sage", "fable", "ballad":
-		return "冰糖" // 甜美女声
-	case "echo", "onyx", "ash", "verse":
-		return "苏打" // 清爽男声
-	default:
-		return voice // 用户直接填了 MiMo 音色 (如 茉莉 / Chloe / mimo_default)
+	if voice == "" {
+		return mimoDefaultVoice
 	}
+	switch strings.ToLower(voice) {
+	case "alloy", "nova", "shimmer", "coral", "sage", "fable", "ballad":
+		if isZhLang(lang) {
+			return "冰糖"
+		}
+		return "Mia"
+	case "echo", "onyx", "ash", "verse":
+		if isZhLang(lang) {
+			return "苏打"
+		}
+		return "Milo"
+	default:
+		return voice // 用户直接填了 MiMo 音色 (如 茉莉 / Chloe / mimo_default) 或克隆 data URI
+	}
+}
+
+// isZhLang 判断是否中文语种
+func isZhLang(lang string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.ReplaceAll(lang, "_", "-")), "zh")
 }
 
 // mimoChatEndpoint 归一化为小米官方 TTS 端点: 必须带 /v1/chat/completions
@@ -575,22 +592,33 @@ func mimoChatEndpoint(baseURL string) string {
 }
 
 // synthXiaomi 小米 MiMo 原生 TTS: 其"OpenAI 兼容"指走 chat/completions + audio 字段,
-// 而非标准 /audio/speech。响应在 choices[0].message.audio.data (base64), 本次请求 mp3 直出。
+// 而非标准 /audio/speech。按官方文档:
+//   - 待合成文本必须放在 role=assistant 的消息里, user 消息可选 (传风格/语速指令, 内容不会被朗读)
+//   - audio.format 支持 wav/mp3/pcm/pcm16, 非流式取 mp3
+//   - 响应在 choices[0].message.audio.data (base64)
+//
 // 对外接口/缓存/前端播放链路与标准 /audio/speech 完全一致。
-func (s *TtsService) synthXiaomi(ctx context.Context, baseURL, apiKey string, cfg ttsConfig, text string, rate float64) ([]byte, error) {
+func (s *TtsService) synthXiaomi(ctx context.Context, baseURL, apiKey string, cfg ttsConfig, text string, lang string, rate float64) ([]byte, error) {
 	modelCode := strings.TrimSpace(cfg.OpenAIModel)
 	if modelCode == "" {
-		modelCode = mimoDefaultModel
+		return nil, errors.New("小米 TTS 未配置模型, 请在模型管理中标记默认 TTS 模型 (如 mimo-v2.5-tts)")
 	}
-	voice := mimoVoice(cfg.OpenAIVoice)
+	voice := mimoVoice(cfg.OpenAIVoice, lang)
+
+	// user 消息仅在需要调语速时携带指令 (官方: 自然语言指令放在 user 消息, 不会被朗读)
+	messages := []map[string]string{
+		{"role": "assistant", "content": text},
+	}
+	if rate != 1.0 {
+		messages = append([]map[string]string{
+			{"role": "user", "content": fmt.Sprintf("语速调整为正常语速的 %.2f 倍。", rate)},
+		}, messages...)
+	}
 
 	payload, err := json.Marshal(map[string]any{
-		"model": modelCode,
-		"messages": []map[string]string{
-			{"role": "user", "content": "请用自然流畅的语气朗读下面这段文本。"},
-			{"role": "assistant", "content": text},
-		},
-		"stream": false,
+		"model":    modelCode,
+		"messages": messages,
+		"stream":   false,
 		"audio": map[string]any{
 			"format": "mp3",
 			"voice":  voice,

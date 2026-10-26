@@ -289,23 +289,36 @@ func TestIsXiaomiBaseURL(t *testing.T) {
 	}
 }
 
-// TestMimoVoice 音色映射: OpenAI 音色按性别映射, 小米音色透传
+// TestMimoVoice 音色映射: OpenAI 音色按性别 + 文本语言映射, 小米音色透传
 func TestMimoVoice(t *testing.T) {
-	for _, v := range []string{"", "alloy", "nova", "shimmer"} {
-		if got := mimoVoice(v); got != "冰糖" {
-			t.Errorf("mimoVoice(%q) = %q, want 冰糖", v, got)
+	// 空音色按官方文档回落 mimo_default (中国集群=冰糖, 其他集群=Mia)
+	if got := mimoVoice("", "zh-CN"); got != mimoDefaultVoice {
+		t.Errorf("空音色应为 mimo_default, got %q", got)
+	}
+	for _, v := range []string{"alloy", "nova", "shimmer"} {
+		if got := mimoVoice(v, "zh-CN"); got != "冰糖" {
+			t.Errorf("mimoVoice(%q, zh) = %q, want 冰糖", v, got)
+		}
+		if got := mimoVoice(v, "en-US"); got != "Mia" {
+			t.Errorf("mimoVoice(%q, en) = %q, want Mia", v, got)
 		}
 	}
 	for _, v := range []string{"echo", "onyx", "ash", "verse"} {
-		if got := mimoVoice(v); got != "苏打" {
-			t.Errorf("mimoVoice(%q) = %q, want 苏打", v, got)
+		if got := mimoVoice(v, "zh-CN"); got != "苏打" {
+			t.Errorf("mimoVoice(%q, zh) = %q, want 苏打", v, got)
+		}
+		if got := mimoVoice(v, "en-US"); got != "Milo" {
+			t.Errorf("mimoVoice(%q, en) = %q, want Milo", v, got)
 		}
 	}
-	if got := mimoVoice("Chloe"); got != "Chloe" {
+	if got := mimoVoice("Chloe", "zh-CN"); got != "Chloe" {
 		t.Errorf("小米音色应透传, got %q", got)
 	}
-	if got := mimoVoice("茉莉"); got != "茉莉" {
+	if got := mimoVoice("茉莉", "en-US"); got != "茉莉" {
 		t.Errorf("小米音色应透传, got %q", got)
+	}
+	if got := mimoVoice("data:audio/mpeg;base64,AAAA", "zh-CN"); got != "data:audio/mpeg;base64,AAAA" {
+		t.Errorf("克隆 data URI 应透传, got %q", got)
 	}
 }
 
