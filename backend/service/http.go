@@ -1,45 +1,14 @@
 package service
 
 import (
-	"crypto/tls"
-	"net"
-	"net/http"
 	"time"
+	"net/http"
+
+	"backend/service/kernel"
 )
 
-func newHTTPClient(timeout time.Duration, config ...TimeoutConfig) *http.Client {
-	dialTimeout := 30 * time.Second
-	tlsHandshakeTimeout := 15 * time.Second
-	responseHeaderTimeout := 30 * time.Second
-
-	if len(config) > 0 {
-		cfg := config[0]
-		if cfg.HTTPTimeout > 0 {
-			dialTimeout = time.Duration(cfg.HTTPTimeout) * time.Second
-		}
-		if cfg.AITLSHandshakeTimeout > 0 {
-			tlsHandshakeTimeout = time.Duration(cfg.AITLSHandshakeTimeout) * time.Second
-		}
-		if cfg.AIResponseHeaderTimeout > 0 {
-			responseHeaderTimeout = time.Duration(cfg.AIResponseHeaderTimeout) * time.Second
-		}
-	}
-
-	return &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout:   dialTimeout,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			TLSHandshakeTimeout:   tlsHandshakeTimeout,
-			ResponseHeaderTimeout: responseHeaderTimeout,
-			IdleConnTimeout:       90 * time.Second,
-			TLSClientConfig: &tls.Config{
-				MinVersion: tls.VersionTLS12,
-			},
-			MaxIdleConns:        100,
-			MaxIdleConnsPerHost: 10,
-		},
-	}
+// newHTTPClient 委托给 kernel.NewHTTPClient (原 http.go, 抽到共享层以免业务子包循环依赖)。
+// TimeoutConfig 已是 kernel.TimeoutConfig 的真别名, 签名与调用点不变。
+var newHTTPClient = func(timeout time.Duration, config ...TimeoutConfig) *http.Client {
+	return kernel.NewHTTPClient(timeout, config...)
 }

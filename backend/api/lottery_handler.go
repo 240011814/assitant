@@ -4,16 +4,17 @@ import (
 	"strconv"
 
 	"backend/model"
-	"backend/service"
+	"backend/service/kernel"
+	"backend/service/lottery"
 
 	"github.com/gin-gonic/gin"
 )
 
 type LotteryHandler struct {
-	svc *service.LotteryService
+	svc *lottery.LotteryService
 }
 
-func NewLotteryHandler(svc *service.LotteryService) *LotteryHandler {
+func NewLotteryHandler(svc *lottery.LotteryService) *LotteryHandler {
 	return &LotteryHandler{svc: svc}
 }
 
@@ -285,7 +286,7 @@ func (h *LotteryHandler) HandleListRecords(c *gin.Context) {
 	page, _ := strconv.Atoi(pageStr)
 	pageSize, _ := strconv.Atoi(pageSizeStr)
 
-	page = service.NormalizePage(page)
+	page = kernel.NormalizePage(page)
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 10
 	}
@@ -331,7 +332,7 @@ func (h *LotteryHandler) HandleListWinners(c *gin.Context) {
 	page, _ := strconv.Atoi(pageStr)
 	pageSize, _ := strconv.Atoi(pageSizeStr)
 
-	page = service.NormalizePage(page)
+	page = kernel.NormalizePage(page)
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 10
 	}

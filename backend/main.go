@@ -16,6 +16,8 @@ import (
 	"backend/config"
 	"backend/model"
 	"backend/service"
+	"backend/service/cut"
+	"backend/service/lottery"
 	"backend/service/tools"
 
 	"github.com/gin-gonic/gin"
@@ -36,10 +38,14 @@ func main() {
 		log.Fatal("JWT secret 未配置或仍为默认值, 请在 config.yaml 的 auth.jwt_secret 中设置强随机密钥")
 	}
 
-	_, err = service.InitDB(cfg)
+	db, err := service.InitDB(cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize Database: %v", err)
 	}
+
+	// 业务子包各自的 DB 接线: 子包声明 var DB, 这里统一注入 (子包内部 DB. 调用点无需改)
+	lottery.DB = db
+	cut.DB = db
 
 	// 操作审计日志异步写入 (需在 DB 初始化后启动)
 	api.InitAuditLogger()
@@ -103,7 +109,7 @@ func main() {
 	dashboardService := service.NewDashboardService()
 	dashboardHandler := api.NewDashboardHandler(dashboardService)
 
-	cutService := service.NewCutService(cfg.Baostock.URL)
+	cutService := cut.NewCutService(cfg.Baostock.URL)
 	cutHandler := api.NewCutHandler(cutService)
 
 	promptHandler := api.NewPromptHandler(promptService)
@@ -146,7 +152,7 @@ func main() {
 	historyService := service.NewHistoryService(mem0Svc)
 	historyHandler := api.NewHistoryHandler(historyService)
 
-	lotteryService := service.NewLotteryService()
+	lotteryService := lottery.NewLotteryService()
 	lotteryHandler := api.NewLotteryHandler(lotteryService)
 
 	modelScenarioService := service.NewModelScenarioService()

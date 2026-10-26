@@ -1,4 +1,4 @@
-package service
+package cut
 
 import (
 	"bytes"
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"backend/model"
+	"backend/service/kernel"
 )
 
 // ===== OR-Tools 精确求解 sidecar 客户端 (cut_api/, 与 baostock 同款 sidecar 模式) =====
@@ -147,7 +148,7 @@ func (s *CutService) solvePreciseGroup(client *cutSolverClient, items []aggItem,
 		return nil, nil, fmt.Errorf("求解响应超过 %d MB 上限", cutSolverMaxResponseBytes>>20)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("求解服务返回 HTTP %d: %s", resp.StatusCode, truncateRunes(string(body), 200))
+		return nil, nil, fmt.Errorf("求解服务返回 HTTP %d: %s", resp.StatusCode, kernel.TruncateRunes(string(body), 200))
 	}
 	var out cutSolverResponse
 	if err := json.Unmarshal(body, &out); err != nil {

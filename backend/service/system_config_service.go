@@ -2,6 +2,7 @@ package service
 
 import (
 	"backend/model"
+	"backend/service/kernel"
 	"strconv"
 	"sync"
 
@@ -15,13 +16,8 @@ type Mem0Config struct {
 	BaseURL string
 }
 
-// TimeoutConfig 超时配置
-type TimeoutConfig struct {
-	AIRequestTimeout        int // AI 请求超时时间（分钟）
-	AITLSHandshakeTimeout   int // AI TLS 握手超时时间（秒）
-	AIResponseHeaderTimeout int // AI 响应头超时时间（秒）
-	HTTPTimeout             int // HTTP 请求超时时间（秒），用于 AI 连接、Mem0、Telegram
-}
+// TimeoutConfig 超时配置 (真别名, 与 kernel.TimeoutConfig 是同一类型; 原定义抽到共享层)
+type TimeoutConfig = kernel.TimeoutConfig
 
 type SystemConfigService struct {
 	mu           sync.RWMutex

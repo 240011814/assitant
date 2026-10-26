@@ -1,4 +1,4 @@
-package service
+package cut
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"backend/model"
+	"backend/service/kernel"
 )
 
 // ===== 二维精确求解 sidecar 客户端 (cut_api/solver_2d, 与一维同款 sidecar 模式) =====
@@ -298,7 +299,7 @@ func (s *CutService) trySolvePlanePrecise(client *cutSolverClient, req model.Bin
 		return nil, false
 	}
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[Cut] 求解服务返回 HTTP %d: %s", resp.StatusCode, truncateRunes(string(body), 200))
+		log.Printf("[Cut] 求解服务返回 HTTP %d: %s", resp.StatusCode, kernel.TruncateRunes(string(body), 200))
 		return nil, false
 	}
 	var out cut2dSolverResponse

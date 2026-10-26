@@ -1,9 +1,6 @@
 package service
 
-// NormalizePage 规范化页码: <1 回 1
-func NormalizePage(page int) int {
-	if page < 1 {
-		return 1
-	}
-	return page
-}
+import "backend/service/kernel"
+
+// NormalizePage 委托给 kernel.NormalizePage (原 pagination.go, 抽到共享层)。
+var NormalizePage = kernel.NormalizePage

@@ -1,4 +1,6 @@
-package service
+// Package lottery 抽奖业务: 仅依赖 model 层与自有 DB 接线, 与其它业务包零耦合。
+// DB 由 main.go 在 InitDB 后注入 (lottery.DB = db), 本包不 import service 避免循环。
+package lottery
 
 import (
 	"errors"
@@ -11,6 +13,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+// DB 本包专用数据库句柄, 由 main.go 接线赋值。
+var DB *gorm.DB
 
 type LotteryService struct{}
 

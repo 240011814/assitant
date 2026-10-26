@@ -1,7 +1,8 @@
-package service
+package cut
 
 import (
 	"backend/model"
+	"backend/service/kernel"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,10 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+// DB 本包专用数据库句柄, 由 main.go 接线赋值 (cut.DB = db)。
+// 子包内部所有 DB. 调用点无需改动。
+var DB *gorm.DB
 
 type CutService struct {
 	baostockURL string // Baostock sidecar 地址 (BAOSTOCK_API_URL), 兼任精确求解服务; 空 = 未启用精确模式
@@ -2464,20 +2469,9 @@ func itoa(i int) string {
 	return strconv.Itoa(i)
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
+// min/max 已删除: Go 1.21+ 内置, 语义一致 (所有调用点均为 int)。
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
+// round2 委托给 kernel.Round2 (抽到共享层, stock 域也用它)。
 func round2(f float64) float64 {
-	return math.Round(f*100) / 100
+	return kernel.Round2(f)
 }

@@ -4,22 +4,22 @@ import (
 	"strconv"
 
 	"backend/model"
-	"backend/service"
+	"backend/service/cut"
 
 	"github.com/gin-gonic/gin"
 )
 
 type CutHandler struct {
-	svc *service.CutService
+	svc *cut.CutService
 }
 
-func NewCutHandler(svc *service.CutService) *CutHandler {
+func NewCutHandler(svc *cut.CutService) *CutHandler {
 	return &CutHandler{svc: svc}
 }
 
 // sendCutErr 按错误类型返回状态码: 输入校验类 400, 其余 500
 func sendCutErr(c *gin.Context, msg string, err error) {
-	if service.IsInvalidInput(err) {
+	if cut.IsInvalidInput(err) {
 		SendError(c, "400", msg+": "+err.Error())
 		return
 	}

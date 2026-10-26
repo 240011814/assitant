@@ -2,6 +2,7 @@ package service
 
 import (
 	"backend/model"
+	"backend/service/kernel"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -527,12 +528,9 @@ func (js *JobScheduler) ensureNextOccurrenceLocked(def *model.JobDefinition) *mo
 	return &row
 }
 
+// truncateRunes 委托给 kernel.TruncateRunes (原定义在本文件, 抽到共享层以免业务子包循环依赖)。
 func truncateRunes(s string, max int) string {
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max])
+	return kernel.TruncateRunes(s, max)
 }
 
 // runDefinitionRetry 重试入口
