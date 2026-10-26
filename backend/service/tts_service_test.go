@@ -276,6 +276,54 @@ func TestDashScopeLanguageType(t *testing.T) {
 	}
 }
 
+// TestIsXiaomiBaseURL 小米 MiMo 域名识别
+func TestIsXiaomiBaseURL(t *testing.T) {
+	if !isXiaomiBaseURL("https://api.xiaomimimo.com/v1") {
+		t.Error("api.xiaomimimo.com 应识别为小米端点")
+	}
+	if !isXiaomiBaseURL("https://mimo.xiaomi.com/v1") {
+		t.Error("mimo.xiaomi.com 应识别为小米端点")
+	}
+	if isXiaomiBaseURL("https://api.openai.com/v1") || isXiaomiBaseURL("https://dashscope.aliyuncs.com/compatible-mode/v1") {
+		t.Error("其他服务商不应识别为小米端点")
+	}
+}
+
+// TestMimoVoice 音色映射: OpenAI 音色按性别映射, 小米音色透传
+func TestMimoVoice(t *testing.T) {
+	for _, v := range []string{"", "alloy", "nova", "shimmer"} {
+		if got := mimoVoice(v); got != "冰糖" {
+			t.Errorf("mimoVoice(%q) = %q, want 冰糖", v, got)
+		}
+	}
+	for _, v := range []string{"echo", "onyx", "ash", "verse"} {
+		if got := mimoVoice(v); got != "苏打" {
+			t.Errorf("mimoVoice(%q) = %q, want 苏打", v, got)
+		}
+	}
+	if got := mimoVoice("Chloe"); got != "Chloe" {
+		t.Errorf("小米音色应透传, got %q", got)
+	}
+	if got := mimoVoice("茉莉"); got != "茉莉" {
+		t.Errorf("小米音色应透传, got %q", got)
+	}
+}
+
+// TestMimoChatEndpoint 端点归一化: 小米 TTS 必须带 /v1/chat/completions
+func TestMimoChatEndpoint(t *testing.T) {
+	want := "https://api.xiaomimimo.com/v1/chat/completions"
+	for _, base := range []string{
+		"https://api.xiaomimimo.com/v1",
+		"https://api.xiaomimimo.com/v1/",
+		"https://api.xiaomimimo.com",
+		"https://api.xiaomimimo.com/v1/chat/completions",
+	} {
+		if got := mimoChatEndpoint(base); got != want {
+			t.Errorf("mimoChatEndpoint(%q) = %q, want %q", base, got, want)
+		}
+	}
+}
+
 // TestEdgeSynthLive 真连 Edge 朗读服务, 验证库连通性 (鉴权/协议由依赖库处理)。
 // 默认跳过, 需要时 TTS_LIVE=1 go test -run TestEdgeSynthLive
 func TestEdgeSynthLive(t *testing.T) {

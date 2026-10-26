@@ -28,8 +28,8 @@ import (
 // 模式存 system_config tts_mode: frontend(浏览器本地 Web Speech) / openai(OpenAI 兼容 /audio/speech) /
 // edge(微软 Edge 在线朗读, 免费, 走 wss 朗读协议)。openai/edge 模式下前端经 /api/tts 取 mp3 播放,
 // 按内容 hash 落盘缓存 (单词/例句重复播放零成本)。
-// 注意: OpenAI 兼容 Provider 若 base_url 指向阿里云百炼, 其兼容层不含 /audio/speech,
-// 后端透明改调百炼原生 TTS 端点 (synthDashScope), 对使用方式无任何变化。
+// 注意: OpenAI 兼容 Provider 若 base_url 指向阿里云百炼或小米 MiMo, 其兼容层不含 /audio/speech,
+// 后端会透明改用各自的原生 TTS 协议 (synthDashScope / synthXiaomi), 对使用方式无任何变化。
 const (
 	TtsModeFrontend = "frontend"
 	TtsModeOpenAI   = "openai"
@@ -45,6 +45,10 @@ const (
 	dashScopeDefaultModel = "qwen-audio-3.1-tts-flash"
 	dashScopeFemaleVoice  = "longanhuan_v3.1" // 多语种女声
 	dashScopeMaleVoice    = "xunanchuan_v3.1" // 多语种男声
+
+	// 小米 MiMo TTS 兜底: TTS 走 chat/completions + audio 字段 (兼容层无 /audio/speech)
+	mimoDefaultModel = "mimo-v2.5-tts"
+	mimoDefaultVoice = "mimo_default"
 
 	ttsSynthTimeout  = 60 * time.Second
 	ttsMaxTextRunes  = 4000 // 单次合成文本上限 (rune), 与 OpenAI 4096 限制留余量
@@ -222,13 +226,19 @@ func (s *TtsService) synthesize(ctx context.Context, cfg ttsConfig, text, lang s
 		if cfg.OpenAIModel == "" {
 			cfg.OpenAIModel = ttsDefaultModel
 		}
-		// 阿里云百炼: OpenAI 兼容层没有 /audio/speech, 透明改用原生 TTS 端点。
-		// 模型/音色先解析成百炼取值再算缓存 key, 避免与真正的 OpenAI 音频互相串缓存。
-		if isDashScopeBaseURL(openAIBaseURL) {
+		// 阿里云百炼 / 小米 MiMo: OpenAI 兼容层没有 /audio/speech, 透明改用各自的原生 TTS 协议。
+		// 模型/音色先解析成对应取值再算缓存 key, 避免与真正的 OpenAI 音频互相串缓存。
+		switch {
+		case isDashScopeBaseURL(openAIBaseURL):
 			if cfg.OpenAIModel == ttsDefaultModel {
 				cfg.OpenAIModel = dashScopeDefaultModel
 			}
 			cfg.OpenAIVoice = dashScopeVoice(cfg.OpenAIVoice)
+		case isXiaomiBaseURL(openAIBaseURL):
+			if cfg.OpenAIModel == ttsDefaultModel {
+				cfg.OpenAIModel = mimoDefaultModel
+			}
+			cfg.OpenAIVoice = mimoVoice(cfg.OpenAIVoice)
 		}
 	case TtsModeEdge:
 		// Edge 无需密钥
@@ -350,10 +360,14 @@ func (s *TtsService) writeCache(cfg ttsConfig, key string, audio []byte) error {
 
 // synthOpenAI 调 OpenAI 兼容 /audio/speech (tts-1 等标准接口; 本地兼容服务亦可)。
 // baseURL/key 来自默认激活的 AI Provider (与 AI 对话共用配置);
-// base_url 指向阿里云百炼时其兼容层无 /audio/speech, 透明转发到 synthDashScope。
+// base_url 指向阿里云百炼 / 小米 MiMo 时其兼容层无 /audio/speech,
+// 透明转发到 synthDashScope / synthXiaomi。
 func (s *TtsService) synthOpenAI(ctx context.Context, baseURL, apiKey string, cfg ttsConfig, text string, lang string, rate float64) ([]byte, error) {
 	if isDashScopeBaseURL(baseURL) {
 		return s.synthDashScope(ctx, baseURL, apiKey, cfg, text, lang, rate)
+	}
+	if isXiaomiBaseURL(baseURL) {
+		return s.synthXiaomi(ctx, baseURL, apiKey, cfg, text, rate)
 	}
 
 	payload, err := json.Marshal(map[string]any{
@@ -528,6 +542,110 @@ func (s *TtsService) synthDashScope(ctx context.Context, baseURL, apiKey string,
 	audio, err := io.ReadAll(io.LimitReader(audioResp.Body, ttsMaxAudioBytes))
 	if err != nil {
 		return nil, fmt.Errorf("读取百炼 TTS 音频失败: %w", err)
+	}
+	return audio, nil
+}
+
+// isXiaomiBaseURL 判断 OpenAI 兼容 Provider 是否指向小米 MiMo 开放平台。
+func isXiaomiBaseURL(baseURL string) bool {
+	lower := strings.ToLower(baseURL)
+	return strings.Contains(lower, "xiaomimimo.com") || strings.Contains(lower, "mimo.xiaomi.com")
+}
+
+// mimoVoice 音色解析: OpenAI 标准音色名映射为 MiMo 预置音色, 其余 (MiMo 音色名) 原样透传
+func mimoVoice(voice string) string {
+	voice = strings.TrimSpace(voice)
+	switch strings.ToLower(voice) {
+	case "", "alloy", "nova", "shimmer", "coral", "sage", "fable", "ballad":
+		return "冰糖" // 甜美女声
+	case "echo", "onyx", "ash", "verse":
+		return "苏打" // 清爽男声
+	default:
+		return voice // 用户直接填了 MiMo 音色 (如 茉莉 / Chloe / mimo_default)
+	}
+}
+
+// mimoChatEndpoint 归一化为小米官方 TTS 端点: 必须带 /v1/chat/completions
+// (实测不带 /v1 是 404), base_url 填或不填 /v1、甚至填全路径都能兼容。
+func mimoChatEndpoint(baseURL string) string {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	base = strings.TrimSuffix(base, "/chat/completions")
+	base = strings.TrimSuffix(base, "/v1")
+	return base + "/v1/chat/completions"
+}
+
+// synthXiaomi 小米 MiMo 原生 TTS: 其"OpenAI 兼容"指走 chat/completions + audio 字段,
+// 而非标准 /audio/speech。响应在 choices[0].message.audio.data (base64), 本次请求 mp3 直出。
+// 对外接口/缓存/前端播放链路与标准 /audio/speech 完全一致。
+func (s *TtsService) synthXiaomi(ctx context.Context, baseURL, apiKey string, cfg ttsConfig, text string, rate float64) ([]byte, error) {
+	modelCode := strings.TrimSpace(cfg.OpenAIModel)
+	if modelCode == "" {
+		modelCode = mimoDefaultModel
+	}
+	voice := mimoVoice(cfg.OpenAIVoice)
+
+	payload, err := json.Marshal(map[string]any{
+		"model": modelCode,
+		"messages": []map[string]string{
+			{"role": "user", "content": "请用自然流畅的语气朗读下面这段文本。"},
+			{"role": "assistant", "content": text},
+		},
+		"stream": false,
+		"audio": map[string]any{
+			"format": "mp3",
+			"voice":  voice,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, mimoChatEndpoint(baseURL), strings.NewReader(string(payload)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("api-key", apiKey) // 小米文档首选的鉴权头, 与 Bearer 同时带上
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("小米 TTS 请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, ttsMaxAudioBytes))
+	if err != nil {
+		return nil, fmt.Errorf("读取小米 TTS 响应失败: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("小米 TTS 返回 %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var result struct {
+		Error *struct {
+			Message string `json:"message"`
+			Code    any    `json:"code"`
+		} `json:"error"`
+		Choices []struct {
+			Message struct {
+				Audio struct {
+					Data string `json:"data"`
+				} `json:"audio"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("解析小米 TTS 响应失败: %w", err)
+	}
+	if result.Error != nil {
+		return nil, fmt.Errorf("小米 TTS 错误: %s", result.Error.Message)
+	}
+	if len(result.Choices) == 0 || result.Choices[0].Message.Audio.Data == "" {
+		return nil, errors.New("小米 TTS 未返回音频数据")
+	}
+	audio, err := base64.StdEncoding.DecodeString(result.Choices[0].Message.Audio.Data)
+	if err != nil {
+		return nil, fmt.Errorf("解码小米 TTS 音频失败: %w", err)
 	}
 	return audio, nil
 }
