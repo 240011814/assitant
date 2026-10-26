@@ -107,6 +107,7 @@ declare namespace Api {
       model_code: string;
       display_name: string;
       is_default: boolean;
+      is_default_tts: boolean;
       config_json: string;
       created_at: string;
       updated_at: string;

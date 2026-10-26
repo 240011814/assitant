@@ -409,6 +409,19 @@ const modelColumns = computed<DataTableColumns<Api.Admin.AIModel>>(() => [
     },
   },
   {
+    title: $t("page.system.aiConfig.defaultTts"),
+    key: "is_default_tts",
+    render(row) {
+      return row.is_default_tts
+        ? h(
+            NTag,
+            { type: "warning" },
+            { default: () => $t("page.system.aiConfig.defaultTts") }
+          )
+        : null;
+    },
+  },
+  {
     title: $t("page.system.aiConfig.actions"),
     key: "actions",
     render(row) {
@@ -466,6 +479,7 @@ function handleAddModel() {
     model_code: "",
     display_name: "",
     is_default: activeModels.value.length === 0,
+    is_default_tts: false,
     config_json: "{}",
   };
   modelModalMode.value = "form";
@@ -711,7 +725,7 @@ onMounted(() => {
             {{ $t("page.system.aiConfig.addModel") }}
           </NButton>
         </div>
-        <NDataTable :columns="modelColumns" :data="activeModels" :scroll-x="600" />
+        <NDataTable :columns="modelColumns" :data="activeModels" :scroll-x="700" />
       </div>
 
       <NForm v-else :model="modelForm" label-placement="left" :label-width="100">
@@ -729,6 +743,9 @@ onMounted(() => {
         </NFormItem>
         <NFormItem :label="$t('page.system.aiConfig.setDefault')" path="is_default">
           <NSwitch v-model:value="modelForm.is_default" />
+        </NFormItem>
+        <NFormItem :label="$t('page.system.aiConfig.setDefaultTts')" path="is_default_tts">
+          <NSwitch v-model:value="modelForm.is_default_tts" />
         </NFormItem>
         <NFormItem :label="$t('page.system.aiConfig.runParams')" path="config_json">
           <NInput

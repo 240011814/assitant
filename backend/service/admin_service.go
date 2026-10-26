@@ -467,6 +467,12 @@ func (s *AdminService) CreateAIModel(m model.AIModel) error {
 				return err
 			}
 		}
+		if m.IsDefaultTTS {
+			// 同一 provider 只保留一个默认 TTS 模型
+			if err := tx.Model(&model.AIModel{}).Where("provider_id = ?", m.ProviderID).Update("is_default_tts", false).Error; err != nil {
+				return err
+			}
+		}
 		return tx.Create(&m).Error
 	})
 }
@@ -478,9 +484,14 @@ func (s *AdminService) UpdateAIModel(id int, m model.AIModel) error {
 				return err
 			}
 		}
+		if m.IsDefaultTTS {
+			if err := tx.Model(&model.AIModel{}).Where("provider_id = ? AND id != ?", m.ProviderID, id).Update("is_default_tts", false).Error; err != nil {
+				return err
+			}
+		}
 		// 显式指定字段以包含 bool 类型的 false
 		return tx.Model(&model.AIModel{}).Where("id = ?", id).
-			Select("model_code", "display_name", "is_default", "config_json").
+			Select("model_code", "display_name", "is_default", "is_default_tts", "config_json").
 			Updates(m).Error
 	})
 }

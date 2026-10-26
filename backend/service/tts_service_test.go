@@ -165,6 +165,13 @@ func TestTtsCacheRoundtrip(t *testing.T) {
 	if cacheKey(cfg, "hello", "en-US", 1.1) == key {
 		t.Error("语速变化缓存 key 应变化")
 	}
+	// OpenAI 模式切换默认 TTS 模型后缓存必须失效
+	openaiCfg := ttsConfig{Mode: TtsModeOpenAI, OpenAIModel: "tts-1", OpenAIVoice: "alloy", CacheDir: dir}
+	openaiKey := cacheKey(openaiCfg, "hello", "en-US", 1.0)
+	openaiCfg.OpenAIModel = "tts-2"
+	if cacheKey(openaiCfg, "hello", "en-US", 1.0) == openaiKey {
+		t.Error("模型变化缓存 key 应变化")
+	}
 }
 
 func TestSynthesizeModeGuard(t *testing.T) {

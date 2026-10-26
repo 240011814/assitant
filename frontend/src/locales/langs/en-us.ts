@@ -452,6 +452,8 @@ const local: App.I18n.Schema = {
         displayName: "Display Name",
         displayNamePlaceholder: "e.g. DeepSeek Chat",
         setDefault: "Set as Default",
+        defaultTts: "Default TTS",
+        setDefaultTts: "Set as Default TTS",
         runParams: "Run Params (JSON)",
         status: "Status",
         default: "Default",
@@ -588,7 +590,7 @@ const local: App.I18n.Schema = {
         ttsDesc:
           "Speech engine for word and article playback in reading, quizzes, etc. Browser mode needs no backend but voices vary by device; OpenAI-compatible and Edge modes synthesize MP3 on the backend so every browser gets the same voice (Edge online voices are free).",
         ttsOpenaiHint:
-          "Synthesized via the default active AI provider; no separate URL or API key required.",
+          "Synthesized via the default active AI provider and the model marked as Default TTS in model management; no separate URL, key, or model required.",
         ttsFrontendVoice: "Browser Voice",
         ttsFrontendVoicePlaceholder: "Pick from voices supported by this browser, type to filter",
         ttsBrowserNoVoices:
@@ -597,7 +599,6 @@ const local: App.I18n.Schema = {
         ttsModeFrontend: "Browser (local)",
         ttsModeOpenai: "OpenAI-compatible",
         ttsModeEdge: "Edge online (free)",
-        ttsModel: "Model",
         ttsVoice: "Voice",
         ttsEdgeVoiceEn: "English Voice",
         ttsEdgeVoiceZh: "Chinese Voice",
@@ -607,7 +608,6 @@ const local: App.I18n.Schema = {
         stopTtsTest: "Stop",
         ttsTestFailed: "TTS test failed: {error}",
         remarkTtsMode: "TTS speech engine (frontend/openai/edge)",
-        remarkTtsModel: "Speech synthesis model (tts-1 / gpt-4o-mini-tts, etc.)",
         remarkTtsVoice: "Voice (alloy / echo / nova, etc.)",
         remarkTtsEdgeVoiceEn: "Edge English voice (default en-US-AriaNeural)",
         remarkTtsEdgeVoiceZh: "Edge Chinese voice (default zh-CN-XiaoxiaoNeural)",

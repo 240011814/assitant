@@ -24,6 +24,7 @@ type AIAgentService struct {
 	ctx            context.Context
 	activeProvider *model.AIProvider
 	activeModel    *model.AIModel
+	ttsModelCode   string // 当前激活 Provider 下标记为默认 TTS 的模型 code
 	enabledModels  []model.AIModel
 	// providerByID 启用中的 Provider (按 id 索引): 指定模型 code 时用它解析模型
 	// 归属的 Provider, 构建 ChatModel 必须用该 Provider 的 key/baseURL
@@ -238,6 +239,7 @@ func (s *AIAgentService) ReloadConfig() error {
 		s.cacheMu.Lock()
 		s.activeProvider = nil
 		s.activeModel = nil
+		s.ttsModelCode = ""
 		s.enabledModels = nil
 		s.providerByID = nil
 		s.clearCachesLocked()
@@ -267,6 +269,13 @@ func (s *AIAgentService) ReloadConfig() error {
 		}
 	} else {
 		s.activeModel = &m
+	}
+
+	// 默认 TTS 模型与对话默认模型相互独立, 仅取当前激活 Provider 下的标记
+	s.ttsModelCode = ""
+	var ttsModel model.AIModel
+	if err := DB.Where("provider_id = ? AND is_default_tts = ?", provider.ID, true).Order("id ASC").First(&ttsModel).Error; err == nil {
+		s.ttsModelCode = ttsModel.ModelCode
 	}
 
 	// 加载所有启用 Provider 的模型列表
@@ -631,6 +640,17 @@ func (s *AIAgentService) ActiveOpenAIEndpoint() (baseURL, apiKey string, ok bool
 		return "", "", false
 	}
 	return s.activeProvider.BaseURL, s.activeProvider.APIKey, true
+}
+
+// ActiveTTSModelCode 当前激活 Provider 下标记为默认 TTS 的模型 code。
+// 未标记时返回 false, 由 TTS 服务回落到 tts-1。
+func (s *AIAgentService) ActiveTTSModelCode() (string, bool) {
+	s.cacheMu.RLock()
+	defer s.cacheMu.RUnlock()
+	if s.ttsModelCode == "" {
+		return "", false
+	}
+	return s.ttsModelCode, true
 }
 
 // ResolveModelCode 返回 modelOverride 实际对应的模型 code: override 非空返回自身,

@@ -662,6 +662,8 @@ declare namespace App {
             displayName: string;
             displayNamePlaceholder: string;
             setDefault: string;
+            defaultTts: string;
+            setDefaultTts: string;
             runParams: string;
             status: string;
             default: string;
@@ -791,7 +793,6 @@ declare namespace App {
             ttsModeFrontend: string;
             ttsModeOpenai: string;
             ttsModeEdge: string;
-            ttsModel: string;
             ttsVoice: string;
             ttsEdgeVoiceEn: string;
             ttsEdgeVoiceZh: string;
@@ -801,7 +802,6 @@ declare namespace App {
             stopTtsTest: string;
             ttsTestFailed: string;
             remarkTtsMode: string;
-            remarkTtsModel: string;
             remarkTtsVoice: string;
             remarkTtsEdgeVoiceEn: string;
             remarkTtsEdgeVoiceZh: string;

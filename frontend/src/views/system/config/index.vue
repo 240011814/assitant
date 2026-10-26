@@ -98,7 +98,6 @@ const savingTts = ref(false);
 const testingTts = ref(false);
 const playingTts = ref(false);
 const ttsMode = ref("frontend");
-const ttsModel = ref("");
 const ttsVoice = ref("");
 const ttsEdgeVoiceEn = ref("");
 const ttsEdgeVoiceZh = ref("");
@@ -222,7 +221,6 @@ async function loadConfig() {
       ragTopK.value = toNumber(cfg.rag_top_k, 5);
 
       ttsMode.value = cfg.tts_mode || "frontend";
-      ttsModel.value = cfg.tts_openai_model ?? "";
       ttsVoice.value = cfg.tts_openai_voice ?? "";
       ttsEdgeVoiceEn.value = cfg.tts_edge_voice_en ?? "";
       ttsEdgeVoiceZh.value = cfg.tts_edge_voice_zh ?? "";
@@ -474,7 +472,6 @@ async function handleSaveTts() {
   try {
     const ok = await saveConfigs([
       ["tts_mode", ttsMode.value, $t("page.system.config.remarkTtsMode")],
-      ["tts_openai_model", ttsModel.value.trim(), $t("page.system.config.remarkTtsModel")],
       ["tts_openai_voice", ttsVoice.value.trim(), $t("page.system.config.remarkTtsVoice")],
       ["tts_edge_voice_en", ttsEdgeVoiceEn.value.trim(), $t("page.system.config.remarkTtsEdgeVoiceEn")],
       ["tts_edge_voice_zh", ttsEdgeVoiceZh.value.trim(), $t("page.system.config.remarkTtsEdgeVoiceZh")],
@@ -555,7 +552,6 @@ async function handlePlayTestTts() {
       },
       body: JSON.stringify({
         mode: ttsMode.value,
-        model: ttsModel.value.trim(),
         voice: ttsVoice.value.trim(),
         voice_en: ttsEdgeVoiceEn.value.trim(),
         voice_zh: ttsEdgeVoiceZh.value.trim(),
@@ -1266,22 +1262,17 @@ onUnmounted(() => {
                   />
                 </NFormItem>
               </template>
-              <NGrid v-if="ttsMode === 'openai'" :cols="2" :x-gap="12" :y-gap="8">
-                <NFormItemGi :label="$t('page.system.config.ttsModel')" path="ttsModel">
-                  <NInput v-model:value="ttsModel" placeholder="tts-1" />
-                </NFormItemGi>
-                <NFormItemGi :label="$t('page.system.config.ttsVoice')" path="ttsVoice">
-                  <NSelect
-                    v-model:value="ttsVoice"
-                    :filter="voiceFilter"
-                    :options="openaiVoiceOptions"
-                    placeholder="alloy"
-                    filterable
-                    tag
-                    clearable
-                  />
-                </NFormItemGi>
-              </NGrid>
+              <NFormItem v-if="ttsMode === 'openai'" :label="$t('page.system.config.ttsVoice')" path="ttsVoice">
+                <NSelect
+                  v-model:value="ttsVoice"
+                  :filter="voiceFilter"
+                  :options="openaiVoiceOptions"
+                  placeholder="alloy"
+                  filterable
+                  tag
+                  clearable
+                />
+              </NFormItem>
               <NGrid v-else-if="ttsMode === 'edge'" :cols="2" :x-gap="12" :y-gap="8">
                 <NFormItemGi :label="$t('page.system.config.ttsEdgeVoiceEn')" path="ttsEdgeVoiceEn">
                   <NSelect

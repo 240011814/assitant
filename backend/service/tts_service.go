@@ -42,8 +42,9 @@ const (
 )
 
 // ttsConfig TTS 运行配置快照 (mu 保护, 读时取快照)。
-// openai 模式的 base_url/api_key 不在此处: 复用 AI 对话默认激活的 Provider,
-// 合成时经 AIAgentService.ActiveOpenAIEndpoint 动态取 (Provider 变更即时生效)
+// openai 模式的 base_url/api_key 不在此处: 复用 AI 对话默认激活的 Provider;
+// 模型 code 也优先取该 Provider 下标记为默认 TTS 的模型 (ActiveTTSModelCode),
+// Provider/默认 TTS 模型变更即时生效
 type ttsConfig struct {
 	Mode          string // frontend / openai / edge
 	OpenAIModel   string
@@ -101,15 +102,12 @@ func buildTtsConfig(getVal func(string) string) ttsConfig {
 
 	cfg := ttsConfig{
 		Mode:          mode,
-		OpenAIModel:   getVal("tts_openai_model"),
+		OpenAIModel:   ttsDefaultModel,
 		OpenAIVoice:   getVal("tts_openai_voice"),
 		EdgeVoiceEN:   getVal("tts_edge_voice_en"),
 		EdgeVoiceZH:   getVal("tts_edge_voice_zh"),
 		FrontendVoice: getVal("tts_frontend_voice"),
 		CacheDir:      getVal("tts_cache_dir"),
-	}
-	if cfg.OpenAIModel == "" {
-		cfg.OpenAIModel = ttsDefaultModel
 	}
 	if cfg.OpenAIVoice == "" {
 		cfg.OpenAIVoice = ttsDefaultOpenAIVoice
@@ -144,16 +142,13 @@ func (s *TtsService) SynthesizeWithConfig(ctx context.Context, cfg ttsConfig, te
 }
 
 // TestConfig 用配置页表单值构建测试配置 (空字段回落默认值), 不影响运行配置;
-// openai 模式端点始终取默认激活 Provider
-func (s *TtsService) TestConfig(mode, model, voice, voiceEN, voiceZH string) ttsConfig {
+// openai 模式端点和模型始终取默认激活 Provider / 默认 TTS 模型
+func (s *TtsService) TestConfig(mode, voice, voiceEN, voiceZH string) ttsConfig {
 	if mode != TtsModeOpenAI && mode != TtsModeEdge {
 		mode = TtsModeOpenAI
 	}
 	cfg := s.snapshot()
 	cfg.Mode = mode
-	if model != "" {
-		cfg.OpenAIModel = model
-	}
 	if voice != "" {
 		cfg.OpenAIVoice = voice
 	}
@@ -205,6 +200,13 @@ func (s *TtsService) synthesize(ctx context.Context, cfg ttsConfig, text, lang s
 		openAIBaseURL, openAIKey, ok = s.aiAgent.ActiveOpenAIEndpoint()
 		if !ok || openAIBaseURL == "" || openAIKey == "" {
 			return nil, errors.New("未找到默认激活的 AI Provider, 请先在 AI 配置中启用")
+		}
+		// 模型管理里标记的默认 TTS 模型优先, 未标记时回落到 tts-1
+		if modelCode, ok := s.aiAgent.ActiveTTSModelCode(); ok {
+			cfg.OpenAIModel = modelCode
+		}
+		if cfg.OpenAIModel == "" {
+			cfg.OpenAIModel = ttsDefaultModel
 		}
 	case TtsModeEdge:
 		// Edge 无需密钥
@@ -276,13 +278,17 @@ func clampRate(rate float64) float64 {
 	return rate
 }
 
-// cacheKey 内容寻址: 模式+音色+语速+语言+文本 的 sha256 (配置变化自动失效)
+// cacheKey 内容寻址: 模式+模型+音色+语速+语言+文本 的 sha256 (配置变化自动失效)
 func cacheKey(cfg ttsConfig, text, lang string, rate float64) string {
 	voice := cfg.OpenAIVoice
 	if cfg.Mode == TtsModeEdge {
 		voice = cfg.edgeVoiceFor(lang)
 	}
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%.2f|%s", cfg.Mode, voice, lang, rate, text)))
+	modelCode := ""
+	if cfg.Mode == TtsModeOpenAI {
+		modelCode = cfg.OpenAIModel
+	}
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%s|%.2f|%s", cfg.Mode, modelCode, voice, lang, rate, text)))
 	return hex.EncodeToString(sum[:])
 }
 

@@ -63,7 +63,6 @@ func (h *TtsHandler) HandleSynthesize(c *gin.Context) {
 func (h *TtsHandler) HandleTestTts(c *gin.Context) {
 	var req struct {
 		Mode    string `json:"mode"`
-		Model   string `json:"model"`
 		Voice   string `json:"voice"`
 		VoiceEN string `json:"voice_en"`
 		VoiceZH string `json:"voice_zh"`
@@ -80,7 +79,6 @@ func (h *TtsHandler) HandleTestTts(c *gin.Context) {
 	}
 	cfg := h.svc.TestConfig(
 		strings.ToLower(strings.TrimSpace(req.Mode)),
-		strings.TrimSpace(req.Model),
 		strings.TrimSpace(req.Voice),
 		strings.TrimSpace(req.VoiceEN),
 		strings.TrimSpace(req.VoiceZH),
