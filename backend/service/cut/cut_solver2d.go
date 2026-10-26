@@ -27,12 +27,12 @@ const (
 	// cut2dSolverBudget 传给 sidecar 的求解预算 ms。
 	// 实测 (2026-10): 同规格几十件 ~24s 可证最优; 混合规格无法在预算内证明最优,
 	// 120s 的最优解与 0s 的启发式 hint 相同 (纯烧墙钟) → 预算砍到 45s, 品质不变等待减半再减半
-	cut2dSolverBudget = 45000
-	cut2dMaxPieces    = 400               // 展开件数上限, 超过直接报错
-	cut2dMaxBoards    = 40                // 候选板材上限 (启发式用板 + 剩余旧料 + 备用新板)
-	cut2dMaxPairs     = 9600              // 件×板 乘积上限 (模型规模防御)
-	cut2dMaxExtraScrap = 12               // 启发式未消费旧料的候选追加上限
-	cut2dNewBoardName  = "新板材"           // 与 buildPlaneMaterials 的新板标注一致
+	cut2dSolverBudget  = 45000
+	cut2dMaxPieces     = 400   // 展开件数上限, 超过直接报错
+	cut2dMaxBoards     = 40    // 候选板材上限 (启发式用板 + 剩余旧料 + 备用新板)
+	cut2dMaxPairs      = 9600  // 件×板 乘积上限 (模型规模防御)
+	cut2dMaxExtraScrap = 12    // 启发式未消费旧料的候选追加上限
+	cut2dNewBoardName  = "新板材" // 与 buildPlaneMaterials 的新板标注一致
 	// cut2dMaxResponseBytes 求解响应体上限 (1MB)
 	cut2dMaxResponseBytes = 1 << 20
 )

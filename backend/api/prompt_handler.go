@@ -1,17 +1,17 @@
 package api
 
 import (
-	"backend/service"
+	"backend/service/prompt"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
 
 type PromptHandler struct {
-	promptSvc *service.PromptService
+	promptSvc *prompt.PromptService
 }
 
-func NewPromptHandler(promptSvc *service.PromptService) *PromptHandler {
+func NewPromptHandler(promptSvc *prompt.PromptService) *PromptHandler {
 	return &PromptHandler{promptSvc: promptSvc}
 }
 
@@ -38,10 +38,10 @@ func (h *PromptHandler) GetUserPrompt(c *gin.Context) {
 	}
 
 	SendSuccess(c, gin.H{
-		"effective_prompt":      effectivePrompt,
-		"default_prompt":       "",
-		"versions":             versions,
-		"is_customized":        len(versions) > 0,
+		"effective_prompt": effectivePrompt,
+		"default_prompt":   "",
+		"versions":         versions,
+		"is_customized":    len(versions) > 0,
 	})
 }
 

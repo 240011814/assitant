@@ -35,7 +35,7 @@ func (h *Mem0Handler) HandleAddMemory(c *gin.Context) {
 
 	var req struct {
 		Messages []interfaces.Mem0Message `json:"messages" binding:"required"`
-		Metadata map[string]any     `json:"metadata"`
+		Metadata map[string]any           `json:"metadata"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		SendError(c, "400", err.Error())

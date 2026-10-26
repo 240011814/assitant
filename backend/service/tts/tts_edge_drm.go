@@ -1,4 +1,4 @@
-package service
+package tts
 
 import (
 	"crypto/rand"
@@ -34,10 +34,10 @@ var (
 		0xEB24BF9E, 0x1558691F, 0xA0C09EE2, 0x0CFA32BA, 0xA622EE8C, 0xD1DD9491, 0xC0DD25A0,
 		0xF9E70AB6, 0xF0C31573, 0x7058CE4E, 0x7188E606, 0x00E5AB33, 0xD258B060, 0x72766564,
 	}
-	edgeSHA256Adjustment    uint32 = 0xC9DC06A7
-	edgeSigma0Adjustment    uint32 = 0x059C0B80
-	edgeSigma1Adjustment    uint32 = 0x000B92C0
-	edgeSHA256RoundConstants       = [64]uint32{
+	edgeSHA256Adjustment     uint32 = 0xC9DC06A7
+	edgeSigma0Adjustment     uint32 = 0x059C0B80
+	edgeSigma1Adjustment     uint32 = 0x000B92C0
+	edgeSHA256RoundConstants        = [64]uint32{
 		0x428A2F98, 0x71374491, 0xB5C0FBCF, 0xE9B5DBA5, 0x3956C25B, 0x59F111F1, 0x923F82A4, 0xAB1C5ED5,
 		0xD807AA98, 0x12835B01, 0x243185BE, 0x550C7DC3, 0x72BE5D74, 0x80DEB1FE, 0x9BDC06A7, 0xC19BF174,
 		0xE49B69C1, 0xEFBE4786, 0x0FC19DC6, 0x240CA1CC, 0x2DE92C6F, 0x4A7484AA, 0x5CB0A9DC, 0x76F988DA,
@@ -54,7 +54,7 @@ var (
 		{0xDA79FA60, 0x207CC464}, {0xBED20560, 0x3C3C74F3}, {0x89F9C9F8, 0xD2D14B61},
 		{0x35FA38C6, 0xBB04A2C1}, {0xCB49E3C6, 0xC5626167},
 	}
-	edgeCS64Factor     uint32 = 0x82893933
+	edgeCS64Factor      uint32 = 0x82893933
 	edgeCS64Adjustment0 uint32 = 0xF2F90B1A
 	edgeCS64Adjustment1 uint32 = 0x0B1A0000
 )
@@ -253,7 +253,7 @@ func edgeCS64Digest(data []byte, digest []byte) (uint32, uint32) {
 
 // edgeClockSkew 本机与服务器的时钟差 (403 时按响应 Date 头校正后重试)
 var edgeClockSkew struct {
-	mu     sync.Mutex
+	mu      sync.Mutex
 	seconds float64
 }
 

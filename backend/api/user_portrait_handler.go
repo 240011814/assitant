@@ -2,7 +2,7 @@ package api
 
 import (
 	"backend/model"
-	"backend/service"
+	"backend/service/usermemory"
 	"encoding/json"
 	"log"
 	"strconv"
@@ -13,10 +13,10 @@ import (
 )
 
 type UserPortraitHandler struct {
-	svc *service.UserMemoryService
+	svc *usermemory.UserMemoryService
 }
 
-func NewUserPortraitHandler(svc *service.UserMemoryService) *UserPortraitHandler {
+func NewUserPortraitHandler(svc *usermemory.UserMemoryService) *UserPortraitHandler {
 	return &UserPortraitHandler{svc: svc}
 }
 

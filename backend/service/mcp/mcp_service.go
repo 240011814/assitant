@@ -1,6 +1,11 @@
-package service
+package mcp
 
 import (
+	"backend/service/agent"
+	"backend/service/kernel"
+
+	"gorm.io/gorm"
+
 	"context"
 	"encoding/json"
 	"fmt"
@@ -20,6 +25,9 @@ import (
 	"backend/model"
 	"backend/service/tools"
 )
+
+// DB 本包专用数据库句柄, 由 main.go 接线赋值。
+var DB *gorm.DB
 
 // MCP 服务动态注册: mcp_servers 表存连接配置 (管理页 CRUD), 运行时连接 -> 发现工具 ->
 // 以 mcp_<server>_<tool> 前缀注册进工具注册表。ai_tools 里的 MCP 工具行由用户手动创建/启用
@@ -57,7 +65,7 @@ func mcpToolLikePattern(serverName string) string {
 type MCPService struct {
 	mu       sync.RWMutex
 	entries  map[string]*mcpEntry // server name -> 连接与已注册工具
-	agentSvc *AIAgentService
+	agentSvc *agent.AIAgentService
 
 	// connMu 保护 serverConns; 连接/握手等网络阶段只持对应 server 的锁,
 	// 不持 entries 锁 —— 否则一个卡死的 server 会阻塞其余 server 的连接与所有工具查询
@@ -88,7 +96,7 @@ func (s *MCPService) serverConnectLock(name string) *sync.Mutex {
 }
 
 // SetAgentService 注入 Agent 服务 (注册/注销工具后清 runner/tool 缓存)
-func (s *MCPService) SetAgentService(svc *AIAgentService) { s.agentSvc = svc }
+func (s *MCPService) SetAgentService(svc *agent.AIAgentService) { s.agentSvc = svc }
 
 func (s *MCPService) invalidate() {
 	if s.agentSvc != nil {
@@ -105,7 +113,7 @@ func (s *MCPService) Init() {
 	}
 	for i := range servers {
 		srv := servers[i]
-		SafeGo("mcp:init-connect:"+srv.Name, func() {
+		kernel.SafeGo("mcp:init-connect:"+srv.Name, func() {
 			ctx, cancel := context.WithTimeout(context.Background(), mcpConnectTimeout)
 			defer cancel()
 			if err := s.connectServer(ctx, &srv); err != nil {
@@ -405,7 +413,7 @@ func (s *MCPService) ConnectNow(id uint) error {
 
 func (s *MCPService) asyncConnect(srv *model.MCPServer) {
 	copySrv := *srv
-	SafeGo("mcp:async-connect:"+copySrv.Name, func() {
+	kernel.SafeGo("mcp:async-connect:"+copySrv.Name, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), mcpConnectTimeout)
 		defer cancel()
 		if err := s.connectServer(ctx, &copySrv); err != nil {

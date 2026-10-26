@@ -2,7 +2,10 @@ package api
 
 import (
 	"backend/model"
-	"backend/service"
+	"backend/service/agent"
+	"backend/service/history"
+	"backend/service/kernel"
+	"backend/service/tokenusage"
 	"fmt"
 	"io"
 	"log"
@@ -27,7 +30,7 @@ type ChatRequest struct {
 	Messages         []ChatMessage `json:"messages" binding:"required"`
 }
 
-func HandleChatStream(agentService *service.AIAgentService, historyService *service.HistoryService) gin.HandlerFunc {
+func HandleChatStream(agentService *agent.AIAgentService, historyService *history.HistoryService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestStart := time.Now()
 		var req ChatRequest
@@ -57,7 +60,7 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 		}
 
 		// 月度 Token 限额: 入口前置校验, 超限直接拒绝 (请求中不中断, 下一轮生效)
-		if err := service.NewTokenUsageService().CheckTokenQuota(userID); err != nil {
+		if err := tokenusage.NewTokenUsageService().CheckTokenQuota(userID); err != nil {
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
 			return
 		}
@@ -84,7 +87,7 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 			if u == nil || u.TotalTokens <= 0 {
 				return
 			}
-			service.RecordTokenUsage(userID, agentService.ResolveModelCode(req.Model), model.TokenSourceChat, int64(u.PromptTokens), int64(u.CompletionTokens))
+			tokenusage.RecordTokenUsage(userID, agentService.ResolveModelCode(req.Model), model.TokenSourceChat, int64(u.PromptTokens), int64(u.CompletionTokens))
 		}
 		onMessage := func(msg *schema.Message) {
 			if !firstTokenLogged {
@@ -100,7 +103,7 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 				c.SSEvent("message", "[DONE]")
 
 				saveFunc := func() {
-					historyID, saveErr := historyService.SaveConversation(&service.SaveConversationParams{
+					historyID, saveErr := historyService.SaveConversation(&history.SaveConversationParams{
 						UserID:           userID,
 						HistoryID:        req.HistoryID,
 						TrainingType:     req.TrainingType,
@@ -117,7 +120,7 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 				if req.HistoryID == 0 {
 					saveFunc()
 				} else {
-					service.SafeGo("chat:save-conversation", saveFunc)
+					kernel.SafeGo("chat:save-conversation", saveFunc)
 				}
 
 				return false
@@ -130,12 +133,12 @@ func HandleChatStream(agentService *service.AIAgentService, historyService *serv
 
 			if event.Action != nil && event.Action.Interrupted != nil {
 				for _, ictx := range event.Action.Interrupted.InterruptContexts {
-					if approvalInfo, ok := ictx.Info.(*service.ToolApprovalInfo); ok {
+					if approvalInfo, ok := ictx.Info.(*agent.ToolApprovalInfo); ok {
 						log.Printf("[chat] tool_approval required user=%d tool=%s id=%s", userID, approvalInfo.ToolName, ictx.ID)
 
 						savedHistoryID := req.HistoryID
 						if savedHistoryID == 0 {
-							newID, saveErr := historyService.SaveConversation(&service.SaveConversationParams{
+							newID, saveErr := historyService.SaveConversation(&history.SaveConversationParams{
 								UserID:        userID,
 								HistoryID:     0,
 								TrainingType:  req.TrainingType,
@@ -185,7 +188,7 @@ func emitUsage(c *gin.Context, msg *schema.Message, record func(*schema.TokenUsa
 }
 
 // HandleListModels 返回所有已启用的模型列表
-func HandleListModels(aiAgentService *service.AIAgentService) gin.HandlerFunc {
+func HandleListModels(aiAgentService *agent.AIAgentService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		models, err := aiAgentService.ListEnabledModels()
 		if err != nil {

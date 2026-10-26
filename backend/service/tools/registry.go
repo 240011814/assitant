@@ -47,12 +47,13 @@ var (
 )
 
 type toolEntry struct {
-	meta    ToolMeta
-	factory ToolFactory
+	meta       ToolMeta
+	factory    ToolFactory
 	configType reflect.Type
 }
 
-func Register(name, displayName, description string, configType any, factory ToolFactory) {	var params []ToolParam
+func Register(name, displayName, description string, configType any, factory ToolFactory) {
+	var params []ToolParam
 	if configType != nil {
 		t := reflect.TypeOf(configType)
 		if t.Kind() == reflect.Pointer {
@@ -91,8 +92,8 @@ func Register(name, displayName, description string, configType any, factory Too
 			Description: description,
 			Params:      params,
 		},
-		factory:     factory,
-		configType:  reflect.TypeOf(configType),
+		factory:    factory,
+		configType: reflect.TypeOf(configType),
 	}
 	registryMu.Unlock()
 }

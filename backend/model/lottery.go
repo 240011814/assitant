@@ -6,20 +6,20 @@ import (
 
 // LotteryActivity 抽奖活动实体
 type LotteryActivity struct {
-	ID                 uint      `gorm:"primaryKey;autoIncrement" json:"id"`
-	Name               string    `gorm:"size:100;not null" json:"name"`
-	Description        string    `gorm:"type:text" json:"description"`
-	StartTime          time.Time `gorm:"not null" json:"startTime"`
-	EndTime            time.Time `gorm:"not null" json:"endTime"`
-	Status             int       `gorm:"default:0" json:"status"` // 0-未开始, 1-进行中, 2-已结束
-	DrawMode           int       `gorm:"default:0" json:"drawMode"` // 0-转盘, 1-原神抽卡
-	MaxParticipants    int       `gorm:"default:0" json:"maxParticipants"`
-	CurrentParticipants int      `gorm:"default:0" json:"currentParticipants"`
-	DailyLimit         int       `gorm:"default:0" json:"dailyLimit"`
-	TotalLimit         int       `gorm:"default:0" json:"totalLimit"`
-	CreatedBy          uint      `gorm:"not null" json:"createdBy"`
-	CreatedAt          time.Time `json:"createdAt"`
-	UpdatedAt          time.Time `json:"updatedAt"`
+	ID                  uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	Name                string    `gorm:"size:100;not null" json:"name"`
+	Description         string    `gorm:"type:text" json:"description"`
+	StartTime           time.Time `gorm:"not null" json:"startTime"`
+	EndTime             time.Time `gorm:"not null" json:"endTime"`
+	Status              int       `gorm:"default:0" json:"status"`   // 0-未开始, 1-进行中, 2-已结束
+	DrawMode            int       `gorm:"default:0" json:"drawMode"` // 0-转盘, 1-原神抽卡
+	MaxParticipants     int       `gorm:"default:0" json:"maxParticipants"`
+	CurrentParticipants int       `gorm:"default:0" json:"currentParticipants"`
+	DailyLimit          int       `gorm:"default:0" json:"dailyLimit"`
+	TotalLimit          int       `gorm:"default:0" json:"totalLimit"`
+	CreatedBy           uint      `gorm:"not null" json:"createdBy"`
+	CreatedAt           time.Time `json:"createdAt"`
+	UpdatedAt           time.Time `json:"updatedAt"`
 }
 
 // TableName 指定表名
@@ -34,7 +34,7 @@ type LotteryPrize struct {
 	Name               string    `gorm:"size:100;not null" json:"name"`
 	Description        string    `gorm:"type:text" json:"description"`
 	ImageURL           string    `gorm:"size:500" json:"imageUrl"`
-	PrizeType          int       `gorm:"default:0" json:"prizeType"`   // 0-实物, 1-虚拟
+	PrizeType          int       `gorm:"default:0" json:"prizeType"`  // 0-实物, 1-虚拟
 	PrizeLevel         int       `gorm:"default:0" json:"prizeLevel"` // 0-未设置, 1-特等奖, 2-一等奖, 3-二等奖, 4-三等奖
 	PrizeValue         float64   `gorm:"type:decimal(10,2);default:0" json:"prizeValue"`
 	TotalCount         int       `gorm:"default:0" json:"totalCount"`
@@ -139,7 +139,7 @@ type LotteryActivityResponse struct {
 // LotteryRecordResponse 抽奖记录响应
 type LotteryRecordResponse struct {
 	LotteryRecord
-	UserName   string `json:"userName"`
+	UserName     string `json:"userName"`
 	ActivityName string `json:"activityName"`
 }
 

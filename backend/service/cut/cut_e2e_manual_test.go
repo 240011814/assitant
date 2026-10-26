@@ -10,8 +10,10 @@ import (
 )
 
 // 端到端手动验证: 需要本地起 sidecar 才会执行
-//   cd baostock && PYTHONPATH=. ./.venv/Scripts/python.exe -m uvicorn main:app --port 8100
-//   CUT_E2E_SIDECAR=http://127.0.0.1:8100 go test ./service/ -run TestPlaneCutPreciseE2E -v
+//
+//	cd baostock && PYTHONPATH=. ./.venv/Scripts/python.exe -m uvicorn main:app --port 8100
+//	CUT_E2E_SIDECAR=http://127.0.0.1:8100 go test ./service/ -run TestPlaneCutPreciseE2E -v
+//
 // 复现 "二维几十个件, 2 分钟算不出来": 混合规格 ~40 件, 板 200×160。
 func TestPlaneCutPreciseE2E(t *testing.T) {
 	baseURL := os.Getenv("CUT_E2E_SIDECAR")

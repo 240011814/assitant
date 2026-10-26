@@ -1,19 +1,19 @@
 package api
 
 import (
+	"backend/service/stock"
 	"strconv"
 
 	"backend/model"
-	"backend/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 type StockAlertHandler struct {
-	svc *service.StockAlertService
+	svc *stock.StockAlertService
 }
 
-func NewStockAlertHandler(svc *service.StockAlertService) *StockAlertHandler {
+func NewStockAlertHandler(svc *stock.StockAlertService) *StockAlertHandler {
 	return &StockAlertHandler{svc: svc}
 }
 

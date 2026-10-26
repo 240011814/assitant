@@ -1,4 +1,4 @@
-package service
+package mem0
 
 import (
 	interfaces "backend/interface"
@@ -16,22 +16,25 @@ import (
 	"gorm.io/gorm"
 )
 
+// DB 本包专用数据库句柄, 由 main.go 接线赋值 (mem0.DB = db); NewMem0Service 的 db 参数同源。
+var DB *gorm.DB
+
 type Mem0ServiceImpl struct {
 	enabled bool
 	apiKey  string
 	baseURL string
 	client  *http.Client
-	db *gorm.DB
+	db      *gorm.DB
 }
 
-func NewMem0Service(timeout time.Duration,db *gorm.DB) *Mem0ServiceImpl {
+func NewMem0Service(timeout time.Duration, db *gorm.DB) *Mem0ServiceImpl {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
 	return &Mem0ServiceImpl{
 		baseURL: "https://api.mem0.ai/v1",
 		client:  &http.Client{Timeout: timeout},
-		db: db,
+		db:      db,
 	}
 }
 
@@ -217,6 +220,3 @@ func (s *Mem0ServiceImpl) DeleteMemory(memoryID string) error {
 	log.Printf("mem0 delete memory id=%s", memoryID)
 	return nil
 }
-
-
-

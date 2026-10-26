@@ -12,7 +12,7 @@ import (
 // agentStreamState 聚合一轮 Agent 流式运行的累计正文/思考内容 (落历史用)
 type agentStreamState struct {
 	assistantReply string
-	thinking      string
+	thinking       string
 }
 
 // onAgentMessage 每收到一条模型消息 (流式分片或完整消息) 时回调; chat 记账用它, 审批恢复可传 nil

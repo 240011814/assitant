@@ -1,8 +1,10 @@
-package service
+package userdoc
 
 import (
 	"strings"
 	"testing"
+
+	"backend/service/kernel"
 )
 
 // TestDocChunk read_document 工具的 rune 级分页: 默认值/封顶/越界/多字节边界
@@ -66,11 +68,11 @@ func TestDocChunkMultibyteBoundary(t *testing.T) {
 
 // TestTruncateRunes 解析错误信息截断
 func TestTruncateRunes(t *testing.T) {
-	if got := truncateRunes("abc", 5); got != "abc" {
+	if got := kernel.TruncateRunes("abc", 5); got != "abc" {
 		t.Fatalf("未超限应原样返回, got %q", got)
 	}
 	long := strings.Repeat("世", 10)
-	got := truncateRunes(long, 4)
+	got := kernel.TruncateRunes(long, 4)
 	if got != strings.Repeat("世", 4) {
 		t.Fatalf("应按 rune 截断不产生乱码, got %q", got)
 	}

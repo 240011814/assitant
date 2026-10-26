@@ -1,6 +1,12 @@
-package service
+package agent
 
 import (
+	"backend/service/kernel"
+	"backend/service/systemconfig"
+	"backend/service/tokenusage"
+
+	"gorm.io/gorm"
+
 	iface "backend/interface"
 	"backend/model"
 	"backend/service/tools"
@@ -21,6 +27,9 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
+// DB 本包专用数据库句柄, 由 main.go 接线赋值 (agent.DB = db)。
+var DB *gorm.DB
+
 type AIAgentService struct {
 	ctx            context.Context
 	activeProvider *model.AIProvider
@@ -32,7 +41,7 @@ type AIAgentService struct {
 	// 归属的 Provider, 构建 ChatModel 必须用该 Provider 的 key/baseURL
 	providerByID  map[int]*model.AIProvider
 	timeout       time.Duration
-	timeoutConfig TimeoutConfig
+	timeoutConfig kernel.TimeoutConfig
 	runnerCache   map[string]*adk.Runner
 	promptCache   map[string]string
 	// modelCache 模型实例缓存 (按 model code): 编排每个节点/每次运行都构建模型,
@@ -42,12 +51,12 @@ type AIAgentService struct {
 	// 工具实现无状态 (config + http.Client), 可复用
 	toolCache       map[string]tool.BaseTool
 	cacheMu         sync.RWMutex // 保护 runnerCache/promptCache/modelCache/toolCache 及 active* 字段, gin 请求与 ReloadConfig 并发访问
-	sysCfgService   *SystemConfigService
+	sysCfgService   *systemconfig.SystemConfigService
 	checkpointStore compose.CheckPointStore
 	memoryService   iface.ProfilePromptBuilder
 }
 
-func NewAIAgentService(timeoutMinutes int, sysCfgService *SystemConfigService) (*AIAgentService, error) {
+func NewAIAgentService(timeoutMinutes int, sysCfgService *systemconfig.SystemConfigService) (*AIAgentService, error) {
 	if timeoutMinutes <= 0 {
 		timeoutMinutes = 5
 	}
@@ -183,7 +192,7 @@ func (s *AIAgentService) UpdateAIAgent(userID uint, agentID uint, req model.Upda
 
 	err := DB.Model(&model.AIAgent{}).Where("id = ? AND user_id = ?", agentID, userID).Updates(updates).Error
 	if err == nil {
-		s.clearRunnerCache(userID, agentID)
+		s.InvalidateRunnerCache(userID, agentID)
 	}
 	return err
 }
@@ -200,21 +209,22 @@ func (s *AIAgentService) DeleteAIAgent(userID uint, agentID uint) error {
 	err := DB.Where("id = ? AND user_id = ? AND is_public = ?", agentID, userID, false).
 		Delete(&model.AIAgent{}).Error
 	if err == nil {
-		s.clearRunnerCache(userID, agentID)
+		s.InvalidateRunnerCache(userID, agentID)
 	}
 	return err
 }
 
 // clearCachesLocked 清空全部实例缓存 (调用方需持 cacheMu)。
 // 模型/工具实例与 runner 同生命周期: 工具配置、Agent 提示词、模型配置变更的
-// 失效路径都已汇聚到 clearRunnerCache/ClearRunnerCache/ReloadConfig
+// 失效路径都已汇聚到 InvalidateRunnerCache/ClearRunnerCache/ReloadConfig
 func (s *AIAgentService) clearCachesLocked() {
 	s.runnerCache = make(map[string]*adk.Runner)
 	s.modelCache = make(map[string]*ark.ChatModel)
 	s.toolCache = make(map[string]tool.BaseTool)
 }
 
-func (s *AIAgentService) clearRunnerCache(userID uint, agentID uint) {
+// InvalidateRunnerCache 定向失效某 (user, agent) 的对话 runner 缓存与提示词缓存。
+func (s *AIAgentService) InvalidateRunnerCache(userID uint, agentID uint) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
 	s.clearCachesLocked()
@@ -714,7 +724,7 @@ func (s *AIAgentService) GenerateTextWithTimeout(userID uint, modelOverride, sys
 		return "", errors.New("模型没有返回结果")
 	}
 	if u := resp.ResponseMeta; u != nil && u.Usage != nil && u.Usage.TotalTokens > 0 && userID > 0 {
-		RecordTokenUsage(userID, s.ResolveModelCode(modelOverride), model.TokenSourceExtraction, int64(u.Usage.PromptTokens), int64(u.Usage.CompletionTokens))
+		tokenusage.RecordTokenUsage(userID, s.ResolveModelCode(modelOverride), model.TokenSourceExtraction, int64(u.Usage.PromptTokens), int64(u.Usage.CompletionTokens))
 	}
 	return resp.Content, nil
 }

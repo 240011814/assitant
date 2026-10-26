@@ -2,7 +2,10 @@ package main
 
 import (
 	"backend/api"
-	"backend/service"
+	"backend/service/agent"
+	"backend/service/auth"
+	"backend/service/history"
+	"backend/service/systemconfig"
 
 	"github.com/gin-gonic/gin"
 )
@@ -10,10 +13,10 @@ import (
 // appDeps 路由装配所需的全部依赖 (main.go 负责构造, setupRouter 只做挂载)
 type appDeps struct {
 	jwtSecret            string
-	authService          *service.AuthService
-	systemConfigService  *service.SystemConfigService
-	aiAgentService       *service.AIAgentService
-	historyService       *service.HistoryService
+	authService          *auth.AuthService
+	systemConfigService  *systemconfig.SystemConfigService
+	aiAgentService       *agent.AIAgentService
+	historyService       *history.HistoryService
 	historyHandler       *api.HistoryHandler
 	adminHandler         *api.AdminHandler
 	agentTaskHandler     *api.AgentTaskHandler

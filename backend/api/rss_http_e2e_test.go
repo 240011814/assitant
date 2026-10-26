@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-"os"
-"strings"
-"testing"
+	"os"
+	"strings"
+	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"

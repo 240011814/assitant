@@ -1,6 +1,7 @@
 package api
 
 import (
+	"backend/service/mcp"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -11,10 +12,10 @@ import (
 
 // MCPHandler MCP 服务管理: 配置动态注册 (增删改/手动重连), 工具运行时发现注册
 type MCPHandler struct {
-	svc *service.MCPService
+	svc *mcp.MCPService
 }
 
-func NewMCPHandler(svc *service.MCPService) *MCPHandler {
+func NewMCPHandler(svc *mcp.MCPService) *MCPHandler {
 	return &MCPHandler{svc: svc}
 }
 

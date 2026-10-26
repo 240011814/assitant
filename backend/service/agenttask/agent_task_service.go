@@ -1,6 +1,13 @@
-package service
+package agenttask
 
 import (
+	"backend/service/agent"
+	"backend/service/history"
+	"backend/service/jobs"
+	"backend/service/orchestration"
+
+	"gorm.io/gorm"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,6 +24,9 @@ import (
 	"backend/model"
 )
 
+// DB 本包专用数据库句柄, 由 main.go 接线赋值。
+var DB *gorm.DB
+
 // 定时 Agent 任务: job_definitions 里 task_name=agent_task.run 的定义到点执行,
 // 让指定 Agent(对话) 或 编排 带着输入文本完整跑一遍 (含工具调用), 结果落训练历史
 // (training_type=agent_task) 并可选邮件/Telegram 通知。调度复用 once/cron,
@@ -24,15 +34,15 @@ import (
 const agentTaskRunTimeout = 30 * time.Minute
 
 type AgentTaskService struct {
-	jobScheduler *JobScheduler
-	agentSvc     *AIAgentService
-	orchSvc      *AIOrchestrationService
-	historySvc   *HistoryService
+	jobScheduler *jobs.JobScheduler
+	agentSvc     *agent.AIAgentService
+	orchSvc      *orchestration.AIOrchestrationService
+	historySvc   *history.HistoryService
 	notifiers    []iface.Notifier
 }
 
 // NewAgentTaskService 构造并注册任务执行器
-func NewAgentTaskService(jobScheduler *JobScheduler, agentSvc *AIAgentService, orchSvc *AIOrchestrationService, historySvc *HistoryService, notifiers ...iface.Notifier) *AgentTaskService {
+func NewAgentTaskService(jobScheduler *jobs.JobScheduler, agentSvc *agent.AIAgentService, orchSvc *orchestration.AIOrchestrationService, historySvc *history.HistoryService, notifiers ...iface.Notifier) *AgentTaskService {
 	s := &AgentTaskService{
 		jobScheduler: jobScheduler,
 		agentSvc:     agentSvc,
@@ -72,7 +82,7 @@ func (s *AgentTaskService) agentTaskHandler(def *model.JobDefinition, paramsRaw 
 	if s.historySvc != nil {
 		agentID := params.AgentID
 		inputMsgs := []*schema.Message{{Role: schema.User, Content: params.Input}}
-		if _, err := s.historySvc.SaveConversation(&SaveConversationParams{
+		if _, err := s.historySvc.SaveConversation(&history.SaveConversationParams{
 			UserID:           userID,
 			TrainingType:     "agent_task",
 			CustomTrainingID: &agentID,
@@ -262,7 +272,7 @@ func validateAgentTaskSchedule(scheduleType string, runAt *time.Time, cronExpr s
 			return errors.New("执行时间必须晚于当前时间")
 		}
 	case model.ScheduleTypeCron:
-		if _, err := ValidateCronExpr(cronExpr); err != nil {
+		if _, err := jobs.ValidateCronExpr(cronExpr); err != nil {
 			return fmt.Errorf("cron 表达式无效: %w", err)
 		}
 	default:

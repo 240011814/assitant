@@ -17,13 +17,13 @@ type Course struct {
 
 // CourseItem 课程条目（英语句子+翻译）
 type CourseItem struct {
-	ID              uint      `json:"id" gorm:"primaryKey"`
-	CourseID        uint      `json:"course_id" gorm:"index;not null"`
-	EnglishSentence string    `json:"english_sentence" gorm:"type:text;not null"`
-	ChineseTranslation string `json:"chinese_translation" gorm:"type:text"`
-	SortOrder       int       `json:"sort_order" gorm:"default:0"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID                 uint      `json:"id" gorm:"primaryKey"`
+	CourseID           uint      `json:"course_id" gorm:"index;not null"`
+	EnglishSentence    string    `json:"english_sentence" gorm:"type:text;not null"`
+	ChineseTranslation string    `json:"chinese_translation" gorm:"type:text"`
+	SortOrder          int       `json:"sort_order" gorm:"default:0"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 // CreateCourseRequest 创建课程包请求

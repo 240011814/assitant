@@ -1,4 +1,4 @@
-package service
+package note
 
 import (
 	"errors"
@@ -7,6 +7,9 @@ import (
 
 	"gorm.io/gorm"
 )
+
+// DB 本包专用数据库句柄, 由 main.go 接线赋值 (note.DB = db)。
+var DB *gorm.DB
 
 type NoteService struct{}
 

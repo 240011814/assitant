@@ -1,7 +1,7 @@
 package api
 
 import (
-	"backend/service"
+	"backend/service/auth"
 	"errors"
 	"strings"
 
@@ -103,7 +103,7 @@ func RequirePermission(permissions ...string) gin.HandlerFunc {
 			return
 		}
 
-		hasPermission, err := service.CheckUserPermission(userID.(uint), permissions)
+		hasPermission, err := auth.CheckUserPermission(userID.(uint), permissions)
 		if err != nil {
 			SendError(c, "500", "权限检查失败")
 			c.Abort()
@@ -134,7 +134,7 @@ func HasPermission(c *gin.Context, permissions ...string) bool {
 		return false
 	}
 
-	hasPermission, err := service.CheckUserPermission(userID.(uint), permissions)
+	hasPermission, err := auth.CheckUserPermission(userID.(uint), permissions)
 	if err != nil {
 		return false
 	}

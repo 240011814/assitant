@@ -1,7 +1,8 @@
-package service
+package stock
 
 import (
 	iface "backend/interface"
+	"backend/service/notifier"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -279,7 +280,7 @@ func (s *StockAlertService) notifyUser(userID uint, triggers []model.StockAlertT
 				continue
 			}
 			if err := n.Send(target, msg); err != nil {
-				if !errors.Is(err, ErrBotNotStarted) {
+				if !errors.Is(err, notifier.ErrBotNotStarted) {
 					log.Printf("[StockAlert] 推送失败 user=%d channel=%s: %v", userID, channel, err)
 				}
 			}

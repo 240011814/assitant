@@ -1,9 +1,10 @@
-package service
+package stock
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"log"
 	"sync"
 	"time"
@@ -12,6 +13,9 @@ import (
 
 	"gorm.io/gorm"
 )
+
+// CH 本包专用 ClickHouse 连接, 由 main.go 接线赋值 (stock.CH = ch); 未启用时为 nil。
+var CH clickhouse.Conn
 
 // StockChSyncService MySQL -> ClickHouse 行情/财务数据复制
 // MySQL 为真相源, ClickHouse 为下游只读副本(回测/分析用)
@@ -32,8 +36,8 @@ const (
 	chWatermarkFinance = "clickhouse_stock_finance" // CH stock_finance 复制水位(updated_at)
 	chReadBatch        = 20000                      // MySQL 每批读取条数
 
-	chIncrementalTimeout = 30 * time.Minute  // 增量复制整体超时
-	chFullTimeout        = 6 * time.Hour     // 全量重建整体超时 (千万级行)
+	chIncrementalTimeout = 30 * time.Minute // 增量复制整体超时
+	chFullTimeout        = 6 * time.Hour    // 全量重建整体超时 (千万级行)
 )
 
 // RunExclusive CH 复制任务的独立互斥: 不占用 baostock 同步的全局锁,

@@ -65,9 +65,9 @@ func (QuizSession) TableName() string {
 type QuizAnswerResult struct {
 	QuestionID  string `json:"questionId"`
 	Correct     bool   `json:"correct"`
-	Answer      string `json:"answer"`     // 正确答案
-	Recorded    bool   `json:"recorded"`   // 是否已计入错题本
-	Decayed     bool   `json:"decayed"`    // 答对是否消了一条错题
+	Answer      string `json:"answer"`      // 正确答案
+	Recorded    bool   `json:"recorded"`    // 是否已计入错题本
+	Decayed     bool   `json:"decayed"`     // 答对是否消了一条错题
 	Explanation string `json:"explanation"` // 答错讲解 (词义/例句/易混对比)
 }
 

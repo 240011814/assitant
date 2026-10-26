@@ -1334,7 +1334,7 @@ type Placement struct {
 type GuillotineBin struct {
 	Width, Height float64
 	// kerf 锯缝: 零件按 (宽+kerf)×(高+kerf) 参与装箱与分割, 等价于件间留出 kerf 间隙
-	kerf float64
+	kerf      float64
 	FreeRects []FreeRectangle
 }
 
@@ -1501,7 +1501,7 @@ type planeMaterial struct {
 
 // planeSpecRow 平面新板材规格 (name 为材料类型名, 空 label 归一化为 "新板材")
 type planeSpecRow struct {
-	name         string
+	name          string
 	width, height float64
 }
 
@@ -1920,36 +1920,36 @@ func (s *CutService) maxRectsCut(req model.BinRequest) (*model.PlaneCutResponse,
 	for _, item := range allItems {
 		placed := false
 
-	// 尝试放入已有 bin (指定材料类型的零件只能放同名材料的板)
-	for i, bin := range bins {
-		if item.Spec != "" && results[i].MaterialType != item.Spec {
-			continue
-		}
-		rect := bin.Insert(item.Width, item.Height, true)
-		if rect != nil {
-			results[i].Pieces = append(results[i].Pieces, createMaxRectPiece(item, *rect))
-			placed = true
-			break
-		}
-	}
-
-	// 放不下则选择新的材料开 bin
-	if !placed {
-		selected, rest := takePlaneMaterial(materials, item.Width, item.Height, item.Spec, claimed)
-		if selected == nil {
-			// 所有材料(含备用新板材)都放不下或已耗尽
-			if !planeFitsAnySpec(specs, item) {
-				oversized = append(oversized, item)
-			} else {
-				exhausted = append(exhausted, item)
+		// 尝试放入已有 bin (指定材料类型的零件只能放同名材料的板)
+		for i, bin := range bins {
+			if item.Spec != "" && results[i].MaterialType != item.Spec {
+				continue
 			}
-			continue
+			rect := bin.Insert(item.Width, item.Height, true)
+			if rect != nil {
+				results[i].Pieces = append(results[i].Pieces, createMaxRectPiece(item, *rect))
+				placed = true
+				break
+			}
 		}
-		materials = rest
 
-		// 板尺寸加锯缝, 零件按膨胀尺寸放入 (与 Guillotine 同口径)
-		newBin := NewMaxRectsBin(selected.Width, selected.Height, req.Kerf)
-		rect := newBin.Insert(item.Width, item.Height, true)
+		// 放不下则选择新的材料开 bin
+		if !placed {
+			selected, rest := takePlaneMaterial(materials, item.Width, item.Height, item.Spec, claimed)
+			if selected == nil {
+				// 所有材料(含备用新板材)都放不下或已耗尽
+				if !planeFitsAnySpec(specs, item) {
+					oversized = append(oversized, item)
+				} else {
+					exhausted = append(exhausted, item)
+				}
+				continue
+			}
+			materials = rest
+
+			// 板尺寸加锯缝, 零件按膨胀尺寸放入 (与 Guillotine 同口径)
+			newBin := NewMaxRectsBin(selected.Width, selected.Height, req.Kerf)
+			rect := newBin.Insert(item.Width, item.Height, true)
 			if rect != nil {
 				bins = append(bins, newBin)
 

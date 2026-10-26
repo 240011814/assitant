@@ -1,10 +1,13 @@
-package service
+package usermemory
 
 import (
 	iface "backend/interface"
 	"backend/model"
+	"backend/service/jobs"
+	"backend/service/kernel"
 	"backend/service/llmjson"
 	"backend/service/promptcfg"
+	"backend/service/systemconfig"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +19,9 @@ import (
 
 	"gorm.io/gorm"
 )
+
+// DB 本包专用数据库句柄, 由 main.go 接线赋值 (usermemory.DB = db)。
+var DB *gorm.DB
 
 // MemoryExtractionConfig 画像/经历抽取配置(来自 system_config)
 type MemoryExtractionConfig struct {
@@ -29,7 +35,7 @@ type MemoryExtractionConfig struct {
 // agentSvc 依赖窄接口 TextGenerator 而非具体 *AIAgentService, 切断 user→ai 的相互 import。
 type UserMemoryService struct {
 	agentSvc iface.TextGenerator
-	sysCfg   *SystemConfigService
+	sysCfg   *systemconfig.SystemConfigService
 	mu       sync.Mutex
 	// extracting 抽取运行标志 (由 mu 保护): 锁只覆盖标志的读写, 不覆盖抽取过程
 	// —— 整轮抽取可达数十分钟, 若整程持锁, 手动触发请求会被挂死到 cron 那轮结束
@@ -53,7 +59,7 @@ func (s *UserMemoryService) unlockExtraction() {
 	s.extracting = false
 }
 
-func NewUserMemoryService(agentSvc iface.TextGenerator, sysCfg *SystemConfigService) *UserMemoryService {
+func NewUserMemoryService(agentSvc iface.TextGenerator, sysCfg *systemconfig.SystemConfigService) *UserMemoryService {
 	s := &UserMemoryService{agentSvc: agentSvc, sysCfg: sysCfg}
 	// 启动复位: 上个进程可能在 LLM 调用期间退出, processing 状态若不复位会被 collectEligible 永久跳过
 	if err := DB.Model(&model.MemoryExtractionState{}).
@@ -222,7 +228,7 @@ func (s *UserMemoryService) UpdatePortrait(userID uint, req model.UpdateUserPort
 // ============ 经历 CRUD ============
 
 func (s *UserMemoryService) ListExperiences(userID uint, page, pageSize int, domain, keyword string) (int64, []model.UserExperience, error) {
-	page = NormalizePage(page)
+	page = kernel.NormalizePage(page)
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
@@ -246,7 +252,7 @@ func (s *UserMemoryService) ListExperiences(userID uint, page, pageSize int, dom
 }
 
 func (s *UserMemoryService) SearchExperiences(userID uint, query string, page, pageSize int) (int64, []model.UserExperience, error) {
-	page = NormalizePage(page)
+	page = kernel.NormalizePage(page)
 	if pageSize <= 0 || pageSize > 50 {
 		pageSize = 10
 	}
@@ -911,7 +917,7 @@ func normalizeDimensionValue(raw json.RawMessage) string {
 
 // ============ 定时任务 ============
 
-func (s *UserMemoryService) RegisterCronTasks(js *JobScheduler) {
+func (s *UserMemoryService) RegisterCronTasks(js *jobs.JobScheduler) {
 	if js == nil {
 		return
 	}

@@ -1,6 +1,10 @@
-package service
+package orchestration
 
 import (
+	"backend/service/agent"
+	"backend/service/kernel"
+	"backend/service/prompt"
+	"backend/service/tokenusage"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,14 +23,17 @@ import (
 	"gorm.io/gorm"
 )
 
+// DB 本包专用数据库句柄, 由 main.go 接线赋值。
+var DB *gorm.DB
+
 // AIOrchestrationService Agent Studio 编排管理: CRUD + DSL 校验 + 调试运行
 type AIOrchestrationService struct {
-	agentService  *AIAgentService
-	promptService *PromptService
+	agentService  *agent.AIAgentService
+	promptService *prompt.PromptService
 	timeout       time.Duration
 }
 
-func NewAIOrchestrationService(agentService *AIAgentService, promptService *PromptService, timeoutMinutes int) *AIOrchestrationService {
+func NewAIOrchestrationService(agentService *agent.AIAgentService, promptService *prompt.PromptService, timeoutMinutes int) *AIOrchestrationService {
 	if timeoutMinutes <= 0 {
 		timeoutMinutes = 5
 	}
@@ -321,7 +328,7 @@ func (s *AIOrchestrationService) wrapOrchestrationTool(name string) (tool.BaseTo
 	if err != nil {
 		return nil, err
 	}
-	if isConfirmRequired(name) {
+	if agent.IsConfirmRequired(name) {
 		if invokable, ok := t.(tool.InvokableTool); ok {
 			return &orchApprovalTool{name: name, inner: invokable}, nil
 		}
@@ -380,7 +387,7 @@ func (s *AIOrchestrationService) compile(ctx context.Context, userID uint, dsl *
 		nodePrompt: func(nodeKey string) (string, bool) {
 			// 编排 Agent 节点的提示词版本: user_prompts 表, 键 = 编排 id + 节点 id,
 			// user_id 恒为 0 (编排全局共享, 不区分用户)。草稿 (orchID=0) 无版本可解析,
-			// 回退画布内联提示词。经 PromptService 读 (带缓存, 版本变更即失效);
+			// 回退画布内联提示词。经 prompt.PromptService 读 (带缓存, 版本变更即失效);
 			// promptService 未注入时 (旧装配/单测) 回退直查
 			if orchID == 0 {
 				return "", false
@@ -603,7 +610,7 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 	orchLog("%s 开始调试运行: 历史轮次=%d 本轮输入=%.60q 定义长度=%d", runTag, len(history), req.Input, len(definition))
 
 	// 月度 Token 限额: 入口前置校验 (画布调试与编排对话都走这里), 超限直接拒绝
-	if err := NewTokenUsageService().CheckTokenQuota(userID); err != nil {
+	if err := tokenusage.NewTokenUsageService().CheckTokenQuota(userID); err != nil {
 		orchLog("%s 限额拦截: %v", runTag, err)
 		emit("error", map[string]any{"message": err.Error()})
 		emit("done", map[string]any{})
@@ -789,7 +796,7 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 	// 已保存编排: 异步落最近一次调试摘要, 供列表回显
 	// (训练中心的编排对话 skip_summary=true, 不污染调试摘要)
 	if orchID > 0 && !req.SkipSummary {
-		SafeGo("orch:save-debug-summary", func() {
+		kernel.SafeGo("orch:save-debug-summary", func() {
 			data, mErr := json.Marshal(summary)
 			if mErr != nil {
 				return
@@ -823,7 +830,7 @@ func (s *AIOrchestrationService) recordOrchestrationUsage(userID uint, chatMode 
 		if modelCode == "" {
 			modelCode = s.agentService.ResolveModelCode("")
 		}
-		RecordTokenUsage(userID, modelCode, source, int64(t.Tokens.PromptTokens), int64(t.Tokens.CompletionTokens))
+		tokenusage.RecordTokenUsage(userID, modelCode, source, int64(t.Tokens.PromptTokens), int64(t.Tokens.CompletionTokens))
 	}
 }
 

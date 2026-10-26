@@ -1,15 +1,20 @@
-package service
+package admin
 
 import (
+	"backend/service/auth"
 	crand "crypto/rand"
 	"errors"
 	"math/big"
 	"strings"
 
 	"backend/model"
+	"backend/service/kernel"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
+
+// DB 本包专用数据库句柄, 由 main.go 接线赋值 (admin.DB = db)。
+var DB *gorm.DB
 
 type AdminService struct{}
 
@@ -32,7 +37,7 @@ func (s *AdminService) ListUsers(keyword, role string, page, pageSize int) ([]mo
 		return nil, 0, err
 	}
 
-	page = NormalizePage(page)
+	page = kernel.NormalizePage(page)
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
@@ -59,7 +64,7 @@ func (s *AdminService) ListUsers(keyword, role string, page, pageSize int) ([]mo
 }
 
 func (s *AdminService) CreateUser(req model.CreateUserRequest) error {
-	if err := ValidatePasswordStrength(req.Password); err != nil {
+	if err := auth.ValidatePasswordStrength(req.Password); err != nil {
 		return err
 	}
 	if err := s.ensureRoleExists(req.Role); err != nil {
@@ -105,7 +110,7 @@ func (s *AdminService) UpdateUser(id uint, req model.UpdateUserRequest) error {
 		updates["token_quota_month"] = *req.TokenQuotaMonth
 	}
 	if req.Password != "" {
-		if err := ValidatePasswordStrength(req.Password); err != nil {
+		if err := auth.ValidatePasswordStrength(req.Password); err != nil {
 			return err
 		}
 		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -123,7 +128,7 @@ func (s *AdminService) UpdateUser(id uint, req model.UpdateUserRequest) error {
 		return errors.New("用户不存在")
 	}
 	// 用户角色可能被修改, 失效该用户权限缓存
-	InvalidatePermissionCache(id)
+	auth.InvalidatePermissionCache(id)
 	return nil
 }
 
@@ -138,7 +143,7 @@ func (s *AdminService) ResetUserPassword(id uint, password string, clear2FA bool
 			return "", err
 		}
 		password = generated
-	} else if err := ValidatePasswordStrength(password); err != nil {
+	} else if err := auth.ValidatePasswordStrength(password); err != nil {
 		return "", err
 	}
 
@@ -360,7 +365,7 @@ func (s *AdminService) UpdateRolePermissions(roleCode string, permissions []stri
 	})
 	if err == nil {
 		// 权限变更后失效短 TTL 缓存, 立即生效
-		InvalidatePermissionCache(0)
+		auth.InvalidatePermissionCache(0)
 	}
 	return err
 }

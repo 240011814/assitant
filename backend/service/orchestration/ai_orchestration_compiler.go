@@ -1,4 +1,4 @@
-package service
+package orchestration
 
 import (
 	"context"
@@ -30,7 +30,7 @@ import (
 // branch(条件路由) / router(LLM 意图路由) / merge(多路合并) / extract(JSON 字段提取) /
 // suborch(子编排引用) / end(输出)
 
-// compilerDeps 编译期依赖, 由 AIAgentService 提供
+// compilerDeps 编译期依赖, 由 agent.AIAgentService 提供
 type compilerDeps struct {
 	// getModel 按 model code 构建 ToolCallingChatModel (空串用默认模型)
 	getModel func(modelOverride string) (model.ToolCallingChatModel, error)

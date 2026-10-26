@@ -1,4 +1,4 @@
-package service
+package agent
 
 import (
 	"testing"
@@ -52,5 +52,22 @@ func TestAIAgentServiceGetTimeout(t *testing.T) {
 	svc := &AIAgentService{timeout: 3 * time.Minute}
 	if got := svc.getTimeout(); got != 3*time.Minute {
 		t.Fatalf("getTimeout = %v, want 3m", got)
+	}
+}
+
+// Agent 类型规范化: 只认 subagent, 其余一律 chat (空值/拼错都退回 chat, 避免脏数据)
+func TestNormalizeAgentType(t *testing.T) {
+	cases := map[string]string{
+		"":            model.AIAgentTypeChat,
+		"chat":        model.AIAgentTypeChat,
+		"subagent":    model.AIAgentTypeSubAgent,
+		" subagent ":  model.AIAgentTypeSubAgent,
+		"subAgent":    model.AIAgentTypeChat,
+		"orchestrate": model.AIAgentTypeChat,
+	}
+	for in, want := range cases {
+		if got := normalizeAgentType(in); got != want {
+			t.Fatalf("normalizeAgentType(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

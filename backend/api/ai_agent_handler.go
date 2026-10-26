@@ -2,17 +2,17 @@ package api
 
 import (
 	"backend/model"
-	"backend/service"
+	"backend/service/agent"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
 
 type AIAgentHandler struct {
-	aiAgentService *service.AIAgentService
+	aiAgentService *agent.AIAgentService
 }
 
-func NewAIAgentHandler(aiAgentService *service.AIAgentService) *AIAgentHandler {
+func NewAIAgentHandler(aiAgentService *agent.AIAgentService) *AIAgentHandler {
 	return &AIAgentHandler{
 		aiAgentService: aiAgentService,
 	}

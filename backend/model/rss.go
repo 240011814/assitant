@@ -59,10 +59,10 @@ type UpdateRSSSourceRequest struct {
 
 // ListRSSItemsRequest 文章列表查询
 type ListRSSItemsRequest struct {
-	SourceID   uint   `form:"sourceId"`
-	Status     string `form:"status"`     // unread / read (含 imported) / 空=全部
-	Sort       string `form:"sort"`       // time_desc(默认)/time_asc, 按发布时间(缺失用创建时间)排序
-	EasyOnly   bool   `form:"easyOnly"`   // 只看预估适合当前水平的 (est_unknown_rate <= 0.08)
-	Page       int    `form:"page"`
-	PageSize   int    `form:"page_size"`
+	SourceID uint   `form:"sourceId"`
+	Status   string `form:"status"`   // unread / read (含 imported) / 空=全部
+	Sort     string `form:"sort"`     // time_desc(默认)/time_asc, 按发布时间(缺失用创建时间)排序
+	EasyOnly bool   `form:"easyOnly"` // 只看预估适合当前水平的 (est_unknown_rate <= 0.08)
+	Page     int    `form:"page"`
+	PageSize int    `form:"page_size"`
 }

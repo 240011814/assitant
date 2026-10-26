@@ -1,6 +1,7 @@
-package service
+package systemconfig
 
 import (
+	iface "backend/interface"
 	"backend/model"
 	"backend/service/kernel"
 	"strconv"
@@ -8,6 +9,13 @@ import (
 
 	"gorm.io/gorm"
 )
+
+// DB 本包专用数据库句柄, 由 main.go 接线赋值 (systemconfig.DB = db)。
+// 子包内部所有 DB. 调用点无需改动。
+var DB *gorm.DB
+
+// 编译期断言: 确认本包服务满足 learning 集群所需的窄接口 (原 service/interface_asserts.go)。
+var _ iface.ConfigValueGetter = (*SystemConfigService)(nil)
 
 // Mem0Config mem0 服务配置
 type Mem0Config struct {

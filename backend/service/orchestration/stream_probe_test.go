@@ -1,4 +1,4 @@
-package service
+package orchestration
 
 import (
 	"context"
@@ -72,7 +72,9 @@ func (f *selfCallbackModel) Generate(ctx context.Context, in []*schema.Message, 
 	return schema.ConcatMessageStream(sr)
 }
 
-func (f *selfCallbackModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) { return f, nil }
+func (f *selfCallbackModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	return f, nil
+}
 
 // IsCallbacksEnabled 与 ark 一致: 自带回调, 框架跳过 OnStart/OnEnd 包装
 func (f *selfCallbackModel) IsCallbacksEnabled() bool { return true }
@@ -689,23 +691,6 @@ func (m *scriptedToolModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChat
 func probeStr(v any) string {
 	s, _ := v.(string)
 	return s
-}
-
-// Agent 类型规范化: 只认 subagent, 其余一律 chat (空值/拼错都退回 chat, 避免脏数据)
-func TestNormalizeAgentType(t *testing.T) {
-	cases := map[string]string{
-		"":            coremodel.AIAgentTypeChat,
-		"chat":        coremodel.AIAgentTypeChat,
-		"subagent":    coremodel.AIAgentTypeSubAgent,
-		" subagent ":  coremodel.AIAgentTypeSubAgent,
-		"subAgent":    coremodel.AIAgentTypeChat,
-		"orchestrate": coremodel.AIAgentTypeChat,
-	}
-	for in, want := range cases {
-		if got := normalizeAgentType(in); got != want {
-			t.Fatalf("normalizeAgentType(%q) = %q, want %q", in, got, want)
-		}
-	}
 }
 
 // 去重回归: 链式多个模型节点各自实时下发后, 图级输出不能把前一个节点的长度算进来,

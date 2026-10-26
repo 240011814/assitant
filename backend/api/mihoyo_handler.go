@@ -9,18 +9,17 @@ package api
 // (见迁移 20261022000003, R_ADMIN 默认授予, 后台可调)。
 
 import (
+	"backend/service/mihoyo"
 	"time"
-
-	"backend/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 type MihoyoHandler struct {
-	svc *service.MihoyoService
+	svc *mihoyo.MihoyoService
 }
 
-func NewMihoyoHandler(svc *service.MihoyoService) *MihoyoHandler {
+func NewMihoyoHandler(svc *mihoyo.MihoyoService) *MihoyoHandler {
 	return &MihoyoHandler{svc: svc}
 }
 

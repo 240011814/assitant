@@ -1,7 +1,9 @@
 package api
 
 import (
-	"backend/service"
+	"backend/service/agent"
+	"backend/service/history"
+	"backend/service/kernel"
 	"io"
 	"log"
 	"net/http"
@@ -25,7 +27,7 @@ type ToolApprovalRequest struct {
 	Messages []ChatMessage `json:"messages"`
 }
 
-func HandleToolApproval(agentService *service.AIAgentService, historyService *service.HistoryService) gin.HandlerFunc {
+func HandleToolApproval(agentService *agent.AIAgentService, historyService *history.HistoryService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ToolApprovalRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -88,8 +90,8 @@ func HandleToolApproval(agentService *service.AIAgentService, historyService *se
 				log.Printf("[tool-approval] stream completed user=%d reply_chars=%d", userID, len(state.assistantReply))
 				c.SSEvent("message", "[DONE]")
 
-				service.SafeGo("tool-approval:save-conversation", func() {
-					if _, saveErr := historyService.SaveConversation(&service.SaveConversationParams{
+				kernel.SafeGo("tool-approval:save-conversation", func() {
+					if _, saveErr := historyService.SaveConversation(&history.SaveConversationParams{
 						UserID:           userID,
 						HistoryID:        historyID,
 						TrainingType:     req.TrainingType,
@@ -113,7 +115,7 @@ func HandleToolApproval(agentService *service.AIAgentService, historyService *se
 
 			if event.Action != nil && event.Action.Interrupted != nil {
 				for _, ictx := range event.Action.Interrupted.InterruptContexts {
-					if approvalInfo, ok := ictx.Info.(*service.ToolApprovalInfo); ok {
+					if approvalInfo, ok := ictx.Info.(*agent.ToolApprovalInfo); ok {
 						c.SSEvent("tool_approval", gin.H{
 							"tool_name":     approvalInfo.ToolName,
 							"arguments":     approvalInfo.Arguments,

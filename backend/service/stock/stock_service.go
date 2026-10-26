@@ -1,4 +1,4 @@
-package service
+package stock
 
 import (
 	"backend/model"
@@ -13,6 +13,9 @@ import (
 
 	"gorm.io/gorm"
 )
+
+// DB 本包专用数据库句柄, 由 main.go 接线赋值。
+var DB *gorm.DB
 
 type StockService struct{}
 

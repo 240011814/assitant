@@ -1,19 +1,19 @@
 package api
 
 import (
+	"backend/service/note"
 	"strconv"
 
 	"backend/model"
-	"backend/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 type NoteHandler struct {
-	noteService *service.NoteService
+	noteService *note.NoteService
 }
 
-func NewNoteHandler(noteService *service.NoteService) *NoteHandler {
+func NewNoteHandler(noteService *note.NoteService) *NoteHandler {
 	return &NoteHandler{
 		noteService: noteService,
 	}

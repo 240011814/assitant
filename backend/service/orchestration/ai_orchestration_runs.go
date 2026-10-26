@@ -1,6 +1,7 @@
-package service
+package orchestration
 
 import (
+	"backend/service/kernel"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -35,7 +36,7 @@ func (s *AIOrchestrationService) recordOrchRunAsync(orchID, userID uint, req *mo
 		TotalMS: summaryTotalMSOrZero(summary),
 		Error:   errMsg,
 	}
-	SafeGo("orch:record-run", func() {
+	kernel.SafeGo("orch:record-run", func() {
 		if summary != nil {
 			if data, err := json.Marshal(summary); err == nil {
 				run.Summary = string(data)

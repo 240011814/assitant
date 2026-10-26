@@ -1,4 +1,4 @@
-package service
+package rag
 
 import (
 	"context"
@@ -19,11 +19,11 @@ type fakeVectorStore struct {
 }
 
 type fakeSearchCall struct {
-	userID  uint
-	vec     []float32
-	model   string
-	docIDs  []uint
-	topK    int
+	userID uint
+	vec    []float32
+	model  string
+	docIDs []uint
+	topK   int
 }
 
 func (f *fakeVectorStore) Available() bool { return f.available }

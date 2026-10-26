@@ -2,17 +2,17 @@ package api
 
 import (
 	"backend/model"
-	"backend/service"
+	"backend/service/skill"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
 
 type SkillHandler struct {
-	svc *service.AISkillService
+	svc *skill.AISkillService
 }
 
-func NewSkillHandler(svc *service.AISkillService) *SkillHandler {
+func NewSkillHandler(svc *skill.AISkillService) *SkillHandler {
 	return &SkillHandler{svc: svc}
 }
 

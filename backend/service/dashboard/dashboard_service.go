@@ -1,10 +1,16 @@
-package service
+package dashboard
 
 import (
-	"backend/model"
 	"log"
 	"time"
+
+	"backend/model"
+
+	"gorm.io/gorm"
 )
+
+// DB 本包专用数据库句柄, 由 main.go 接线赋值 (dashboard.DB = db)。
+var DB *gorm.DB
 
 type DashboardService struct{}
 

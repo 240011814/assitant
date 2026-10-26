@@ -6,14 +6,14 @@ import (
 
 // ModelScenario 模型和场景配置
 type ModelScenario struct {
-	ID          uint   `gorm:"primaryKey;autoIncrement" json:"id"`
-	Type        string `gorm:"size:20;not null;index" json:"type"`
-	Name        string `gorm:"size:100;not null" json:"name"`
-	Summary     string `gorm:"size:500" json:"summary"`
-	Description string `gorm:"type:text" json:"description"`
-	Detail      string `gorm:"type:text" json:"detail"`
-	Category    string `gorm:"size:50" json:"category"`
-	SortOrder   int    `gorm:"default:0" json:"sortOrder"`
+	ID          uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	Type        string    `gorm:"size:20;not null;index" json:"type"`
+	Name        string    `gorm:"size:100;not null" json:"name"`
+	Summary     string    `gorm:"size:500" json:"summary"`
+	Description string    `gorm:"type:text" json:"description"`
+	Detail      string    `gorm:"type:text" json:"detail"`
+	Category    string    `gorm:"size:50" json:"category"`
+	SortOrder   int       `gorm:"default:0" json:"sortOrder"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }

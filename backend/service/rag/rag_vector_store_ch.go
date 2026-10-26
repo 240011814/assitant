@@ -1,11 +1,16 @@
-package service
+package rag
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
+
 	"context"
 	"errors"
 	"fmt"
 	"strings"
 )
+
+// CH 本包专用 ClickHouse 连接, 由 main.go 接线赋值 (rag.CH = ch); 未启用时为 nil, 向量存储不可用。
+var CH clickhouse.Conn
 
 // chVectorStore VectorStore 的 ClickHouse 实现 (document_chunks 表, ch_migrations 建表)。
 // 删除走 lightweight DELETE (需要 CH >= 23.3; ALTER DELETE 是异步 mutation,

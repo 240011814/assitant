@@ -1,6 +1,13 @@
 package api
 
 import (
+	"backend/service/agent"
+	"backend/service/kernel"
+	"backend/service/notifier"
+	"backend/service/rag"
+	"backend/service/systemconfig"
+	"backend/service/tts"
+	"backend/service/userdoc"
 	"context"
 	"fmt"
 	"log"
@@ -8,23 +15,22 @@ import (
 	"time"
 
 	iface "backend/interface"
-	"backend/service"
 	"backend/service/promptcfg"
 
 	"github.com/gin-gonic/gin"
 )
 
 type SystemConfigHandler struct {
-	configSvc       *service.SystemConfigService
-	telegramService *service.TelegramService
-	aiAgentSvc      *service.AIAgentService
-	emailNotifier   *service.EmailNotifier
-	docSvc          *service.UserDocumentService
-	ragSvc          *service.RagService
-	ttsSvc          *service.TtsService
+	configSvc       *systemconfig.SystemConfigService
+	telegramService *notifier.TelegramService
+	aiAgentSvc      *agent.AIAgentService
+	emailNotifier   *notifier.EmailNotifier
+	docSvc          *userdoc.UserDocumentService
+	ragSvc          *rag.RagService
+	ttsSvc          *tts.TtsService
 }
 
-func NewSystemConfigHandler(configSvc *service.SystemConfigService, telegramService *service.TelegramService, emailNotifier *service.EmailNotifier, aiAgentSvc ...*service.AIAgentService) *SystemConfigHandler {
+func NewSystemConfigHandler(configSvc *systemconfig.SystemConfigService, telegramService *notifier.TelegramService, emailNotifier *notifier.EmailNotifier, aiAgentSvc ...*agent.AIAgentService) *SystemConfigHandler {
 	h := &SystemConfigHandler{
 		configSvc:       configSvc,
 		telegramService: telegramService,
@@ -37,17 +43,17 @@ func NewSystemConfigHandler(configSvc *service.SystemConfigService, telegramServ
 }
 
 // SetUserDocumentService 注入用户文档服务 (S3 存储配置变更后热刷新用)
-func (h *SystemConfigHandler) SetUserDocumentService(docSvc *service.UserDocumentService) {
+func (h *SystemConfigHandler) SetUserDocumentService(docSvc *userdoc.UserDocumentService) {
 	h.docSvc = docSvc
 }
 
 // SetRAGService 注入 RAG 服务 (rag_* 配置变更后热刷新 + 嵌入测试连接用)
-func (h *SystemConfigHandler) SetRAGService(ragSvc *service.RagService) {
+func (h *SystemConfigHandler) SetRAGService(ragSvc *rag.RagService) {
 	h.ragSvc = ragSvc
 }
 
 // SetTtsService 注入 TTS 服务 (tts_* 配置变更后热刷新)
-func (h *SystemConfigHandler) SetTtsService(ttsSvc *service.TtsService) {
+func (h *SystemConfigHandler) SetTtsService(ttsSvc *tts.TtsService) {
 	h.ttsSvc = ttsSvc
 }
 
@@ -101,7 +107,7 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 		if req.Key == key {
 			h.configSvc.ReloadTimeoutConfig()
 			if h.aiAgentSvc != nil {
-				service.SafeGo("system_config:reload-timeout", func() {
+				kernel.SafeGo("system_config:reload-timeout", func() {
 					if err := h.aiAgentSvc.ReloadConfig(); err != nil {
 						log.Printf("[system_config] 超时配置重载失败: %v", err)
 					}
@@ -216,8 +222,8 @@ func (h *SystemConfigHandler) HandleTestS3(c *gin.Context) {
 		return
 	}
 
-	endpoint, secure := service.NormalizeS3Endpoint(req.Endpoint, req.Secure)
-	cfg := service.S3StorageConfig{
+	endpoint, secure := userdoc.NormalizeS3Endpoint(req.Endpoint, req.Secure)
+	cfg := userdoc.S3StorageConfig{
 		Enabled:      true,
 		Endpoint:     endpoint,
 		Region:       req.Region,
@@ -227,7 +233,7 @@ func (h *SystemConfigHandler) HandleTestS3(c *gin.Context) {
 		Secure:       secure,
 		UsePathStyle: req.UsePathStyle,
 	}
-	if err := service.TestS3Connection(c.Request.Context(), cfg); err != nil {
+	if err := userdoc.TestS3Connection(c.Request.Context(), cfg); err != nil {
 		SendError(c, "500", "连接失败: "+err.Error())
 		return
 	}
@@ -252,7 +258,7 @@ func (h *SystemConfigHandler) SendTestEmail(c *gin.Context) {
 	}
 	content := req.Content
 	if content == "" {
-		content = "这是一封 SMTP 邮件服务的测试邮件。\n\n如果您收到此邮件，说明 SMTP 配置正确。"
+		content = "这是一封 SMTP 邮件服务的测试邮件。如果您收到此邮件，说明 SMTP 配置正确。"
 	}
 
 	msg := iface.NotifyMessage{

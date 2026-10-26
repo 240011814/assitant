@@ -89,7 +89,7 @@ func (t *mem0MemoryTool) InvokableRun(ctx context.Context, arguments string, _ .
 			return "未找到相关记忆", nil
 		}
 		result, _ := json.Marshal(memories)
-		return string(result), nil		
+		return string(result), nil
 
 	case "add":
 		if req.Memory == "" {

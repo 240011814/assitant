@@ -1,8 +1,10 @@
-package service
+package reminder
 
 import (
 	iface "backend/interface"
 	"backend/model"
+	"backend/service/jobs"
+	notif "backend/service/notifier"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,15 +14,18 @@ import (
 	"gorm.io/gorm"
 )
 
+// DB 本包专用数据库句柄, 由 main.go 接线赋值。
+var DB *gorm.DB
+
 // ReminderService 用户备忘
 // 存储于 job_definitions (task_name=reminder.notify, user_id 归属)
 // 链式重复: 每条定义 = 一次执行, 重复任务执行完后由调度器生成下一条 (chain_id 分组), 与旧 jobs 表逻辑一致
 type ReminderService struct {
-	jobScheduler *JobScheduler
+	jobScheduler *jobs.JobScheduler
 	notifiers    []iface.Notifier
 }
 
-func NewReminderService(jobScheduler *JobScheduler, notifiers ...iface.Notifier) *ReminderService {
+func NewReminderService(jobScheduler *jobs.JobScheduler, notifiers ...iface.Notifier) *ReminderService {
 	s := &ReminderService{
 		jobScheduler: jobScheduler,
 		notifiers:    notifiers,
@@ -412,7 +417,7 @@ func (s *ReminderService) reminderTaskHandler(def *model.JobDefinition, paramsRa
 
 		if err := notifier.Send(to, msg); err != nil {
 			// bot 未启动不作为发送失败，避免任务重试导致重复发送
-			if errors.Is(err, ErrBotNotStarted) {
+			if errors.Is(err, notif.ErrBotNotStarted) {
 				log.Printf("[ReminderService] %s 未启动，跳过发送: %s", notifier.Name(), params.Title)
 				continue
 			}

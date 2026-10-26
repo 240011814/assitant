@@ -1,4 +1,4 @@
-package service
+package agent
 
 import (
 	"context"
@@ -50,7 +50,7 @@ func InvalidateConfirmRequiredCache(toolName string) {
 }
 
 // IsConfirmRequired checks if a tool requires confirmation, with caching
-func isConfirmRequired(toolName string) bool {
+func IsConfirmRequired(toolName string) bool {
 	confirmRequiredMu.RLock()
 	if cached, ok := confirmRequiredCache[toolName]; ok {
 		confirmRequiredMu.RUnlock()
@@ -76,7 +76,7 @@ type approvalMiddleware struct {
 
 func (m *approvalMiddleware) WrapInvokableToolCall(_ context.Context, endpoint adk.InvokableToolCallEndpoint, tCtx *adk.ToolContext) (adk.InvokableToolCallEndpoint, error) {
 	return func(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
-		if !isConfirmRequired(tCtx.Name) {
+		if !IsConfirmRequired(tCtx.Name) {
 			return endpoint(ctx, argumentsInJSON, opts...)
 		}
 
@@ -112,7 +112,7 @@ func (m *approvalMiddleware) WrapInvokableToolCall(_ context.Context, endpoint a
 
 func (m *approvalMiddleware) WrapStreamableToolCall(_ context.Context, endpoint adk.StreamableToolCallEndpoint, tCtx *adk.ToolContext) (adk.StreamableToolCallEndpoint, error) {
 	return func(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (*schema.StreamReader[string], error) {
-		if !isConfirmRequired(tCtx.Name) {
+		if !IsConfirmRequired(tCtx.Name) {
 			return endpoint(ctx, argumentsInJSON, opts...)
 		}
 

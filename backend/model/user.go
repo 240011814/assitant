@@ -6,22 +6,22 @@ import (
 
 // User 用户实体类 (GORM Model)
 type User struct {
-	ID                      uint       `gorm:"primaryKey;autoIncrement" json:"userId"`
-	Username                string     `gorm:"size:50;not null;unique" json:"userName"`
-	PasswordHash            string     `gorm:"size:255;not null" json:"-"`
-	Nickname                string     `gorm:"size:100" json:"nickname"`
-	Email                   string     `gorm:"size:255;default:''" json:"email"`
-	Role                    string     `gorm:"size:20;default:'R_USER'" json:"role"`
+	ID           uint   `gorm:"primaryKey;autoIncrement" json:"userId"`
+	Username     string `gorm:"size:50;not null;unique" json:"userName"`
+	PasswordHash string `gorm:"size:255;not null" json:"-"`
+	Nickname     string `gorm:"size:100" json:"nickname"`
+	Email        string `gorm:"size:255;default:''" json:"email"`
+	Role         string `gorm:"size:20;default:'R_USER'" json:"role"`
 	// TokenQuotaMonth 月度 Token 限额 (NULL/0=不限), 按自然月统计 ai_token_usages
-	TokenQuotaMonth         *int       `gorm:"column:token_quota_month" json:"token_quota_month"`
-	TotpSecret              *string    `gorm:"column:totp_secret;size:64" json:"-"` // TOTP secret, nil = not set up
-	TelegramChatID          *int64     `gorm:"column:telegram_chat_id;uniqueIndex" json:"-"`
-	TelegramUsername         *string    `gorm:"column:telegram_username;size:100" json:"telegramUsername"`
-	TelegramBindCode        *string    `gorm:"column:telegram_bind_code;size:10" json:"-"`
+	TokenQuotaMonth           *int       `gorm:"column:token_quota_month" json:"token_quota_month"`
+	TotpSecret                *string    `gorm:"column:totp_secret;size:64" json:"-"` // TOTP secret, nil = not set up
+	TelegramChatID            *int64     `gorm:"column:telegram_chat_id;uniqueIndex" json:"-"`
+	TelegramUsername          *string    `gorm:"column:telegram_username;size:100" json:"telegramUsername"`
+	TelegramBindCode          *string    `gorm:"column:telegram_bind_code;size:10" json:"-"`
 	TelegramBindCodeExpiresAt *time.Time `gorm:"column:telegram_bind_code_expires_at" json:"-"`
-	LastLoginAt             *time.Time `json:"lastLoginAt"`
-	CreatedAt               time.Time  `json:"createdAt"`
-	UpdatedAt               time.Time  `json:"updatedAt"`
+	LastLoginAt               *time.Time `json:"lastLoginAt"`
+	CreatedAt                 time.Time  `json:"createdAt"`
+	UpdatedAt                 time.Time  `json:"updatedAt"`
 }
 
 // TableName 指定表名
@@ -53,15 +53,15 @@ type UserInfoResponseData struct {
 
 // UserListItem 用户列表项
 type UserListItem struct {
-	UserId    uint      `json:"userId"`
-	UserName  string    `json:"userName"`
-	Nickname  string    `json:"nickname"`
-	Role      string    `json:"role"`
+	UserId   uint   `json:"userId"`
+	UserName string `json:"userName"`
+	Nickname string `json:"nickname"`
+	Role     string `json:"role"`
 	// TokenQuotaMonth 月度 Token 限额 (NULL/0=不限)
-	TokenQuotaMonth *int   `json:"token_quota_month"`
-	TwoFAEnabled    bool   `json:"twoFAEnabled"`
-	CreatedAt time.Time  `json:"createdAt"`
-	UpdatedAt time.Time  `json:"updatedAt"`
+	TokenQuotaMonth *int      `json:"token_quota_month"`
+	TwoFAEnabled    bool      `json:"twoFAEnabled"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 type CreateUserRequest struct {
@@ -143,6 +143,6 @@ type TelegramBindCodeResponse struct {
 
 // TelegramStatusResponse Telegram 绑定状态响应
 type TelegramStatusResponse struct {
-	IsBound        bool   `json:"isBound"`
+	IsBound          bool   `json:"isBound"`
 	TelegramUsername string `json:"telegramUsername,omitempty"`
 }

@@ -21,7 +21,7 @@ var sanitizeAllowed = map[string]bool{
 	"strong": true, "b": true, "em": true, "i": true, "u": true, "s": true, "del": true, "ins": true, "small": true, "mark": true, "sub": true, "sup": true,
 	"code": true, "pre": true, "kbd": true,
 	"blockquote": true,
-	"ul": true, "ol": true, "li": true,
+	"ul":         true, "ol": true, "li": true,
 	"h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
 	"table": true, "thead": true, "tbody": true, "tfoot": true, "tr": true, "th": true, "td": true, "caption": true,
 	"figure": true, "figcaption": true,

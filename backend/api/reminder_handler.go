@@ -2,7 +2,7 @@ package api
 
 import (
 	"backend/model"
-	"backend/service"
+	"backend/service/reminder"
 	"strconv"
 	"time"
 
@@ -10,10 +10,10 @@ import (
 )
 
 type ReminderHandler struct {
-	reminderSvc *service.ReminderService
+	reminderSvc *reminder.ReminderService
 }
 
-func NewReminderHandler(reminderSvc *service.ReminderService) *ReminderHandler {
+func NewReminderHandler(reminderSvc *reminder.ReminderService) *ReminderHandler {
 	return &ReminderHandler{reminderSvc: reminderSvc}
 }
 

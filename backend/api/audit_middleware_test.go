@@ -87,15 +87,15 @@ func TestShouldAuditRequest(t *testing.T) {
 		{"PUT", "/api/notes/3", true},
 		{"DELETE", "/api/admin/users/1", true},
 		{"PATCH", "/api/stock/alerts/2", true},
-		{"POST", "/api/chat", false},                                  // SSE 流式对话
-		{"POST", "/api/chat/tool-approval", true},                     // 工具审批保留审计
-		{"POST", "/api/ai-orchestrations/12/chat", false},             // 编排对话流
-		{"PUT", "/api/ai-orchestrations/12", true},                    // 编排定义更新仍审计
-		{"POST", "/api/agent-studio/debug", false},                    // 调试运行
-		{"POST", "/api/agent-studio/orchestrations/validate", false},  // dry-run
-		{"POST", "/api/agent-studio/orchestrations", true},            // 编排创建审计
-		{"PUT", "/api/user/preferences/theme", false},                 // 主题切换噪音
-		{"POST", "/api/user/preferences/notification", true},          // 通知偏好审计
+		{"POST", "/api/chat", false},                                 // SSE 流式对话
+		{"POST", "/api/chat/tool-approval", true},                    // 工具审批保留审计
+		{"POST", "/api/ai-orchestrations/12/chat", false},            // 编排对话流
+		{"PUT", "/api/ai-orchestrations/12", true},                   // 编排定义更新仍审计
+		{"POST", "/api/agent-studio/debug", false},                   // 调试运行
+		{"POST", "/api/agent-studio/orchestrations/validate", false}, // dry-run
+		{"POST", "/api/agent-studio/orchestrations", true},           // 编排创建审计
+		{"PUT", "/api/user/preferences/theme", false},                // 主题切换噪音
+		{"POST", "/api/user/preferences/notification", true},         // 通知偏好审计
 	}
 
 	for _, tc := range cases {

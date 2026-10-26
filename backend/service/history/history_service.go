@@ -1,4 +1,4 @@
-package service
+package history
 
 import (
 	interfaces "backend/interface"
@@ -13,6 +13,9 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"gorm.io/gorm"
 )
+
+// DB 本包专用数据库句柄, 由 main.go 接线赋值 (history.DB = db)。
+var DB *gorm.DB
 
 var (
 	htmlTagRegex      = regexp.MustCompile(`<[^>]*>`)

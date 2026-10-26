@@ -1,16 +1,16 @@
 package api
 
 import (
-	"backend/service"
+	"backend/service/userpref"
 
 	"github.com/gin-gonic/gin"
 )
 
 type UserPreferenceHandler struct {
-	svc *service.UserPreferenceService
+	svc *userpref.UserPreferenceService
 }
 
-func NewUserPreferenceHandler(svc *service.UserPreferenceService) *UserPreferenceHandler {
+func NewUserPreferenceHandler(svc *userpref.UserPreferenceService) *UserPreferenceHandler {
 	return &UserPreferenceHandler{svc: svc}
 }
 

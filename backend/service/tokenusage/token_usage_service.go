@@ -1,4 +1,4 @@
-package service
+package tokenusage
 
 import (
 	"errors"
@@ -8,9 +8,13 @@ import (
 	"time"
 
 	"backend/model"
+	"backend/service/kernel"
 
 	"gorm.io/gorm"
 )
+
+// DB 本包专用数据库句柄, 由 main.go 接线赋值 (tokenusage.DB = db)。
+var DB *gorm.DB
 
 // TokenUsageService 用户 AI Token 用量: 记录 (各会话链路埋点调用) / 限额校验 / 统计查询
 type TokenUsageService struct{}
@@ -102,10 +106,10 @@ type TokenUsageStatsParams struct {
 
 // TokenUsageStats 统计结果: 汇总 + 趋势 + 模型分布 + 用户排行
 type TokenUsageStats struct {
-	Summary model.TokenUsageSummary        `json:"summary"`
-	Trend   []model.TokenUsageTrendItem    `json:"trend"`
-	ByModel []model.TokenUsageModelItem    `json:"by_model"`
-	ByUser  []model.TokenUsageUserItem     `json:"by_user"`
+	Summary model.TokenUsageSummary     `json:"summary"`
+	Trend   []model.TokenUsageTrendItem `json:"trend"`
+	ByModel []model.TokenUsageModelItem `json:"by_model"`
+	ByUser  []model.TokenUsageUserItem  `json:"by_user"`
 }
 
 // granularityFormat MySQL DATE_FORMAT 格式 (分桶键)
@@ -251,13 +255,13 @@ func (s *TokenUsageService) ListRecords(p TokenUsageStatsParams, page, pageSize 
 	if err := query.Session(&gorm.Session{}).Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	page = NormalizePage(page)
+	page = kernel.NormalizePage(page)
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
 	var rows []map[string]any
 	err := query.Session(&gorm.Session{}).
-		Select("tu.id, tu.user_id, COALESCE(NULLIF(u.username, ''), CONCAT('#', tu.user_id)) AS username, u.nickname, "+
+		Select("tu.id, tu.user_id, COALESCE(NULLIF(u.username, ''), CONCAT('#', tu.user_id)) AS username, u.nickname, " +
 			"tu.model, tu.source, tu.prompt_tokens, tu.completion_tokens, tu.total_tokens, tu.created_at").
 		Order("tu.id DESC").Offset((page - 1) * pageSize).Limit(pageSize).
 		Scan(&rows).Error

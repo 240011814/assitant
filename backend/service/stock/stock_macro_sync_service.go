@@ -1,4 +1,4 @@
-package service
+package stock
 
 import (
 	"backend/model"
@@ -477,9 +477,9 @@ func (s *StockSyncService) syncGDP() error {
 		Ok   bool `json:"ok"`
 		Data struct {
 			Items []struct {
-				Quarter           string `json:"季度"`
-				GdpAbsolute       string `json:"国内生产总值-绝对值"`
-				GdpYoy            string `json:"国内生产总值-同比增长"`
+				Quarter     string `json:"季度"`
+				GdpAbsolute string `json:"国内生产总值-绝对值"`
+				GdpYoy      string `json:"国内生产总值-同比增长"`
 			} `json:"items"`
 		} `json:"data"`
 	}
@@ -496,8 +496,8 @@ func (s *StockSyncService) syncGDP() error {
 			continue
 		}
 		rows = append(rows, model.MacroGDP{
-			Quarter:    item.Quarter,
-			GdpYoy:     parseFloatPtr(item.GdpYoy),
+			Quarter:       item.Quarter,
+			GdpYoy:        parseFloatPtr(item.GdpYoy),
 			GdpCumulative: parseFloatPtr(item.GdpAbsolute),
 		})
 	}
@@ -528,11 +528,11 @@ func (s *StockSyncService) syncCPI() error {
 		Ok   bool `json:"ok"`
 		Data struct {
 			Items []struct {
-				Month          string `json:"月份"`
-				CpiCurrent     string `json:"全国-当月"`
-				CpiYoy         string `json:"全国-同比增长"`
-				CpiMom         string `json:"全国-环比增长"`
-				CpiCumulative  string `json:"全国-累计"`
+				Month         string `json:"月份"`
+				CpiCurrent    string `json:"全国-当月"`
+				CpiYoy        string `json:"全国-同比增长"`
+				CpiMom        string `json:"全国-环比增长"`
+				CpiCumulative string `json:"全国-累计"`
 			} `json:"items"`
 		} `json:"data"`
 	}
@@ -637,10 +637,10 @@ func (s *StockSyncService) syncPPI() error {
 		Ok   bool `json:"ok"`
 		Data struct {
 			Items []struct {
-				Month          string `json:"月份"`
-				PpiCurrent     string `json:"当月"`
-				PpiYoy         string `json:"当月同比增长"`
-				PpiCumulative  string `json:"累计"`
+				Month         string `json:"月份"`
+				PpiCurrent    string `json:"当月"`
+				PpiYoy        string `json:"当月同比增长"`
+				PpiCumulative string `json:"累计"`
 			} `json:"items"`
 		} `json:"data"`
 	}

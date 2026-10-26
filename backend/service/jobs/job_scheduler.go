@@ -1,6 +1,10 @@
-package service
+package jobs
 
 import (
+	"backend/service/stock"
+
+	"gorm.io/gorm"
+
 	"backend/model"
 	"backend/service/kernel"
 	"encoding/json"
@@ -13,6 +17,9 @@ import (
 	"github.com/go-co-op/gocron/v2"
 	"github.com/robfig/cron/v3"
 )
+
+// DB 本包专用数据库句柄, 由 main.go 接线赋值。
+var DB *gorm.DB
 
 // JobScheduler 调度器: 系统任务(cron) + 用户备忘(once/repeat) 统一调度与执行
 type JobScheduler struct {
@@ -389,7 +396,7 @@ func (js *JobScheduler) runDefinition(defID uint, triggerType string, attempt in
 	run.FinishedAt = &finishAt
 	if err != nil {
 		// 任务互斥冲突 (如另一同步任务正在运行) 属于正常跳过: 记 skipped, 不重试不告警
-		if errors.Is(err, ErrSyncBusy) {
+		if errors.Is(err, stock.ErrSyncBusy) {
 			run.Status = model.JobRunStatusSkipped
 			run.Error = err.Error()
 			updateJobRun(&run, run.Status, finishAt, run.Error)

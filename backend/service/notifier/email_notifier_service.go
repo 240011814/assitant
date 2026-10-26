@@ -1,6 +1,10 @@
-package service
+package notifier
 
 import (
+	"backend/service/systemconfig"
+
+	"gorm.io/gorm"
+
 	iface "backend/interface"
 	"crypto/tls"
 	"fmt"
@@ -11,6 +15,9 @@ import (
 	"sync"
 	"time"
 )
+
+// DB 本包专用数据库句柄, 由 main.go 接线赋值。
+var DB *gorm.DB
 
 // SMTPConfig SMTP 配置缓存
 type SMTPConfig struct {
@@ -31,13 +38,13 @@ const smtpSessionTimeout = 60 * time.Second
 
 // EmailNotifier 邮件通知器
 type EmailNotifier struct {
-	configSvc *SystemConfigService
+	configSvc *systemconfig.SystemConfigService
 	mu        sync.RWMutex
 	smtpCache *SMTPConfig
 }
 
 // NewEmailNotifier 创建邮件通知器
-func NewEmailNotifier(configSvc *SystemConfigService) *EmailNotifier {
+func NewEmailNotifier(configSvc *systemconfig.SystemConfigService) *EmailNotifier {
 	n := &EmailNotifier{
 		configSvc: configSvc,
 	}

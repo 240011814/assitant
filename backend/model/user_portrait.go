@@ -21,8 +21,8 @@ func (UserPortrait) TableName() string {
 }
 
 type UpdateUserPortraitRequest struct {
-	Summary            *string           `json:"summary"`
-	Dimensions         *map[string]string `json:"dimensions"`
-	Tags               *[]string         `json:"tags"`
-	ExtractionEnabled  *bool             `json:"extraction_enabled"`
+	Summary           *string            `json:"summary"`
+	Dimensions        *map[string]string `json:"dimensions"`
+	Tags              *[]string          `json:"tags"`
+	ExtractionEnabled *bool              `json:"extraction_enabled"`
 }

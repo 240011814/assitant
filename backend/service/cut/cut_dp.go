@@ -13,10 +13,10 @@ import (
 // 长料无人认领), 该变体同样精确: 一件 t + 剩余容量的最优填充。
 
 const (
-	dpMaxCapacity  = 400_000 // 离散化容量上限 (0.01m 粒度下 4km, 防御异常输入)
-	dpMaxTypes     = 200
-	dpForcedTypes  = 6        // 生成"必含一件"模式的最长类型数
-	dpMaxMemory    = 64 << 20 // DP 表内存上限, 超限跳过 DP (回退贪心路径)
+	dpMaxCapacity = 400_000 // 离散化容量上限 (0.01m 粒度下 4km, 防御异常输入)
+	dpMaxTypes    = 200
+	dpForcedTypes = 6        // 生成"必含一件"模式的最长类型数
+	dpMaxMemory   = 64 << 20 // DP 表内存上限, 超限跳过 DP (回退贪心路径)
 )
 
 // dpScale 离散化倍率: 使 kerf×scale 与所有零件长度×scale 均为整数 (常规精度 0.01;

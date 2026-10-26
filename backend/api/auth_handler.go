@@ -1,12 +1,13 @@
 package api
 
 import (
+	"backend/service/auth"
+	"backend/service/systemconfig"
 	"errors"
 	"net/http"
 	"strings"
 
 	"backend/model"
-	"backend/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -36,7 +37,7 @@ func SendError(c *gin.Context, code string, msg string) {
 }
 
 // HandleLogin 登录处理
-func HandleLogin(authService *service.AuthService) gin.HandlerFunc {
+func HandleLogin(authService *auth.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req model.LoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -60,7 +61,7 @@ func HandleLogin(authService *service.AuthService) gin.HandlerFunc {
 }
 
 // HandleRegister 注册处理
-func HandleRegister(authService *service.AuthService, configService *service.SystemConfigService) gin.HandlerFunc {
+func HandleRegister(authService *auth.AuthService, configService *systemconfig.SystemConfigService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 注册开关后端强校验 (与 GetRegisterStatus 语义一致: 未配置视为开启, 明确为 false 才关闭)
 		if val, err := configService.GetValue("register_enabled"); err == nil && val == "false" {
@@ -92,7 +93,7 @@ func HandleRegister(authService *service.AuthService, configService *service.Sys
 }
 
 // HandleGetUserInfo 获取用户信息
-func HandleGetUserInfo(authService *service.AuthService, jwtSecret string) gin.HandlerFunc {
+func HandleGetUserInfo(authService *auth.AuthService, jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
@@ -145,7 +146,7 @@ func HandleGetUserInfo(authService *service.AuthService, jwtSecret string) gin.H
 }
 
 // HandleGetUserProfile 获取当前用户详细信息
-func HandleGetUserProfile(authService *service.AuthService) gin.HandlerFunc {
+func HandleGetUserProfile(authService *auth.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := GetUserID(c)
 		if userID == 0 {
@@ -164,7 +165,7 @@ func HandleGetUserProfile(authService *service.AuthService) gin.HandlerFunc {
 }
 
 // HandleUpdateProfile 更新当前用户信息
-func HandleUpdateProfile(authService *service.AuthService) gin.HandlerFunc {
+func HandleUpdateProfile(authService *auth.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := GetUserID(c)
 		if userID == 0 {
@@ -188,7 +189,7 @@ func HandleUpdateProfile(authService *service.AuthService) gin.HandlerFunc {
 }
 
 // HandleChangePassword 修改密码
-func HandleChangePassword(authService *service.AuthService) gin.HandlerFunc {
+func HandleChangePassword(authService *auth.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := GetUserID(c)
 		if userID == 0 {
@@ -212,7 +213,7 @@ func HandleChangePassword(authService *service.AuthService) gin.HandlerFunc {
 }
 
 // HandleRefreshToken 刷新令牌
-func HandleRefreshToken(authService *service.AuthService) gin.HandlerFunc {
+func HandleRefreshToken(authService *auth.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
 			RefreshToken string `json:"refreshToken" binding:"required"`
@@ -242,7 +243,7 @@ func extractTempToken(c *gin.Context) string {
 }
 
 // HandleUser2FASetup 生成 TOTP 密钥用于自助绑定 (返回二维码 URL 与密钥, 不落库)
-func HandleUser2FASetup(authService *service.AuthService) gin.HandlerFunc {
+func HandleUser2FASetup(authService *auth.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := GetUserID(c)
 		if userID == 0 {
@@ -261,7 +262,7 @@ func HandleUser2FASetup(authService *service.AuthService) gin.HandlerFunc {
 }
 
 // HandleUser2FAEnable 校验验证码后开启两步验证
-func HandleUser2FAEnable(authService *service.AuthService) gin.HandlerFunc {
+func HandleUser2FAEnable(authService *auth.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := GetUserID(c)
 		if userID == 0 {
@@ -285,7 +286,7 @@ func HandleUser2FAEnable(authService *service.AuthService) gin.HandlerFunc {
 }
 
 // HandleUser2FADisable 校验验证码后关闭两步验证
-func HandleUser2FADisable(authService *service.AuthService) gin.HandlerFunc {
+func HandleUser2FADisable(authService *auth.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := GetUserID(c)
 		if userID == 0 {
@@ -309,7 +310,7 @@ func HandleUser2FADisable(authService *service.AuthService) gin.HandlerFunc {
 }
 
 // Handle2FAVerify validates TOTP code and returns real login tokens
-func Handle2FAVerify(authService *service.AuthService) gin.HandlerFunc {
+func Handle2FAVerify(authService *auth.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tempToken := extractTempToken(c)
 		if tempToken == "" {

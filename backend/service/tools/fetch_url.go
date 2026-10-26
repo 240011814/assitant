@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cloudwego/eino/components/document/parser"
 	einoHTML "github.com/cloudwego/eino-ext/components/document/parser/html"
+	"github.com/cloudwego/eino/components/document/parser"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 )

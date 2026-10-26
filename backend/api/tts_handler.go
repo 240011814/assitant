@@ -1,11 +1,10 @@
 package api
 
 import (
+	"backend/service/tts"
 	"net/http"
 	"strconv"
 	"strings"
-
-	"backend/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -13,10 +12,10 @@ import (
 // TtsHandler 语音合成接口: 前端按 /api/tts/config 的 mode 分流,
 // openai/edge 模式经 /api/tts 取 mp3 (带磁盘缓存), frontend 模式前端本地朗读
 type TtsHandler struct {
-	svc *service.TtsService
+	svc *tts.TtsService
 }
 
-func NewTtsHandler(svc *service.TtsService) *TtsHandler {
+func NewTtsHandler(svc *tts.TtsService) *TtsHandler {
 	return &TtsHandler{svc: svc}
 }
 
@@ -27,7 +26,7 @@ func (h *TtsHandler) HandleGetConfig(c *gin.Context) {
 
 // HandleSynthesize 合成并返回 audio/mpeg。frontend 模式返回 404 code, 前端据此回退本地朗读
 func (h *TtsHandler) HandleSynthesize(c *gin.Context) {
-	if h.svc.Mode() == service.TtsModeFrontend {
+	if h.svc.Mode() == tts.TtsModeFrontend {
 		SendError(c, "404", "TTS mode is frontend")
 		return
 	}

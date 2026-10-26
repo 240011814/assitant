@@ -170,11 +170,11 @@ type BatchDeleteScrapsRequest struct {
 
 // PlaneMaterialTypeSummary 平面按材料类型分组统计 (口径同整体汇总)
 type PlaneMaterialTypeSummary struct {
-	MaterialType string  `json:"materialType"`        // 材料类型名 (空=未命名的旧料/新板材)
-	Count        int     `json:"count"`               // 该类型用板块数
-	TotalArea    float64 `json:"totalArea"`           // 该类型用料总面积
-	UsedArea     float64 `json:"usedArea"`            // 该类型已排入零件总面积
-	Utilization  float64 `json:"utilization"`         // 该类型利用率 (百分比)
+	MaterialType string  `json:"materialType"` // 材料类型名 (空=未命名的旧料/新板材)
+	Count        int     `json:"count"`        // 该类型用板块数
+	TotalArea    float64 `json:"totalArea"`    // 该类型用料总面积
+	UsedArea     float64 `json:"usedArea"`     // 该类型已排入零件总面积
+	Utilization  float64 `json:"utilization"`  // 该类型利用率 (百分比)
 }
 
 // PlaneSummary 平面切割汇总
@@ -350,12 +350,12 @@ type ScrapRect struct {
 
 // BinResult 平面切割结果
 type BinResult struct {
-	BinID          int        `json:"binId"`
-	MaterialType   string     `json:"materialType"`
-	MaterialWidth  float64    `json:"materialWidth"`
-	MaterialHeight float64    `json:"materialHeight"`
-	Pieces         []Piece    `json:"pieces"`
-	Utilization    float64    `json:"utilization"`
+	BinID          int     `json:"binId"`
+	MaterialType   string  `json:"materialType"`
+	MaterialWidth  float64 `json:"materialWidth"`
+	MaterialHeight float64 `json:"materialHeight"`
+	Pieces         []Piece `json:"pieces"`
+	Utilization    float64 `json:"utilization"`
 	// ScrapRect 该板剩余的最大空矩形 (没有可复用整块余料时为空)
 	ScrapRect *ScrapRect `json:"scrapRect,omitempty"`
 }

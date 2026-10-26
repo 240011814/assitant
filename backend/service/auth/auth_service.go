@@ -1,4 +1,4 @@
-package service
+package auth
 
 import (
 	"errors"
@@ -12,7 +12,11 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
+
+// DB 本包专用数据库句柄, 由 main.go 接线赋值 (auth.DB = db); 本包 (auth_service/permission_service) 共用。
+var DB *gorm.DB
 
 type AuthService struct {
 	cfg      *config.Config

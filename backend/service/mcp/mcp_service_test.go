@@ -1,4 +1,4 @@
-package service
+package mcp
 
 import (
 	"context"
@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/eino/components/tool"
 	einomcp "github.com/cloudwego/eino-ext/components/tool/mcp"
+	"github.com/cloudwego/eino/components/tool"
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	mcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -19,7 +19,7 @@ import (
 func TestSanitizeMCPServerName(t *testing.T) {
 	cases := map[string]string{
 		"My Server":   "my_server",
-		"文件系统-01":    "01", // Trim 折叠首尾下划线
+		"文件系统-01":     "01", // Trim 折叠首尾下划线
 		"  GitHub #1": "github_1",
 	}
 	for in, want := range cases {

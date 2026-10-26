@@ -1,20 +1,20 @@
 package api
 
 import (
+	"backend/service/agenttask"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 
 	"backend/model"
-	"backend/service"
 )
 
 // AgentTaskHandler 定时 Agent 任务: 用户侧 CRUD + 立即运行 (仅本人任务)
 type AgentTaskHandler struct {
-	svc *service.AgentTaskService
+	svc *agenttask.AgentTaskService
 }
 
-func NewAgentTaskHandler(svc *service.AgentTaskService) *AgentTaskHandler {
+func NewAgentTaskHandler(svc *agenttask.AgentTaskService) *AgentTaskHandler {
 	return &AgentTaskHandler{svc: svc}
 }
 

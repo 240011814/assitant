@@ -31,7 +31,7 @@ func TestBarCutPreciseKeepsDirectAssignedScraps(t *testing.T) {
 
 	s := NewCutService(srv.URL)
 	result, err := s.BarCut(1, model.BarRequest{
-		Items:        model.BarItemList{{Length: 100, Spec: "1"}, {Length: 100, Spec: "1"}},
+		Items: model.BarItemList{{Length: 100, Spec: "1"}, {Length: 100, Spec: "1"}},
 		// 旧料 label 必须与零件 spec 同名才会被该规格组认领
 		Materials:    []model.BarMaterial{{Label: "1", Length: 100}, {Label: "1", Length: 300}},
 		NewMaterials: []model.BarMaterial{{Label: "1", Length: 600}},
@@ -391,9 +391,9 @@ func TestBarCutPreciseBackfillsScrapID(t *testing.T) {
 // status=timeout 但解完整 (无 unplaced): 接受结果, 不报错
 func TestBarCutPreciseAcceptsTimeoutWithSolution(t *testing.T) {
 	resp := map[string]any{
-		"bars":      []map[string]any{{"source": "material", "material_index": 0, "pattern": []int{1}, "count": 1}},
-		"unplaced":  []map[string]any{},
-		"status":    "timeout",
+		"bars":       []map[string]any{{"source": "material", "material_index": 0, "pattern": []int{1}, "count": 1}},
+		"unplaced":   []map[string]any{},
+		"status":     "timeout",
 		"elapsed_ms": 8000,
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

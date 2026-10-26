@@ -1,18 +1,17 @@
 package api
 
 import (
+	"backend/service/tokenusage"
 	"strconv"
 	"time"
-
-	"backend/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 // parseTokenUsageParams 解析 Token 用量查询参数 (统计与明细共用):
 // granularity=hour|day|month|year (默认 day), model, userId, startTime, endTime (默认近7天)
-func parseTokenUsageParams(c *gin.Context) (*service.TokenUsageStatsParams, bool) {
-	params := &service.TokenUsageStatsParams{
+func parseTokenUsageParams(c *gin.Context) (*tokenusage.TokenUsageStatsParams, bool) {
+	params := &tokenusage.TokenUsageStatsParams{
 		Granularity: c.DefaultQuery("granularity", "day"),
 		Model:       c.Query("model"),
 	}
@@ -56,7 +55,7 @@ func HandleTokenUsageStats(c *gin.Context) {
 	if !ok {
 		return
 	}
-	stats, err := service.NewTokenUsageService().GetStats(*params)
+	stats, err := tokenusage.NewTokenUsageService().GetStats(*params)
 	if err != nil {
 		SendError(c, "400", "统计失败: "+err.Error())
 		return
@@ -72,7 +71,7 @@ func HandleTokenUsageList(c *gin.Context) {
 	}
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-	rows, total, err := service.NewTokenUsageService().ListRecords(*params, page, pageSize)
+	rows, total, err := tokenusage.NewTokenUsageService().ListRecords(*params, page, pageSize)
 	if err != nil {
 		SendError(c, "500", "查询 Token 用量明细失败: "+err.Error())
 		return
@@ -93,7 +92,7 @@ func HandleMyTokenUsage(c *gin.Context) {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
-	res, err := service.NewTokenUsageService().GetMyUsage(userID)
+	res, err := tokenusage.NewTokenUsageService().GetMyUsage(userID)
 	if err != nil {
 		SendError(c, "500", "查询 Token 用量失败: "+err.Error())
 		return

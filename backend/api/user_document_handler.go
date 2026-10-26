@@ -1,21 +1,20 @@
 package api
 
 import (
+	"backend/service/userdoc"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-
-	"backend/service"
 )
 
 // UserDocumentHandler 用户文档管理: 上传/列表/删除/预签名下载/文本预览。
 // 存储未配置时服务层返回明确错误
 type UserDocumentHandler struct {
-	docSvc *service.UserDocumentService
+	docSvc *userdoc.UserDocumentService
 }
 
-func NewUserDocumentHandler(docSvc *service.UserDocumentService) *UserDocumentHandler {
+func NewUserDocumentHandler(docSvc *userdoc.UserDocumentService) *UserDocumentHandler {
 	return &UserDocumentHandler{docSvc: docSvc}
 }
 

@@ -362,8 +362,8 @@ func (s *VocabularyService) GetDueForecast(userID uint, days int) (map[string]in
 	end := now.AddDate(0, 0, days)
 
 	type dateRow struct {
-		Date string `gorm:"column:date"`
-		Count int64 `gorm:"column:cnt"`
+		Date  string `gorm:"column:date"`
+		Count int64  `gorm:"column:cnt"`
 	}
 	var rows []dateRow
 	if err := DB.Model(&model.Vocabulary{}).
@@ -411,8 +411,8 @@ func (s *VocabularyService) GetLearningStats(userID uint) (map[string]interface{
 
 	// 近 90 天复习热力图
 	type dayRow struct {
-		Date string `gorm:"column:date"`
-		Count int64 `gorm:"column:cnt"`
+		Date  string `gorm:"column:date"`
+		Count int64  `gorm:"column:cnt"`
 	}
 	var heatRows []dayRow
 	if err := DB.Model(&model.VocabularyReviewLog{}).

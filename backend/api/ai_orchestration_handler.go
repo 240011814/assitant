@@ -2,7 +2,8 @@ package api
 
 import (
 	"backend/model"
-	"backend/service"
+	"backend/service/history"
+	"backend/service/orchestration"
 	"log"
 	"strconv"
 	"strings"
@@ -12,12 +13,12 @@ import (
 )
 
 type AIOrchestrationHandler struct {
-	svc *service.AIOrchestrationService
+	svc *orchestration.AIOrchestrationService
 	// historyService 用于「编排对话」的多轮持久化 (落 training_histories)
-	historyService *service.HistoryService
+	historyService *history.HistoryService
 }
 
-func NewAIOrchestrationHandler(svc *service.AIOrchestrationService, historyService *service.HistoryService) *AIOrchestrationHandler {
+func NewAIOrchestrationHandler(svc *orchestration.AIOrchestrationService, historyService *history.HistoryService) *AIOrchestrationHandler {
 	return &AIOrchestrationHandler{svc: svc, historyService: historyService}
 }
 
@@ -161,7 +162,7 @@ func (h *AIOrchestrationHandler) HandleResolveApproval(c *gin.Context) {
 		SendError(c, "401", "Unauthorized")
 		return
 	}
-	if !service.ResolveOrchestrationApproval(req.RunID, req.CallID, req.Approved, req.Reason) {
+	if !orchestration.ResolveOrchestrationApproval(req.RunID, req.CallID, req.Approved, req.Reason) {
 		SendError(c, "404", "审批请求不存在或已处理")
 		return
 	}
@@ -258,7 +259,7 @@ func (h *AIOrchestrationHandler) HandleChatRun(c *gin.Context) {
 	emit := func(event string, payload any) {
 		switch event {
 		case "summary":
-			if res, ok := payload.(*service.DebugRunResult); ok {
+			if res, ok := payload.(*orchestration.DebugRunResult); ok {
 				finalOutput = res.Output
 			}
 		case "reasoning":
@@ -291,7 +292,7 @@ func (h *AIOrchestrationHandler) HandleChatRun(c *gin.Context) {
 	}
 	if h.historyService != nil && strings.TrimSpace(reply) != "" {
 		// 已有会话时从 DB 重建全量消息再追加本轮 (不依赖前端回传, 前端截断历史也不丢早期轮次)
-		inputMessages := service.OrchChatTurnsToMessages(body.History)
+		inputMessages := orchestration.OrchChatTurnsToMessages(body.History)
 		if body.HistoryID > 0 {
 			if hist, loadErr := h.historyService.GetHistoryByID(uid, body.HistoryID); loadErr == nil {
 				dbMsgs := make([]*schema.Message, 0, len(hist.Messages))
@@ -310,7 +311,7 @@ func (h *AIOrchestrationHandler) HandleChatRun(c *gin.Context) {
 		}
 		inputMessages = append(inputMessages, schema.UserMessage(body.Input))
 		customID := uint(orchID)
-		historyID, saveErr := h.historyService.SaveConversation(&service.SaveConversationParams{
+		historyID, saveErr := h.historyService.SaveConversation(&history.SaveConversationParams{
 			UserID:           uid,
 			HistoryID:        body.HistoryID,
 			TrainingType:     model.TrainingTypeOrchestration,

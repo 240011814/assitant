@@ -1,6 +1,8 @@
-package service
+package wol
 
 import (
+	"backend/service/systemconfig"
+
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -139,7 +141,7 @@ type wolRelayInbound struct {
 
 // WolMqttService 维护与 MQTT Broker 的长连接会话, 聚合设备状态并提供设备管理能力
 type WolMqttService struct {
-	configSvc *SystemConfigService
+	configSvc *systemconfig.SystemConfigService
 
 	mu        sync.Mutex
 	client    mqtt.Client
@@ -154,7 +156,7 @@ type WolMqttService struct {
 }
 
 // NewWolMqttService 构造设备管理服务
-func NewWolMqttService(configSvc *SystemConfigService) *WolMqttService {
+func NewWolMqttService(configSvc *systemconfig.SystemConfigService) *WolMqttService {
 	return &WolMqttService{
 		configSvc: configSvc,
 		devices:   make(map[string]*WolDeviceInfo),

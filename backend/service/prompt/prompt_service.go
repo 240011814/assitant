@@ -1,7 +1,8 @@
-package service
+package prompt
 
 import (
 	"backend/model"
+	"backend/service/agent"
 	"errors"
 	"fmt"
 	"strings"
@@ -15,7 +16,7 @@ import (
 // 与普通提示词共用 user_prompts 表和同一套版本机制
 type PromptService struct {
 	db           *gorm.DB
-	agentService *AIAgentService
+	agentService *agent.AIAgentService
 	// orchPromptCache 编排节点提示词版本缓存 (键: agentID|nodeKey, user_id 恒为 0):
 	// 编译每个 Agent 节点每次运行都要解析一次, 变更时由 Save/Switch/Delete/Reset 失效
 	orchPromptCache map[string]orchPromptEntry
@@ -27,7 +28,7 @@ type orchPromptEntry struct {
 	found  bool
 }
 
-func NewPromptService(db *gorm.DB, agentService *AIAgentService) *PromptService {
+func NewPromptService(db *gorm.DB, agentService *agent.AIAgentService) *PromptService {
 	return &PromptService{db: db, agentService: agentService}
 }
 
@@ -155,7 +156,7 @@ func (s *PromptService) ResetUserPrompt(userID uint, agentID uint, nodeKey strin
 func (s *PromptService) clearCache(userID uint, agentID uint) {
 	s.invalidateOrchPromptCache()
 	if s.agentService != nil {
-		s.agentService.clearRunnerCache(userID, agentID)
+		s.agentService.InvalidateRunnerCache(userID, agentID)
 	}
 }
 

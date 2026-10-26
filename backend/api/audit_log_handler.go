@@ -1,6 +1,7 @@
 package api
 
 import (
+	"backend/service/kernel"
 	"strconv"
 	"strings"
 	"time"
@@ -16,7 +17,7 @@ import (
 func HandleListAuditLogs(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-	page = service.NormalizePage(page)
+	page = kernel.NormalizePage(page)
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}

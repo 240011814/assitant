@@ -1,8 +1,13 @@
-package service
+package modelscenario
 
 import (
 	"backend/model"
+
+	"gorm.io/gorm"
 )
+
+// DB 本包专用数据库句柄, 由 main.go 接线赋值 (modelscenario.DB = db)。
+var DB *gorm.DB
 
 // ModelScenarioService 模型和场景服务
 type ModelScenarioService struct{}
@@ -36,9 +41,9 @@ func (s *ModelScenarioService) Create(req *model.CreateModelScenarioRequest) (*m
 		Name:        req.Name,
 		Summary:     req.Summary,
 		Description: req.Description,
-		Detail:    req.Detail,
-		Category:  req.Category,
-		SortOrder: req.SortOrder,
+		Detail:      req.Detail,
+		Category:    req.Category,
+		SortOrder:   req.SortOrder,
 	}
 	if err := DB.Create(item).Error; err != nil {
 		return nil, err

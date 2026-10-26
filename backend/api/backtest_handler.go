@@ -2,16 +2,16 @@ package api
 
 import (
 	"backend/model"
-	"backend/service"
+	"backend/service/stock"
 
 	"github.com/gin-gonic/gin"
 )
 
 type BacktestHandler struct {
-	svc *service.BacktestService
+	svc *stock.BacktestService
 }
 
-func NewBacktestHandler(svc *service.BacktestService) *BacktestHandler {
+func NewBacktestHandler(svc *stock.BacktestService) *BacktestHandler {
 	return &BacktestHandler{svc: svc}
 }
 

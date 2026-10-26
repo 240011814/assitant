@@ -311,7 +311,7 @@ func (h *VocabularyHandler) HandleImportWords(c *gin.Context) {
 // parseWordbookFile 解析词书文件: 每行一词, 制表符或逗号分隔 [word, phonetic, definition, example]
 func parseWordbookFile(data []byte) []model.ImportWordItem {
 	text := strings.TrimPrefix(string(data), "\xEF\xBB\xBF")
-	lines := strings.Split(text, "\n")
+	lines := strings.Split(text, "")
 	items := make([]model.ImportWordItem, 0, len(lines))
 	for _, line := range lines {
 		line = strings.TrimSpace(line)

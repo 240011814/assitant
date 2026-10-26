@@ -109,7 +109,7 @@ func LogReadingEvent(userID uint, kind string, n int) {
 	}
 	if err := DB.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "user_id"}, {Name: "stat_date"}},
-		DoUpdates: clause.Assignments(map[string]interface{}{col: gorm.Expr(col + " + ?", n)}),
+		DoUpdates: clause.Assignments(map[string]interface{}{col: gorm.Expr(col+" + ?", n)}),
 	}).Create(&stat).Error; err != nil {
 		log.Printf("reading stat %s user=%d: %v", kind, userID, err)
 	}
@@ -117,11 +117,11 @@ func LogReadingEvent(userID uint, kind string, n int) {
 
 // ReadingStatsSummary 阅读维度统计 (学习看板用)
 type ReadingStatsSummary struct {
-	TotalOpens      int64                     `json:"totalOpens"`
-	TotalLookups    int64                     `json:"totalLookups"`
-	TotalWordsAdded int64                     `json:"totalWordsAdded"`
+	TotalOpens       int64                    `json:"totalOpens"`
+	TotalLookups     int64                    `json:"totalLookups"`
+	TotalWordsAdded  int64                    `json:"totalWordsAdded"`
 	TotalReadMinutes int64                    `json:"totalReadMinutes"`
-	Daily           []map[string]interface{} `json:"daily"` // 近90天按日
+	Daily            []map[string]interface{} `json:"daily"` // 近90天按日
 }
 
 // GetReadingStats 近 90 天阅读行为聚合

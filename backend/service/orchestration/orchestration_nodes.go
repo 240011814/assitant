@@ -1,6 +1,7 @@
-package service
+package orchestration
 
 import (
+	"backend/service/tokenusage"
 	"context"
 	"encoding/json"
 	"errors"
@@ -655,7 +656,7 @@ func (c *orchestrationCompiler) buildRouterCond(id string, cfg OrchRouterConfig)
 			if modelCode == "" && c.deps.resolveModelCode != nil {
 				modelCode = c.deps.resolveModelCode("")
 			}
-			RecordTokenUsage(c.userID, modelCode, source, int64(usage.PromptTokens), int64(usage.CompletionTokens))
+			tokenusage.RecordTokenUsage(c.userID, modelCode, source, int64(usage.PromptTokens), int64(usage.CompletionTokens))
 		}
 		target, matched := orchRouterMatchLabel(label, cases)
 		if !matched {

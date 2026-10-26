@@ -1,16 +1,18 @@
-package service
-
-// 米哈游 (原神) 每日签到服务
-//
-// 登录: 前端在个人中心「原神签到」Tab 调 POST /api/mihoyo/qr/start 拿二维码 →
-//       米游社 App 扫码确认 → 轮询 GET /api/mihoyo/qr/status, 确认后兑换并保存登录凭据。
-// 签到: 每日定时任务 mihoyo.genshin_checkin 遍历所有已绑定账号签到原神;
-//       个人中心也可 POST /api/mihoyo/checkin 手动触发, 结果经接口返回 + 控制台日志, 不落库。
-//
-// go 会话里每张二维码对应一个 cookiejar: queryQRLoginStatus 确认后的登录态
-// 会落进会话 Cookie (qr_login.py 的"方案一"), tokens 数组是"方案二"兜底。
+package mihoyo
 
 import (
+	// 米哈游 (原神) 每日签到服务
+	//
+	// 登录: 前端在个人中心「原神签到」Tab 调 POST /api/mihoyo/qr/start 拿二维码 →
+	//       米游社 App 扫码确认 → 轮询 GET /api/mihoyo/qr/status, 确认后兑换并保存登录凭据。
+	// 签到: 每日定时任务 mihoyo.genshin_checkin 遍历所有已绑定账号签到原神;
+	//       个人中心也可 POST /api/mihoyo/checkin 手动触发, 结果经接口返回 + 控制台日志, 不落库。
+	//
+	// go 会话里每张二维码对应一个 cookiejar: queryQRLoginStatus 确认后的登录态
+	// 会落进会话 Cookie (qr_login.py 的"方案一"), tokens 数组是"方案二"兜底。
+
+	"backend/service/jobs"
+	"backend/service/kernel"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +28,9 @@ import (
 
 	"gorm.io/gorm"
 )
+
+// DB 本包专用数据库句柄, 由 main.go 接线赋值。
+var DB *gorm.DB
 
 // mihoyoQRSessionTTL 扫码会话有效期 (passport 二维码实际 1~2 分钟, 轮询入口自会报过期)
 const mihoyoQRSessionTTL = 10 * time.Minute
@@ -294,7 +299,7 @@ func (s *MihoyoService) CheckinStatus(userID uint) (*model.MihoyoCheckinStatusDa
 		return &model.MihoyoCheckinStatusData{Bound: false, Roles: []model.MihoyoCheckinStatusRole{}}, nil
 	}
 
-	client := newHTTPClient(20 * time.Second)
+	client := kernel.NewHTTPClient(20 * time.Second)
 	cookie := buildCookie(cred)
 	roles, mr, err := fetchGameRoles(client, cookie)
 	if err != nil && mr != nil && mihoyoAuthRetcodes[mr.RetCode] && cred.Stoken != "" {
@@ -361,7 +366,7 @@ func (s *MihoyoService) CheckinAll() error {
 
 // checkinCredential 对一个凭据下的所有原神角色签到, 打印结果
 func (s *MihoyoService) checkinCredential(cred *model.MihoyoCredential) []model.MihoyoCheckinResult {
-	client := newHTTPClient(20 * time.Second)
+	client := kernel.NewHTTPClient(20 * time.Second)
 	cookie := buildCookie(cred)
 
 	roles, mr, err := fetchGameRoles(client, cookie)
@@ -481,7 +486,7 @@ func (s *MihoyoService) refreshCredential(cred *model.MihoyoCredential, client *
 }
 
 // ============ 定时任务注册 ============// RegisterCronTasks 注册原神签到定时任务 (job_definitions 里可改 cron/参数)
-func (s *MihoyoService) RegisterCronTasks(js *JobScheduler) {
+func (s *MihoyoService) RegisterCronTasks(js *jobs.JobScheduler) {
 	js.RegisterTask(model.TaskNameMihoyoGenshinCheckin,
 		"原神每日签到 (所有已扫码绑定的账号, 失败可邮件告警)",
 		json.RawMessage(`{}`),

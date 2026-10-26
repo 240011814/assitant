@@ -379,11 +379,11 @@ func (h *LotteryHandler) HandleGetDrawLimits(c *gin.Context) {
 	}
 
 	result := gin.H{
-		"dailyLimit":      activity.DailyLimit,
-		"totalLimit":      activity.TotalLimit,
-		"userDailyUsed":   0,
-		"userTotalUsed":   0,
-		"totalDailyUsed":  0,
+		"dailyLimit":     activity.DailyLimit,
+		"totalLimit":     activity.TotalLimit,
+		"userDailyUsed":  0,
+		"userTotalUsed":  0,
+		"totalDailyUsed": 0,
 	}
 
 	// 获取用户今日已用次数

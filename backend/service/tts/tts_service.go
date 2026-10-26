@@ -1,6 +1,8 @@
-package service
+package tts
 
 import (
+	"backend/service/agent"
+	"backend/service/systemconfig"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -71,8 +73,8 @@ type ttsConfig struct {
 
 // TtsService 语音合成门面: 配置热刷新 (tts_* 键) + OpenAI/Edge 合成 + 磁盘缓存
 type TtsService struct {
-	configSvc  *SystemConfigService
-	aiAgent    *AIAgentService
+	configSvc  *systemconfig.SystemConfigService
+	aiAgent    *agent.AIAgentService
 	httpClient *http.Client
 	mu         sync.RWMutex
 	cfg        ttsConfig
@@ -82,7 +84,7 @@ type TtsService struct {
 
 // NewTtsService 构造并加载一次配置 (system_config 无 tts_* 键时为默认值);
 // aiAgent 提供 openai 模式所需的默认激活 Provider 端点, 允许 nil (openai 模式不可用)
-func NewTtsService(configSvc *SystemConfigService, aiAgent *AIAgentService) *TtsService {
+func NewTtsService(configSvc *systemconfig.SystemConfigService, aiAgent *agent.AIAgentService) *TtsService {
 	s := &TtsService{
 		configSvc:  configSvc,
 		aiAgent:    aiAgent,

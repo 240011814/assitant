@@ -1,6 +1,8 @@
-package service
+package notifier
 
 import (
+	"backend/service/kernel"
+	"backend/service/systemconfig"
 	"crypto/rand"
 	"crypto/subtle"
 	"errors"
@@ -17,7 +19,7 @@ import (
 )
 
 type TelegramService struct {
-	sysCfgService *SystemConfigService
+	sysCfgService *systemconfig.SystemConfigService
 	bot           *tgbotapi.BotAPI
 	stopCh        chan struct{}
 	mu            sync.RWMutex // 保护 bot/running/webhookURL
@@ -28,7 +30,7 @@ type TelegramService struct {
 	running       bool
 }
 
-func NewTelegramService(sysCfgService *SystemConfigService) *TelegramService {
+func NewTelegramService(sysCfgService *systemconfig.SystemConfigService) *TelegramService {
 	s := &TelegramService{
 		sysCfgService: sysCfgService,
 		stopCh:        make(chan struct{}),
@@ -284,7 +286,7 @@ func (s *TelegramService) startLongPolling() {
 		log.Println("[Telegram] Webhook deleted successfully")
 	}
 
-	SafeGo("telegram:listen-updates", func() { s.listenUpdates(bot) })
+	kernel.SafeGo("telegram:listen-updates", func() { s.listenUpdates(bot) })
 }
 
 // GetBot 获取 Bot 实例（供 webhook handler 使用）

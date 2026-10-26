@@ -1,16 +1,16 @@
 package api
 
 import (
-	"backend/service"
+	"backend/service/dashboard"
 
 	"github.com/gin-gonic/gin"
 )
 
 type DashboardHandler struct {
-	dashboardService *service.DashboardService
+	dashboardService *dashboard.DashboardService
 }
 
-func NewDashboardHandler(dashboardService *service.DashboardService) *DashboardHandler {
+func NewDashboardHandler(dashboardService *dashboard.DashboardService) *DashboardHandler {
 	return &DashboardHandler{
 		dashboardService: dashboardService,
 	}

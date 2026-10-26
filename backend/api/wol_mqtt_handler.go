@@ -1,7 +1,7 @@
 package api
 
 import (
-	"backend/service"
+	"backend/service/wol"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -9,11 +9,11 @@ import (
 
 // WolMqttHandler 设备管理 (WOL MQTT) HTTP 接口
 type WolMqttHandler struct {
-	svc *service.WolMqttService
+	svc *wol.WolMqttService
 }
 
 // NewWolMqttHandler 构造设备管理处理器
-func NewWolMqttHandler(svc *service.WolMqttService) *WolMqttHandler {
+func NewWolMqttHandler(svc *wol.WolMqttService) *WolMqttHandler {
 	return &WolMqttHandler{svc: svc}
 }
 
@@ -34,7 +34,7 @@ func (h *WolMqttHandler) UpdateConfig(c *gin.Context) {
 		SendError(c, "400", "请求参数错误")
 		return
 	}
-	cfg := service.WolMqttConfig{Host: req.Host, Port: req.Port, Username: req.Username}
+	cfg := wol.WolMqttConfig{Host: req.Host, Port: req.Port, Username: req.Username}
 	if err := h.svc.SaveConfig(cfg, req.Password); err != nil {
 		SendError(c, "400", err.Error())
 		return

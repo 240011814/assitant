@@ -1,6 +1,8 @@
-package service
+package rag
 
 import (
+	"backend/service/systemconfig"
+
 	"bytes"
 	"context"
 	"encoding/json"
@@ -19,33 +21,33 @@ import (
 // 任何 OpenAI 兼容嵌入服务均可, 换服务只改配置)。
 // 配置存 system_config rag_* 键 (S3 同款热刷新); 存储未启用或嵌入未配置时索引/检索自动降级关闭
 const (
-	ragDefaultChunkSize  = 500 // 切块字符数 (rune)
-	ragDefaultOverlap    = 80  // 相邻块重叠字符数
-	ragDefaultTopK       = 5
-	ragChunkSizeMax      = 2000
-	ragOverlapMax        = 500
-	ragSearchTopKMax     = 20
-	ragMaxBatchEmbed     = 16 // 单次 /embeddings 请求携带的文本数
-	ragEmbedTimeout      = 60 * time.Second
-	ragSearchTimeout     = 60 * time.Second
-	ragTestEmbedTimeout  = 30 * time.Second
+	ragDefaultChunkSize = 500 // 切块字符数 (rune)
+	ragDefaultOverlap   = 80  // 相邻块重叠字符数
+	ragDefaultTopK      = 5
+	ragChunkSizeMax     = 2000
+	ragOverlapMax       = 500
+	ragSearchTopKMax    = 20
+	ragMaxBatchEmbed    = 16 // 单次 /embeddings 请求携带的文本数
+	ragEmbedTimeout     = 60 * time.Second
+	SearchTimeout       = 60 * time.Second
+	ragTestEmbedTimeout = 30 * time.Second
 )
 
 // ragConfig RAG 运行配置快照 (cacheMu 保护, 读时取快照)
 type ragConfig struct {
-	Enabled    bool
-	BaseURL    string
-	Model      string
-	APIKey     string
-	ChunkSize  int
-	Overlap    int
-	TopK       int
+	Enabled   bool
+	BaseURL   string
+	Model     string
+	APIKey    string
+	ChunkSize int
+	Overlap   int
+	TopK      int
 }
 
 // RagService 文档向量嵌入与检索门面。只负责: rag_* 配置热刷新 / OpenAI 兼容嵌入调用 /
 // 切块 / 向量存储访问 (经 VectorStore 接口, 后端可替换)。索引管线在 UserDocumentService
 type RagService struct {
-	configSvc  *SystemConfigService
+	configSvc  *systemconfig.SystemConfigService
 	store      VectorStore
 	mu         sync.RWMutex
 	cfg        ragConfig
@@ -55,7 +57,7 @@ type RagService struct {
 
 // NewRagService 构造并加载一次配置 (system_config 中尚无 rag_* 键时为全默认值);
 // store 为向量存储实现, 允许 nil (检索/索引整体降级关闭)
-func NewRagService(configSvc *SystemConfigService, store VectorStore) *RagService {
+func NewRagService(configSvc *systemconfig.SystemConfigService, store VectorStore) *RagService {
 	s := &RagService{
 		configSvc:  configSvc,
 		store:      store,
@@ -126,15 +128,15 @@ func (s *RagService) RefreshConfig() {
 	s.mu.Unlock()
 }
 
-// snapshot 取配置快照 (锁内拷贝, 避免与 RefreshConfig 并发竞争)
-func (s *RagService) snapshot() ragConfig {
+// Snapshot 取配置快照 (锁内拷贝, 避免与 RefreshConfig 并发竞争)
+func (s *RagService) Snapshot() ragConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.cfg
 }
 
 // Enabled RAG 总开关 (不含 CH 可用性判断, 那是调用方的事)
-func (s *RagService) Enabled() bool { return s.snapshot().Enabled }
+func (s *RagService) Enabled() bool { return s.Snapshot().Enabled }
 
 // Dims 已探测到的向量维度 (0=未知)
 func (s *RagService) Dims() int {
@@ -145,7 +147,7 @@ func (s *RagService) Dims() int {
 
 // ready 校验配置完整性并返回快照
 func (s *RagService) ready() (ragConfig, error) {
-	cfg := s.snapshot()
+	cfg := s.Snapshot()
 	if !cfg.Enabled {
 		return cfg, errors.New("RAG 未开启 (系统配置 -> 文档 RAG)")
 	}
@@ -347,7 +349,7 @@ func (s *RagService) Search(ctx context.Context, userID uint, query string, docu
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, ragSearchTimeout)
+	ctx, cancel := context.WithTimeout(ctx, SearchTimeout)
 	defer cancel()
 	qvec, err := s.embedBatch(ctx, cfg.BaseURL, cfg.Model, cfg.APIKey, []string{query})
 	if err != nil {

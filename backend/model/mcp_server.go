@@ -11,8 +11,8 @@ type MCPServer struct {
 	Transport      string    `gorm:"size:20;not null;default:'http'" json:"transport"` // stdio/sse/http
 	URL            string    `gorm:"size:512;not null;default:''" json:"url"`
 	Command        string    `gorm:"size:255;not null;default:''" json:"command"`
-	Args           string    `gorm:"type:text" json:"args"`   // JSON 数组
-	Env            string    `gorm:"type:text" json:"env"`    // JSON 对象
+	Args           string    `gorm:"type:text" json:"args"`    // JSON 数组
+	Env            string    `gorm:"type:text" json:"env"`     // JSON 对象
 	Headers        string    `gorm:"type:text" json:"headers"` // JSON 对象
 	TimeoutSeconds int       `gorm:"not null;default:30" json:"timeout_seconds"`
 	Enabled        bool      `json:"enabled"`

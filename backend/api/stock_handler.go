@@ -2,7 +2,8 @@ package api
 
 import (
 	"backend/model"
-	"backend/service"
+	"backend/service/jobs"
+	"backend/service/stock"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -18,26 +19,26 @@ import (
 var stockCodePattern = regexp.MustCompile(`^(sh|sz|bj)\.\d{6}$`)
 
 type StockHandler struct {
-	svc         *service.StockService
-	syncService *service.StockSyncService
-	chService   *service.StockChSyncService
+	svc         *stock.StockService
+	syncService *stock.StockSyncService
+	chService   *stock.StockChSyncService
 }
 
-func NewStockHandler(svc *service.StockService, baostockURL string) *StockHandler {
+func NewStockHandler(svc *stock.StockService, baostockURL string) *StockHandler {
 	return &StockHandler{
 		svc:         svc,
-		syncService: service.NewStockSyncService(baostockURL),
-		chService:   service.NewStockChSyncService(),
+		syncService: stock.NewStockSyncService(baostockURL),
+		chService:   stock.NewStockChSyncService(),
 	}
 }
 
 // SyncService 暴露同步服务(供定时任务注册使用)
-func (h *StockHandler) SyncService() *service.StockSyncService {
+func (h *StockHandler) SyncService() *stock.StockSyncService {
 	return h.syncService
 }
 
 // RegisterCronTasks 注册股票相关的后台定时任务
-func (h *StockHandler) RegisterCronTasks(js *service.JobScheduler) {
+func (h *StockHandler) RegisterCronTasks(js *jobs.JobScheduler) {
 	sync := h.syncService
 	ch := h.chService
 
@@ -86,7 +87,7 @@ func (h *StockHandler) RegisterCronTasks(js *service.JobScheduler) {
 		}
 		// CH 复制不消耗 baostock 配额, 用独立互斥: 卡住/全量重建期间不阻塞行情/财务同步
 		return ch.RunExclusive(task, func() error {
-			if !service.ChEnabled() {
+			if !stock.ChEnabled() {
 				return nil
 			}
 			if full {
@@ -378,7 +379,7 @@ func (h *StockHandler) HandleSyncSingleStock(c *gin.Context) {
 		}
 		// 小时线目标日独立于 force: 盘中回落到上一交易日, 不拉当日未完成的bar
 		hourlyDay := h.syncService.LatestCompletedTradeDay()
-		kRows, kErr := h.syncService.SyncSingleStockDaily(code, market, starts, latestTradeDay, hourlyDay, service.KlineFrequencies())
+		kRows, kErr := h.syncService.SyncSingleStockDaily(code, market, starts, latestTradeDay, hourlyDay, stock.KlineFrequencies())
 		fRows, fErr := h.syncService.SyncFinanceData(code, market)
 
 		var errs []string
@@ -441,22 +442,22 @@ func (h *StockHandler) HandleSyncStatus(c *gin.Context) {
 
 // macroMeta 宏观指标查询元数据: fetch 绑定 service 方法, label 用于错误提示
 type macroMeta struct {
-	fetch func(s *service.StockService) (interface{}, error)
+	fetch func(s *stock.StockService) (interface{}, error)
 	label string
 }
 
 // 宏观经济数据查询表: 十个端点只差一个 service 方法与中文标签
 var macroEndpoints = map[string]macroMeta{
-	"deposit-rates":      {func(s *service.StockService) (interface{}, error) { return s.GetDepositRates() }, "存款利率"},
-	"loan-rates":         {func(s *service.StockService) (interface{}, error) { return s.GetLoanRates() }, "贷款利率"},
-	"reserve-ratios":     {func(s *service.StockService) (interface{}, error) { return s.GetReserveRatios() }, "存款准备金率"},
-	"money-supply-month": {func(s *service.StockService) (interface{}, error) { return s.GetMoneySupplyMonth() }, "货币供应量(月度)"},
-	"money-supply-year":  {func(s *service.StockService) (interface{}, error) { return s.GetMoneySupplyYear() }, "货币供应量(年度)"},
-	"lpr":                {func(s *service.StockService) (interface{}, error) { return s.GetLPR() }, "LPR"},
-	"gdp":                {func(s *service.StockService) (interface{}, error) { return s.GetGDP() }, "GDP"},
-	"cpi":                {func(s *service.StockService) (interface{}, error) { return s.GetCPI() }, "CPI"},
-	"pmi":                {func(s *service.StockService) (interface{}, error) { return s.GetPMI() }, "PMI"},
-	"ppi":                {func(s *service.StockService) (interface{}, error) { return s.GetPPI() }, "PPI"},
+	"deposit-rates":      {func(s *stock.StockService) (interface{}, error) { return s.GetDepositRates() }, "存款利率"},
+	"loan-rates":         {func(s *stock.StockService) (interface{}, error) { return s.GetLoanRates() }, "贷款利率"},
+	"reserve-ratios":     {func(s *stock.StockService) (interface{}, error) { return s.GetReserveRatios() }, "存款准备金率"},
+	"money-supply-month": {func(s *stock.StockService) (interface{}, error) { return s.GetMoneySupplyMonth() }, "货币供应量(月度)"},
+	"money-supply-year":  {func(s *stock.StockService) (interface{}, error) { return s.GetMoneySupplyYear() }, "货币供应量(年度)"},
+	"lpr":                {func(s *stock.StockService) (interface{}, error) { return s.GetLPR() }, "LPR"},
+	"gdp":                {func(s *stock.StockService) (interface{}, error) { return s.GetGDP() }, "GDP"},
+	"cpi":                {func(s *stock.StockService) (interface{}, error) { return s.GetCPI() }, "CPI"},
+	"pmi":                {func(s *stock.StockService) (interface{}, error) { return s.GetPMI() }, "PMI"},
+	"ppi":                {func(s *stock.StockService) (interface{}, error) { return s.GetPPI() }, "PPI"},
 }
 
 // MacroHandler 宏观数据路由统一 handler: 按 kind 查表分发, 由 router.go 注册时绑定

@@ -1,8 +1,9 @@
-package service
+package jobs
 
 import (
 	iface "backend/interface"
 	"backend/model"
+	"backend/service/notifier"
 	"fmt"
 	"log"
 	"strings"
@@ -11,11 +12,11 @@ import (
 
 // JobAlertService 定时任务失败邮件告警: 任务定义配置了通知邮箱, 重试耗尽仍失败时发送
 type JobAlertService struct {
-	email *EmailNotifier
+	email *notifier.EmailNotifier
 }
 
 // NewJobAlertService 创建任务失败告警服务
-func NewJobAlertService(email *EmailNotifier) *JobAlertService {
+func NewJobAlertService(email *notifier.EmailNotifier) *JobAlertService {
 	return &JobAlertService{email: email}
 }
 

@@ -425,8 +425,8 @@ func fetchViaFlareSolverrHTML(fsURL, pageURL string) (string, error) {
 	}
 	defer resp.Body.Close()
 	var out struct {
-		Status  string `json:"status"`
-		Message string `json:"message"`
+		Status   string `json:"status"`
+		Message  string `json:"message"`
 		Solution struct {
 			Response string `json:"response"`
 		} `json:"solution"`

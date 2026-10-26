@@ -1,4 +1,4 @@
-package service
+package mihoyo
 
 // 米哈游接口协议层 (接口与 PTAbabybearR/MihoyoDailyCheckin 的 qr_login.py / sign.py 同源):
 //   扫码: passport web createQRLogin / queryQRLoginStatus  (DS 盐: passport web)

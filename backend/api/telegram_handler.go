@@ -1,7 +1,8 @@
 package api
 
 import (
-	"backend/service"
+	"backend/service/notifier"
+	"backend/service/systemconfig"
 	"log"
 	"net/http"
 
@@ -10,11 +11,11 @@ import (
 )
 
 type TelegramHandler struct {
-	telegramService *service.TelegramService
-	configService   *service.SystemConfigService
+	telegramService *notifier.TelegramService
+	configService   *systemconfig.SystemConfigService
 }
 
-func NewTelegramHandler(telegramService *service.TelegramService, configService *service.SystemConfigService) *TelegramHandler {
+func NewTelegramHandler(telegramService *notifier.TelegramService, configService *systemconfig.SystemConfigService) *TelegramHandler {
 	return &TelegramHandler{
 		telegramService: telegramService,
 		configService:   configService,

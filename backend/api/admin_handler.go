@@ -1,6 +1,9 @@
 package api
 
 import (
+	"backend/service/admin"
+	"backend/service/agent"
+	"backend/service/auth"
 	"log"
 	"strconv"
 
@@ -13,13 +16,13 @@ import (
 )
 
 type AdminHandler struct {
-	svc         *service.AdminService
-	aiAgentSvc  *service.AIAgentService
-	authSvc     *service.AuthService
+	svc         *admin.AdminService
+	aiAgentSvc  *agent.AIAgentService
+	authSvc     *auth.AuthService
 	mem0Service interfaces.Mem0Service
 }
 
-func NewAdminHandler(svc *service.AdminService, aiAgentSvc *service.AIAgentService, authSvc *service.AuthService, mem0Service interfaces.Mem0Service) *AdminHandler {
+func NewAdminHandler(svc *admin.AdminService, aiAgentSvc *agent.AIAgentService, authSvc *auth.AuthService, mem0Service interfaces.Mem0Service) *AdminHandler {
 	return &AdminHandler{svc: svc, aiAgentSvc: aiAgentSvc, authSvc: authSvc, mem0Service: mem0Service}
 }
 
@@ -428,7 +431,7 @@ func (h *AdminHandler) HandleCreateAITool(c *gin.Context) {
 		SendError(c, "500", "创建工具失败: "+err.Error())
 		return
 	}
-	service.InvalidateConfirmRequiredCache(tool.Name)
+	agent.InvalidateConfirmRequiredCache(tool.Name)
 	h.aiAgentSvc.ClearRunnerCache()
 	if tool.Name == "mem0_memory" {
 		h.mem0Service.LoadFromTool()
@@ -459,7 +462,7 @@ func (h *AdminHandler) HandleUpdateAITool(c *gin.Context) {
 		SendError(c, "500", "更新工具失败: "+err.Error())
 		return
 	}
-	service.InvalidateConfirmRequiredCache(existing.Name)
+	agent.InvalidateConfirmRequiredCache(existing.Name)
 	h.aiAgentSvc.ClearRunnerCache()
 	if existing.Name == "mem0_memory" {
 		h.mem0Service.LoadFromTool()
@@ -480,7 +483,7 @@ func (h *AdminHandler) HandleDeleteAITool(c *gin.Context) {
 		SendError(c, "500", "删除工具失败: "+err.Error())
 		return
 	}
-	service.InvalidateConfirmRequiredCache(tool.Name)
+	agent.InvalidateConfirmRequiredCache(tool.Name)
 	h.aiAgentSvc.ClearRunnerCache()
 	if tool.Name == "mem0_memory" {
 		h.mem0Service.LoadFromTool()

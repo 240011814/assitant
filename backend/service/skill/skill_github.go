@@ -1,6 +1,8 @@
-package service
+package skill
 
 import (
+	"backend/service/kernel"
+
 	"context"
 	"encoding/json"
 	"fmt"
@@ -69,7 +71,7 @@ func (s *AISkillService) DiscoverFromGitHub(ctx context.Context, repo, ref, subP
 	}
 	subPath = strings.Trim(strings.TrimSpace(subPath), "/")
 
-	client := newHTTPClient(scanHTTPTimeout)
+	client := kernel.NewHTTPClient(scanHTTPTimeout)
 	if ref == "" {
 		ref, err = githubDefaultBranch(ctx, client, owner, name)
 		if err != nil {

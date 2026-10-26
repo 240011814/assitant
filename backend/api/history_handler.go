@@ -2,17 +2,17 @@ package api
 
 import (
 	"backend/model"
-	"backend/service"
+	"backend/service/history"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
 
 type HistoryHandler struct {
-	historyService *service.HistoryService
+	historyService *history.HistoryService
 }
 
-func NewHistoryHandler(historyService *service.HistoryService) *HistoryHandler {
+func NewHistoryHandler(historyService *history.HistoryService) *HistoryHandler {
 	return &HistoryHandler{
 		historyService: historyService,
 	}
@@ -189,7 +189,7 @@ func (h *HistoryHandler) RevokeShare(c *gin.Context) {
 	SendSuccess(c, nil)
 }
 
-func HandleGetSharedHistory(historyService *service.HistoryService) gin.HandlerFunc {
+func HandleGetSharedHistory(historyService *history.HistoryService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := c.Param("token")
 		if token == "" {

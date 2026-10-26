@@ -3,6 +3,7 @@ package api
 import (
 	"backend/model"
 	"backend/service"
+	"backend/service/jobs"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -12,10 +13,10 @@ import (
 )
 
 type JobHandler struct {
-	scheduler *service.JobScheduler
+	scheduler *jobs.JobScheduler
 }
 
-func NewJobHandler(scheduler *service.JobScheduler) *JobHandler {
+func NewJobHandler(scheduler *jobs.JobScheduler) *JobHandler {
 	return &JobHandler{scheduler: scheduler}
 }
 
@@ -67,7 +68,7 @@ func (h *JobHandler) HandleCreateJob(c *gin.Context) {
 		SendError(c, "400", "用户备忘请在日历页创建")
 		return
 	}
-	if _, err := service.ValidateCronExpr(req.CronExpr); err != nil {
+	if _, err := jobs.ValidateCronExpr(req.CronExpr); err != nil {
 		SendError(c, "400", err.Error())
 		return
 	}
@@ -135,7 +136,7 @@ func (h *JobHandler) HandleUpdateJob(c *gin.Context) {
 	}
 	cronExpr := def.CronExpr
 	if req.CronExpr != nil {
-		if _, err := service.ValidateCronExpr(*req.CronExpr); err != nil {
+		if _, err := jobs.ValidateCronExpr(*req.CronExpr); err != nil {
 			SendError(c, "400", err.Error())
 			return
 		}

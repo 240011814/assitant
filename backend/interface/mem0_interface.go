@@ -29,8 +29,6 @@ type Mem0ListResponse struct {
 	Results  []Mem0Memory `json:"results"`
 }
 
-
-
 type Mem0Service interface {
 	IsConfigured() bool
 	GetEnabled() bool
@@ -40,7 +38,3 @@ type Mem0Service interface {
 	ListMemories(userID uint, page, pageSize int) (*Mem0ListResponse, error)
 	DeleteMemory(memoryID string) error
 }
-
-
-
-

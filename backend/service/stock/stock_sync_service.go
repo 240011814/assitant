@@ -1,4 +1,4 @@
-package service
+package stock
 
 import (
 	"backend/model"
@@ -1358,7 +1358,6 @@ func rebuildFinanceScans(code, ep string, spans, freshSpans []model.StockFinance
 	}
 	return rows, true
 }
-
 
 // SyncFinanceData 同步单只股票财务数据(2007Q1起全部历史)
 // 先批量查本地(finance_sources 标记各报告期已同步的来源), 只对缺失的报告期和来源调用接口(单季度调用)

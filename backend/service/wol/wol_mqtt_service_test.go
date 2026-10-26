@@ -1,4 +1,4 @@
-package service
+package wol
 
 import (
 	"encoding/json"

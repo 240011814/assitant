@@ -1,6 +1,33 @@
 package main
 
 import (
+	"backend/service/admin"
+	"backend/service/agent"
+	"backend/service/agenttask"
+	"backend/service/auth"
+	"backend/service/dashboard"
+	"backend/service/history"
+	"backend/service/jobs"
+	"backend/service/kernel"
+	"backend/service/mcp"
+	"backend/service/mem0"
+	"backend/service/mihoyo"
+	"backend/service/modelscenario"
+	"backend/service/note"
+	"backend/service/notifier"
+	"backend/service/orchestration"
+	"backend/service/prompt"
+	"backend/service/rag"
+	"backend/service/reminder"
+	"backend/service/skill"
+	"backend/service/stock"
+	"backend/service/systemconfig"
+	"backend/service/tokenusage"
+	"backend/service/tts"
+	"backend/service/userdoc"
+	"backend/service/usermemory"
+	"backend/service/userpref"
+	"backend/service/wol"
 	"context"
 	"encoding/json"
 	"errors"
@@ -50,6 +77,28 @@ func main() {
 	cut.DB = db
 	promptcfg.DB = db
 	learning.DB = db
+	systemconfig.DB = db
+	auth.DB = db
+	admin.DB = db
+	dashboard.DB = db
+	note.DB = db
+	modelscenario.DB = db
+	userpref.DB = db
+	tokenusage.DB = db
+	mem0.DB = db
+	history.DB = db
+	notifier.DB = db
+	jobs.DB = db
+	reminder.DB = db
+	usermemory.DB = db
+	agent.DB = db
+	skill.DB = db
+	mcp.DB = db
+	orchestration.DB = db
+	agenttask.DB = db
+	stock.DB = db
+	userdoc.DB = db
+	mihoyo.DB = db
 
 	// 操作审计日志异步写入 (需在 DB 初始化后启动)
 	api.InitAuditLogger()
@@ -58,26 +107,29 @@ func main() {
 	if err := service.InitClickHouse(cfg); err != nil {
 		log.Printf("Warning: ClickHouse 初始化失败(将跳过 CH 同步): %v", err)
 	}
+	// CH 连接注入给需要 ClickHouse 的子包 (未启用时为 nil, 各子包自行降级)
+	stock.CH = service.CH
+	rag.CH = service.CH
 
 	tools.SetDB(service.DB)
 
-	systemConfigService := service.NewSystemConfigService()
+	systemConfigService := systemconfig.NewSystemConfigService()
 
-	authService := service.NewAuthService(cfg)
-	adminService := service.NewAdminService()
+	authService := auth.NewAuthService(cfg)
+	adminService := admin.NewAdminService()
 
-	noteService := service.NewNoteService()
+	noteService := note.NewNoteService()
 	noteHandler := api.NewNoteHandler(noteService)
 
-	aiAgentService, err := service.NewAIAgentService(cfg.AI.TimeoutMinutes, systemConfigService)
+	aiAgentService, err := agent.NewAIAgentService(cfg.AI.TimeoutMinutes, systemConfigService)
 	if err != nil {
 		log.Fatalf("Failed to initialize AI Agent Service: %v", err)
 	}
-	promptService := service.NewPromptService(service.DB, aiAgentService)
+	promptService := prompt.NewPromptService(service.DB, aiAgentService)
 	aiAgentHandler := api.NewAIAgentHandler(aiAgentService)
 
 	// 用户画像/经历服务 (与 mem0 并存)
-	userMemoryService := service.NewUserMemoryService(aiAgentService, systemConfigService)
+	userMemoryService := usermemory.NewUserMemoryService(aiAgentService, systemConfigService)
 	aiAgentService.SetMemoryService(userMemoryService)
 	tools.SetUserMemoryService(userMemoryService)
 	userPortraitHandler := api.NewUserPortraitHandler(userMemoryService)
@@ -88,29 +140,29 @@ func main() {
 	if timeoutConfig.HTTPTimeout > 0 {
 		mem0Timeout = time.Duration(timeoutConfig.HTTPTimeout) * time.Second
 	}
-	mem0Svc := service.NewMem0Service(mem0Timeout, service.DB)
+	mem0Svc := mem0.NewMem0Service(mem0Timeout, service.DB)
 	mem0Svc.LoadFromTool()
 	tools.SetMem0Service(mem0Svc)
 
 	// 用户文档 (S3 存储, 配置在系统配置页 s3_* 键): 上传管理 + AI 文档读取工具
 	// RAG 文档语义检索 (向量存储当前用 ClickHouse, 换后端只需换 NewXxxVectorStore + OpenAI 兼容嵌入, 本地 Ollama):
 	// 配置在系统配置页 rag_* 键
-	ragService := service.NewRagService(systemConfigService, service.NewCHVectorStore())
-	userDocumentService := service.NewUserDocumentService(systemConfigService, ragService)
+	ragService := rag.NewRagService(systemConfigService, rag.NewCHVectorStore())
+	userDocumentService := userdoc.NewUserDocumentService(systemConfigService, ragService)
 	tools.SetUserDocumentStore(userDocumentService)
 	tools.SetDocumentSearcher(userDocumentService)
 	userDocumentHandler := api.NewUserDocumentHandler(userDocumentService)
 
 	// MCP 服务动态注册 (配置在 mcp_servers 表, 管理页 CRUD):
 	// 连接 -> 发现工具 -> 注册 mcp_<server>_<tool>; ai_tools 行用户手动管理, 删服务同步删行/禁用同步禁行
-	mcpService := service.NewMCPService()
+	mcpService := mcp.NewMCPService()
 	mcpService.SetAgentService(aiAgentService)
 	mcpService.Init()
 	mcpHandler := api.NewMCPHandler(mcpService)
 
 	adminHandler := api.NewAdminHandler(adminService, aiAgentService, authService, mem0Svc)
 
-	dashboardService := service.NewDashboardService()
+	dashboardService := dashboard.NewDashboardService()
 	dashboardHandler := api.NewDashboardHandler(dashboardService)
 
 	cutService := cut.NewCutService(cfg.Baostock.URL)
@@ -121,28 +173,28 @@ func main() {
 	mem0Handler := api.NewMem0Handler(mem0Svc)
 
 	// Telegram Bot
-	telegramService := service.NewTelegramService(systemConfigService)
+	telegramService := notifier.NewTelegramService(systemConfigService)
 	telegramHandler := api.NewTelegramHandler(telegramService, systemConfigService)
 
 	// Notification
-	emailNotifier := service.NewEmailNotifier(systemConfigService)
+	emailNotifier := notifier.NewEmailNotifier(systemConfigService)
 	tools.SetEmailNotifier(emailNotifier)
 
 	// Job Scheduler
-	jobAlertService := service.NewJobAlertService(emailNotifier)
-	jobScheduler, err := service.NewJobScheduler(jobAlertService)
+	jobAlertService := jobs.NewJobAlertService(emailNotifier)
+	jobScheduler, err := jobs.NewJobScheduler(jobAlertService)
 	if err != nil {
 		log.Printf("Warning: Failed to create job scheduler: %v", err)
 	}
 
 	// Reminder Service
-	reminderService := service.NewReminderService(jobScheduler, emailNotifier, telegramService)
+	reminderService := reminder.NewReminderService(jobScheduler, emailNotifier, telegramService)
 	reminderHandler := api.NewReminderHandler(reminderService)
 	tools.SetReminderService(reminderService)
 
 	// TTS 语音合成 (tts_mode: frontend/openai/edge, 配置页保存后热刷新;
 	// openai 模式复用 AI 对话默认激活的 Provider, 不单独维护 key)
-	ttsService := service.NewTtsService(systemConfigService, aiAgentService)
+	ttsService := tts.NewTtsService(systemConfigService, aiAgentService)
 	ttsHandler := api.NewTtsHandler(ttsService)
 
 	systemConfigHandler := api.NewSystemConfigHandler(systemConfigService, telegramService, emailNotifier, aiAgentService)
@@ -150,26 +202,26 @@ func main() {
 	systemConfigHandler.SetRAGService(ragService)
 	systemConfigHandler.SetTtsService(ttsService)
 
-	userPrefService := service.NewUserPreferenceService()
+	userPrefService := userpref.NewUserPreferenceService()
 	userPrefHandler := api.NewUserPreferenceHandler(userPrefService)
 
-	historyService := service.NewHistoryService(mem0Svc)
+	historyService := history.NewHistoryService(mem0Svc)
 	historyHandler := api.NewHistoryHandler(historyService)
 
 	lotteryService := lottery.NewLotteryService()
 	lotteryHandler := api.NewLotteryHandler(lotteryService)
 
-	modelScenarioService := service.NewModelScenarioService()
+	modelScenarioService := modelscenario.NewModelScenarioService()
 	modelScenarioHandler := api.NewModelScenarioHandler(modelScenarioService)
 
-	skillService := service.NewAISkillService(aiAgentService)
+	skillService := skill.NewAISkillService(aiAgentService)
 	skillHandler := api.NewSkillHandler(skillService)
 
-	orchestrationService := service.NewAIOrchestrationService(aiAgentService, promptService, cfg.AI.TimeoutMinutes)
+	orchestrationService := orchestration.NewAIOrchestrationService(aiAgentService, promptService, cfg.AI.TimeoutMinutes)
 	orchestrationHandler := api.NewAIOrchestrationHandler(orchestrationService, historyService)
 
 	// 定时 Agent 任务 (到点让 Agent/编排带着输入跑一遍, 结果落训练历史 + 可选通知)
-	agentTaskService := service.NewAgentTaskService(jobScheduler, aiAgentService, orchestrationService, historyService, emailNotifier, telegramService)
+	agentTaskService := agenttask.NewAgentTaskService(jobScheduler, aiAgentService, orchestrationService, historyService, emailNotifier, telegramService)
 	agentTaskHandler := api.NewAgentTaskHandler(agentTaskService)
 
 	courseService := learning.NewCourseService()
@@ -188,29 +240,29 @@ func main() {
 	rssService := learning.NewRSSService(readingService)
 	rssHandler := api.NewRSSHandler(rssService)
 
-	stockService := service.NewStockService()
+	stockService := stock.NewStockService()
 	stockHandler := api.NewStockHandler(stockService, cfg.Baostock.URL)
 
 	// 自选股预警 (基于最新收盘评估, Telegram/邮件推送)
-	stockAlertService := service.NewStockAlertService(emailNotifier, telegramService)
+	stockAlertService := stock.NewStockAlertService(emailNotifier, telegramService)
 	stockAlertHandler := api.NewStockAlertHandler(stockAlertService)
 
 	// 策略回测 (ClickHouse 只读副本)
-	backtestHandler := api.NewBacktestHandler(service.NewBacktestService())
+	backtestHandler := api.NewBacktestHandler(stock.NewBacktestService())
 
 	// 设备管理 (WOL MQTT): 长连接会话 + 设备发现/唤醒/地址簿, 配置存 system_config
-	wolMqttService := service.NewWolMqttService(systemConfigService)
+	wolMqttService := wol.NewWolMqttService(systemConfigService)
 	wolMqttHandler := api.NewWolMqttHandler(wolMqttService)
 
 	// 启动自动连接 MQTT (只尝试一次, 失败不重试; 可到设备管理页手动连接)
-	service.SafeGo("mqtt:auto-connect", func() {
+	kernel.SafeGo("mqtt:auto-connect", func() {
 		if err := wolMqttService.Connect(); err != nil {
 			log.Printf("Warning: 自动连接 MQTT 失败(不重试): %v", err)
 		}
 	})
 
 	// 米哈游原神签到 (扫码登录绑定 + 每日定时签到)
-	mihoyoService := service.NewMihoyoService()
+	mihoyoService := mihoyo.NewMihoyoService()
 	mihoyoHandler := api.NewMihoyoHandler(mihoyoService)
 
 	// Job Handler + 注册后台可调度的定时任务
@@ -224,7 +276,7 @@ func main() {
 		})
 		// 操作审计日志清理 (默认种子任务: 每日 4 点, 保留 90 天, 可在任务管理页调整)
 		jobScheduler.RegisterTask("audit.cleanup", "清理过期的操作审计日志 (参数 retentionDays 为保留天数)", json.RawMessage(`{"retentionDays":90}`), func(_ *model.JobDefinition, params json.RawMessage) error {
-			return service.CleanupAuditLogs(params)
+			return jobs.CleanupAuditLogs(params)
 		})
 		// RSS 订阅自动刷新 (种子任务: 每 30 分钟, 可在任务管理页调整 cron)
 		jobScheduler.RegisterTask("rss.refresh_all", "刷新全部 RSS 订阅源 (抓取新文章, 并发限流)", json.RawMessage(`{}`), func(_ *model.JobDefinition, _ json.RawMessage) error {
@@ -281,7 +333,7 @@ func main() {
 	})
 
 	// Start Telegram Bot
-	service.SafeGo("telegram:start-bot", func() {
+	kernel.SafeGo("telegram:start-bot", func() {
 		if err := telegramService.StartBot(); err != nil {
 			log.Printf("Warning: Failed to start Telegram Bot: %v", err)
 		}

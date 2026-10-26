@@ -1,6 +1,12 @@
-package service
+package userdoc
 
 import (
+	"backend/service/kernel"
+	"backend/service/rag"
+	"backend/service/systemconfig"
+
+	"gorm.io/gorm"
+
 	"bytes"
 	"context"
 	"errors"
@@ -24,6 +30,9 @@ import (
 	"backend/model"
 )
 
+// DB 本包专用数据库句柄, 由 main.go 接线赋值 (userdoc.DB = db)。
+var DB *gorm.DB
+
 // 用户文档配置默认值
 const (
 	// docDefaultChunk 文档读取工具默认单次返回字符数
@@ -41,15 +50,15 @@ const (
 // 解析成功且 RAG 就绪时异步建立向量索引 (ClickHouse), 支持语义检索。
 // 存储配置存 system_config (s3_*/rag_* 键, SMTP 同款), 改后热刷新无需重启
 type UserDocumentService struct {
-	configSvc      *SystemConfigService
-	rag            *RagService
+	configSvc      *systemconfig.SystemConfigService
+	rag            *rag.RagService
 	mu             sync.RWMutex // 保护 maxUploadBytes
 	maxUploadBytes int64
 	parseMaxChars  int
 	parsers        map[string]parser.Parser
 }
 
-// ragReady 文档检索就绪 = RAG 配置开启 + 向量存储可用 (嵌入配置完整性由 RagService.ready 校验)
+// ragReady 文档检索就绪 = RAG 配置开启 + 向量存储可用 (嵌入配置完整性由 rag.RagService.ready 校验)
 func (s *UserDocumentService) ragReady() bool {
 	return s.rag != nil && s.rag.Enabled() && s.rag.Available()
 }
@@ -85,7 +94,7 @@ func (s *UserDocumentService) Status() DocumentStatus {
 
 // NewUserDocumentService configSvc 为空时无法读取存储配置, 文档功能保持关闭态;
 // rag 允许为 nil (仅关闭向量索引/检索)
-func NewUserDocumentService(configSvc *SystemConfigService, rag *RagService) *UserDocumentService {
+func NewUserDocumentService(configSvc *systemconfig.SystemConfigService, rag *rag.RagService) *UserDocumentService {
 	s := &UserDocumentService{
 		configSvc:      configSvc,
 		rag:            rag,
@@ -265,7 +274,7 @@ func (s *UserDocumentService) parseAndStore(ctx context.Context, doc *model.User
 	docs, err := p.Parse(parseCtx, bytes.NewReader(data))
 	if err != nil {
 		doc.ParseStatus = "failed"
-		doc.ParseError = truncateRunes(err.Error(), 500)
+		doc.ParseError = kernel.TruncateRunes(err.Error(), 500)
 		return
 	}
 	var sb strings.Builder
@@ -291,7 +300,7 @@ func (s *UserDocumentService) parseAndStore(ctx context.Context, doc *model.User
 	textKey := doc.ObjectKey + ".txt"
 	if err := GetS3().PutObject(ctx, textKey, strings.NewReader(text), int64(len(text)), "text/plain; charset=utf-8"); err != nil {
 		doc.ParseStatus = "failed"
-		doc.ParseError = "解析文本存储失败: " + truncateRunes(err.Error(), 200)
+		doc.ParseError = "解析文本存储失败: " + kernel.TruncateRunes(err.Error(), 200)
 		return
 	}
 	doc.ParseStatus = "ok"
@@ -302,7 +311,7 @@ func (s *UserDocumentService) parseAndStore(ctx context.Context, doc *model.User
 
 // List 分页列出用户文档 (时间倒序)
 func (s *UserDocumentService) List(userID uint, page, pageSize int) ([]model.UserDocument, int64, error) {
-	page = NormalizePage(page)
+	page = kernel.NormalizePage(page)
 	if pageSize <= 0 || pageSize > 100 {
 		pageSize = 20
 	}
@@ -468,7 +477,7 @@ func (s *UserDocumentService) indexDocument(docID uint) {
 		if r := recover(); r != nil {
 			log.Printf("[RAG] 索引协程 panic doc=%d: %v", docID, r)
 			DB.Model(&model.UserDocument{}).Where("id = ?", docID).Updates(map[string]any{
-				"index_status": "failed", "index_error": truncateRunes(fmt.Sprintf("内部错误: %v", r), 500),
+				"index_status": "failed", "index_error": kernel.TruncateRunes(fmt.Sprintf("内部错误: %v", r), 500),
 			})
 		}
 	}()
@@ -483,7 +492,7 @@ func (s *UserDocumentService) indexDocument(docID uint) {
 	fail := func(msg string) {
 		log.Printf("[RAG] 文档索引失败 doc=%d(%s): %s", docID, doc.Filename, msg)
 		DB.Model(&model.UserDocument{}).Where("id = ?", docID).Updates(map[string]any{
-			"index_status": "failed", "index_error": truncateRunes(msg, 500), "chunk_count": 0,
+			"index_status": "failed", "index_error": kernel.TruncateRunes(msg, 500), "chunk_count": 0,
 		})
 	}
 	if err := DB.Model(&model.UserDocument{}).Where("id = ?", docID).Update("index_status", "indexing").Error; err != nil {
@@ -507,8 +516,8 @@ func (s *UserDocumentService) indexDocument(docID uint) {
 		return
 	}
 
-	cfg := s.rag.snapshot()
-	chunks := ChunkText(text, cfg.ChunkSize, cfg.Overlap)
+	cfg := s.rag.Snapshot()
+	chunks := rag.ChunkText(text, cfg.ChunkSize, cfg.Overlap)
 	if len(chunks) == 0 {
 		fail("切块结果为空")
 		return
@@ -524,9 +533,9 @@ func (s *UserDocumentService) indexDocument(docID uint) {
 		fail("清理旧向量块失败: " + err.Error())
 		return
 	}
-	rows := make([]ChunkRow, 0, len(chunks))
+	rows := make([]rag.ChunkRow, 0, len(chunks))
 	for i := range chunks {
-		rows = append(rows, ChunkRow{
+		rows = append(rows, rag.ChunkRow{
 			UserID:         doc.UserID,
 			DocumentID:     docID,
 			ChunkIndex:     i,
@@ -560,7 +569,7 @@ func (s *UserDocumentService) SearchDocuments(userID uint, query string, documen
 	if !s.ragReady() {
 		return nil, errors.New("文档检索未启用 (需开启 RAG 配置、配置嵌入模型, 且 ClickHouse 可用)")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), ragSearchTimeout+10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), rag.SearchTimeout+10*time.Second)
 	defer cancel()
 	raw, err := s.rag.Search(ctx, userID, query, documentIDs, topK)
 	if err != nil {

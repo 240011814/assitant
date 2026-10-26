@@ -17,10 +17,10 @@ const (
 // AITokenUsage 用户 AI Token 用量明细: 每次模型调用一条 (ReAct 多轮工具调用的每轮各一条),
 // 统计聚合在查询端完成
 type AITokenUsage struct {
-	ID               uint      `json:"id" gorm:"primaryKey"`
-	UserID           uint      `json:"user_id"`
+	ID     uint `json:"id" gorm:"primaryKey"`
+	UserID uint `json:"user_id"`
 	// Model 模型 code; 空串 = 默认模型
-	Model            string    `json:"model" gorm:"size:100"`
+	Model string `json:"model" gorm:"size:100"`
 	// Source 来源: chat / orchestration_debug / orchestration_chat
 	Source           string    `json:"source" gorm:"size:30"`
 	PromptTokens     int64     `json:"prompt_tokens"`
@@ -63,13 +63,13 @@ type TokenUsageModelItem struct {
 
 // TokenUsageUserItem 按用户聚合项 (带限额, 管理页展示使用比例)
 type TokenUsageUserItem struct {
-	UserID           uint    `json:"user_id"`
-	Username         string  `json:"username"`
-	Nickname         string  `json:"nickname"`
-	PromptTokens     int64   `json:"prompt_tokens"`
-	CompletionTokens int64   `json:"completion_tokens"`
-	TotalTokens      int64   `json:"total_tokens"`
-	Calls            int64   `json:"calls"`
+	UserID           uint   `json:"user_id"`
+	Username         string `json:"username"`
+	Nickname         string `json:"nickname"`
+	PromptTokens     int64  `json:"prompt_tokens"`
+	CompletionTokens int64  `json:"completion_tokens"`
+	TotalTokens      int64  `json:"total_tokens"`
+	Calls            int64  `json:"calls"`
 	// QuotaMonth 月度限额 (NULL/0=不限); 仅 granularity 查询区间为"本月"时有意义, 原样返回
-	QuotaMonth       *int    `json:"quota_month" gorm:"column:token_quota_month"`
+	QuotaMonth *int `json:"quota_month" gorm:"column:token_quota_month"`
 }
