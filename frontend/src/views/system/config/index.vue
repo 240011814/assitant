@@ -98,10 +98,11 @@ const savingTts = ref(false);
 const testingTts = ref(false);
 const playingTts = ref(false);
 const ttsMode = ref("frontend");
-const ttsVoice = ref("");
-const ttsEdgeVoiceEn = ref("");
-const ttsEdgeVoiceZh = ref("");
-const ttsFrontendVoice = ref("");
+// NSelect 配 clearable 后值可能被置 null, 类型上如实标注
+const ttsVoice = ref<string | null>("");
+const ttsEdgeVoiceEn = ref<string | null>("");
+const ttsEdgeVoiceZh = ref<string | null>("");
+const ttsFrontendVoice = ref<string | null>("");
 const browserVoiceOptions = ref<{ label: string; value: string }[]>([]);
 const browserVoicesSupported = ref(true);
 let ttsTestAudio: HTMLAudioElement | null = null;
@@ -467,15 +468,18 @@ async function handleTestEmbedding() {
   }
 }
 
+/** NSelect 清空后值为 null, 统一安全取字符串再 trim */
+const ttsTrim = (v: string | null | undefined) => (v ?? "").trim();
+
 async function handleSaveTts() {
   savingTts.value = true;
   try {
     const ok = await saveConfigs([
       ["tts_mode", ttsMode.value, $t("page.system.config.remarkTtsMode")],
-      ["tts_openai_voice", ttsVoice.value.trim(), $t("page.system.config.remarkTtsVoice")],
-      ["tts_edge_voice_en", ttsEdgeVoiceEn.value.trim(), $t("page.system.config.remarkTtsEdgeVoiceEn")],
-      ["tts_edge_voice_zh", ttsEdgeVoiceZh.value.trim(), $t("page.system.config.remarkTtsEdgeVoiceZh")],
-      ["tts_frontend_voice", ttsFrontendVoice.value.trim(), $t("page.system.config.remarkTtsFrontendVoice")],
+      ["tts_openai_voice", ttsTrim(ttsVoice.value), $t("page.system.config.remarkTtsVoice")],
+      ["tts_edge_voice_en", ttsTrim(ttsEdgeVoiceEn.value), $t("page.system.config.remarkTtsEdgeVoiceEn")],
+      ["tts_edge_voice_zh", ttsTrim(ttsEdgeVoiceZh.value), $t("page.system.config.remarkTtsEdgeVoiceZh")],
+      ["tts_frontend_voice", ttsTrim(ttsFrontendVoice.value), $t("page.system.config.remarkTtsFrontendVoice")],
     ]);
     if (ok) message.success($t("page.system.config.ttsSaved"));
   } finally {
@@ -515,7 +519,7 @@ async function handlePlayTestTts() {
       message.error($t("page.system.config.ttsBrowserNoVoices"));
       return;
     }
-    const voiceName = ttsFrontendVoice.value.trim();
+    const voiceName = ttsTrim(ttsFrontendVoice.value);
     const voice = browserVoiceOptions.value.find(o => o.value === voiceName);
     // 样例文本跟随所选音源的语言 (无匹配则英文)
     const isZhVoice = voice ? /\(zh/i.test(voice.label) : false;
@@ -540,7 +544,7 @@ async function handlePlayTestTts() {
   // 服务端模式: 后端合成 mp3 播放
   // 样例语言跟随用户配置: 配了英文音色用英文样例, 只配了中文音色则用中文样例 (否则听不到所选音色)
   const testLang =
-    ttsMode.value === "edge" && !ttsEdgeVoiceEn.value.trim() && ttsEdgeVoiceZh.value.trim() ? "zh-CN" : "en-US";
+    ttsMode.value === "edge" && !ttsTrim(ttsEdgeVoiceEn.value) && ttsTrim(ttsEdgeVoiceZh.value) ? "zh-CN" : "en-US";
   testingTts.value = true;
   try {
     const Authorization = getAuthorization();
@@ -552,9 +556,9 @@ async function handlePlayTestTts() {
       },
       body: JSON.stringify({
         mode: ttsMode.value,
-        voice: ttsVoice.value.trim(),
-        voice_en: ttsEdgeVoiceEn.value.trim(),
-        voice_zh: ttsEdgeVoiceZh.value.trim(),
+        voice: ttsTrim(ttsVoice.value),
+        voice_en: ttsTrim(ttsEdgeVoiceEn.value),
+        voice_zh: ttsTrim(ttsEdgeVoiceZh.value),
         lang: testLang
       })
     });
