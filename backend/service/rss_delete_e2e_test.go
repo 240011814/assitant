@@ -108,7 +108,7 @@ func TestListItemsUnreadFilterAndSort(t *testing.T) {
 	svc := NewRSSService(nil)
 
 	// 仅未读
-	list, total, err := svc.ListItems(me, model.ListRSSItemsRequest{SourceID: srcID, UnreadOnly: true})
+	list, total, err := svc.ListItems(me, model.ListRSSItemsRequest{SourceID: srcID, Status: "unread"})
 	if err != nil {
 		t.Fatalf("ListItems: %v", err)
 	}

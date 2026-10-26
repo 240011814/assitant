@@ -49,6 +49,15 @@ export function fetchRSSListSources() {
   });
 }
 
+/** 编辑订阅源 (改名 / 换 feed 地址, 空字段保持原值; 地址变更时后端会重新验证 feed) */
+export function fetchRSSUpdateSource(id: number, data: { title?: string; url?: string }) {
+  return request<RSSSource>({
+    url: `/api/rss/sources/${id}`,
+    method: 'put',
+    data
+  });
+}
+
 /** 删除订阅源及其条目 */
 export function fetchRSSDeleteSource(id: number) {
   return request({
@@ -65,10 +74,10 @@ export function fetchRSSFetchSource(id: number) {
   });
 }
 
-/** 文章列表 (分页 + 源/未读/难度过滤, sort=time_desc|time_asc) */
+/** 文章列表 (分页 + 源/状态/难度过滤, status=unread|read, sort=time_desc|time_asc) */
 export function fetchRSSListItems(params?: {
   sourceId?: number;
-  unreadOnly?: boolean;
+  status?: 'unread' | 'read';
   easyOnly?: boolean;
   sort?: 'time_desc' | 'time_asc';
   page?: number;

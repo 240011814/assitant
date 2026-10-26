@@ -6,6 +6,7 @@ import ReaderView from "@/components/custom/reader-view.vue";
 import {
   fetchRSSAddSource,
   fetchRSSListSources,
+  fetchRSSUpdateSource,
   fetchRSSDeleteSource,
   fetchRSSFetchSource,
   fetchRSSListItems,
@@ -28,9 +29,22 @@ const loading = ref(false);
 const sources = ref<(RSSSource & { unread?: number })[]>([]);
 const items = ref<RSSItem[]>([]);
 const filterSourceId = ref<number | null>(null);
-const unreadOnly = ref(false);
+// 状态过滤: 全部 / 已读 (含已导入) / 未读
+const statusFilter = ref<"all" | "read" | "unread">("all");
+const statusOptions = [
+  { label: "全部", value: "all" as const },
+  { label: "已读", value: "read" as const },
+  { label: "未读", value: "unread" as const }
+];
 const timeAsc = ref(false);
 const easyOnly = ref(false);
+
+const selectStatus = (value: "all" | "read" | "unread") => {
+  if (statusFilter.value === value) return;
+  statusFilter.value = value;
+  pagination.value.page = 1;
+  loadItems();
+};
 
 // 难度标签: 按预估生词率分档 (0=未算不显示)
 const difficultyTag = (rate?: number) => {
@@ -97,7 +111,7 @@ async function loadItems() {
   loading.value = true;
   const { data: resp, error } = await fetchRSSListItems({
     sourceId: filterSourceId.value || undefined,
-    unreadOnly: unreadOnly.value || undefined,
+    status: statusFilter.value === "all" ? undefined : statusFilter.value,
     easyOnly: easyOnly.value || undefined,
     sort: timeAsc.value ? "time_asc" : "time_desc",
     page: pagination.value.page,
@@ -144,6 +158,35 @@ const handleAdd = async () => {
   showAddModal.value = false;
   addForm.value = { title: "", url: "" };
   filterSourceId.value = resp.id;
+  reloadAll();
+};
+
+const showEditModal = ref(false);
+const editForm = ref({ id: 0, title: "", url: "" });
+const editing = ref(false);
+
+const openEditSource = (src: RSSSource) => {
+  editForm.value = { id: src.id, title: src.title, url: src.url };
+  showEditModal.value = true;
+};
+
+const handleUpdate = async () => {
+  if (!editForm.value.url.trim()) {
+    message.warning("请输入 feed 地址");
+    return;
+  }
+  editing.value = true;
+  const { data: resp, error } = await fetchRSSUpdateSource(editForm.value.id, {
+    title: editForm.value.title.trim(),
+    url: editForm.value.url.trim()
+  });
+  editing.value = false;
+  if (error || !resp) {
+    message.error(`保存失败: ${(error as any)?.message || "请确认地址是可解析的 RSS/Atom feed"}`);
+    return;
+  }
+  message.success("已保存");
+  showEditModal.value = false;
   reloadAll();
 };
 
@@ -582,6 +625,13 @@ onDeactivated(() => {
           </span>
           <span class="flex items-center gap-1 shrink-0" @click.stop>
             <NTag v-if="(src.unread || 0) > 0" size="tiny" type="warning" :bordered="false">{{ src.unread }}</NTag>
+            <span
+              class="inline-flex cursor-pointer text-gray-300 group-hover:text-primary"
+              title="编辑订阅"
+              @click="openEditSource(src)"
+            >
+              <SvgIcon icon="mdi:pencil-outline" class="text-14px" />
+            </span>
             <NPopconfirm @positive-click="handleDeleteSource(src.id)">
               <template #trigger>
                 <!-- SvgIcon inheritAttrs=false 会吞掉事件监听, 交互触发必须用原生元素包一层 -->
@@ -607,12 +657,18 @@ onDeactivated(() => {
           <span class="font-bold text-18px">{{ filterSourceId ? sourceTitle(filterSourceId) : "全部文章" }}</span>
           <div class="flex flex-wrap gap-2">
             <div class="flex items-center gap-2 mr-2">
-              <span class="text-xs text-gray-400">仅未读</span>
-              <NSwitch
-                v-model:value="unreadOnly"
-                size="small"
-                @update:value="() => { pagination.page = 1; loadItems(); }"
-              />
+              <span class="text-xs text-gray-400">状态</span>
+              <NButtonGroup size="small">
+                <NButton
+                  v-for="opt in statusOptions"
+                  :key="opt.value"
+                  size="small"
+                  :type="statusFilter === opt.value ? 'primary' : 'default'"
+                  @click="selectStatus(opt.value)"
+                >
+                  {{ opt.label }}
+                </NButton>
+              </NButtonGroup>
             </div>
             <div class="flex items-center gap-2 mr-2">
               <span class="text-xs text-gray-400">适合我的水平</span>
@@ -753,6 +809,18 @@ onDeactivated(() => {
         <div class="text-xs text-gray-400">
           添加时会先验证 feed 可解析, 成功后自动抓取最近的文章。
           抓正文遇反爬盾时, 可在系统配置里设置 flaresolverr_url 走无头浏览器回退。
+        </div>
+      </div>
+    </NModal>
+
+    <!-- 编辑订阅 (改名 / 换 feed 地址) -->
+    <NModal v-model:show="showEditModal" preset="card" title="编辑订阅" :style="{ width: appStore.isMobile ? '92%' : '460px' }">
+      <div class="flex flex-col gap-4 py-2">
+        <NInput v-model:value="editForm.url" placeholder="RSS/Atom feed 地址" @keyup.enter="handleUpdate" />
+        <NInput v-model:value="editForm.title" placeholder="自定义名称" />
+        <NButton type="primary" block :loading="editing" @click="handleUpdate">保存</NButton>
+        <div class="text-xs text-gray-400">
+          更换 feed 地址时会先验证可解析, 已抓取的文章会保留。
         </div>
       </div>
     </NModal>

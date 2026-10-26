@@ -43,6 +43,27 @@ func (h *RSSHandler) HandleListRSSSources(c *gin.Context) {
 	SendSuccess(c, list)
 }
 
+// HandleUpdateRSSSource 编辑订阅 (改名 / 换 feed 地址, 空字段保持原值)
+func (h *RSSHandler) HandleUpdateRSSSource(c *gin.Context) {
+	userId := GetUserID(c)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		SendError(c, "400", "订阅 ID 不合法")
+		return
+	}
+	var req model.UpdateRSSSourceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请求参数错误")
+		return
+	}
+	source, err := h.svc.UpdateSource(userId, uint(id), req)
+	if err != nil {
+		SendError(c, "500", "更新失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, source)
+}
+
 // HandleDeleteRSSSource 删除订阅源及其条目
 func (h *RSSHandler) HandleDeleteRSSSource(c *gin.Context) {
 	userId := GetUserID(c)

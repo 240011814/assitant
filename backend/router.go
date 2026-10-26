@@ -227,6 +227,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 		rssGroup.Use(api.RequirePermission("ai:vocabulary:view"))
 		{
 			rssGroup.POST("/sources", api.RequirePermission("ai:vocabulary:add"), rssHandler.HandleAddRSSSource)
+			rssGroup.PUT("/sources/:id", api.RequirePermission("ai:vocabulary:add"), rssHandler.HandleUpdateRSSSource)
 			rssGroup.GET("/sources", rssHandler.HandleListRSSSources)
 			rssGroup.DELETE("/sources/:id", api.RequirePermission("ai:vocabulary:delete"), rssHandler.HandleDeleteRSSSource)
 			rssGroup.POST("/sources/:id/fetch", rssHandler.HandleFetchRSSSource)

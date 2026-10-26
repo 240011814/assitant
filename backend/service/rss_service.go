@@ -256,6 +256,47 @@ func (s *RSSService) ListSourcesWithUnread(userID uint) ([]RSSSourceWithUnread, 
 	return out, nil
 }
 
+// UpdateSource 编辑订阅 (改名 / 换 feed 地址)。空字段保持原值;
+// URL 变更时重新验证 http(s) 前缀、查重 (排除自身) 且 feed 可解析, 已抓条目保留。
+func (s *RSSService) UpdateSource(userID, id uint, req model.UpdateRSSSourceRequest) (*model.RSSSource, error) {
+	var source model.RSSSource
+	if err := DB.Where("id = ? AND user_id = ?", id, userID).First(&source).Error; err != nil {
+		return nil, errors.New("订阅源不存在")
+	}
+
+	updates := map[string]interface{}{}
+	newURL := strings.TrimSpace(req.URL)
+	if newURL != "" && newURL != source.URL {
+		if !strings.HasPrefix(newURL, "http://") && !strings.HasPrefix(newURL, "https://") {
+			return nil, errors.New("订阅地址必须是 http(s) URL")
+		}
+		newURL = truncateRunes(newURL, 500)
+		var dupCount int64
+		DB.Model(&model.RSSSource{}).Where("user_id = ? AND url = ? AND id <> ?", userID, newURL, id).Count(&dupCount)
+		if dupCount > 0 {
+			return nil, errors.New("该 feed 已订阅过, 请勿重复添加")
+		}
+		if _, err := s.fetchFeed(newURL); err != nil {
+			return nil, fmt.Errorf("订阅源无法解析: %w", err)
+		}
+		updates["url"] = newURL
+	}
+	if title := strings.TrimSpace(req.Title); title != "" {
+		updates["title"] = truncateRunes(title, 100)
+	}
+
+	if len(updates) > 0 {
+		if err := DB.Model(&source).Updates(updates).Error; err != nil {
+			return nil, err
+		}
+	}
+	var fresh model.RSSSource
+	if err := DB.Where("id = ?", id).First(&fresh).Error; err != nil {
+		return nil, err
+	}
+	return &fresh, nil
+}
+
 // DeleteSource 删除订阅源及其条目
 func (s *RSSService) DeleteSource(userID, id uint) error {
 	return DB.Transaction(func(tx *gorm.DB) error {
@@ -353,8 +394,12 @@ func (s *RSSService) ListItems(userID uint, req model.ListRSSItemsRequest) ([]mo
 	if req.SourceID > 0 {
 		query = query.Where("source_id = ?", req.SourceID)
 	}
-	if req.UnreadOnly {
+	// 已读过滤: 已导入的条目 (status=imported) 导入前必然读过, 也算已读
+	switch req.Status {
+	case "unread":
 		query = query.Where("status = ?", "unread")
+	case "read":
+		query = query.Where("status <> ?", "unread")
 	}
 	if req.EasyOnly {
 		// 适合当前水平: 已算难度且预估生词率 <= 8% (est=0 是未算的历史数据, 不算简单)
