@@ -4,15 +4,15 @@ import (
 	"strconv"
 
 	"backend/model"
-	"backend/service"
+	"backend/service/learning"
 	"github.com/gin-gonic/gin"
 )
 
 type ErrorBookHandler struct {
-	svc *service.ErrorBookService
+	svc *learning.ErrorBookService
 }
 
-func NewErrorBookHandler(svc *service.ErrorBookService) *ErrorBookHandler {
+func NewErrorBookHandler(svc *learning.ErrorBookService) *ErrorBookHandler {
 	return &ErrorBookHandler{svc: svc}
 }
 

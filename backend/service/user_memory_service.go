@@ -1,7 +1,10 @@
 package service
 
 import (
+	iface "backend/interface"
 	"backend/model"
+	"backend/service/llmjson"
+	"backend/service/promptcfg"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,8 +26,9 @@ type MemoryExtractionConfig struct {
 }
 
 // UserMemoryService 用户画像与经历: 会话级抽取、画像合并、注入与 CRUD
+// agentSvc 依赖窄接口 TextGenerator 而非具体 *AIAgentService, 切断 user→ai 的相互 import。
 type UserMemoryService struct {
-	agentSvc *AIAgentService
+	agentSvc iface.TextGenerator
 	sysCfg   *SystemConfigService
 	mu       sync.Mutex
 	// extracting 抽取运行标志 (由 mu 保护): 锁只覆盖标志的读写, 不覆盖抽取过程
@@ -49,7 +53,7 @@ func (s *UserMemoryService) unlockExtraction() {
 	s.extracting = false
 }
 
-func NewUserMemoryService(agentSvc *AIAgentService, sysCfg *SystemConfigService) *UserMemoryService {
+func NewUserMemoryService(agentSvc iface.TextGenerator, sysCfg *SystemConfigService) *UserMemoryService {
 	s := &UserMemoryService{agentSvc: agentSvc, sysCfg: sysCfg}
 	// 启动复位: 上个进程可能在 LLM 调用期间退出, processing 状态若不复位会被 collectEligible 永久跳过
 	if err := DB.Model(&model.MemoryExtractionState{}).
@@ -785,12 +789,12 @@ func (s *UserMemoryService) extractWithLLM(userID uint, title, transcript string
 		sessionTime.Format("2006-01-02 15:04"),
 		transcript,
 	)
-	raw, err := s.agentSvc.GenerateText(userID, modelOverride, GetPrompt(PromptKeyMemoryExtract), userPrompt)
+	raw, err := s.agentSvc.GenerateText(userID, modelOverride, promptcfg.GetPrompt(promptcfg.PromptKeyMemoryExtract), userPrompt)
 	if err != nil {
 		return nil, err
 	}
 	var res extractionResult
-	if err := json.Unmarshal([]byte(extractJSON(raw)), &res); err != nil {
+	if err := json.Unmarshal([]byte(llmjson.ExtractJSON(raw)), &res); err != nil {
 		return nil, fmt.Errorf("解析抽取结果失败: %w", err)
 	}
 	return &res, nil
@@ -824,7 +828,7 @@ func (s *UserMemoryService) MergeProfileFacts(userID uint, facts []model.Profile
 	factsJSON, _ := json.Marshal(facts)
 	userPrompt := fmt.Sprintf("【当前画像】\n%s\n\n【新增事实】\n%s", string(curJSON), string(factsJSON))
 
-	raw, err := s.agentSvc.GenerateText(userID, cfg.Model, GetPrompt(PromptKeyMemoryMerge), userPrompt)
+	raw, err := s.agentSvc.GenerateText(userID, cfg.Model, promptcfg.GetPrompt(promptcfg.PromptKeyMemoryMerge), userPrompt)
 	if err != nil {
 		return err
 	}
@@ -834,7 +838,7 @@ func (s *UserMemoryService) MergeProfileFacts(userID uint, facts []model.Profile
 		Tags       []string                   `json:"tags"`
 		Confidence float64                    `json:"confidence"`
 	}
-	if err := json.Unmarshal([]byte(extractJSON(raw)), &merged); err != nil {
+	if err := json.Unmarshal([]byte(llmjson.ExtractJSON(raw)), &merged); err != nil {
 		return fmt.Errorf("解析画像合并结果失败: %w", err)
 	}
 	dimsMap := make(map[string]string, len(merged.Dimensions))
@@ -943,25 +947,7 @@ func buildTranscript(msgs []model.TrainingMessage) string {
 	return out
 }
 
-// extractJSON 去掉 LLM 输出中可能包裹的 markdown 代码块, 并截取首个 JSON 对象
-func extractJSON(raw string) string {
-	s := strings.TrimSpace(raw)
-	if i := strings.Index(s, "```"); i >= 0 {
-		s = s[i+3:]
-		s = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "json"))
-		if j := strings.Index(s, "```"); j >= 0 {
-			s = s[:j]
-		}
-	}
-	s = strings.TrimSpace(s)
-	if i := strings.Index(s, "{"); i > 0 {
-		s = s[i:]
-	}
-	if j := strings.LastIndex(s, "}"); j >= 0 && j < len(s)-1 {
-		s = s[:j+1]
-	}
-	return s
-}
+// extractJSON 已抽到 backend/service/llmjson 包 (llmjson.ExtractJSON), 供 LLM JSON 宽容解析共用。
 
 func orDefault(s, def string) string {
 	if strings.TrimSpace(s) == "" {

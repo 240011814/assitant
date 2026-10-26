@@ -14,7 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"backend/model"
-	"backend/service"
+	"backend/service/learning"
 )
 
 // setupRSSTestRouter 真 HTTP 端到端: gin 引擎 + 真路由 + 真 handler + SQLite 真库,
@@ -23,7 +23,7 @@ func setupRSSTestRouter(t *testing.T) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
-	origDB := service.DB
+	origDB := learning.DB
 	db, err := gorm.Open(sqlite.Open(t.Name()+".db"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
@@ -31,9 +31,9 @@ func setupRSSTestRouter(t *testing.T) *gin.Engine {
 	if err := db.AutoMigrate(&model.RSSSource{}, &model.RSSItem{}, &model.ReadingDoc{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	service.DB = db
+	learning.DB = db
 	t.Cleanup(func() {
-		service.DB = origDB
+		learning.DB = origDB
 		sqlDB, _ := db.DB()
 		if sqlDB != nil {
 			_ = sqlDB.Close()
@@ -41,8 +41,8 @@ func setupRSSTestRouter(t *testing.T) *gin.Engine {
 		_ = os.Remove(t.Name() + ".db")
 	})
 
-	rssSvc := service.NewRSSService(service.NewReadingService(nil, nil, nil))
-	readingSvc := service.NewReadingService(nil, nil, nil)
+	rssSvc := learning.NewRSSService(learning.NewReadingService(nil, nil, nil))
+	readingSvc := learning.NewReadingService(nil, nil, nil)
 
 	r := gin.New()
 	r.Use(func(c *gin.Context) {

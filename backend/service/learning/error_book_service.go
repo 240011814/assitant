@@ -1,4 +1,4 @@
-package service
+package learning
 
 import (
 	"backend/model"

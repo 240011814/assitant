@@ -1,4 +1,4 @@
-package service
+package learning
 
 import (
 	"encoding/json"
@@ -9,17 +9,20 @@ import (
 
 	"gorm.io/gorm"
 
+	iface "backend/interface"
 	"backend/model"
+	"backend/service/llmjson"
+	"backend/service/promptcfg"
 )
 
 type VocabularyService struct {
-	agentSvc *AIAgentService
-	docSvc   *UserDocumentService
-	prefSvc  *UserPreferenceService
+	agentSvc iface.TextGenerator
+	docSvc   iface.UserDocumentStore
+	prefSvc  iface.PreferenceGetter
 }
 
 // NewVocabularyService agentSvc/docSvc/prefSvc 用于遗忘干预、文档提词与每日新词限额
-func NewVocabularyService(agentSvc *AIAgentService, docSvc *UserDocumentService, prefSvc *UserPreferenceService) *VocabularyService {
+func NewVocabularyService(agentSvc iface.TextGenerator, docSvc iface.UserDocumentStore, prefSvc iface.PreferenceGetter) *VocabularyService {
 	return &VocabularyService{agentSvc: agentSvc, docSvc: docSvc, prefSvc: prefSvc}
 }
 
@@ -525,7 +528,7 @@ func (s *VocabularyService) AssistForgetfulWord(userID, id uint) (*model.Vocabul
 		return nil, errors.New("AI 服务未启用")
 	}
 
-	system := GetPrompt(PromptKeyVocabAssist)
+	system := promptcfg.GetPrompt(promptcfg.PromptKeyVocabAssist)
 	user := fmt.Sprintf("单词: %s\n释义: %s\n已有例句(请避开类似场景): %s",
 		word.Word, word.Definition, word.Example)
 	raw, err := s.agentSvc.GenerateText(userID, "", system, user)
@@ -537,7 +540,7 @@ func (s *VocabularyService) AssistForgetfulWord(userID, id uint) (*model.Vocabul
 		Example  string `json:"example"`
 		Mnemonic string `json:"mnemonic"`
 	}
-	if err := decodeLLMObject(raw, &assist); err != nil || assist.Example == "" {
+	if err := llmjson.DecodeLLMObject(raw, &assist); err != nil || assist.Example == "" {
 		return nil, errors.New("AI 返回格式异常 (详见后端日志)")
 	}
 	if err := DB.Model(&model.Vocabulary{}).Where("id = ?", word.ID).Updates(map[string]interface{}{
@@ -625,7 +628,7 @@ func (s *VocabularyService) ExtractWordsFromDocument(userID, documentID uint, li
 		knownList = knownList[:6000]
 	}
 
-	system := GetPrompt(PromptKeyVocabExtract)
+	system := promptcfg.GetPrompt(promptcfg.PromptKeyVocabExtract)
 	user := fmt.Sprintf("文章:\n%s\n\n用户已有的生词本单词 (这些不要重复提取):\n%s\n\n最多提取 %d 个生词。",
 		chunk, knownList, limit)
 	raw, err := s.agentSvc.GenerateText(userID, "", system, user)
@@ -634,7 +637,7 @@ func (s *VocabularyService) ExtractWordsFromDocument(userID, documentID uint, li
 	}
 
 	var items []model.ImportWordItem
-	if err := decodeLLMArray(raw, &items); err != nil {
+	if err := llmjson.DecodeLLMArray(raw, &items); err != nil {
 		return nil, errors.New("提取生词失败: AI 返回格式异常 (详见后端日志)")
 	}
 	return s.ImportWords(userID, items, "文档提取")

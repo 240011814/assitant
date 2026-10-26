@@ -9,6 +9,7 @@ import (
 
 	iface "backend/interface"
 	"backend/service"
+	"backend/service/promptcfg"
 
 	"github.com/gin-gonic/gin"
 )
@@ -83,7 +84,7 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 
 	// prompt_* 内置提示词配置变更: 重建提示词缓存, 保存后所有 LLM 调用立即用新提示词
 	if strings.HasPrefix(req.Key, "prompt_") {
-		service.RefreshPromptCache()
+		promptcfg.RefreshPromptCache()
 	}
 
 	// Telegram Bot Token 变更后重启 Bot
@@ -157,7 +158,7 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 
 // HandleListPrompts 内置 AI 提示词列表 (当前生效值 + 内置默认值, 供配置页管理)
 func (h *SystemConfigHandler) HandleListPrompts(c *gin.Context) {
-	SendSuccess(c, service.ListPrompts())
+	SendSuccess(c, promptcfg.ListPrompts())
 }
 
 // GetRegisterStatus 公开接口，供登录页检查注册是否开启

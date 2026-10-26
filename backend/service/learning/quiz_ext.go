@@ -1,4 +1,4 @@
-package service
+package learning
 
 import (
 	"encoding/json"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"backend/model"
+	"backend/service/kernel"
 )
 
 // ===== 智能练习扩展: 判分升级 / FSRS 回流 / 错题消错 / 文章翻译题 / 相近干扰项 / 会话管理 =====
@@ -212,11 +213,11 @@ func (s *QuizService) translateSentenceZH(userID uint, sentence string) (string,
 	if err != nil {
 		return "", err
 	}
-	zh := strings.TrimSpace(truncateRunes(raw, 1000))
+	zh := strings.TrimSpace(kernel.TruncateRunes(raw, 1000))
 	if zh == "" {
 		return "", errors.New("翻译为空")
 	}
-	cache := model.QuizSentenceZH{Sentence: truncateRunes(sentence, 1000), ZH: zh}
+	cache := model.QuizSentenceZH{Sentence: kernel.TruncateRunes(sentence, 1000), ZH: zh}
 	if err := DB.Create(&cache).Error; err != nil {
 		// 并发写冲突 (唯一键) 时重读
 		if err2 := DB.Where("sentence = ?", sentence).First(&cached).Error; err2 == nil {

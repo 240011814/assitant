@@ -1,4 +1,4 @@
-package service
+package learning
 
 import (
 	"encoding/json"
@@ -8,18 +8,21 @@ import (
 	"strings"
 	"time"
 
+	iface "backend/interface"
 	"backend/model"
+	"backend/service/llmjson"
+	"backend/service/promptcfg"
 )
 
 // QuizService 自动出题引擎: 词汇选择/例句挖空/原文语境/易混词辨析/听音拼写/句子翻译 (模板确定性出题)
 // + 造句批改 (LLM 判分)。答题结果回流 FSRS (可关) 并联动错题本消错。
 type QuizService struct {
-	agentSvc  *AIAgentService
+	agentSvc  iface.TextGenerator
 	vocabSvc  *VocabularyService
-	systemCfg *SystemConfigService
+	systemCfg iface.ConfigValueGetter
 }
 
-func NewQuizService(agentSvc *AIAgentService, vocabSvc *VocabularyService, systemCfg *SystemConfigService) *QuizService {
+func NewQuizService(agentSvc iface.TextGenerator, vocabSvc *VocabularyService, systemCfg iface.ConfigValueGetter) *QuizService {
 	return &QuizService{agentSvc: agentSvc, vocabSvc: vocabSvc, systemCfg: systemCfg}
 }
 
@@ -626,7 +629,7 @@ func (s *QuizService) SentencePractice(userID uint, req model.SentencePracticeRe
 		return nil, errors.New("生词不存在")
 	}
 
-	system := GetPrompt(PromptKeySentenceReview)
+	system := promptcfg.GetPrompt(promptcfg.PromptKeySentenceReview)
 	user := fmt.Sprintf("目标单词: %s\n释义: %s\n用户造句: %s", word.Word, word.Definition, req.Sentence)
 	raw, err := s.agentSvc.GenerateText(userID, "", system, user)
 	if err != nil {
@@ -634,7 +637,7 @@ func (s *QuizService) SentencePractice(userID uint, req model.SentencePracticeRe
 	}
 
 	var result model.SentencePracticeResult
-	if err := decodeLLMObject(raw, &result); err != nil {
+	if err := llmjson.DecodeLLMObject(raw, &result); err != nil {
 		return nil, errors.New("AI 返回格式异常 (详见后端日志)")
 	}
 	result.Word = word.Word

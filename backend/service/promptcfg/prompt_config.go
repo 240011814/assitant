@@ -1,16 +1,20 @@
-package service
+// Package promptcfg 内置 AI 提示词注册表: 代码里硬编码的 LLM system prompt 统一抽到
+// system_config 表管理 (key 前缀 prompt_)。GetPrompt 读表并带进程内缓存, 配置页保存后
+// RefreshPromptCache 立即生效; 未配置或被清空时回落内置默认值。
+// 本包只依赖 DB 与 model, 与具体业务解耦 (learning/user/ai 三方共用)。
+package promptcfg
 
 import (
 	"strings"
 	"sync"
 
 	"backend/model"
+
+	"gorm.io/gorm"
 )
 
-// ===== 内置 AI 提示词配置化 =====
-// 代码里硬编码的 LLM system prompt 统一抽到 system_config 表管理 (key 前缀 prompt_)。
-// GetPrompt 读表并带进程内缓存, 配置页保存后 RefreshPromptCache 立即生效;
-// 未配置或被清空时回落内置默认值。
+// DB 本包专用数据库句柄, 由 main.go 接线赋值。
+var DB *gorm.DB
 
 const (
 	PromptKeyReadingAnnotate = "prompt_reading_annotate" // 分级阅读/RSS 一键生词标注

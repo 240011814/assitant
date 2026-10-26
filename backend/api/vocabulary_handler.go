@@ -6,15 +6,15 @@ import (
 	"strings"
 
 	"backend/model"
-	"backend/service"
+	"backend/service/learning"
 	"github.com/gin-gonic/gin"
 )
 
 type VocabularyHandler struct {
-	svc *service.VocabularyService
+	svc *learning.VocabularyService
 }
 
-func NewVocabularyHandler(svc *service.VocabularyService) *VocabularyHandler {
+func NewVocabularyHandler(svc *learning.VocabularyService) *VocabularyHandler {
 	return &VocabularyHandler{svc: svc}
 }
 

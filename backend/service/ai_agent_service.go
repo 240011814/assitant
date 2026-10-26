@@ -1,6 +1,7 @@
 package service
 
 import (
+	iface "backend/interface"
 	"backend/model"
 	"backend/service/tools"
 	"context"
@@ -43,7 +44,7 @@ type AIAgentService struct {
 	cacheMu         sync.RWMutex // 保护 runnerCache/promptCache/modelCache/toolCache 及 active* 字段, gin 请求与 ReloadConfig 并发访问
 	sysCfgService   *SystemConfigService
 	checkpointStore compose.CheckPointStore
-	memoryService   *UserMemoryService
+	memoryService   iface.ProfilePromptBuilder
 }
 
 func NewAIAgentService(timeoutMinutes int, sysCfgService *SystemConfigService) (*AIAgentService, error) {
@@ -75,8 +76,9 @@ func NewAIAgentService(timeoutMinutes int, sysCfgService *SystemConfigService) (
 	return s, nil
 }
 
-// SetMemoryService 注入用户画像服务(用于对话时注入画像)
-func (s *AIAgentService) SetMemoryService(m *UserMemoryService) {
+// SetMemoryService 注入用户画像服务(用于对话时注入画像)。
+// 依赖窄接口 ProfilePromptBuilder 而非具体 *UserMemoryService, 切断 ai→user 的相互 import。
+func (s *AIAgentService) SetMemoryService(m iface.ProfilePromptBuilder) {
 	s.memoryService = m
 }
 

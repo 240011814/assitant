@@ -4,15 +4,15 @@ import (
 	"strconv"
 
 	"backend/model"
-	"backend/service"
+	"backend/service/learning"
 	"github.com/gin-gonic/gin"
 )
 
 type ReadingHandler struct {
-	svc *service.ReadingService
+	svc *learning.ReadingService
 }
 
-func NewReadingHandler(svc *service.ReadingService) *ReadingHandler {
+func NewReadingHandler(svc *learning.ReadingService) *ReadingHandler {
 	return &ReadingHandler{svc: svc}
 }
 
@@ -164,7 +164,7 @@ func (h *ReadingHandler) HandleReadingHeartbeat(c *gin.Context) {
 		SendError(c, "400", "请求参数错误")
 		return
 	}
-	service.LogReadingEvent(userId, "read_seconds", req.Seconds)
+	learning.LogReadingEvent(userId, "read_seconds", req.Seconds)
 	SendSuccess(c, nil)
 }
 
@@ -198,7 +198,7 @@ func (h *ReadingHandler) HandleSubmitVocabTest(c *gin.Context) {
 // HandleLatestVocabTest 最近一次词汇量评估 (无记录返回 null)
 func (h *ReadingHandler) HandleLatestVocabTest(c *gin.Context) {
 	userId := GetUserID(c)
-	a, err := service.GetLatestVocabTest(userId)
+	a, err := learning.GetLatestVocabTest(userId)
 	if err != nil {
 		SendSuccess(c, nil)
 		return

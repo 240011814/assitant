@@ -4,15 +4,15 @@ import (
 	"strconv"
 
 	"backend/model"
-	"backend/service"
+	"backend/service/learning"
 	"github.com/gin-gonic/gin"
 )
 
 type RSSHandler struct {
-	svc *service.RSSService
+	svc *learning.RSSService
 }
 
-func NewRSSHandler(svc *service.RSSService) *RSSHandler {
+func NewRSSHandler(svc *learning.RSSService) *RSSHandler {
 	return &RSSHandler{svc: svc}
 }
 

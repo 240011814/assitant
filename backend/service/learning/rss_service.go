@@ -1,4 +1,4 @@
-package service
+package learning
 
 import (
 	"encoding/json"
@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"backend/model"
+	"backend/service/kernel"
 	"backend/service/tools"
 )
 
@@ -46,7 +47,7 @@ func (s *RSSService) AddSource(userID uint, req model.AddRSSSourceRequest) (*mod
 	if !strings.HasPrefix(feedURL, "http://") && !strings.HasPrefix(feedURL, "https://") {
 		return nil, errors.New("订阅地址必须是 http(s) URL")
 	}
-	feedURL = truncateRunes(feedURL, 500)
+	feedURL = kernel.TruncateRunes(feedURL, 500)
 
 	// 同一用户重复订阅同一 feed: 直接拒绝, 避免产生没有条目的空壳源
 	// (并发双击的漏网由 uk_rss_user_url 唯一索引兜底)
@@ -68,7 +69,7 @@ func (s *RSSService) AddSource(userID uint, req model.AddRSSSourceRequest) (*mod
 	if title == "" {
 		title = feedURL
 	}
-	title = strings.TrimSpace(truncateRunes(title, 100))
+	title = strings.TrimSpace(kernel.TruncateRunes(title, 100))
 
 	source := &model.RSSSource{
 		UserID:  userID,
@@ -176,7 +177,7 @@ func (s *RSSService) upsertItems(userID, sourceID uint, feed *gofeed.Feed) int {
 		if guid == "" {
 			guid = item.Link
 		}
-		guid = truncateRunes(guid, 255)
+		guid = kernel.TruncateRunes(guid, 255)
 		if guid == "" || seen[guid] {
 			continue
 		}
@@ -187,14 +188,14 @@ func (s *RSSService) upsertItems(userID, sourceID uint, feed *gofeed.Feed) int {
 			title = item.Link
 		}
 		summary := strings.TrimSpace(rssTagRe.ReplaceAllString(item.Description, " "))
-		summary = truncateRunes(strings.Join(strings.Fields(summary), " "), rssSummaryLimit)
+		summary = kernel.TruncateRunes(strings.Join(strings.Fields(summary), " "), rssSummaryLimit)
 
 		newItem := model.RSSItem{
 			UserID:         userID,
 			SourceID:       sourceID,
 			GUID:           guid,
-			Title:          truncateRunes(title, 500),
-			Link:           truncateRunes(item.Link, 500),
+			Title:          kernel.TruncateRunes(title, 500),
+			Link:           kernel.TruncateRunes(item.Link, 500),
 			Summary:        summary,
 			PublishedAt:    item.PublishedParsed,
 			EstUnknownRate: estimateUnknownRateFromSet(summary+"\n"+title, unknownSet),
@@ -270,7 +271,7 @@ func (s *RSSService) UpdateSource(userID, id uint, req model.UpdateRSSSourceRequ
 		if !strings.HasPrefix(newURL, "http://") && !strings.HasPrefix(newURL, "https://") {
 			return nil, errors.New("订阅地址必须是 http(s) URL")
 		}
-		newURL = truncateRunes(newURL, 500)
+		newURL = kernel.TruncateRunes(newURL, 500)
 		var dupCount int64
 		DB.Model(&model.RSSSource{}).Where("user_id = ? AND url = ? AND id <> ?", userID, newURL, id).Count(&dupCount)
 		if dupCount > 0 {
@@ -282,7 +283,7 @@ func (s *RSSService) UpdateSource(userID, id uint, req model.UpdateRSSSourceRequ
 		updates["url"] = newURL
 	}
 	if title := strings.TrimSpace(req.Title); title != "" {
-		updates["title"] = truncateRunes(title, 100)
+		updates["title"] = kernel.TruncateRunes(title, 100)
 	}
 
 	if len(updates) > 0 {
@@ -321,7 +322,7 @@ func (s *RSSService) FetchSource(userID, id uint) (int, error) {
 	if err != nil {
 		DB.Model(&source).Updates(map[string]interface{}{
 			"last_fetched_at": time.Now(),
-			"last_error":      truncateRunes(err.Error(), 500),
+			"last_error":      kernel.TruncateRunes(err.Error(), 500),
 		})
 		return 0, fmt.Errorf("抓取失败: %w", err)
 	}
@@ -477,7 +478,7 @@ func (s *RSSService) fillItemContent(item *model.RSSItem) error {
 	}
 	if len(text) > 100_000 {
 		// 按 rune 截断: 字节截断会切断多字节字符, 导致 utf8mb4 写入失败
-		text = truncateRunes(text, 100_000)
+		text = kernel.TruncateRunes(text, 100_000)
 	}
 	if err := DB.Model(item).Updates(map[string]interface{}{"content": text, "content_html": htmlOut}).Error; err != nil {
 		return err
@@ -541,13 +542,13 @@ func (s *RSSService) StartItemAnnotate(userID, id uint) (*model.AITextJob, error
 		return nil, errors.New("本文没有可标注的文本")
 	}
 	if len(text) > 15000 {
-		text = truncateRunes(text, 15000)
+		text = kernel.TruncateRunes(text, 15000)
 	}
 	job := &model.AITextJob{UserID: userID, Kind: "rss_annotate", Status: "running", ResultID: item.ID}
 	if err := DB.Create(job).Error; err != nil {
 		return nil, err
 	}
-	SafeGo("rss:annotate-item", func() {
+	kernel.SafeGo("rss:annotate-item", func() {
 		updates := map[string]interface{}{}
 		flagged, err := s.readingSvc.AnnotateWordsForText(userID, text)
 		if err != nil {

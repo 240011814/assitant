@@ -4,15 +4,15 @@ import (
 	"strconv"
 
 	"backend/model"
-	"backend/service"
+	"backend/service/learning"
 	"github.com/gin-gonic/gin"
 )
 
 type QuizHandler struct {
-	svc *service.QuizService
+	svc *learning.QuizService
 }
 
-func NewQuizHandler(svc *service.QuizService) *QuizHandler {
+func NewQuizHandler(svc *learning.QuizService) *QuizHandler {
 	return &QuizHandler{svc: svc}
 }
 

@@ -2,17 +2,18 @@ package api
 
 import (
 	"backend/model"
-	"backend/service"
+	"backend/service/kernel"
+	"backend/service/learning"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
 
 type CourseHandler struct {
-	courseService *service.CourseService
+	courseService *learning.CourseService
 }
 
-func NewCourseHandler(courseService *service.CourseService) *CourseHandler {
+func NewCourseHandler(courseService *learning.CourseService) *CourseHandler {
 	return &CourseHandler{courseService: courseService}
 }
 
@@ -31,7 +32,7 @@ func (h *CourseHandler) ListCourses(c *gin.Context) {
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "12"))
-	page = service.NormalizePage(page)
+	page = kernel.NormalizePage(page)
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 12
 	}

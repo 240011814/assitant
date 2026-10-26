@@ -1,4 +1,4 @@
-package service
+package llmjson
 
 import (
 	"testing"
@@ -21,7 +21,7 @@ func TestDecodeLLMArray(t *testing.T) {
 	}
 	for _, c := range cases {
 		var out []model.DifficultWord
-		if err := decodeLLMArray(c.raw, &out); err != nil {
+		if err := DecodeLLMArray(c.raw, &out); err != nil {
 			t.Fatalf("%s: 解析失败: %v", c.name, err)
 		}
 		if len(out) == 0 || out[0].Word != "zipper" {
@@ -45,7 +45,7 @@ func TestDecodeLLMObject(t *testing.T) {
 	}
 	for _, c := range cases {
 		var out obj
-		if err := decodeLLMObject(c.raw, &out); err != nil {
+		if err := DecodeLLMObject(c.raw, &out); err != nil {
 			t.Fatalf("%s: 解析失败: %v", c.name, err)
 		}
 		if out.Example != "hello world" {

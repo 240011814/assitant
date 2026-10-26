@@ -1,4 +1,4 @@
-package service
+package learning
 
 import (
 	"encoding/json"
@@ -16,6 +16,9 @@ import (
 	"gorm.io/gorm/clause"
 
 	"backend/model"
+	"backend/service/kernel"
+	"backend/service/llmjson"
+	"backend/service/promptcfg"
 )
 
 // ===== 阅读↔记忆闭环 / 难度预估 / 划词翻译 / 词汇量测试 / 阅读埋点 =====
@@ -225,7 +228,7 @@ func (s *ReadingService) TranslateText(userID uint, text string) (string, error)
 	if s.agentSvc == nil {
 		return "", errors.New("AI 服务未启用")
 	}
-	system := GetPrompt(PromptKeyTranslate)
+	system := promptcfg.GetPrompt(promptcfg.PromptKeyTranslate)
 	raw, err := s.agentSvc.GenerateText(userID, "", system, text)
 	if err != nil {
 		return "", fmt.Errorf("翻译失败: %w", err)
@@ -247,7 +250,7 @@ func (s *ReadingService) StartVocabTest(userID uint) (*model.AITextJob, error) {
 	if err := DB.Create(job).Error; err != nil {
 		return nil, err
 	}
-	SafeGo("reading:vocab-test", func() {
+	kernel.SafeGo("reading:vocab-test", func() {
 		updates := map[string]interface{}{}
 		questions, err := s.generateVocabTest(userID)
 		if err != nil {
@@ -266,13 +269,13 @@ func (s *ReadingService) StartVocabTest(userID uint) (*model.AITextJob, error) {
 }
 
 func (s *ReadingService) generateVocabTest(userID uint) ([]model.VocabTestQuestion, error) {
-	system := GetPrompt(PromptKeyVocabTest)
+	system := promptcfg.GetPrompt(promptcfg.PromptKeyVocabTest)
 	raw, err := s.agentSvc.GenerateTextWithTimeout(userID, "", system, "请出题。", slowGenTimeout)
 	if err != nil {
 		return nil, err
 	}
 	var questions []model.VocabTestQuestion
-	if err := decodeLLMArray(raw, &questions); err != nil {
+	if err := llmjson.DecodeLLMArray(raw, &questions); err != nil {
 		return nil, errors.New("出题格式异常 (详见后端日志)")
 	}
 	if len(questions) < 12 {

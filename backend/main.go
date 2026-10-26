@@ -17,7 +17,9 @@ import (
 	"backend/model"
 	"backend/service"
 	"backend/service/cut"
+	"backend/service/learning"
 	"backend/service/lottery"
+	"backend/service/promptcfg"
 	"backend/service/tools"
 
 	"github.com/gin-gonic/gin"
@@ -46,6 +48,8 @@ func main() {
 	// 业务子包各自的 DB 接线: 子包声明 var DB, 这里统一注入 (子包内部 DB. 调用点无需改)
 	lottery.DB = db
 	cut.DB = db
+	promptcfg.DB = db
+	learning.DB = db
 
 	// 操作审计日志异步写入 (需在 DB 初始化后启动)
 	api.InitAuditLogger()
@@ -168,20 +172,20 @@ func main() {
 	agentTaskService := service.NewAgentTaskService(jobScheduler, aiAgentService, orchestrationService, historyService, emailNotifier, telegramService)
 	agentTaskHandler := api.NewAgentTaskHandler(agentTaskService)
 
-	courseService := service.NewCourseService()
+	courseService := learning.NewCourseService()
 	courseHandler := api.NewCourseHandler(courseService)
 
-	errorBookService := service.NewErrorBookService()
+	errorBookService := learning.NewErrorBookService()
 	errorBookHandler := api.NewErrorBookHandler(errorBookService)
 
 	// 词汇 FSRS 复习 / 出题练习 / 分级阅读 (依赖 AI 服务、文档服务与课程服务, 故在三者之后装配)
-	vocabService := service.NewVocabularyService(aiAgentService, userDocumentService, userPrefService)
+	vocabService := learning.NewVocabularyService(aiAgentService, userDocumentService, userPrefService)
 	vocabHandler := api.NewVocabularyHandler(vocabService)
-	quizService := service.NewQuizService(aiAgentService, vocabService, systemConfigService)
+	quizService := learning.NewQuizService(aiAgentService, vocabService, systemConfigService)
 	quizHandler := api.NewQuizHandler(quizService)
-	readingService := service.NewReadingService(aiAgentService, courseService, systemConfigService)
+	readingService := learning.NewReadingService(aiAgentService, courseService, systemConfigService)
 	readingHandler := api.NewReadingHandler(readingService)
-	rssService := service.NewRSSService(readingService)
+	rssService := learning.NewRSSService(readingService)
 	rssHandler := api.NewRSSHandler(rssService)
 
 	stockService := service.NewStockService()

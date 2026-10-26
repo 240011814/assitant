@@ -1,4 +1,4 @@
-package service
+package learning
 
 import (
 	"bytes"
@@ -14,18 +14,22 @@ import (
 
 	"golang.org/x/net/html"
 
+	iface "backend/interface"
 	"backend/model"
+	"backend/service/kernel"
+	"backend/service/llmjson"
+	"backend/service/promptcfg"
 	"backend/service/tools"
 )
 
 // ReadingService 分级阅读: 导入文章 → LLM 标注生词 → 点词即查即加 → AI 生成个性化课文
 type ReadingService struct {
-	agentSvc  *AIAgentService
+	agentSvc  iface.TextGenerator
 	courseSvc *CourseService
-	systemCfg *SystemConfigService
+	systemCfg iface.ConfigValueGetter
 }
 
-func NewReadingService(agentSvc *AIAgentService, courseSvc *CourseService, systemCfg *SystemConfigService) *ReadingService {
+func NewReadingService(agentSvc iface.TextGenerator, courseSvc *CourseService, systemCfg iface.ConfigValueGetter) *ReadingService {
 	return &ReadingService{agentSvc: agentSvc, courseSvc: courseSvc, systemCfg: systemCfg}
 }
 
@@ -74,7 +78,7 @@ func (s *ReadingService) ImportDoc(userID uint, req model.ReadingImportRequest) 
 	}
 	if len(content) > maxFetchBytes {
 		// 按 rune 截断: 字节截断会切断多字节字符, 导致 utf8mb4 写入失败
-		content = truncateRunes(content, maxFetchBytes/4)
+		content = kernel.TruncateRunes(content, maxFetchBytes/4)
 	}
 
 	doc := &model.ReadingDoc{
@@ -498,7 +502,7 @@ func (s *ReadingService) StartAnnotate(userID, id uint) (*model.ReadingDoc, erro
 	if err := DB.Model(&doc).Update("status", "annotating").Error; err != nil {
 		return nil, err
 	}
-	SafeGo("reading:annotate", func() {
+	kernel.SafeGo("reading:annotate", func() {
 		if err := s.annotateDocSync(userID, id); err != nil {
 			log.Printf("reading annotate #%d failed: %v", id, err)
 		}
@@ -518,7 +522,7 @@ func (s *ReadingService) annotateDocSync(userID, id uint) error {
 	text := doc.Content
 	if len(text) > 15000 {
 		// 按 rune 截断: 字节截断会切断多字节字符, 中文文章会产生非法 UTF-8 发给 LLM
-		text = truncateRunes(text, 15000)
+		text = kernel.TruncateRunes(text, 15000)
 	}
 	chunks := splitAnnotationChunks(text, 3)
 
@@ -582,14 +586,14 @@ func (s *ReadingService) AnnotateWordsForText(userID uint, text string) ([]model
 	if s.agentSvc == nil {
 		return nil, errors.New("AI 服务未启用")
 	}
-	system := GetPrompt(PromptKeyReadingAnnotate)
+	system := promptcfg.GetPrompt(promptcfg.PromptKeyReadingAnnotate)
 	user := fmt.Sprintf("文章:\n%s\n\n最多标注 40 个。", text)
 	raw, err := s.agentSvc.GenerateTextWithTimeout(userID, "", system, user, slowGenTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("标注失败: %w", err)
 	}
 	var flagged []model.DifficultWord
-	if err := decodeLLMArray(raw, &flagged); err != nil {
+	if err := llmjson.DecodeLLMArray(raw, &flagged); err != nil {
 		return nil, errors.New("标注失败: AI 返回格式异常 (详见后端日志)")
 	}
 	return flagged, nil
@@ -635,7 +639,7 @@ func (s *ReadingService) LookupWord(userID uint, word string) (*LookupWordRespon
 			// 免费词典命中: LLM 只补一句中文释义 (短调用, 秒级)
 			translation := ""
 			if s.agentSvc != nil {
-				if raw, err := s.agentSvc.GenerateText(userID, "", GetPrompt(PromptKeyDictTranslate), definition); err == nil {
+				if raw, err := s.agentSvc.GenerateText(userID, "", promptcfg.GetPrompt(promptcfg.PromptKeyDictTranslate), definition); err == nil {
 					translation = strings.TrimSpace(raw)
 				}
 			}
@@ -649,12 +653,12 @@ func (s *ReadingService) LookupWord(userID uint, word string) (*LookupWordRespon
 			if s.agentSvc == nil {
 				return nil, errors.New("AI 服务未启用")
 			}
-			system := GetPrompt(PromptKeyDictLLM)
+			system := promptcfg.GetPrompt(promptcfg.PromptKeyDictLLM)
 			raw, err := s.agentSvc.GenerateText(userID, "", system, "单词: "+word)
 			if err != nil {
 				return nil, fmt.Errorf("查词失败: %w", err)
 			}
-			if err := decodeLLMObject(raw, &entry); err != nil {
+			if err := llmjson.DecodeLLMObject(raw, &entry); err != nil {
 				return nil, errors.New("查词失败: AI 返回格式异常 (详见后端日志)")
 			}
 			entry.Word = word
@@ -677,7 +681,7 @@ func (s *ReadingService) StartGeneratePassage(userID uint, req model.GeneratePas
 	if err := DB.Create(job).Error; err != nil {
 		return nil, err
 	}
-	SafeGo("reading:generate-passage", func() {
+	kernel.SafeGo("reading:generate-passage", func() {
 		updates := map[string]interface{}{}
 		course, _, err := s.generatePassageSync(userID, req)
 		if err != nil {
@@ -745,7 +749,7 @@ func (s *ReadingService) generatePassageSync(userID uint, req model.GeneratePass
 		level = a.CEFR
 	}
 	// 难度占位符 {level} 替换 (不用 fmt.Sprintf: 提示词可配置, 用户文本里的 % 会被 Sprintf 破坏)
-	system := strings.ReplaceAll(GetPrompt(PromptKeyReadingPassage), "{level}", level)
+	system := strings.ReplaceAll(promptcfg.GetPrompt(promptcfg.PromptKeyReadingPassage), "{level}", level)
 	user := fmt.Sprintf("必须使用的单词: %s\n句子数量: %d 句左右。", strings.Join(wordList, ", "), count)
 	raw, err := s.agentSvc.GenerateTextWithTimeout(userID, "", system, user, slowGenTimeout)
 	if err != nil {
@@ -759,7 +763,7 @@ func (s *ReadingService) generatePassageSync(userID uint, req model.GeneratePass
 			Zh string `json:"zh"`
 		} `json:"sentences"`
 	}
-	if err := decodeLLMObject(raw, &passage); err != nil || len(passage.Sentences) == 0 {
+	if err := llmjson.DecodeLLMObject(raw, &passage); err != nil || len(passage.Sentences) == 0 {
 		return nil, nil, errors.New("AI 返回格式异常 (详见后端日志)")
 	}
 
