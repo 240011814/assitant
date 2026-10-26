@@ -303,23 +303,11 @@ const scheduleScrollToBottom = () => {
   });
 };
 
-// 流式期间 markdown 渲染限频: 逐 delta 对全文重渲 markdown+katex+hljs 是 O(n²),
-// 长回复明显卡顿; 限频渲染 + 流结束时 finalizeLastMessage 补齐最终形态
-const STREAM_RENDER_INTERVAL_MS = 200;
-let lastContentRenderAt = 0;
-let lastThinkingRenderAt = 0;
-
 const appendAssistantContent = (content: string) => {
   const lastIdx = messages.value.length - 1;
   const lastMsg = messages.value[lastIdx];
   const nextContent = lastMsg.content + content;
-  const now = Date.now();
-  if (now - lastContentRenderAt >= STREAM_RENDER_INTERVAL_MS) {
-    lastContentRenderAt = now;
-    messages.value[lastIdx] = { ...lastMsg, content: nextContent, renderedContent: renderMessageContent(nextContent) };
-  } else {
-    messages.value[lastIdx] = { ...lastMsg, content: nextContent };
-  }
+  messages.value[lastIdx] = { ...lastMsg, content: nextContent, renderedContent: renderMessageContent(nextContent) };
 };
 
 // 用最终文本替换当前助手气泡 (编排运行结束后只保留图级最终输出)
@@ -373,17 +361,11 @@ const toggleAllThinking = () => {
 
 const appendThinkingContent = (content: string) => {
   const lastIdx = messages.value.length - 1;
-  const lastMsg = messages.value[lastIdx];
-  const nextThinking = (lastMsg.thinkingContent || "") + content;
-  const now = Date.now();
-  const shouldRender = now - lastThinkingRenderAt >= STREAM_RENDER_INTERVAL_MS;
-  if (shouldRender) lastThinkingRenderAt = now;
+  const nextThinking = (messages.value[lastIdx].thinkingContent || "") + content;
   messages.value[lastIdx] = {
-    ...lastMsg,
+    ...messages.value[lastIdx],
     thinkingContent: nextThinking,
-    renderedThinking: shouldRender
-      ? renderMarkdown(nextThinking)
-      : lastMsg.renderedThinking,
+    renderedThinking: renderMarkdown(nextThinking),
   };
   // 默认展开思考过程
   expandedThinking.value.add(lastIdx);
@@ -437,10 +419,8 @@ const copyToClipboard = async (content: string) => {
   }
 };
 
-// 流结束后收尾: 补齐限频期间未渲染的最终 markdown, 并解析生词/表达建议
+// 流结束后收尾: 重新渲染最终 markdown 并解析生词/表达建议
 const finalizeLastMessage = () => {
-  lastContentRenderAt = 0;
-  lastThinkingRenderAt = 0;
   const lastIdx = messages.value.length - 1;
   const lastMsg = messages.value[lastIdx];
   if (lastMsg.role !== "assistant") return;
