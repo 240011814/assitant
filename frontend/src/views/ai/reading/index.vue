@@ -200,9 +200,6 @@ onMounted(() => {
           </div>
         </div>
       </template>
-      <template #header-extra>
-        <span class="text-xs text-gray-400 hidden md:inline">生词率 &lt;5% 适合泛读, 5%~10% 适合精读; AI 写课文在课程包页</span>
-      </template>
 
       <div class="flex gap-2 mb-4" :class="appStore.isMobile ? '' : 'w-96'">
         <NInput
