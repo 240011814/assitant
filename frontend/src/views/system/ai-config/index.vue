@@ -521,18 +521,10 @@ async function handleDeleteModel(row: Api.Admin.AIModel) {
 }
 
 async function handleTestSingleModel(row: Api.Admin.AIModel) {
-  const currentProvider = providers.value.find((p) => p.id === currentProviderId.value);
-  if (!currentProvider?.api_key) {
-    message.warning($t("page.system.aiConfig.testNeedApiKey"));
-    return;
-  }
   testingModelId.value = row.id;
   try {
-    const { error } = await fetchTestAIConnection({
-      api_key: currentProvider.api_key,
-      base_url: currentProvider.base_url,
-      model_code: row.model_code,
-    });
+    // 列表接口不返回明文 API Key，后端按 model_id 读取已保存的 Provider 配置
+    const { error } = await fetchTestAIConnection({ model_id: row.id });
     if (!error) {
       message.success($t("page.system.aiConfig.testSuccess"));
     } else {

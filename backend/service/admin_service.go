@@ -388,6 +388,24 @@ func (s *AdminService) ListAIProviders() ([]model.AIProvider, error) {
 	return providers, nil
 }
 
+// GetAIProvider 读取 Provider 完整配置 (含明文 API Key), 仅供服务端内部使用
+func (s *AdminService) GetAIProvider(id int) (*model.AIProvider, error) {
+	var provider model.AIProvider
+	if err := DB.First(&provider, id).Error; err != nil {
+		return nil, err
+	}
+	return &provider, nil
+}
+
+// GetAIModel 读取模型配置
+func (s *AdminService) GetAIModel(id int) (*model.AIModel, error) {
+	var m model.AIModel
+	if err := DB.First(&m, id).Error; err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
 // maskAPIKey 生成掩码 (保留前 4 后 4), 过短时整体打码
 func maskAPIKey(key string) string {
 	if key == "" {

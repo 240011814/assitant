@@ -13,10 +13,10 @@ import (
 )
 
 type AdminHandler struct {
-	svc          *service.AdminService
-	aiAgentSvc   *service.AIAgentService
-	authSvc      *service.AuthService
-	mem0Service  interfaces.Mem0Service
+	svc         *service.AdminService
+	aiAgentSvc  *service.AIAgentService
+	authSvc     *service.AuthService
+	mem0Service interfaces.Mem0Service
 }
 
 func NewAdminHandler(svc *service.AdminService, aiAgentSvc *service.AIAgentService, authSvc *service.AuthService, mem0Service interfaces.Mem0Service) *AdminHandler {
@@ -339,13 +339,38 @@ func (h *AdminHandler) HandleDeleteAIModel(c *gin.Context) {
 
 func (h *AdminHandler) HandleTestAIConnection(c *gin.Context) {
 	var req struct {
-		APIKey   string `json:"api_key"`
-		BaseURL  string `json:"base_url"`
-		ModelCode string `json:"model_code"`
+		ProviderID int    `json:"provider_id"`
+		ModelID    int    `json:"model_id"`
+		APIKey     string `json:"api_key"`
+		BaseURL    string `json:"base_url"`
+		ModelCode  string `json:"model_code"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		SendError(c, "400", "请求参数错误: "+err.Error())
 		return
+	}
+	// 列表接口不再返回明文 API Key, 测试连接时按 model_id/provider_id 从库里补齐
+	if req.ModelID > 0 {
+		m, err := h.svc.GetAIModel(req.ModelID)
+		if err != nil {
+			SendError(c, "404", "模型不存在: "+err.Error())
+			return
+		}
+		req.ProviderID = m.ProviderID
+		req.ModelCode = m.ModelCode
+	}
+	if req.ProviderID > 0 {
+		provider, err := h.svc.GetAIProvider(req.ProviderID)
+		if err != nil {
+			SendError(c, "404", "AI 提供商不存在: "+err.Error())
+			return
+		}
+		if req.APIKey == "" {
+			req.APIKey = provider.APIKey
+		}
+		if req.BaseURL == "" {
+			req.BaseURL = provider.BaseURL
+		}
 	}
 	if err := h.aiAgentSvc.TestConnection(req.APIKey, req.BaseURL, req.ModelCode); err != nil {
 		SendError(c, "500", "连接测试失败: "+err.Error())
