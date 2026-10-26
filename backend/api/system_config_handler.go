@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	iface "backend/interface"
@@ -80,6 +81,11 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 		return
 	}
 
+	// prompt_* 内置提示词配置变更: 重建提示词缓存, 保存后所有 LLM 调用立即用新提示词
+	if strings.HasPrefix(req.Key, "prompt_") {
+		service.RefreshPromptCache()
+	}
+
 	// Telegram Bot Token 变更后重启 Bot
 	// 配置页会连续保存多个 telegram_* 键, 这里做防抖, 避免多次 Stop/Start 与旧 long-poll 请求冲突
 	if req.Key == "telegram_bot_token" || req.Key == "telegram_enabled" || req.Key == "telegram_webhook_url" {
@@ -147,6 +153,11 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 	}
 
 	SendSuccess(c, nil)
+}
+
+// HandleListPrompts 内置 AI 提示词列表 (当前生效值 + 内置默认值, 供配置页管理)
+func (h *SystemConfigHandler) HandleListPrompts(c *gin.Context) {
+	SendSuccess(c, service.ListPrompts())
 }
 
 // GetRegisterStatus 公开接口，供登录页检查注册是否开启

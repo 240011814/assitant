@@ -692,6 +692,15 @@ const local: App.I18n.Schema = {
         remarkMemoryIdle: "Session idle minutes before extraction is triggered",
         remarkMemoryMinMessages:
           "Minimum user messages to include in extraction (greater than this value)",
+        prompts: "AI Prompts",
+        promptsDesc:
+          "Built-in LLM prompts (word lookup / translation / annotation / passage generation / sentence review / vocab test / memory extraction), stored in the system_config table with an in-process cache. Saved changes take effect immediately without restart. Empty falls back to the built-in default; keep the {level} placeholder in the passage prompt.",
+        promptSave: "Save",
+        promptReset: "Reset to Default",
+        promptSaved: "Prompt saved, effective immediately",
+        promptResetDone: "Restored built-in default prompt",
+        promptCustomized: "Customized",
+        promptDefault: "Default",
       },
     },
     ai: {

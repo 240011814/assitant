@@ -225,7 +225,7 @@ func (s *ReadingService) TranslateText(userID uint, text string) (string, error)
 	if s.agentSvc == nil {
 		return "", errors.New("AI 服务未启用")
 	}
-	system := `你是翻译助手。判断输入语言: 中文译成英文, 其他语言译成简体中文。只输出译文本身, 不要解释。`
+	system := GetPrompt(PromptKeyTranslate)
 	raw, err := s.agentSvc.GenerateText(userID, "", system, text)
 	if err != nil {
 		return "", fmt.Errorf("翻译失败: %w", err)
@@ -266,10 +266,7 @@ func (s *ReadingService) StartVocabTest(userID uint) (*model.AITextJob, error) {
 }
 
 func (s *ReadingService) generateVocabTest(userID uint) ([]model.VocabTestQuestion, error) {
-	system := `你是英语词汇量测试出题人。按 CEFR 频段各出 4 道单选题: A1(最常用基础词) A2 B1 B2 C1(学术/低频) C2(生僻词)。
-每题: 该频段的一个代表性英文单词 + 4 个中文释义选项 (1 个正确, 3 个为近义/同频段干扰项, 选项顺序打乱, 正确答案位置随机)。
-只输出 JSON 数组, 共 24 题:
-[{"id":"a1-1","band":"A1","word":"apple","options":["苹果","香蕉","橙子","葡萄"],"answer":0}]`
+	system := GetPrompt(PromptKeyVocabTest)
 	raw, err := s.agentSvc.GenerateTextWithTimeout(userID, "", system, "请出题。", slowGenTimeout)
 	if err != nil {
 		return nil, err

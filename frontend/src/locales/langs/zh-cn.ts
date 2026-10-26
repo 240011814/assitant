@@ -668,6 +668,15 @@ const local: App.I18n.Schema = {
         remarkMemoryModel: "画像/经历抽取使用的模型代码(空则用默认模型)",
         remarkMemoryIdle: "会话静默多少分钟后触发抽取",
         remarkMemoryMinMessages: "纳入抽取的最小用户消息数(大于该值)",
+        prompts: "AI 提示词",
+        promptsDesc:
+          "系统内置的 LLM 提示词 (查词/翻译/生词标注/写课文/造句批改/词汇量测试/记忆抽取等), 存于 system_config 表并带缓存, 保存后立即生效无需重启。留空即回落内置默认; 写课文提示词中的 {level} 是难度占位符, 请保留。",
+        promptSave: "保存",
+        promptReset: "恢复默认",
+        promptSaved: "提示词已保存, 即时生效",
+        promptResetDone: "已恢复内置默认提示词",
+        promptCustomized: "已自定义",
+        promptDefault: "默认",
       },
     },
     ai: {

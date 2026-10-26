@@ -875,6 +875,14 @@ declare namespace App {
             remarkMemoryModel: string;
             remarkMemoryIdle: string;
             remarkMemoryMinMessages: string;
+            prompts: string;
+            promptsDesc: string;
+            promptSave: string;
+            promptReset: string;
+            promptSaved: string;
+            promptResetDone: string;
+            promptCustomized: string;
+            promptDefault: string;
           };
         };
         ai: {

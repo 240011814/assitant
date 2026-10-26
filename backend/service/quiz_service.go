@@ -626,8 +626,7 @@ func (s *QuizService) SentencePractice(userID uint, req model.SentencePracticeRe
 		return nil, errors.New("生词不存在")
 	}
 
-	system := `你是英语写作批改助手。批改用户用指定单词造的句子, 从语法正确性、单词用法、地道程度打分。只输出 JSON:
-{"score": <0-100 整数>, "correct": <score>=60 时为 true, 否则 false>, "grammar": ["<语法/用词问题, 无则空数组>"], "improved": "<改进后的句子, 满分时给原句>", "comment": "<一句中文点评>"}`
+	system := GetPrompt(PromptKeySentenceReview)
 	user := fmt.Sprintf("目标单词: %s\n释义: %s\n用户造句: %s", word.Word, word.Definition, req.Sentence)
 	raw, err := s.agentSvc.GenerateText(userID, "", system, user)
 	if err != nil {

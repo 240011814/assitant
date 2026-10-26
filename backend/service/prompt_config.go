@@ -1,8 +1,100 @@
 package service
 
-// 用户长期记忆抽取/画像合并的 LLM 系统提示词 (从 user_memory_service.go 抽出, 内容未变)
+import (
+	"strings"
+	"sync"
 
-const extractSystemPrompt = `你是用户长期记忆抽取助手，负责从「用户与 AI 的一段对话」中判断是否值得写入长期记忆，并抽取用户经历与稳定画像事实。
+	"backend/model"
+)
+
+// ===== 内置 AI 提示词配置化 =====
+// 代码里硬编码的 LLM system prompt 统一抽到 system_config 表管理 (key 前缀 prompt_)。
+// GetPrompt 读表并带进程内缓存, 配置页保存后 RefreshPromptCache 立即生效;
+// 未配置或被清空时回落内置默认值。
+
+const (
+	PromptKeyReadingAnnotate = "prompt_reading_annotate" // 分级阅读/RSS 一键生词标注
+	PromptKeyReadingPassage  = "prompt_reading_passage"  // AI 写课文 ({level} 为难度占位符, 如 B1)
+	PromptKeyDictTranslate   = "prompt_dict_translate"   // 免费词典命中后 LLM 补中文释义
+	PromptKeyDictLLM         = "prompt_dict_llm"         // LLM 全量查词 (免费词典未命中时)
+	PromptKeyTranslate       = "prompt_translate"        // 划词翻译
+	PromptKeyVocabTest       = "prompt_vocab_test"       // 词汇量测试出题
+	PromptKeyVocabAssist     = "prompt_vocab_assist"     // 生词记忆辅助 (新例句 + 助记)
+	PromptKeyVocabExtract    = "prompt_vocab_extract"    // 文章生词提取
+	PromptKeySentenceReview  = "prompt_sentence_review"  // 造句批改
+	PromptKeyMemoryExtract   = "prompt_memory_extract"   // 长期记忆抽取 (用户经历/画像)
+	PromptKeyMemoryMerge     = "prompt_memory_merge"     // 用户画像合并维护
+)
+
+type promptDef struct {
+	Remark  string // 配置页展示名
+	Default string // 内置默认提示词 (未配置/清空时回落)
+}
+
+// promptOrder 配置页展示顺序
+var promptOrder = []string{
+	PromptKeyDictTranslate,
+	PromptKeyDictLLM,
+	PromptKeyTranslate,
+	PromptKeyReadingAnnotate,
+	PromptKeyReadingPassage,
+	PromptKeyVocabExtract,
+	PromptKeyVocabAssist,
+	PromptKeySentenceReview,
+	PromptKeyVocabTest,
+	PromptKeyMemoryExtract,
+	PromptKeyMemoryMerge,
+}
+
+var builtinPrompts = map[string]promptDef{
+	PromptKeyDictTranslate: {
+		Remark:  "查词·补中文释义 (免费词典命中后翻译英文释义)",
+		Default: `把这句英文释义翻译成简体中文, 只输出译文本身, 不要解释。`,
+	},
+	PromptKeyDictLLM: {
+		Remark: "查词·LLM 全量查询 (免费词典未命中时)",
+		Default: `你是英语词典助手。查一个词并给出词典式解释。只输出 JSON:
+{"phonetic": "<音标, 可空>", "definition": "<英文释义, 一句>", "translation": "<中文释义>", "example": "<一个自然例句>"}`,
+	},
+	PromptKeyTranslate: {
+		Remark:  "划词翻译 (选中文本双向翻译)",
+		Default: `你是翻译助手。判断输入语言: 中文译成英文, 其他语言译成简体中文。只输出译文本身, 不要解释。`,
+	},
+	PromptKeyReadingAnnotate: {
+		Remark: "分级阅读生词标注 (RSS 一键提取共用)",
+		Default: `你是英语分级阅读标注助手。找出文中对学习者构成障碍的超纲生词 (低频词、习语、专有表达; 排除最常用 3000 词和普通专有名词), 给出中文释义。只输出 JSON 数组:
+[{"word": "<原文中的词或短语>", "meaning": "<中文释义>", "reason": "<低频/习语/术语>"}]`,
+	},
+	PromptKeyReadingPassage: {
+		Remark: "AI 写课文 ({level} 为按词汇量测试校准的难度占位符)",
+		Default: `你是英语课文编写助手。写一篇短文, 把指定的每个单词都自然地用到至少一个句子里 (不要生硬堆砌), 难度约 CEFR {level}。只输出 JSON:
+{"title": "<英文标题>", "sentences": [{"en": "<英文句子>", "zh": "<中文翻译>"}]}`,
+	},
+	PromptKeyVocabExtract: {
+		Remark: "生词提取 (从导入文档提取超纲生词)",
+		Default: `你是英语生词提取助手。从文章中提取对学习者而言的超纲生词 (约 CEFR B1 以上或低频词), 忽略专有名词、数字和常见词。只输出 JSON 数组:
+[{"word": "<原形单词>", "phonetic": "<音标, 可空>", "definition": "<英文释义>", "translation": "<中文释义>", "example": "<文中原句>"}]`,
+	},
+	PromptKeyVocabAssist: {
+		Remark: "生词记忆辅助 (反复记不住时生成新例句+助记)",
+		Default: `你是英语词汇辅导助手。针对一个用户反复记不住的英语单词, 给出记忆辅助。只输出 JSON:
+{"example": "<用该词造一个与旧例句不同的自然句子>", "mnemonic": "<中文助记: 词根词缀拆解或谐音联想, 一句话>"}`,
+	},
+	PromptKeySentenceReview: {
+		Remark: "造句批改 (用生词造句的评分与纠错)",
+		Default: `你是英语写作批改助手。批改用户用指定单词造的句子, 从语法正确性、单词用法、地道程度打分。只输出 JSON:
+{"score": <0-100 整数>, "correct": <score>=60 时为 true, 否则 false>, "grammar": ["<语法/用词问题, 无则空数组>"], "improved": "<改进后的句子, 满分时给原句>", "comment": "<一句中文点评>"}`,
+	},
+	PromptKeyVocabTest: {
+		Remark: "词汇量测试出题 (6 频段 × 4 题)",
+		Default: `你是英语词汇量测试出题人。按 CEFR 频段各出 4 道单选题: A1(最常用基础词) A2 B1 B2 C1(学术/低频) C2(生僻词)。
+每题: 该频段的一个代表性英文单词 + 4 个中文释义选项 (1 个正确, 3 个为近义/同频段干扰项, 选项顺序打乱, 正确答案位置随机)。
+只输出 JSON 数组, 共 24 题:
+[{"id":"a1-1","band":"A1","word":"apple","options":["苹果","香蕉","橙子","葡萄"],"answer":0}]`,
+	},
+	PromptKeyMemoryExtract: {
+		Remark: "长期记忆抽取 (对话→用户经历/画像事实)",
+		Default: `你是用户长期记忆抽取助手，负责从「用户与 AI 的一段对话」中判断是否值得写入长期记忆，并抽取用户经历与稳定画像事实。
 
 【最高原则】
 1. 只记录关于「用户本人」的信息，绝不记录 AI 提供的信息、解释或建议。
@@ -116,9 +208,11 @@ false（满足其一）：
   "is_substantial": true,
   "experiences": [ ... ],
   "profile_facts": [ ... ]
-}`
-
-const mergeSystemPrompt = `你是用户画像维护助手。给定【当前画像】和【新增事实】，请合并生成最新的长期用户画像，重点防止画像膨胀与漂移。
+}`,
+	},
+	PromptKeyMemoryMerge: {
+		Remark: "用户画像合并维护 (防画像膨胀漂移)",
+		Default: `你是用户画像维护助手。给定【当前画像】和【新增事实】，请合并生成最新的长期用户画像，重点防止画像膨胀与漂移。
 
 【合并规则】
 1. 只保留关于用户本人的、长期有效的信息，不要编造不存在的信息。
@@ -149,5 +243,100 @@ const mergeSystemPrompt = `你是用户画像维护助手。给定【当前画�
 - constraints：约束/限制
 
 【输出】只输出 JSON，不要解释，不要 markdown 代码块：
-{"summary":"一段话整体画像，不超过800字","dimensions":{"identity":"","background":"","goals":"","skills":"","projects":"","learning_topics":"","interests":"","preferences":"","habits":"","communication_style":"","language":"","values":"","risk_preference":"","decision_style":"","constraints":""},"tags":["标签"],"confidence":0.8}`
+{"summary":"一段话整体画像，不超过800字","dimensions":{"identity":"","background":"","goals":"","skills":"","projects":"","learning_topics":"","interests":"","preferences":"","habits":"","communication_style":"","language":"","values":"","risk_preference":"","decision_style":"","constraints":""},"tags":["标签"],"confidence":0.8}`,
+	},
+}
 
+var (
+	promptCacheMu sync.RWMutex
+	promptCache   map[string]string // key -> system_config 覆盖值 (空串=查过但未配置, 负缓存)
+)
+
+// GetPrompt 取提示词: system_config 覆盖值优先, 未配置回落内置默认值。
+// 带进程内缓存, 首次访问才查库; 配置页保存后由 RefreshPromptCache 刷新。
+func GetPrompt(key string) string {
+	def, ok := builtinPrompts[key]
+	if !ok {
+		return ""
+	}
+	promptCacheMu.RLock()
+	v, hit := promptCache[key]
+	promptCacheMu.RUnlock()
+	if !hit {
+		v = loadPromptOverride(key)
+		promptCacheMu.Lock()
+		if promptCache == nil {
+			promptCache = map[string]string{}
+		}
+		promptCache[key] = v
+		promptCacheMu.Unlock()
+	}
+	if strings.TrimSpace(v) != "" {
+		return v
+	}
+	return def.Default
+}
+
+// loadPromptOverride 查单个提示词的 DB 覆盖值 (无行/出错返回空串 → 用默认值)
+func loadPromptOverride(key string) string {
+	if DB == nil {
+		return ""
+	}
+	var cfg model.SystemConfig
+	if err := DB.Where("`key` = ?", key).First(&cfg).Error; err != nil {
+		return ""
+	}
+	return cfg.Value
+}
+
+// RefreshPromptCache 重建提示词缓存 (配置页保存 prompt_* 键后调用)
+func RefreshPromptCache() {
+	cache := map[string]string{}
+	if DB != nil {
+		var rows []model.SystemConfig
+		if err := DB.Where("`key` LIKE ?", "prompt_%").Find(&rows).Error; err == nil {
+			for _, r := range rows {
+				cache[r.Key] = r.Value
+			}
+		}
+	}
+	promptCacheMu.Lock()
+	promptCache = cache
+	promptCacheMu.Unlock()
+}
+
+// PromptItem 管理接口条目
+type PromptItem struct {
+	Key          string `json:"key"`
+	Remark       string `json:"remark"`
+	Value        string `json:"value"` // 当前生效值 (无覆盖时为内置默认)
+	DefaultValue string `json:"defaultValue"`
+	Overridden   bool   `json:"overridden"` // 是否已被自定义覆盖
+}
+
+// ListPrompts 全部内置提示词及当前生效值 (供系统配置页管理)
+func ListPrompts() []PromptItem {
+	overrides := map[string]string{}
+	if DB != nil {
+		var rows []model.SystemConfig
+		if err := DB.Where("`key` LIKE ?", "prompt_%").Find(&rows).Error; err == nil {
+			for _, r := range rows {
+				overrides[r.Key] = r.Value
+			}
+		}
+	}
+	out := make([]PromptItem, 0, len(promptOrder))
+	for _, key := range promptOrder {
+		def := builtinPrompts[key]
+		v := overrides[key]
+		overridden := strings.TrimSpace(v) != ""
+		if !overridden {
+			v = def.Default
+		}
+		out = append(out, PromptItem{
+			Key: key, Remark: def.Remark, Value: v,
+			DefaultValue: def.Default, Overridden: overridden,
+		})
+	}
+	return out
+}

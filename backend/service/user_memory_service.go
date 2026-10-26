@@ -776,7 +776,7 @@ func (s *UserMemoryService) setState(historyID, userID uint, status string, last
 	}
 }
 
-// ============ LLM (系统提示词见 user_memory_prompt.go) ============
+// ============ LLM (系统提示词见 prompt_config.go, 可在配置页覆盖) ============
 func (s *UserMemoryService) extractWithLLM(userID uint, title, transcript string, sessionTime time.Time, modelOverride string) (*extractionResult, error) {
 	userPrompt := fmt.Sprintf(
 		"会话标题：%s\n当前日期：%s\n会话开始时间：%s\n\n对话内容：\n%s",
@@ -785,7 +785,7 @@ func (s *UserMemoryService) extractWithLLM(userID uint, title, transcript string
 		sessionTime.Format("2006-01-02 15:04"),
 		transcript,
 	)
-	raw, err := s.agentSvc.GenerateText(userID, modelOverride, extractSystemPrompt, userPrompt)
+	raw, err := s.agentSvc.GenerateText(userID, modelOverride, GetPrompt(PromptKeyMemoryExtract), userPrompt)
 	if err != nil {
 		return nil, err
 	}
@@ -824,7 +824,7 @@ func (s *UserMemoryService) MergeProfileFacts(userID uint, facts []model.Profile
 	factsJSON, _ := json.Marshal(facts)
 	userPrompt := fmt.Sprintf("【当前画像】\n%s\n\n【新增事实】\n%s", string(curJSON), string(factsJSON))
 
-	raw, err := s.agentSvc.GenerateText(userID, cfg.Model, mergeSystemPrompt, userPrompt)
+	raw, err := s.agentSvc.GenerateText(userID, cfg.Model, GetPrompt(PromptKeyMemoryMerge), userPrompt)
 	if err != nil {
 		return err
 	}

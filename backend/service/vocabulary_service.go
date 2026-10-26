@@ -525,8 +525,7 @@ func (s *VocabularyService) AssistForgetfulWord(userID, id uint) (*model.Vocabul
 		return nil, errors.New("AI 服务未启用")
 	}
 
-	system := `你是英语词汇辅导助手。针对一个用户反复记不住的英语单词, 给出记忆辅助。只输出 JSON:
-{"example": "<用该词造一个与旧例句不同的自然句子>", "mnemonic": "<中文助记: 词根词缀拆解或谐音联想, 一句话>"}`
+	system := GetPrompt(PromptKeyVocabAssist)
 	user := fmt.Sprintf("单词: %s\n释义: %s\n已有例句(请避开类似场景): %s",
 		word.Word, word.Definition, word.Example)
 	raw, err := s.agentSvc.GenerateText(userID, "", system, user)
@@ -626,8 +625,7 @@ func (s *VocabularyService) ExtractWordsFromDocument(userID, documentID uint, li
 		knownList = knownList[:6000]
 	}
 
-	system := `你是英语生词提取助手。从文章中提取对学习者而言的超纲生词 (约 CEFR B1 以上或低频词), 忽略专有名词、数字和常见词。只输出 JSON 数组:
-[{"word": "<原形单词>", "phonetic": "<音标, 可空>", "definition": "<英文释义>", "translation": "<中文释义>", "example": "<文中原句>"}]`
+	system := GetPrompt(PromptKeyVocabExtract)
 	user := fmt.Sprintf("文章:\n%s\n\n用户已有的生词本单词 (这些不要重复提取):\n%s\n\n最多提取 %d 个生词。",
 		chunk, knownList, limit)
 	raw, err := s.agentSvc.GenerateText(userID, "", system, user)

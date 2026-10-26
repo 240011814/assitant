@@ -580,6 +580,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			{
 				configGroup.GET("", systemConfigHandler.GetAll)
 				configGroup.PUT("", systemConfigHandler.Update)
+				configGroup.GET("/prompts", systemConfigHandler.HandleListPrompts)
 				configGroup.POST("/test-email", systemConfigHandler.SendTestEmail)
 				configGroup.POST("/test-embedding", systemConfigHandler.HandleTestEmbedding)
 				configGroup.POST("/test-s3", systemConfigHandler.HandleTestS3)

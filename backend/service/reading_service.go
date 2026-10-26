@@ -582,8 +582,7 @@ func (s *ReadingService) AnnotateWordsForText(userID uint, text string) ([]model
 	if s.agentSvc == nil {
 		return nil, errors.New("AI 服务未启用")
 	}
-	system := `你是英语分级阅读标注助手。找出文中对学习者构成障碍的超纲生词 (低频词、习语、专有表达; 排除最常用 3000 词和普通专有名词), 给出中文释义。只输出 JSON 数组:
-[{"word": "<原文中的词或短语>", "meaning": "<中文释义>", "reason": "<低频/习语/术语>"}]`
+	system := GetPrompt(PromptKeyReadingAnnotate)
 	user := fmt.Sprintf("文章:\n%s\n\n最多标注 40 个。", text)
 	raw, err := s.agentSvc.GenerateTextWithTimeout(userID, "", system, user, slowGenTimeout)
 	if err != nil {
@@ -636,7 +635,7 @@ func (s *ReadingService) LookupWord(userID uint, word string) (*LookupWordRespon
 			// 免费词典命中: LLM 只补一句中文释义 (短调用, 秒级)
 			translation := ""
 			if s.agentSvc != nil {
-				if raw, err := s.agentSvc.GenerateText(userID, "", "把这句英文释义翻译成简体中文, 只输出译文本身, 不要解释。", definition); err == nil {
+				if raw, err := s.agentSvc.GenerateText(userID, "", GetPrompt(PromptKeyDictTranslate), definition); err == nil {
 					translation = strings.TrimSpace(raw)
 				}
 			}
@@ -650,8 +649,7 @@ func (s *ReadingService) LookupWord(userID uint, word string) (*LookupWordRespon
 			if s.agentSvc == nil {
 				return nil, errors.New("AI 服务未启用")
 			}
-			system := `你是英语词典助手。查一个词并给出词典式解释。只输出 JSON:
-{"phonetic": "<音标, 可空>", "definition": "<英文释义, 一句>", "translation": "<中文释义>", "example": "<一个自然例句>"}`
+			system := GetPrompt(PromptKeyDictLLM)
 			raw, err := s.agentSvc.GenerateText(userID, "", system, "单词: "+word)
 			if err != nil {
 				return nil, fmt.Errorf("查词失败: %w", err)
@@ -746,8 +744,8 @@ func (s *ReadingService) generatePassageSync(userID uint, req model.GeneratePass
 	if a, err := GetLatestVocabTest(userID); err == nil && a.CEFR != "" {
 		level = a.CEFR
 	}
-	system := fmt.Sprintf(`你是英语课文编写助手。写一篇短文, 把指定的每个单词都自然地用到至少一个句子里 (不要生硬堆砌), 难度约 CEFR %s。只输出 JSON:
-{"title": "<英文标题>", "sentences": [{"en": "<英文句子>", "zh": "<中文翻译>"}]}`, level)
+	// 难度占位符 {level} 替换 (不用 fmt.Sprintf: 提示词可配置, 用户文本里的 % 会被 Sprintf 破坏)
+	system := strings.ReplaceAll(GetPrompt(PromptKeyReadingPassage), "{level}", level)
 	user := fmt.Sprintf("必须使用的单词: %s\n句子数量: %d 句左右。", strings.Join(wordList, ", "), count)
 	raw, err := s.agentSvc.GenerateTextWithTimeout(userID, "", system, user, slowGenTimeout)
 	if err != nil {
