@@ -1,4 +1,4 @@
-package note
+package learning
 
 import (
 	"errors"
@@ -8,9 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// DB 本包专用数据库句柄, 由 main.go 接线赋值 (note.DB = db)。
-var DB *gorm.DB
-
+// NoteService 用户笔记 (原独立 note 包, 并入 learning: 笔记属英语学习域的资料整理)
 type NoteService struct{}
 
 func NewNoteService() *NoteService {

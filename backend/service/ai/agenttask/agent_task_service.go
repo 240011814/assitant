@@ -41,7 +41,7 @@ type AgentTaskService struct {
 	notifiers    []iface.Notifier
 }
 
-// NewAgentTaskService 构造服务 (任务注册统一在 tasks 包, 见 tasks.RegisterAll)
+// NewAgentTaskService 构造服务 (任务注册统一在 jobs 包 (tasks_*.go), 见 jobs.RegisterAll)
 func NewAgentTaskService(jobScheduler *jobs.JobScheduler, agentSvc *agent.AIAgentService, orchSvc *orchestration.AIOrchestrationService, historySvc *history.HistoryService, notifiers ...iface.Notifier) *AgentTaskService {
 	return &AgentTaskService{
 		jobScheduler: jobScheduler,

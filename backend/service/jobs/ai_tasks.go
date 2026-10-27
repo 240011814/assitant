@@ -1,4 +1,4 @@
-package tasks
+package jobs
 
 import (
 	"encoding/json"
@@ -10,9 +10,9 @@ import (
 
 // registerAITasks AI 相关定时任务: 定时 Agent/编排任务、用户画像抽取、RSS 订阅刷新
 func registerAITasks(d *Deps) {
-	if d.AgentTask != nil {
+	if d.AgentTaskHandler != nil {
 		d.JobScheduler.RegisterTask(model.TaskNameAgentTask, "定时运行 Agent/编排 (参数: agent_id/agent_type/input/notify_email/notify_telegram)",
-			json.RawMessage(jsonExampleAgentTask), d.AgentTask.AgentTaskHandler)
+			json.RawMessage(jsonExampleAgentTask), d.AgentTaskHandler)
 	}
 
 	// 会话增量抽取用户画像与经历 (依赖 AI, 记账走 tokenusage extraction 来源)

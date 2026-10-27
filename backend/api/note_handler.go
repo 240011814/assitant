@@ -1,7 +1,7 @@
 package api
 
 import (
-	"backend/service/ai/note"
+	"backend/service/learning"
 	"strconv"
 
 	"backend/model"
@@ -10,10 +10,10 @@ import (
 )
 
 type NoteHandler struct {
-	noteService *note.NoteService
+	noteService *learning.NoteService
 }
 
-func NewNoteHandler(noteService *note.NoteService) *NoteHandler {
+func NewNoteHandler(noteService *learning.NoteService) *NoteHandler {
 	return &NoteHandler{
 		noteService: noteService,
 	}

@@ -18,8 +18,8 @@ import (
 	"backend/model"
 	"backend/service/ai/llmjson"
 	"backend/service/ai/promptcfg"
-	"backend/service/kernel"
 	"backend/service/aitools"
+	"backend/service/kernel"
 )
 
 // ReadingService 分级阅读: 导入文章 → LLM 标注生词 → 点词即查即加 → AI 生成个性化课文

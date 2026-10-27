@@ -16,8 +16,8 @@ import (
 	"gorm.io/gorm"
 
 	"backend/model"
-	"backend/service/kernel"
 	"backend/service/aitools"
+	"backend/service/kernel"
 )
 
 // RSSService RSS 订阅: gofeed 解析 feed, 条目按 GUID 去重入库, 正文按需抓取缓存

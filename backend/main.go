@@ -7,7 +7,6 @@ import (
 	"backend/service/ai/mcp"
 	"backend/service/ai/mem0"
 	"backend/service/ai/modelscenario"
-	"backend/service/ai/note"
 	"backend/service/ai/orchestration"
 	"backend/service/ai/prompt"
 	"backend/service/ai/rag"
@@ -18,6 +17,7 @@ import (
 	"backend/service/ai/usermemory"
 	"backend/service/jobs"
 	"backend/service/kernel"
+	"backend/service/learning"
 	"backend/service/notify/notifier"
 	"backend/service/notify/reminder"
 	"backend/service/stock"
@@ -26,7 +26,6 @@ import (
 	"backend/service/sys/dashboard"
 	"backend/service/sys/systemconfig"
 	"backend/service/sys/userpref"
-	"backend/service/tasks"
 	"backend/service/tool/mihoyo"
 	"backend/service/tool/wol"
 	"context"
@@ -42,10 +41,9 @@ import (
 	"backend/config"
 	"backend/service"
 	"backend/service/ai/promptcfg"
-	"backend/service/cut"
-	"backend/service/learning"
-	"backend/service/tool/lottery"
 	"backend/service/aitools"
+	"backend/service/cut"
+	"backend/service/tool/lottery"
 
 	"github.com/gin-gonic/gin"
 )
@@ -79,7 +77,6 @@ func main() {
 	auth.DB = db
 	admin.DB = db
 	dashboard.DB = db
-	note.DB = db
 	modelscenario.DB = db
 	userpref.DB = db
 	tokenusage.DB = db
@@ -116,7 +113,7 @@ func main() {
 	authService := auth.NewAuthService(cfg)
 	adminService := admin.NewAdminService()
 
-	noteService := note.NewNoteService()
+	noteService := learning.NewNoteService()
 	noteHandler := api.NewNoteHandler(noteService)
 
 	aiAgentService, err := agent.NewAIAgentService(cfg.AI.TimeoutMinutes, systemConfigService)
@@ -266,16 +263,16 @@ func main() {
 
 	// Job Handler + 注册后台可调度的定时任务 (全部注册收拢在 tasks 包, 按域一个文件)
 	jobHandler := api.NewJobHandler(jobScheduler)
-	tasks.RegisterAll(&tasks.Deps{
-		JobScheduler: jobScheduler,
-		StockSync:    stockSyncService,
-		StockCh:      stockChSyncService,
-		StockAlert:   stockAlertService,
-		AgentTask:    agentTaskService,
-		UserMemory:   userMemoryService,
-		RSS:          rssService,
-		Reminder:     reminderService,
-		Mihoyo:       mihoyoService,
+	jobs.RegisterAll(&jobs.Deps{
+		JobScheduler:     jobScheduler,
+		StockSync:        stockSyncService,
+		StockCh:          stockChSyncService,
+		StockAlert:       stockAlertService,
+		AgentTaskHandler: agentTaskService.AgentTaskHandler,
+		UserMemory:       userMemoryService,
+		RSS:              rssService,
+		ReminderHandler:  reminderService.ReminderTaskHandler,
+		Mihoyo:           mihoyoService,
 	})
 
 	// 全部 HTTP 路由 (router.go)

@@ -25,7 +25,7 @@ type ReminderService struct {
 	notifiers    []iface.Notifier
 }
 
-// NewReminderService 构造服务 (任务注册统一在 tasks 包, 见 tasks.RegisterAll)
+// NewReminderService 构造服务 (任务注册统一在 jobs 包 (tasks_*.go), 见 jobs.RegisterAll)
 func NewReminderService(jobScheduler *jobs.JobScheduler, notifiers ...iface.Notifier) *ReminderService {
 	return &ReminderService{
 		jobScheduler: jobScheduler,
