@@ -10,8 +10,8 @@ import (
 
 	iface "backend/interface"
 	"backend/model"
-	"backend/service/ai/llmjson"
 	"backend/service/ai/prompt"
+	"backend/service/kernel"
 )
 
 // QuizService 自动出题引擎: 词汇选择/例句挖空/原文语境/易混词辨析/听音拼写/句子翻译 (模板确定性出题)
@@ -637,7 +637,7 @@ func (s *QuizService) SentencePractice(userID uint, req model.SentencePracticeRe
 	}
 
 	var result model.SentencePracticeResult
-	if err := llmjson.DecodeLLMObject(raw, &result); err != nil {
+	if err := kernel.DecodeLLMObject(raw, &result); err != nil {
 		return nil, errors.New("AI 返回格式异常 (详见后端日志)")
 	}
 	result.Word = word.Word

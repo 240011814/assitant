@@ -1,4 +1,4 @@
-package llmjson
+package kernel
 
 import (
 	"testing"

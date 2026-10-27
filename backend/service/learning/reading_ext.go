@@ -16,7 +16,6 @@ import (
 	"gorm.io/gorm/clause"
 
 	"backend/model"
-	"backend/service/ai/llmjson"
 	"backend/service/ai/prompt"
 	"backend/service/kernel"
 )
@@ -275,7 +274,7 @@ func (s *ReadingService) generateVocabTest(userID uint) ([]model.VocabTestQuesti
 		return nil, err
 	}
 	var questions []model.VocabTestQuestion
-	if err := llmjson.DecodeLLMArray(raw, &questions); err != nil {
+	if err := kernel.DecodeLLMArray(raw, &questions); err != nil {
 		return nil, errors.New("出题格式异常 (详见后端日志)")
 	}
 	if len(questions) < 12 {

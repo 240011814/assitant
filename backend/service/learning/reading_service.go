@@ -16,7 +16,6 @@ import (
 
 	iface "backend/interface"
 	"backend/model"
-	"backend/service/ai/llmjson"
 	"backend/service/ai/prompt"
 	"backend/service/aitools"
 	"backend/service/kernel"
@@ -596,7 +595,7 @@ func (s *ReadingService) AnnotateWordsForText(userID uint, text string) ([]model
 		return nil, fmt.Errorf("标注失败: %w", err)
 	}
 	var flagged []model.DifficultWord
-	if err := llmjson.DecodeLLMArray(raw, &flagged); err != nil {
+	if err := kernel.DecodeLLMArray(raw, &flagged); err != nil {
 		return nil, errors.New("标注失败: AI 返回格式异常 (详见后端日志)")
 	}
 	return flagged, nil
@@ -661,7 +660,7 @@ func (s *ReadingService) LookupWord(userID uint, word string) (*LookupWordRespon
 			if err != nil {
 				return nil, fmt.Errorf("查词失败: %w", err)
 			}
-			if err := llmjson.DecodeLLMObject(raw, &entry); err != nil {
+			if err := kernel.DecodeLLMObject(raw, &entry); err != nil {
 				return nil, errors.New("查词失败: AI 返回格式异常 (详见后端日志)")
 			}
 			entry.Word = word
@@ -766,7 +765,7 @@ func (s *ReadingService) generatePassageSync(userID uint, req model.GeneratePass
 			Zh string `json:"zh"`
 		} `json:"sentences"`
 	}
-	if err := llmjson.DecodeLLMObject(raw, &passage); err != nil || len(passage.Sentences) == 0 {
+	if err := kernel.DecodeLLMObject(raw, &passage); err != nil || len(passage.Sentences) == 0 {
 		return nil, nil, errors.New("AI 返回格式异常 (详见后端日志)")
 	}
 

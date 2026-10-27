@@ -11,8 +11,8 @@ import (
 
 	iface "backend/interface"
 	"backend/model"
-	"backend/service/ai/llmjson"
 	"backend/service/ai/prompt"
+	"backend/service/kernel"
 )
 
 type VocabularyService struct {
@@ -540,7 +540,7 @@ func (s *VocabularyService) AssistForgetfulWord(userID, id uint) (*model.Vocabul
 		Example  string `json:"example"`
 		Mnemonic string `json:"mnemonic"`
 	}
-	if err := llmjson.DecodeLLMObject(raw, &assist); err != nil || assist.Example == "" {
+	if err := kernel.DecodeLLMObject(raw, &assist); err != nil || assist.Example == "" {
 		return nil, errors.New("AI 返回格式异常 (详见后端日志)")
 	}
 	if err := DB.Model(&model.Vocabulary{}).Where("id = ?", word.ID).Updates(map[string]interface{}{
@@ -637,7 +637,7 @@ func (s *VocabularyService) ExtractWordsFromDocument(userID, documentID uint, li
 	}
 
 	var items []model.ImportWordItem
-	if err := llmjson.DecodeLLMArray(raw, &items); err != nil {
+	if err := kernel.DecodeLLMArray(raw, &items); err != nil {
 		return nil, errors.New("提取生词失败: AI 返回格式异常 (详见后端日志)")
 	}
 	return s.ImportWords(userID, items, "文档提取")

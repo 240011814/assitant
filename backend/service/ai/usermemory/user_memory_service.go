@@ -3,7 +3,6 @@ package usermemory
 import (
 	iface "backend/interface"
 	"backend/model"
-	"backend/service/ai/llmjson"
 	"backend/service/ai/prompt"
 	"backend/service/kernel"
 	"backend/service/sys/systemconfig"
@@ -799,7 +798,7 @@ func (s *UserMemoryService) extractWithLLM(userID uint, title, transcript string
 		return nil, err
 	}
 	var res extractionResult
-	if err := json.Unmarshal([]byte(llmjson.ExtractJSON(raw)), &res); err != nil {
+	if err := json.Unmarshal([]byte(kernel.ExtractJSON(raw)), &res); err != nil {
 		return nil, fmt.Errorf("解析抽取结果失败: %w", err)
 	}
 	return &res, nil
@@ -843,7 +842,7 @@ func (s *UserMemoryService) MergeProfileFacts(userID uint, facts []model.Profile
 		Tags       []string                   `json:"tags"`
 		Confidence float64                    `json:"confidence"`
 	}
-	if err := json.Unmarshal([]byte(llmjson.ExtractJSON(raw)), &merged); err != nil {
+	if err := json.Unmarshal([]byte(kernel.ExtractJSON(raw)), &merged); err != nil {
 		return fmt.Errorf("解析画像合并结果失败: %w", err)
 	}
 	dimsMap := make(map[string]string, len(merged.Dimensions))
