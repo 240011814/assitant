@@ -91,3 +91,91 @@ func TestFigcaptionDropped(t *testing.T) {
 		t.Errorf("图片 src 丢失: %q", out)
 	}
 }
+
+// TestCleanImageCreditLines 行级剔除: 各种中文/英文图源标注行删掉, 正文行保留
+func TestCleanImageCreditLines(t *testing.T) {
+	in := strings.Join([]string{
+		"Body first paragraph about the news.",
+		"Image source, Getty Images",
+		"IMAGE SOURCE: Reuters",           // 全大写 + 冒号
+		"Image caption, People queue at a border post", // 图注
+		"Image copyright Reuters",         // 旧版 BBC 无标点格式
+		"图片来源，Getty Images",              // 中文站
+		"图片版权：BBC News",
+		"Getty Images",                    // 图源孤儿行
+		"AP Photo",                        // 图源孤儿行
+		"Body second paragraph mentioning the weather.",
+	}, "\n")
+	out := cleanImageCreditLines(in)
+	for _, noise := range []string{"Image source", "Image caption", "Image copyright", "图片来源", "图片版权", "AP Photo"} {
+		if strings.Contains(out, noise) {
+			t.Errorf("噪音行残留: %q", out)
+		}
+	}
+	for _, keep := range []string{"Body first paragraph", "Body second paragraph mentioning the weather."} {
+		if !strings.Contains(out, keep) {
+			t.Errorf("正文行被误删: %q", out)
+		}
+	}
+	// 正文行里恰好包含字样但不在行首, 不能误删
+	if out2 := cleanImageCreditLines("The images source of truth is the dataset.\nThe caption says it all.\nThis story was updated."); len(out2) != len("The images source of truth is the dataset.\nThe caption says it all.\nThis story was updated.") {
+		t.Errorf("中段字样误删: %q", out2)
+	}
+	// "Image captioning" 不是读屏标注, 保留
+	if out3 := cleanImageCreditLines("Image captioning robots are the new news readers."); !strings.Contains(out3, "Image captioning") {
+		t.Errorf("Image captioning 被误删: %q", out3)
+	}
+}
+
+// TestSanitizeCreditOnlyBlockDropped 读屏标注不在 figcaption 里 (裸 p / div 包 span):
+// 整块纯文本的标注段从净化 HTML 丢弃; 图片同块共存时保留; 行内 span 里的字样不动
+func TestSanitizeCreditOnlyBlockDropped(t *testing.T) {
+	page := `<html><body><article>` +
+		`<p>He described the scene as quiet and eerie.</p>` +
+		`<p>Image source, Getty Images</p>` +
+		`<div><span>Image source, </span><span>Getty Images</span></div>` +
+		`<p><img src="https://ichef.bbci.co.uk/y.jpg"/>Image source, Getty Images</p>` + // 图文同块, 保留
+		`<p>More coverage of the story winding down. <span>Getty Images</span> is credited.</p>` + // 行内字样, 保留
+		`<p>Image captioning robots are the new news readers.</p>` +
+		`</article></body></html>`
+
+	out := sanitizeArticleHTML("https://www.bbc.co.uk/news/articles/z", page)
+	// 图文同块保留是设计行为 (丢块会连图片一起丢), 先摘除该段再断言无残留
+	outWithoutMediaBlock := strings.ReplaceAll(out, `<p><img src="https://ichef.bbci.co.uk/y.jpg">Image source, Getty Images</p>`, "")
+	if strings.Contains(outWithoutMediaBlock, "Image source") {
+		t.Errorf("块级标注残留: %q", out)
+	}
+	if !strings.Contains(out, "quiet and eerie") {
+		t.Errorf("正文段被误删: %q", out)
+	}
+	if !strings.Contains(out, `src="https://ichef.bbci.co.uk/y.jpg"`) {
+		t.Errorf("图文同块的整段被误删: %q", out)
+	}
+	if !strings.Contains(out, "More coverage of the story winding down.") {
+		t.Errorf("行内字样所在正文段被误删: %q", out)
+	}
+	if !strings.Contains(out, "Image captioning") {
+		t.Errorf("正文与标注前缀撞样的段落被误删: %q", out)
+	}
+}
+
+// TestHtmlToTextCreditLineOutsideFigcaption 标注块不在 figcaption (裸 div/p) 时,
+// 纯文本提取按行兜住
+func TestHtmlToTextCreditLineOutsideFigcaption(t *testing.T) {
+	page := `<html><body><article>` +
+		`<h1>Headline</h1>` +
+		`<div class="media-caption">Image source, Getty Images</div>` +
+		`<p>Body text continues here.</p>` +
+		`<p>Getty Images</p>` +
+		`</article></body></html>`
+	text, _, err := htmlToText(page)
+	if err != nil {
+		t.Fatalf("htmlToText 失败: %v", err)
+	}
+	if strings.Contains(text, "Image source") || strings.Contains(text, "Getty Images") {
+		t.Errorf("纯文本仍含图源标注: %q", text)
+	}
+	if !strings.Contains(text, "Body text continues here") || !strings.Contains(text, "Headline") {
+		t.Errorf("正文/标题被误删: %q", text)
+	}
+}

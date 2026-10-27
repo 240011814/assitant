@@ -208,7 +208,7 @@ func htmlToText(body string) (string, string, error) {
 	// 压缩空白
 	text = regexp.MustCompile(`[ \t]+`).ReplaceAllString(text, " ")
 	text = regexp.MustCompile(`\n{3,}`).ReplaceAllString(text, "\n\n")
-	return strings.TrimSpace(text), title, nil
+	return cleanImageCreditLines(text), title, nil
 }
 
 // narrowToArticle 正文定位:
@@ -460,6 +460,8 @@ func (s *ReadingService) GetDoc(userID, id uint) (*model.ReadingDoc, []model.Dif
 		return nil, nil, errors.New("文档不存在")
 	}
 	LogReadingEvent(userID, "open", 1)
+	// figcaption/图源标注清理上线前导入的旧文档, 读路径兜底清理展示噪音
+	doc.Content = cleanImageCreditLines(doc.Content)
 	var words []model.DifficultWord
 	if doc.DifficultWords != "" {
 		_ = json.Unmarshal([]byte(doc.DifficultWords), &words)
@@ -519,7 +521,8 @@ func (s *ReadingService) annotateDocSync(userID, id uint) error {
 		return err
 	}
 
-	text := doc.Content
+	// 兼顾旧文档: 过滤图片标注行后再送 LLM, 避免 "Getty Images" 等噪音被标成生词
+	text := cleanImageCreditLines(doc.Content)
 	if len(text) > 15000 {
 		// 按 rune 截断: 字节截断会切断多字节字符, 中文文章会产生非法 UTF-8 发给 LLM
 		text = kernel.TruncateRunes(text, 15000)

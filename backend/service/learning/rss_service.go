@@ -455,6 +455,15 @@ func (s *RSSService) GetItemContent(userID, id uint) (*model.RSSItem, error) {
 			return nil, err
 		}
 	}
+	// 旧缓存恢复: figcaption/图源标注清理上线之前抓取的文章, 读路径再净化一遍 (幂等, 不改库)。
+	// 净化前缓存的 HTML 里会残留 <figcaption>, 一并重过净化器
+	item.Content = cleanImageCreditLines(item.Content)
+	item.Summary = cleanImageCreditLines(item.Summary)
+	if item.ContentHTML != "" && strings.Contains(item.ContentHTML, "figcaption") {
+		if cleaned := sanitizeArticleHTML(item.Link, item.ContentHTML); strings.TrimSpace(cleaned) != "" {
+			item.ContentHTML = cleaned
+		}
+	}
 	// 缓存无 HTML (旧数据) 或抓取失败时, 用 feed 摘要的净化 HTML 兜底 (不落库)
 	if item.ContentHTML == "" && strings.TrimSpace(item.Summary) != "" {
 		item.ContentHTML = sanitizeArticleHTML(item.Link, item.Summary)
