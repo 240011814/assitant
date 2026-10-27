@@ -1,13 +1,13 @@
 package service
 
 import (
-	"embed"
 	"fmt"
 	"log"
 	"os"
 	"time"
 
 	"backend/config"
+	dbmigrations "backend/db"
 
 	"github.com/pressly/goose/v3"
 	"gorm.io/driver/mysql"
@@ -16,9 +16,6 @@ import (
 )
 
 var DB *gorm.DB
-
-//go:embed db/migrations/*.sql
-var embedMigrations embed.FS
 
 // InitDB 初始化数据库连接并自动运行迁移
 func InitDB(cfg *config.Config) (*gorm.DB, error) {
@@ -61,13 +58,13 @@ func InitDB(cfg *config.Config) (*gorm.DB, error) {
 	sqlDB.SetMaxIdleConns(10)
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
-	goose.SetBaseFS(embedMigrations)
+	goose.SetBaseFS(dbmigrations.Migrations)
 	if err := goose.SetDialect("mysql"); err != nil {
 		return nil, fmt.Errorf("failed to set goose dialect: %v", err)
 	}
 
 	log.Println("Running database migrations...")
-	if err := goose.Up(sqlDB, "db/migrations"); err != nil {
+	if err := goose.Up(sqlDB, "migrations"); err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %v", err)
 	}
 

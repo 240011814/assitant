@@ -35,7 +35,7 @@
 backend/            # Go 后端
   api/              #   HTTP 处理器 (按领域一个文件)
   service/          #   业务逻辑 (三层: api -> service -> model)
-    db/migrations/  #   Goose SQL 迁移 (//go:embed 启动时自动执行)
+  db/migrations/    #   Goose SQL 迁移 (//go:embed 启动时自动执行)
   main.go           #   依赖装配与生命周期; 路由在 router.go
 frontend/           # Vue3 前端 (SoybeanAdmin 模板, pnpm monorepo)
   src/views/        #   ai/ cut/ tool/ system/ user/ 页面
@@ -92,7 +92,7 @@ pnpm build           # 生产构建
 - 后端取当前用户一律 `currentUserID(c)`；分页用 `service.NormalizePage`；SSE 用 `setupSSE`/`newSSEEmitter`；多步写包 `DB.Transaction`
 - 前端路由 meta 唯一维护点：`build/plugins/router.ts` 的 `customRouteMeta` + `src/router/elegant/routes.ts`（不放 route.json）
 - 前端新增 i18n key 三处同步：`zh-cn.ts`、`en-us.ts`、`typings/app.d.ts` (App.I18n.Schema)
-- 数据库变更编写 Goose 迁移文件（`backend/service/db/migrations/YYYYMMDDHHMMSS_xxx.sql`）
+- 数据库变更编写 Goose 迁移文件（`backend/db/migrations/YYYYMMDDHHMMSS_xxx.sql`）
 
 ## 部署
 

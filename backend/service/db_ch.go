@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"embed"
 	"fmt"
 	"io/fs"
 	"log"
@@ -12,15 +11,13 @@ import (
 	"time"
 
 	"backend/config"
+	dbmigrations "backend/db"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 )
 
 // CH ClickHouse 连接 (未启用或初始化失败时为 nil, 相关同步直接跳过)
 var CH clickhouse.Conn
-
-//go:embed db/ch_migrations/*.sql
-var embedChMigrations embed.FS
 
 // InitClickHouse 连接 ClickHouse 并执行迁移; 未启用时返回 nil 且 CH 保持 nil
 func InitClickHouse(cfg *config.Config) error {
@@ -56,14 +53,14 @@ func InitClickHouse(cfg *config.Config) error {
 	return nil
 }
 
-// applyChMigrations 执行 db/ch_migrations 下未应用的迁移
+// applyChMigrations 执行 ch_migrations 下未应用的迁移
 // 与 MySQL 的 Goose 迁移相互独立(CH 是另一个库); 按文件名排序, 已应用项记录在 CH 的 schema_migrations 表
 func applyChMigrations(ctx context.Context, conn clickhouse.Conn) error {
 	if err := conn.Exec(ctx, "CREATE TABLE IF NOT EXISTS schema_migrations (name String, applied_at DateTime DEFAULT now()) ENGINE = MergeTree ORDER BY name"); err != nil {
 		return fmt.Errorf("创建 schema_migrations 失败: %v", err)
 	}
 
-	entries, err := fs.ReadDir(embedChMigrations, "db/ch_migrations")
+	entries, err := fs.ReadDir(dbmigrations.ChMigrations, "ch_migrations")
 	if err != nil {
 		return err
 	}
@@ -83,7 +80,7 @@ func applyChMigrations(ctx context.Context, conn clickhouse.Conn) error {
 		if cnt > 0 {
 			continue
 		}
-		content, err := embedChMigrations.ReadFile("db/ch_migrations/" + name)
+		content, err := dbmigrations.ChMigrations.ReadFile("ch_migrations/" + name)
 		if err != nil {
 			return err
 		}
