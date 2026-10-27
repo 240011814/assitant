@@ -1,9 +1,9 @@
 package userdoc
 
 import (
+	"backend/service/ai/rag"
 	"backend/service/kernel"
-	"backend/service/rag"
-	"backend/service/systemconfig"
+	"backend/service/sys/systemconfig"
 
 	"gorm.io/gorm"
 
@@ -94,6 +94,9 @@ func (s *UserDocumentService) Status() DocumentStatus {
 
 // NewUserDocumentService configSvc 为空时无法读取存储配置, 文档功能保持关闭态;
 // rag 允许为 nil (仅关闭向量索引/检索)
+// s3ConfigKeys S3 兼容对象存储相关的 system_config 键 (订阅热刷新与读取共用)
+var s3ConfigKeys = []string{"s3_enabled", "s3_endpoint", "s3_region", "s3_bucket", "s3_access_key", "s3_secret_key", "s3_secure", "s3_use_path_style", "s3_max_upload_mb"}
+
 func NewUserDocumentService(configSvc *systemconfig.SystemConfigService, rag *rag.RagService) *UserDocumentService {
 	s := &UserDocumentService{
 		configSvc:      configSvc,
@@ -102,6 +105,8 @@ func NewUserDocumentService(configSvc *systemconfig.SystemConfigService, rag *ra
 		parseMaxChars:  200000,
 		parsers:        map[string]parser.Parser{},
 	}
+	// 配置页保存 s3_* 键后异步重建存储连接 (原 api 分发为 go 协程)
+	configSvc.Subscribe(s3ConfigKeys, func() { go s.RefreshStorageConfig() })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

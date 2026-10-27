@@ -1,10 +1,10 @@
 package agenttask
 
 import (
-	"backend/service/agent"
-	"backend/service/history"
+	"backend/service/ai/agent"
+	"backend/service/ai/history"
+	"backend/service/ai/orchestration"
 	"backend/service/jobs"
-	"backend/service/orchestration"
 
 	"gorm.io/gorm"
 
@@ -41,23 +41,21 @@ type AgentTaskService struct {
 	notifiers    []iface.Notifier
 }
 
-// NewAgentTaskService 构造并注册任务执行器
+// NewAgentTaskService 构造服务 (任务注册统一在 tasks 包, 见 tasks.RegisterAll)
 func NewAgentTaskService(jobScheduler *jobs.JobScheduler, agentSvc *agent.AIAgentService, orchSvc *orchestration.AIOrchestrationService, historySvc *history.HistoryService, notifiers ...iface.Notifier) *AgentTaskService {
-	s := &AgentTaskService{
+	return &AgentTaskService{
 		jobScheduler: jobScheduler,
 		agentSvc:     agentSvc,
 		orchSvc:      orchSvc,
 		historySvc:   historySvc,
 		notifiers:    notifiers,
 	}
-	jobScheduler.RegisterTask(model.TaskNameAgentTask, "定时运行 Agent/编排 (参数: agent_id/agent_type/input/notify_email/notify_telegram)",
-		json.RawMessage(`{"agent_id":1,"agent_type":"chat","input":"总结今天的待办","notify_email":true}`), s.agentTaskHandler)
-	return s
 }
 
 // ============ 执行 ============
 
-func (s *AgentTaskService) agentTaskHandler(def *model.JobDefinition, paramsRaw json.RawMessage) error {
+// AgentTaskHandler 定时任务执行体 (tasks 包注册时引用)
+func (s *AgentTaskService) AgentTaskHandler(def *model.JobDefinition, paramsRaw json.RawMessage) error {
 	var params model.AgentTaskParams
 	if err := json.Unmarshal(paramsRaw, &params); err != nil {
 		return fmt.Errorf("解析参数失败: %v", err)

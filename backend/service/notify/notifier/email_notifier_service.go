@@ -1,7 +1,7 @@
 package notifier
 
 import (
-	"backend/service/systemconfig"
+	"backend/service/sys/systemconfig"
 
 	"gorm.io/gorm"
 
@@ -43,12 +43,17 @@ type EmailNotifier struct {
 	smtpCache *SMTPConfig
 }
 
+// smtpConfigKeys SMTP 相关的 system_config 键 (订阅热刷新与读取共用)
+var smtpConfigKeys = []string{"smtp_host", "smtp_port", "smtp_encryption", "smtp_user", "smtp_password", "smtp_from", "smtp_from_name"}
+
 // NewEmailNotifier 创建邮件通知器
 func NewEmailNotifier(configSvc *systemconfig.SystemConfigService) *EmailNotifier {
 	n := &EmailNotifier{
 		configSvc: configSvc,
 	}
 	n.RefreshConfig()
+	// 配置页保存 smtp_* 键后同步刷新缓存
+	configSvc.Subscribe(smtpConfigKeys, n.RefreshConfig)
 	return n
 }
 

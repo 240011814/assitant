@@ -2,10 +2,10 @@ package main
 
 import (
 	"backend/api"
-	"backend/service/agent"
-	"backend/service/auth"
-	"backend/service/history"
-	"backend/service/systemconfig"
+	"backend/service/ai/agent"
+	"backend/service/ai/history"
+	"backend/service/sys/auth"
+	"backend/service/sys/systemconfig"
 
 	"github.com/gin-gonic/gin"
 )

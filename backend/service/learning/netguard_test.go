@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"backend/service/tools"
+	"backend/service/aitools"
 )
 
 // TestValidateOutboundURLPolicy 校验共享 SSRF 防护的三档行为:
@@ -27,7 +27,7 @@ func TestValidateOutboundURLPolicy(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			err := tools.ValidateOutboundURL(c.url, c.allowPriv)
+			err := aitools.ValidateOutboundURL(c.url, c.allowPriv)
 			blocked := err != nil
 			if blocked != c.wantBlocked {
 				t.Fatalf("ValidateOutboundURL(%q, allowPrivate=%v) err=%v, 期望 blocked=%v", c.url, c.allowPriv, err, c.wantBlocked)

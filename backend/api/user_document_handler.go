@@ -1,7 +1,7 @@
 package api
 
 import (
-	"backend/service/userdoc"
+	"backend/service/ai/userdoc"
 	"net/http"
 	"strconv"
 

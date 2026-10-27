@@ -2,10 +2,10 @@ package api
 
 import (
 	"backend/model"
-	"backend/service/agent"
-	"backend/service/history"
+	"backend/service/ai/agent"
+	"backend/service/ai/history"
+	"backend/service/ai/tokenusage"
 	"backend/service/kernel"
-	"backend/service/tokenusage"
 	"fmt"
 	"io"
 	"log"

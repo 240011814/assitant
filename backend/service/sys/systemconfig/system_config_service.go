@@ -1,11 +1,13 @@
 package systemconfig
 
 import (
+	"strconv"
+	"strings"
+	"sync"
+
 	iface "backend/interface"
 	"backend/model"
 	"backend/service/kernel"
-	"strconv"
-	"sync"
 
 	"gorm.io/gorm"
 )
@@ -27,13 +29,63 @@ type Mem0Config struct {
 // TimeoutConfig 超时配置 (真别名, 与 kernel.TimeoutConfig 是同一类型; 原定义抽到共享层)
 type TimeoutConfig = kernel.TimeoutConfig
 
+// TimeoutConfigKeys 超时相关的 system_config 键 (订阅热刷新与 loadTimeoutConfigFromDB 共用)
+var TimeoutConfigKeys = []string{
+	"ai_timeout_minutes",
+	"ai_tls_handshake_timeout",
+	"ai_response_header_timeout",
+	"http_timeout_seconds",
+}
+
+// configSubscription 配置变更订阅: 键命中即触发回调 (回调自身决定同步/异步执行)
+type configSubscription struct {
+	keys     []string
+	onChange func()
+}
+
 type SystemConfigService struct {
 	mu           sync.RWMutex
 	timeoutCache *TimeoutConfig
+
+	subMu sync.RWMutex
+	subs  []configSubscription
 }
 
 func NewSystemConfigService() *SystemConfigService {
-	return &SystemConfigService{}
+	s := &SystemConfigService{}
+	// 自订阅超时键: 配置页保存后立即刷新本服务缓存 (原 api 分发块的 ReloadTimeoutConfig 语义)
+	s.Subscribe(TimeoutConfigKeys, func() { s.ReloadTimeoutConfig() })
+	return s
+}
+
+// Subscribe 注册配置变更订阅: keys 里任一键被保存后触发 onChange。
+// 各业务在构造时自注册 (键清单与读取逻辑同源), 新增配置键无需改 api 层。
+func (s *SystemConfigService) Subscribe(keys []string, onChange func()) {
+	s.subMu.Lock()
+	defer s.subMu.Unlock()
+	s.subs = append(s.subs, configSubscription{keys: keys, onChange: onChange})
+}
+
+// NotifyChanged 配置保存后由调用方 (system-config Update 接口) 逐键触发: 命中的订阅回调执行。
+// 回调同步执行, 需要异步的业务在注册时自己包 go/协程 (与原 api 分发的同步/异步语义一致)。
+func (s *SystemConfigService) NotifyChanged(keys ...string) {
+	s.subMu.RLock()
+	defer s.subMu.RUnlock()
+	for _, sub := range s.subs {
+		for _, want := range sub.keys {
+			hit := false
+			for _, got := range keys {
+				if got == want {
+					hit = true
+					break
+				}
+			}
+			if hit {
+				sub.onChange()
+				break
+			}
+		}
+	}
 }
 
 func (s *SystemConfigService) GetAll() ([]model.SystemConfig, error) {
@@ -49,6 +101,22 @@ func (s *SystemConfigService) GetValue(key string) (string, error) {
 		return "", err
 	}
 	return config.Value, nil
+}
+
+// GetByPrefix 批量读取某前缀的全部配置键, 返回 map (键名去掉前缀)。
+// 适合一组键整体读取的场景 (如 wol_mqtt_*), 替代逐键 GetValue 的重复模式。
+func (s *SystemConfigService) GetByPrefix(prefix string) map[string]string {
+	all, err := s.GetAll()
+	if err != nil {
+		return map[string]string{}
+	}
+	out := make(map[string]string, len(all))
+	for _, row := range all {
+		if strings.HasPrefix(row.Key, prefix) {
+			out[strings.TrimPrefix(row.Key, prefix)] = row.Value
+		}
+	}
+	return out
 }
 
 func (s *SystemConfigService) SetValue(key, value, remark string) error {

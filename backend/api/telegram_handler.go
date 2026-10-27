@@ -1,8 +1,8 @@
 package api
 
 import (
-	"backend/service/notifier"
-	"backend/service/systemconfig"
+	"backend/service/notify/notifier"
+	"backend/service/sys/systemconfig"
 	"log"
 	"net/http"
 

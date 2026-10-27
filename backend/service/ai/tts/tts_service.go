@@ -1,8 +1,8 @@
 package tts
 
 import (
-	"backend/service/agent"
-	"backend/service/systemconfig"
+	"backend/service/ai/agent"
+	"backend/service/sys/systemconfig"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -84,6 +84,9 @@ type TtsService struct {
 
 // NewTtsService 构造并加载一次配置 (system_config 无 tts_* 键时为默认值);
 // aiAgent 提供 openai 模式所需的默认激活 Provider 端点, 允许 nil (openai 模式不可用)
+// ttsConfigKeys TTS 相关的 system_config 键 (订阅热刷新与读取共用)
+var ttsConfigKeys = []string{"tts_mode", "tts_openai_voice", "tts_edge_voice_en", "tts_edge_voice_zh", "tts_frontend_voice", "tts_cache_dir"}
+
 func NewTtsService(configSvc *systemconfig.SystemConfigService, aiAgent *agent.AIAgentService) *TtsService {
 	s := &TtsService{
 		configSvc:  configSvc,
@@ -92,6 +95,8 @@ func NewTtsService(configSvc *systemconfig.SystemConfigService, aiAgent *agent.A
 		flights:    make(map[string]chan struct{}),
 	}
 	s.RefreshConfig()
+	// 配置页保存 tts_* 键后异步刷新 (原 api 分发为 go 协程)
+	configSvc.Subscribe(ttsConfigKeys, func() { go s.RefreshConfig() })
 	return s
 }
 

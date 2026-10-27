@@ -3,7 +3,7 @@ package skill
 import (
 	"errors"
 
-	"backend/service/agent"
+	"backend/service/ai/agent"
 
 	"backend/model"
 

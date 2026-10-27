@@ -10,8 +10,8 @@ import (
 
 	iface "backend/interface"
 	"backend/model"
-	"backend/service/llmjson"
-	"backend/service/promptcfg"
+	"backend/service/ai/llmjson"
+	"backend/service/ai/promptcfg"
 )
 
 // QuizService 自动出题引擎: 词汇选择/例句挖空/原文语境/易混词辨析/听音拼写/句子翻译 (模板确定性出题)

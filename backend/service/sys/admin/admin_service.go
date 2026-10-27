@@ -1,7 +1,7 @@
 package admin
 
 import (
-	"backend/service/auth"
+	"backend/service/sys/auth"
 	crand "crypto/rand"
 	"errors"
 	"math/big"

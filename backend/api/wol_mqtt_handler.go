@@ -1,7 +1,7 @@
 package api
 
 import (
-	"backend/service/wol"
+	"backend/service/tool/wol"
 	"strconv"
 
 	"github.com/gin-gonic/gin"

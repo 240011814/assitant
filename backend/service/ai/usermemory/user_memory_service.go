@@ -3,11 +3,10 @@ package usermemory
 import (
 	iface "backend/interface"
 	"backend/model"
-	"backend/service/jobs"
+	"backend/service/ai/llmjson"
+	"backend/service/ai/promptcfg"
 	"backend/service/kernel"
-	"backend/service/llmjson"
-	"backend/service/promptcfg"
-	"backend/service/systemconfig"
+	"backend/service/sys/systemconfig"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -913,18 +912,6 @@ func normalizeDimensionValue(raw json.RawMessage) string {
 		}
 	}
 	return ""
-}
-
-// ============ 定时任务 ============
-
-func (s *UserMemoryService) RegisterCronTasks(js *jobs.JobScheduler) {
-	if js == nil {
-		return
-	}
-	js.RegisterTask("memory.extract_sessions", "抽取用户画像与经历(会话增量)", json.RawMessage(`{}`),
-		func(_ *model.JobDefinition, _ json.RawMessage) error {
-			return s.RunExtraction()
-		})
 }
 
 // ============ 辅助 ============

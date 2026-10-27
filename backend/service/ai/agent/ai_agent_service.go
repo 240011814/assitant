@@ -1,15 +1,15 @@
 package agent
 
 import (
+	"backend/service/ai/tokenusage"
 	"backend/service/kernel"
-	"backend/service/systemconfig"
-	"backend/service/tokenusage"
+	"backend/service/sys/systemconfig"
 
 	"gorm.io/gorm"
 
 	iface "backend/interface"
 	"backend/model"
-	"backend/service/tools"
+	"backend/service/aitools"
 	"context"
 	"encoding/json"
 	"errors"
@@ -77,6 +77,14 @@ func NewAIAgentService(timeoutMinutes int, sysCfgService *systemconfig.SystemCon
 		if s.timeoutConfig.AIRequestTimeout > 0 {
 			s.timeout = time.Duration(s.timeoutConfig.AIRequestTimeout) * time.Minute
 		}
+		// 超时配置键变更后异步重载 (模型实例/runner 与超时相关; systemconfig 自身缓存另有订阅)
+		sysCfgService.Subscribe(systemconfig.TimeoutConfigKeys, func() {
+			kernel.SafeGo("system_config:reload-timeout", func() {
+				if err := s.ReloadConfig(); err != nil {
+					log.Printf("[system_config] 超时配置重载失败: %v", err)
+				}
+			})
+		})
 	}
 	if err := s.ReloadConfig(); err != nil {
 		// 初始加载失败不阻塞启动，但记录日志
@@ -390,7 +398,7 @@ func (s *AIAgentService) buildTools() []tool.BaseTool {
 	}
 
 	for _, dbTool := range dbTools {
-		t, err := tools.CreateTool(dbTool.Name, dbTool.ConfigJSON)
+		t, err := aitools.CreateTool(dbTool.Name, dbTool.ConfigJSON)
 		if err != nil {
 			log.Printf("Failed to create tool %s: %v", dbTool.Name, err)
 			continue
@@ -615,7 +623,7 @@ func (s *AIAgentService) BuildToolByName(name string) (tool.BaseTool, error) {
 	if err := DB.Where("name = ? AND enabled = ?", name, true).First(&dbTool).Error; err != nil {
 		return nil, fmt.Errorf("工具不存在或未启用: %s", name)
 	}
-	t, err := tools.CreateTool(dbTool.Name, dbTool.ConfigJSON)
+	t, err := aitools.CreateTool(dbTool.Name, dbTool.ConfigJSON)
 	if err != nil {
 		return nil, err
 	}

@@ -13,7 +13,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"backend/model"
-	"backend/service/tools"
+	"backend/service/aitools"
 )
 
 func TestSanitizeMCPServerName(t *testing.T) {
@@ -114,12 +114,12 @@ func TestMCPRegisterToolsEndToEnd(t *testing.T) {
 	svc := NewMCPService()
 	srvRow := &model.MCPServer{Name: "Test Srv", Transport: "http", TimeoutSeconds: 5}
 	names := svc.registerToolsLocked(srvRow, eTools, cli)
-	t.Cleanup(func() { tools.Unregister(names...) })
+	t.Cleanup(func() { aitools.Unregister(names...) })
 
 	if len(names) != 1 || names[0] != "mcp_test_srv_echo" {
 		t.Fatalf("应注册 mcp_test_srv_echo, got %v", names)
 	}
-	meta, ok := tools.GetToolMeta("mcp_test_srv_echo")
+	meta, ok := aitools.GetToolMeta("mcp_test_srv_echo")
 	if !ok || meta.DisplayName != "echo" {
 		t.Fatalf("注册表元数据不符: %+v ok=%v", meta, ok)
 	}
@@ -128,7 +128,7 @@ func TestMCPRegisterToolsEndToEnd(t *testing.T) {
 	}
 
 	// 经注册表工厂路径构建并调用 (与 ai_tools 的 BuildToolByName 同路径)
-	inst, err := tools.CreateTool("mcp_test_srv_echo", "{}")
+	inst, err := aitools.CreateTool("mcp_test_srv_echo", "{}")
 	if err != nil {
 		t.Fatalf("CreateTool 失败: %v", err)
 	}
@@ -150,15 +150,15 @@ func TestMCPRegisterToolsEndToEnd(t *testing.T) {
 }
 
 func TestMCPUnregister(t *testing.T) {
-	tools.Register("mcp_test_unregister_dummy", "d", "d", struct{}{}, func(map[string]any) (tool.BaseTool, error) {
+	aitools.Register("mcp_test_unregister_dummy", "d", "d", struct{}{}, func(map[string]any) (tool.BaseTool, error) {
 		return nil, nil
 	})
-	t.Cleanup(func() { tools.Unregister("mcp_test_unregister_dummy") })
-	if _, ok := tools.GetToolMeta("mcp_test_unregister_dummy"); !ok {
+	t.Cleanup(func() { aitools.Unregister("mcp_test_unregister_dummy") })
+	if _, ok := aitools.GetToolMeta("mcp_test_unregister_dummy"); !ok {
 		t.Fatal("注册后应可见")
 	}
-	tools.Unregister("mcp_test_unregister_dummy")
-	if _, ok := tools.GetToolMeta("mcp_test_unregister_dummy"); ok {
+	aitools.Unregister("mcp_test_unregister_dummy")
+	if _, ok := aitools.GetToolMeta("mcp_test_unregister_dummy"); ok {
 		t.Fatal("注销后应不可见")
 	}
 }

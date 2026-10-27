@@ -1,10 +1,10 @@
 package orchestration
 
 import (
-	"backend/service/agent"
+	"backend/service/ai/agent"
+	"backend/service/ai/prompt"
+	"backend/service/ai/tokenusage"
 	"backend/service/kernel"
-	"backend/service/prompt"
-	"backend/service/tokenusage"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"backend/model"
-	"backend/service/tools"
+	"backend/service/aitools"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
@@ -689,7 +689,7 @@ func (s *AIOrchestrationService) DebugRun(ctx context.Context, userID uint, req 
 	runCtx = withOrchRunID(runCtx, runID)
 	// 用户 ID 放进 ctx: 编排运行没有 ADK 会话, user_info/mem0/reminder 等工具
 	// 靠它拿当前用户 (普通对话经 runner.Run(WithSessionValues) 注入, 不走这条)
-	runCtx = tools.WithRunUserID(runCtx, userID)
+	runCtx = aitools.WithRunUserID(runCtx, userID)
 
 	stream, runErr := compiled.runnable.Stream(runCtx, schema.UserMessage(req.Input), compose.WithCallbacks(handler))
 	if runErr != nil {

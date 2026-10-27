@@ -2,7 +2,7 @@ package notifier
 
 import (
 	"backend/service/kernel"
-	"backend/service/systemconfig"
+	"backend/service/sys/systemconfig"
 	"crypto/rand"
 	"crypto/subtle"
 	"errors"
@@ -30,11 +30,17 @@ type TelegramService struct {
 	running       bool
 }
 
+// telegramConfigKeys Telegram 相关的 system_config 键 (订阅热刷新与读取共用)
+var telegramConfigKeys = []string{"telegram_bot_token", "telegram_enabled", "telegram_webhook_url"}
+
 func NewTelegramService(sysCfgService *systemconfig.SystemConfigService) *TelegramService {
 	s := &TelegramService{
 		sysCfgService: sysCfgService,
 		stopCh:        make(chan struct{}),
 	}
+	// 配置页保存 telegram_* 键后重启 Bot; 连续保存多个键靠 ScheduleRestart 防抖,
+	// 避免多次 Stop/Start 与旧 long-poll 请求冲突
+	sysCfgService.Subscribe(telegramConfigKeys, func() { s.ScheduleRestart(800 * time.Millisecond) })
 	return s
 }
 

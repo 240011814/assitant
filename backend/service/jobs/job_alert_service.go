@@ -3,7 +3,7 @@ package jobs
 import (
 	iface "backend/interface"
 	"backend/model"
-	"backend/service/notifier"
+	"backend/service/notify/notifier"
 	"fmt"
 	"log"
 	"strings"

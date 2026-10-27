@@ -5,7 +5,7 @@ import (
 
 	"backend/model"
 	"backend/service/kernel"
-	"backend/service/lottery"
+	"backend/service/tool/lottery"
 
 	"github.com/gin-gonic/gin"
 )

@@ -1,7 +1,7 @@
 package api
 
 import (
-	"backend/service/tts"
+	"backend/service/ai/tts"
 	"net/http"
 	"strconv"
 	"strings"

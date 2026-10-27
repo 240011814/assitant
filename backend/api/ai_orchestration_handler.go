@@ -2,8 +2,8 @@ package api
 
 import (
 	"backend/model"
-	"backend/service/history"
-	"backend/service/orchestration"
+	"backend/service/ai/history"
+	"backend/service/ai/orchestration"
 	"log"
 	"strconv"
 	"strings"

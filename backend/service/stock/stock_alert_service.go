@@ -2,7 +2,7 @@ package stock
 
 import (
 	iface "backend/interface"
-	"backend/service/notifier"
+	"backend/service/notify/notifier"
 	"encoding/json"
 	"errors"
 	"fmt"

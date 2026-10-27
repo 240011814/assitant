@@ -1,60 +1,37 @@
 package api
 
 import (
-	"backend/service/agent"
-	"backend/service/kernel"
-	"backend/service/notifier"
-	"backend/service/rag"
-	"backend/service/systemconfig"
-	"backend/service/tts"
-	"backend/service/userdoc"
+	"backend/service/ai/rag"
+	"backend/service/ai/userdoc"
+	"backend/service/notify/notifier"
+	"backend/service/sys/systemconfig"
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	iface "backend/interface"
-	"backend/service/promptcfg"
+	"backend/service/ai/promptcfg"
 
 	"github.com/gin-gonic/gin"
 )
 
+// SystemConfigHandler 系统配置管理端点。配置变更的热刷新走 systemconfig 键订阅
+// (各业务构造时自注册), 本 handler 不再持有各业务服务, 只留测试连通性端点需要的
+// emailNotifier/ragSvc。
 type SystemConfigHandler struct {
-	configSvc       *systemconfig.SystemConfigService
-	telegramService *notifier.TelegramService
-	aiAgentSvc      *agent.AIAgentService
-	emailNotifier   *notifier.EmailNotifier
-	docSvc          *userdoc.UserDocumentService
-	ragSvc          *rag.RagService
-	ttsSvc          *tts.TtsService
+	configSvc     *systemconfig.SystemConfigService
+	emailNotifier *notifier.EmailNotifier
+	ragSvc        *rag.RagService
 }
 
-func NewSystemConfigHandler(configSvc *systemconfig.SystemConfigService, telegramService *notifier.TelegramService, emailNotifier *notifier.EmailNotifier, aiAgentSvc ...*agent.AIAgentService) *SystemConfigHandler {
-	h := &SystemConfigHandler{
-		configSvc:       configSvc,
-		telegramService: telegramService,
-		emailNotifier:   emailNotifier,
-	}
-	if len(aiAgentSvc) > 0 {
-		h.aiAgentSvc = aiAgentSvc[0]
-	}
-	return h
+func NewSystemConfigHandler(configSvc *systemconfig.SystemConfigService, emailNotifier *notifier.EmailNotifier) *SystemConfigHandler {
+	return &SystemConfigHandler{configSvc: configSvc, emailNotifier: emailNotifier}
 }
 
-// SetUserDocumentService 注入用户文档服务 (S3 存储配置变更后热刷新用)
-func (h *SystemConfigHandler) SetUserDocumentService(docSvc *userdoc.UserDocumentService) {
-	h.docSvc = docSvc
-}
-
-// SetRAGService 注入 RAG 服务 (rag_* 配置变更后热刷新 + 嵌入测试连接用)
+// SetRAGService 注入 RAG 服务 (嵌入测试连接端点用)
 func (h *SystemConfigHandler) SetRAGService(ragSvc *rag.RagService) {
 	h.ragSvc = ragSvc
-}
-
-// SetTtsService 注入 TTS 服务 (tts_* 配置变更后热刷新)
-func (h *SystemConfigHandler) SetTtsService(ttsSvc *tts.TtsService) {
-	h.ttsSvc = ttsSvc
 }
 
 func (h *SystemConfigHandler) GetAll(c *gin.Context) {
@@ -93,71 +70,9 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 		promptcfg.RefreshPromptCache()
 	}
 
-	// Telegram Bot Token 变更后重启 Bot
-	// 配置页会连续保存多个 telegram_* 键, 这里做防抖, 避免多次 Stop/Start 与旧 long-poll 请求冲突
-	if req.Key == "telegram_bot_token" || req.Key == "telegram_enabled" || req.Key == "telegram_webhook_url" {
-		if h.telegramService != nil {
-			h.telegramService.ScheduleRestart(800 * time.Millisecond)
-		}
-	}
-
-	// 超时配置变更后重新加载配置缓存和 AI 服务
-	timeoutKeys := []string{"ai_timeout_minutes", "ai_tls_handshake_timeout", "ai_response_header_timeout", "http_timeout_seconds"}
-	for _, key := range timeoutKeys {
-		if req.Key == key {
-			h.configSvc.ReloadTimeoutConfig()
-			if h.aiAgentSvc != nil {
-				kernel.SafeGo("system_config:reload-timeout", func() {
-					if err := h.aiAgentSvc.ReloadConfig(); err != nil {
-						log.Printf("[system_config] 超时配置重载失败: %v", err)
-					}
-				})
-			}
-			break
-		}
-	}
-
-	// SMTP 配置变更后刷新缓存
-	smtpKeys := []string{"smtp_host", "smtp_port", "smtp_encryption", "smtp_user", "smtp_password", "smtp_from", "smtp_from_name"}
-	for _, key := range smtpKeys {
-		if req.Key == key {
-			h.emailNotifier.RefreshConfig()
-			break
-		}
-	}
-
-	// S3 存储配置变更后热刷新用户文档存储连接
-	s3Keys := []string{"s3_enabled", "s3_endpoint", "s3_region", "s3_bucket", "s3_access_key", "s3_secret_key", "s3_secure", "s3_use_path_style", "s3_max_upload_mb"}
-	for _, key := range s3Keys {
-		if req.Key == key {
-			if h.docSvc != nil {
-				go h.docSvc.RefreshStorageConfig()
-			}
-			break
-		}
-	}
-
-	// RAG (文档语义检索) 配置变更后热刷新
-	ragKeys := []string{"rag_enabled", "rag_embedding_base_url", "rag_embedding_model", "rag_embedding_api_key", "rag_chunk_size", "rag_chunk_overlap", "rag_top_k"}
-	for _, key := range ragKeys {
-		if req.Key == key {
-			if h.ragSvc != nil {
-				go h.ragSvc.RefreshConfig()
-			}
-			break
-		}
-	}
-
-	// TTS (语音朗读) 配置变更后热刷新 (openai 模式端点和模型复用 AI Provider / 默认 TTS 模型)
-	ttsKeys := []string{"tts_mode", "tts_openai_voice", "tts_edge_voice_en", "tts_edge_voice_zh", "tts_frontend_voice", "tts_cache_dir"}
-	for _, key := range ttsKeys {
-		if req.Key == key {
-			if h.ttsSvc != nil {
-				go h.ttsSvc.RefreshConfig()
-			}
-			break
-		}
-	}
+	// 其余热刷新走键订阅: telegram_/超时/smtp_/s3_/rag_/tts_* 各业务在构造时向
+	// systemconfig 注册了回调, 这里统一分发 (键清单由各业务自持, 新增键不用改这里)
+	h.configSvc.NotifyChanged(req.Key)
 
 	SendSuccess(c, nil)
 }

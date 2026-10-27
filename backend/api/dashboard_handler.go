@@ -1,7 +1,7 @@
 package api
 
 import (
-	"backend/service/dashboard"
+	"backend/service/sys/dashboard"
 
 	"github.com/gin-gonic/gin"
 )

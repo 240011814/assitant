@@ -1,7 +1,7 @@
 package api
 
 import (
-	"backend/service/agenttask"
+	"backend/service/ai/agenttask"
 	"strconv"
 
 	"github.com/gin-gonic/gin"

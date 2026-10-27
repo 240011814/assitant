@@ -2,7 +2,7 @@ package api
 
 import (
 	"backend/model"
-	"backend/service/skill"
+	"backend/service/ai/skill"
 	"strconv"
 
 	"github.com/gin-gonic/gin"

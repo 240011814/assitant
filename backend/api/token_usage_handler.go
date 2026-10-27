@@ -1,7 +1,7 @@
 package api
 
 import (
-	"backend/service/tokenusage"
+	"backend/service/ai/tokenusage"
 	"strconv"
 	"time"
 

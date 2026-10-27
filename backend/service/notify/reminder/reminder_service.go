@@ -4,7 +4,7 @@ import (
 	iface "backend/interface"
 	"backend/model"
 	"backend/service/jobs"
-	notif "backend/service/notifier"
+	notif "backend/service/notify/notifier"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,16 +25,12 @@ type ReminderService struct {
 	notifiers    []iface.Notifier
 }
 
+// NewReminderService 构造服务 (任务注册统一在 tasks 包, 见 tasks.RegisterAll)
 func NewReminderService(jobScheduler *jobs.JobScheduler, notifiers ...iface.Notifier) *ReminderService {
-	s := &ReminderService{
+	return &ReminderService{
 		jobScheduler: jobScheduler,
 		notifiers:    notifiers,
 	}
-	// jobScheduler 可能为 nil (调度器创建失败时仅告警不阻断启动), 此时跳过任务注册
-	if jobScheduler != nil {
-		jobScheduler.RegisterTask(model.TaskNameReminder, "用户备忘提醒", json.RawMessage(`{"title":"标题","content":"内容"}`), s.reminderTaskHandler)
-	}
-	return s
 }
 
 // defToJob 定义 -> 备忘视图 (enabled=false 即已执行的 completed)
@@ -375,8 +371,8 @@ func (s *ReminderService) deleteDefinition(defID uint) error {
 	return nil
 }
 
-// reminderTaskHandler 备忘任务执行体: 按用户通知偏好发送
-func (s *ReminderService) reminderTaskHandler(def *model.JobDefinition, paramsRaw json.RawMessage) error {
+// ReminderTaskHandler 备忘任务执行体: 按用户通知偏好发送 (tasks 包注册时引用)
+func (s *ReminderService) ReminderTaskHandler(def *model.JobDefinition, paramsRaw json.RawMessage) error {
 	var params model.ReminderParams
 	if err := json.Unmarshal(paramsRaw, &params); err != nil {
 		return fmt.Errorf("解析参数失败: %v", err)

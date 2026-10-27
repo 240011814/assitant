@@ -1,7 +1,7 @@
 package api
 
 import (
-	"backend/service/auth"
+	"backend/service/sys/auth"
 	"errors"
 	"strings"
 

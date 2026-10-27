@@ -2,7 +2,7 @@ package prompt
 
 import (
 	"backend/model"
-	"backend/service/agent"
+	"backend/service/ai/agent"
 	"errors"
 	"fmt"
 	"strings"

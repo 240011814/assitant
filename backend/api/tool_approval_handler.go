@@ -1,8 +1,8 @@
 package api
 
 import (
-	"backend/service/agent"
-	"backend/service/history"
+	"backend/service/ai/agent"
+	"backend/service/ai/history"
 	"backend/service/kernel"
 	"io"
 	"log"

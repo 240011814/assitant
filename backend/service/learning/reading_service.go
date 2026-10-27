@@ -16,10 +16,10 @@ import (
 
 	iface "backend/interface"
 	"backend/model"
+	"backend/service/ai/llmjson"
+	"backend/service/ai/promptcfg"
 	"backend/service/kernel"
-	"backend/service/llmjson"
-	"backend/service/promptcfg"
-	"backend/service/tools"
+	"backend/service/aitools"
 )
 
 // ReadingService 分级阅读: 导入文章 → LLM 标注生词 → 点词即查即加 → AI 生成个性化课文
@@ -118,7 +118,7 @@ func (s *ReadingService) outboundAllowPrivate() bool {
 
 // fetchPageRaw 拉取页面原始 HTML (浏览器 UA, 15s 超时, 2MB 上限, 重定向逐跳复检目标地址)
 func fetchPageRaw(rawURL string, allowPrivate bool) (string, error) {
-	if err := tools.ValidateOutboundURL(rawURL, allowPrivate); err != nil {
+	if err := aitools.ValidateOutboundURL(rawURL, allowPrivate); err != nil {
 		return "", err
 	}
 	client := &http.Client{
@@ -127,7 +127,7 @@ func fetchPageRaw(rawURL string, allowPrivate bool) (string, error) {
 			if len(via) >= 5 {
 				return errors.New("重定向次数过多")
 			}
-			return tools.ValidateOutboundURL(req.URL.String(), allowPrivate)
+			return aitools.ValidateOutboundURL(req.URL.String(), allowPrivate)
 		},
 	}
 	req, err := http.NewRequest(http.MethodGet, rawURL, nil)

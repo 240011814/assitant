@@ -1,37 +1,36 @@
 package main
 
 import (
-	"backend/service/admin"
-	"backend/service/agent"
-	"backend/service/agenttask"
-	"backend/service/auth"
-	"backend/service/dashboard"
-	"backend/service/history"
+	"backend/service/ai/agent"
+	"backend/service/ai/agenttask"
+	"backend/service/ai/history"
+	"backend/service/ai/mcp"
+	"backend/service/ai/mem0"
+	"backend/service/ai/modelscenario"
+	"backend/service/ai/note"
+	"backend/service/ai/orchestration"
+	"backend/service/ai/prompt"
+	"backend/service/ai/rag"
+	"backend/service/ai/skill"
+	"backend/service/ai/tokenusage"
+	"backend/service/ai/tts"
+	"backend/service/ai/userdoc"
+	"backend/service/ai/usermemory"
 	"backend/service/jobs"
 	"backend/service/kernel"
-	"backend/service/mcp"
-	"backend/service/mem0"
-	"backend/service/mihoyo"
-	"backend/service/modelscenario"
-	"backend/service/note"
-	"backend/service/notifier"
-	"backend/service/orchestration"
-	"backend/service/prompt"
-	"backend/service/rag"
-	"backend/service/reminder"
-	"backend/service/skill"
+	"backend/service/notify/notifier"
+	"backend/service/notify/reminder"
 	"backend/service/stock"
-	"backend/service/systemconfig"
-	"backend/service/tokenusage"
-	"backend/service/tts"
-	"backend/service/userdoc"
-	"backend/service/usermemory"
-	"backend/service/userpref"
-	"backend/service/wol"
+	"backend/service/sys/admin"
+	"backend/service/sys/auth"
+	"backend/service/sys/dashboard"
+	"backend/service/sys/systemconfig"
+	"backend/service/sys/userpref"
+	"backend/service/tasks"
+	"backend/service/tool/mihoyo"
+	"backend/service/tool/wol"
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -41,13 +40,12 @@ import (
 
 	"backend/api"
 	"backend/config"
-	"backend/model"
 	"backend/service"
+	"backend/service/ai/promptcfg"
 	"backend/service/cut"
 	"backend/service/learning"
-	"backend/service/lottery"
-	"backend/service/promptcfg"
-	"backend/service/tools"
+	"backend/service/tool/lottery"
+	"backend/service/aitools"
 
 	"github.com/gin-gonic/gin"
 )
@@ -111,7 +109,7 @@ func main() {
 	stock.CH = service.CH
 	rag.CH = service.CH
 
-	tools.SetDB(service.DB)
+	aitools.SetDB(service.DB)
 
 	systemConfigService := systemconfig.NewSystemConfigService()
 
@@ -131,7 +129,7 @@ func main() {
 	// 用户画像/经历服务 (与 mem0 并存)
 	userMemoryService := usermemory.NewUserMemoryService(aiAgentService, systemConfigService)
 	aiAgentService.SetMemoryService(userMemoryService)
-	tools.SetUserMemoryService(userMemoryService)
+	aitools.SetUserMemoryService(userMemoryService)
 	userPortraitHandler := api.NewUserPortraitHandler(userMemoryService)
 
 	// mem0 从 ai_tools 表读取配置
@@ -142,15 +140,15 @@ func main() {
 	}
 	mem0Svc := mem0.NewMem0Service(mem0Timeout, service.DB)
 	mem0Svc.LoadFromTool()
-	tools.SetMem0Service(mem0Svc)
+	aitools.SetMem0Service(mem0Svc)
 
 	// 用户文档 (S3 存储, 配置在系统配置页 s3_* 键): 上传管理 + AI 文档读取工具
 	// RAG 文档语义检索 (向量存储当前用 ClickHouse, 换后端只需换 NewXxxVectorStore + OpenAI 兼容嵌入, 本地 Ollama):
 	// 配置在系统配置页 rag_* 键
 	ragService := rag.NewRagService(systemConfigService, rag.NewCHVectorStore())
 	userDocumentService := userdoc.NewUserDocumentService(systemConfigService, ragService)
-	tools.SetUserDocumentStore(userDocumentService)
-	tools.SetDocumentSearcher(userDocumentService)
+	aitools.SetUserDocumentStore(userDocumentService)
+	aitools.SetDocumentSearcher(userDocumentService)
 	userDocumentHandler := api.NewUserDocumentHandler(userDocumentService)
 
 	// MCP 服务动态注册 (配置在 mcp_servers 表, 管理页 CRUD):
@@ -178,7 +176,7 @@ func main() {
 
 	// Notification
 	emailNotifier := notifier.NewEmailNotifier(systemConfigService)
-	tools.SetEmailNotifier(emailNotifier)
+	aitools.SetEmailNotifier(emailNotifier)
 
 	// Job Scheduler
 	jobAlertService := jobs.NewJobAlertService(emailNotifier)
@@ -190,17 +188,15 @@ func main() {
 	// Reminder Service
 	reminderService := reminder.NewReminderService(jobScheduler, emailNotifier, telegramService)
 	reminderHandler := api.NewReminderHandler(reminderService)
-	tools.SetReminderService(reminderService)
+	aitools.SetReminderService(reminderService)
 
 	// TTS 语音合成 (tts_mode: frontend/openai/edge, 配置页保存后热刷新;
 	// openai 模式复用 AI 对话默认激活的 Provider, 不单独维护 key)
 	ttsService := tts.NewTtsService(systemConfigService, aiAgentService)
 	ttsHandler := api.NewTtsHandler(ttsService)
 
-	systemConfigHandler := api.NewSystemConfigHandler(systemConfigService, telegramService, emailNotifier, aiAgentService)
-	systemConfigHandler.SetUserDocumentService(userDocumentService)
+	systemConfigHandler := api.NewSystemConfigHandler(systemConfigService, emailNotifier)
 	systemConfigHandler.SetRAGService(ragService)
-	systemConfigHandler.SetTtsService(ttsService)
 
 	userPrefService := userpref.NewUserPreferenceService()
 	userPrefHandler := api.NewUserPreferenceHandler(userPrefService)
@@ -241,7 +237,10 @@ func main() {
 	rssHandler := api.NewRSSHandler(rssService)
 
 	stockService := stock.NewStockService()
-	stockHandler := api.NewStockHandler(stockService, cfg.Baostock.URL)
+	// baostock 同步服务: handler 的手动同步端点与 tasks 包的定时任务共用同一实例 (互斥锁同源)
+	stockSyncService := stock.NewStockSyncService(cfg.Baostock.URL)
+	stockChSyncService := stock.NewStockChSyncService()
+	stockHandler := api.NewStockHandler(stockService, stockSyncService, stockChSyncService)
 
 	// 自选股预警 (基于最新收盘评估, Telegram/邮件推送)
 	stockAlertService := stock.NewStockAlertService(emailNotifier, telegramService)
@@ -265,30 +264,19 @@ func main() {
 	mihoyoService := mihoyo.NewMihoyoService()
 	mihoyoHandler := api.NewMihoyoHandler(mihoyoService)
 
-	// Job Handler + 注册后台可调度的定时任务
+	// Job Handler + 注册后台可调度的定时任务 (全部注册收拢在 tasks 包, 按域一个文件)
 	jobHandler := api.NewJobHandler(jobScheduler)
-	if jobScheduler != nil {
-		stockHandler.RegisterCronTasks(jobScheduler)
-		userMemoryService.RegisterCronTasks(jobScheduler)
-		jobScheduler.RegisterTask("stock.evaluate_alerts", "评估自选股预警规则并推送 (建议每个交易日收盘后)", json.RawMessage(`{}`), func(_ *model.JobDefinition, _ json.RawMessage) error {
-			_, err := stockAlertService.EvaluateAll()
-			return err
-		})
-		// 操作审计日志清理 (默认种子任务: 每日 4 点, 保留 90 天, 可在任务管理页调整)
-		jobScheduler.RegisterTask("audit.cleanup", "清理过期的操作审计日志 (参数 retentionDays 为保留天数)", json.RawMessage(`{"retentionDays":90}`), func(_ *model.JobDefinition, params json.RawMessage) error {
-			return jobs.CleanupAuditLogs(params)
-		})
-		// RSS 订阅自动刷新 (种子任务: 每 30 分钟, 可在任务管理页调整 cron)
-		jobScheduler.RegisterTask("rss.refresh_all", "刷新全部 RSS 订阅源 (抓取新文章, 并发限流)", json.RawMessage(`{}`), func(_ *model.JobDefinition, _ json.RawMessage) error {
-			sources, inserted, failed := rssService.RefreshAllSources()
-			if sources > 0 && failed == sources {
-				return fmt.Errorf("全部 %d 个订阅源抓取失败", sources)
-			}
-			log.Printf("[rss.refresh_all] 源 %d, 新增 %d 条, 失败 %d", sources, inserted, failed)
-			return nil
-		})
-		mihoyoService.RegisterCronTasks(jobScheduler)
-	}
+	tasks.RegisterAll(&tasks.Deps{
+		JobScheduler: jobScheduler,
+		StockSync:    stockSyncService,
+		StockCh:      stockChSyncService,
+		StockAlert:   stockAlertService,
+		AgentTask:    agentTaskService,
+		UserMemory:   userMemoryService,
+		RSS:          rssService,
+		Reminder:     reminderService,
+		Mihoyo:       mihoyoService,
+	})
 
 	// 全部 HTTP 路由 (router.go)
 	setupRouter(r, &appDeps{

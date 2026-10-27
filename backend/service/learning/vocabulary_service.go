@@ -11,8 +11,8 @@ import (
 
 	iface "backend/interface"
 	"backend/model"
-	"backend/service/llmjson"
-	"backend/service/promptcfg"
+	"backend/service/ai/llmjson"
+	"backend/service/ai/promptcfg"
 )
 
 type VocabularyService struct {

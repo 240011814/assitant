@@ -1,8 +1,8 @@
 package api
 
 import (
-	"backend/service/auth"
-	"backend/service/systemconfig"
+	"backend/service/sys/auth"
+	"backend/service/sys/systemconfig"
 	"errors"
 	"net/http"
 	"strings"

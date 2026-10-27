@@ -1,7 +1,7 @@
 package api
 
 import (
-	"backend/service/prompt"
+	"backend/service/ai/prompt"
 	"strconv"
 
 	"github.com/gin-gonic/gin"

@@ -1,4 +1,4 @@
-package tools
+package aitools
 
 import (
 	interfaces "backend/interface"

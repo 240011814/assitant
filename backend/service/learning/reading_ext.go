@@ -16,9 +16,9 @@ import (
 	"gorm.io/gorm/clause"
 
 	"backend/model"
+	"backend/service/ai/llmjson"
+	"backend/service/ai/promptcfg"
 	"backend/service/kernel"
-	"backend/service/llmjson"
-	"backend/service/promptcfg"
 )
 
 // ===== 阅读↔记忆闭环 / 难度预估 / 划词翻译 / 词汇量测试 / 阅读埋点 =====

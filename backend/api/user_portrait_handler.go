@@ -2,7 +2,7 @@ package api
 
 import (
 	"backend/model"
-	"backend/service/usermemory"
+	"backend/service/ai/usermemory"
 	"encoding/json"
 	"log"
 	"strconv"

@@ -2,7 +2,7 @@ package api
 
 import (
 	"backend/model"
-	"backend/service/reminder"
+	"backend/service/notify/reminder"
 	"strconv"
 	"time"
 

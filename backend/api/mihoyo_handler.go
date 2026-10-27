@@ -9,7 +9,7 @@ package api
 // (见迁移 20261022000003, R_ADMIN 默认授予, 后台可调)。
 
 import (
-	"backend/service/mihoyo"
+	"backend/service/tool/mihoyo"
 	"time"
 
 	"github.com/gin-gonic/gin"

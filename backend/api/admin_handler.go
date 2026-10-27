@@ -1,16 +1,16 @@
 package api
 
 import (
-	"backend/service/admin"
-	"backend/service/agent"
-	"backend/service/auth"
+	"backend/service/ai/agent"
+	"backend/service/sys/admin"
+	"backend/service/sys/auth"
 	"log"
 	"strconv"
 
 	interfaces "backend/interface"
 	"backend/model"
 	"backend/service"
-	"backend/service/tools"
+	"backend/service/aitools"
 
 	"github.com/gin-gonic/gin"
 )
@@ -491,6 +491,6 @@ func (h *AdminHandler) HandleDeleteAITool(c *gin.Context) {
 	SendSuccess(c, nil)
 }
 func (h *AdminHandler) HandleListAIToolMetas(c *gin.Context) {
-	metas := tools.GetAllToolMeta()
+	metas := aitools.GetAllToolMeta()
 	SendSuccess(c, metas)
 }

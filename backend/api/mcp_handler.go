@@ -1,7 +1,7 @@
 package api
 
 import (
-	"backend/service/mcp"
+	"backend/service/ai/mcp"
 	"strconv"
 
 	"github.com/gin-gonic/gin"

@@ -17,7 +17,7 @@ import (
 
 	"backend/model"
 	"backend/service/kernel"
-	"backend/service/tools"
+	"backend/service/aitools"
 )
 
 // RSSService RSS 订阅: gofeed 解析 feed, 条目按 GUID 去重入库, 正文按需抓取缓存
@@ -106,7 +106,7 @@ func (s *RSSService) privateNetAllowed() bool {
 
 // fetchRSSFeed 抓取并解析 feed (浏览器 UA, 15s 超时, 2MB 上限, 重定向逐跳复检目标地址)
 func fetchRSSFeed(feedURL string, allowPrivate bool) (*gofeed.Feed, error) {
-	if err := tools.ValidateOutboundURL(feedURL, allowPrivate); err != nil {
+	if err := aitools.ValidateOutboundURL(feedURL, allowPrivate); err != nil {
 		return nil, err
 	}
 	client := &http.Client{
@@ -115,7 +115,7 @@ func fetchRSSFeed(feedURL string, allowPrivate bool) (*gofeed.Feed, error) {
 			if len(via) >= 5 {
 				return errors.New("重定向次数过多")
 			}
-			return tools.ValidateOutboundURL(req.URL.String(), allowPrivate)
+			return aitools.ValidateOutboundURL(req.URL.String(), allowPrivate)
 		},
 	}
 	req, err := http.NewRequest(http.MethodGet, feedURL, nil)

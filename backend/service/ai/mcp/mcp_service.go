@@ -1,7 +1,7 @@
 package mcp
 
 import (
-	"backend/service/agent"
+	"backend/service/ai/agent"
 	"backend/service/kernel"
 
 	"gorm.io/gorm"
@@ -23,7 +23,7 @@ import (
 	mcp "github.com/mark3labs/mcp-go/mcp"
 
 	"backend/model"
-	"backend/service/tools"
+	"backend/service/aitools"
 )
 
 // DB 本包专用数据库句柄, 由 main.go 接线赋值。
@@ -199,7 +199,7 @@ func (s *MCPService) connectServer(ctx context.Context, srv *model.MCPServer) er
 	// 临界区: 卸旧连接 + 注册新工具 + 记 entries
 	s.mu.Lock()
 	if old, ok := s.entries[srv.Name]; ok {
-		tools.Unregister(old.toolNames...)
+		aitools.Unregister(old.toolNames...)
 		_ = old.cli.Close()
 		delete(s.entries, srv.Name)
 	}
@@ -226,12 +226,12 @@ func (s *MCPService) registerToolsLocked(srv *model.MCPServer, eTools []tool.Bas
 		}
 		regName := mcpToolRegistryName(srv.Name, info.Name)
 		// 前缀折叠后可能与其它 server 撞名 (如 "Srv A"/"srv-a"): 已存在即跳过, 不覆盖别人的工具
-		if _, exists := tools.GetToolMeta(regName); exists {
+		if _, exists := aitools.GetToolMeta(regName); exists {
 			log.Printf("[MCP] 服务 %s 工具 %s 与其他工具重名, 跳过", srv.Name, regName)
 			continue
 		}
 		captured, regTimeout := et, time.Duration(timeout)*time.Second
-		tools.Register(regName, info.Name, info.Desc, mcpToolConfigStub{}, func(config map[string]any) (tool.BaseTool, error) {
+		aitools.Register(regName, info.Name, info.Desc, mcpToolConfigStub{}, func(config map[string]any) (tool.BaseTool, error) {
 			return &renamedMCPTool{name: regName, inner: captured, timeout: regTimeout}, nil
 		})
 		names = append(names, regName)
@@ -247,7 +247,7 @@ func (s *MCPService) disconnectServerLocked(name string) {
 	if !ok {
 		return
 	}
-	tools.Unregister(entry.toolNames...)
+	aitools.Unregister(entry.toolNames...)
 	_ = entry.cli.Close()
 	delete(s.entries, name)
 	s.invalidate()

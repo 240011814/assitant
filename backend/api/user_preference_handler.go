@@ -1,7 +1,7 @@
 package api
 
 import (
-	"backend/service/userpref"
+	"backend/service/sys/userpref"
 
 	"github.com/gin-gonic/gin"
 )

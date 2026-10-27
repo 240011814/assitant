@@ -1,7 +1,7 @@
 package api
 
 import (
-	"backend/service/note"
+	"backend/service/ai/note"
 	"strconv"
 
 	"backend/model"

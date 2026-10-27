@@ -2,9 +2,7 @@ package api
 
 import (
 	"backend/model"
-	"backend/service/jobs"
 	"backend/service/stock"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -18,84 +16,16 @@ import (
 // 防止任意字符拼进 baostock 代理 URL 与落库
 var stockCodePattern = regexp.MustCompile(`^(sh|sz|bj)\.\d{6}$`)
 
+// StockHandler 股票行情/选股 HTTP 端点; 数据同步的定时任务注册在 tasks 包 (tasks/stock_tasks.go)。
+// syncService/chService 由 main.go 构造并与 tasks 包共用同一实例, 保证手动同步与定时同步互斥。
 type StockHandler struct {
 	svc         *stock.StockService
 	syncService *stock.StockSyncService
 	chService   *stock.StockChSyncService
 }
 
-func NewStockHandler(svc *stock.StockService, baostockURL string) *StockHandler {
-	return &StockHandler{
-		svc:         svc,
-		syncService: stock.NewStockSyncService(baostockURL),
-		chService:   stock.NewStockChSyncService(),
-	}
-}
-
-// SyncService 暴露同步服务(供定时任务注册使用)
-func (h *StockHandler) SyncService() *stock.StockSyncService {
-	return h.syncService
-}
-
-// RegisterCronTasks 注册股票相关的后台定时任务
-func (h *StockHandler) RegisterCronTasks(js *jobs.JobScheduler) {
-	sync := h.syncService
-	ch := h.chService
-
-	js.RegisterTask("stock.sync_stock_list", "同步股票列表", json.RawMessage(`{}`), func(_ *model.JobDefinition, _ json.RawMessage) error {
-		return sync.RunExclusive("股票列表(定时)", sync.SyncStockList)
-	})
-
-	js.RegisterTask("stock.sync_daily_quotes", "同步行情数据(日/周/月K线, 增量)", json.RawMessage(`{"force": false}`), func(_ *model.JobDefinition, params json.RawMessage) error {
-		force := false
-		if len(params) > 0 {
-			var p struct {
-				Force bool `json:"force"`
-			}
-			if err := json.Unmarshal(params, &p); err == nil {
-				force = p.Force
-			}
-		}
-		task := "行情数据(定时)"
-		if force {
-			task = "行情数据全量(定时)"
-		}
-		return sync.RunExclusive(task, func() error { return sync.SyncDailyQuotes(force) })
-	})
-
-	js.RegisterTask("stock.sync_finance_all", "同步全部股票财务数据(增量)", json.RawMessage(`{}`), func(_ *model.JobDefinition, _ json.RawMessage) error {
-		return sync.RunExclusive("全部财务数据(定时)", sync.SyncAllFinance)
-	})
-
-	js.RegisterTask("stock.sync_macro", "同步宏观经济数据(存款/贷款利率/准备金率/货币供应量)", json.RawMessage(`{}`), func(_ *model.JobDefinition, _ json.RawMessage) error {
-		return sync.RunExclusive("宏观经济数据(定时)", func() error { return sync.SyncMacroData(false) })
-	})
-
-	js.RegisterTask("stock.sync_clickhouse", "同步行情/财务到ClickHouse(增量)", json.RawMessage(`{"full": false}`), func(_ *model.JobDefinition, params json.RawMessage) error {
-		full := false
-		if len(params) > 0 {
-			var p struct {
-				Full bool `json:"full"`
-			}
-			if err := json.Unmarshal(params, &p); err == nil {
-				full = p.Full
-			}
-		}
-		task := "ClickHouse同步(定时)"
-		if full {
-			task = "ClickHouse全量重建(定时)"
-		}
-		// CH 复制不消耗 baostock 配额, 用独立互斥: 卡住/全量重建期间不阻塞行情/财务同步
-		return ch.RunExclusive(task, func() error {
-			if !stock.ChEnabled() {
-				return nil
-			}
-			if full {
-				return ch.SyncFull()
-			}
-			return ch.SyncIncremental()
-		})
-	})
+func NewStockHandler(svc *stock.StockService, syncService *stock.StockSyncService, chService *stock.StockChSyncService) *StockHandler {
+	return &StockHandler{svc: svc, syncService: syncService, chService: chService}
 }
 
 // HandleScreen 股票筛选

@@ -1,7 +1,7 @@
 package rag
 
 import (
-	"backend/service/systemconfig"
+	"backend/service/sys/systemconfig"
 
 	"bytes"
 	"context"
@@ -57,6 +57,9 @@ type RagService struct {
 
 // NewRagService 构造并加载一次配置 (system_config 中尚无 rag_* 键时为全默认值);
 // store 为向量存储实现, 允许 nil (检索/索引整体降级关闭)
+// ragConfigKeys RAG (文档语义检索) 相关的 system_config 键 (订阅热刷新与读取共用)
+var ragConfigKeys = []string{"rag_enabled", "rag_embedding_base_url", "rag_embedding_model", "rag_embedding_api_key", "rag_chunk_size", "rag_chunk_overlap", "rag_top_k"}
+
 func NewRagService(configSvc *systemconfig.SystemConfigService, store VectorStore) *RagService {
 	s := &RagService{
 		configSvc:  configSvc,
@@ -64,6 +67,8 @@ func NewRagService(configSvc *systemconfig.SystemConfigService, store VectorStor
 		httpClient: &http.Client{Timeout: ragEmbedTimeout},
 	}
 	s.RefreshConfig()
+	// 配置页保存 rag_* 键后异步刷新 (原 api 分发为 go 协程)
+	configSvc.Subscribe(ragConfigKeys, func() { go s.RefreshConfig() })
 	return s
 }
 

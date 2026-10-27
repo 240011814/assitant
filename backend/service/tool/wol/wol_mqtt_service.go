@@ -1,7 +1,7 @@
 package wol
 
 import (
-	"backend/service/systemconfig"
+	"backend/service/sys/systemconfig"
 
 	"encoding/json"
 	"errors"
@@ -165,21 +165,18 @@ func NewWolMqttService(configSvc *systemconfig.SystemConfigService) *WolMqttServ
 	}
 }
 
-// LoadConfig 从 system_config 读取 MQTT 配置
+// LoadConfig 从 system_config 读取 MQTT 配置 (wol_mqtt_* 前缀批量读取)
 func (s *WolMqttService) LoadConfig() WolMqttConfig {
-	host, _ := s.configSvc.GetValue(wolConfigHost)
-	portStr, _ := s.configSvc.GetValue(wolConfigPort)
+	cfg := s.configSvc.GetByPrefix("wol_mqtt_")
 	port := wolDefaultPort
-	if n, err := strconv.Atoi(strings.TrimSpace(portStr)); err == nil && n > 0 {
+	if n, err := strconv.Atoi(strings.TrimSpace(cfg["port"])); err == nil && n > 0 {
 		port = n
 	}
-	username, _ := s.configSvc.GetValue(wolConfigUsername)
-	password, _ := s.configSvc.GetValue(wolConfigPassword)
 	return WolMqttConfig{
-		Host:        strings.TrimSpace(host),
+		Host:        strings.TrimSpace(cfg["host"]),
 		Port:        port,
-		Username:    username,
-		HasPassword: password != "",
+		Username:    cfg["username"],
+		HasPassword: cfg["password"] != "",
 	}
 }
 

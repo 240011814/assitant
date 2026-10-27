@@ -11,9 +11,7 @@ import (
 	// go 会话里每张二维码对应一个 cookiejar: queryQRLoginStatus 确认后的登录态
 	// 会落进会话 Cookie (qr_login.py 的"方案一"), tokens 数组是"方案二"兜底。
 
-	"backend/service/jobs"
 	"backend/service/kernel"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -483,16 +481,6 @@ func (s *MihoyoService) refreshCredential(cred *model.MihoyoCredential, client *
 		log.Printf("[Mihoyo] 更新续期后的凭据失败: %v", err)
 	}
 	return buildCookie(cred), nil
-}
-
-// ============ 定时任务注册 ============// RegisterCronTasks 注册原神签到定时任务 (job_definitions 里可改 cron/参数)
-func (s *MihoyoService) RegisterCronTasks(js *jobs.JobScheduler) {
-	js.RegisterTask(model.TaskNameMihoyoGenshinCheckin,
-		"原神每日签到 (所有已扫码绑定的账号, 失败可邮件告警)",
-		json.RawMessage(`{}`),
-		func(_ *model.JobDefinition, _ json.RawMessage) error {
-			return s.CheckinAll()
-		})
 }
 
 func firstNonEmpty(a, b string) string {
