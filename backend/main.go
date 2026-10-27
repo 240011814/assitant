@@ -40,7 +40,6 @@ import (
 	"backend/api"
 	"backend/config"
 	"backend/service"
-	"backend/service/ai/promptcfg"
 	"backend/service/aitools"
 	"backend/service/cut"
 	"backend/service/tool/lottery"
@@ -71,7 +70,7 @@ func main() {
 	// 业务子包各自的 DB 接线: 子包声明 var DB, 这里统一注入 (子包内部 DB. 调用点无需改)
 	lottery.DB = db
 	cut.DB = db
-	promptcfg.DB = db
+	prompt.DB = db
 	learning.DB = db
 	systemconfig.DB = db
 	auth.DB = db

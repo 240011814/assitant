@@ -1,6 +1,7 @@
 package api
 
 import (
+	"backend/service/ai/prompt"
 	"backend/service/ai/rag"
 	"backend/service/ai/userdoc"
 	"backend/service/notify/notifier"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	iface "backend/interface"
-	"backend/service/ai/promptcfg"
 
 	"github.com/gin-gonic/gin"
 )
@@ -67,7 +67,7 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 
 	// prompt_* 内置提示词配置变更: 重建提示词缓存, 保存后所有 LLM 调用立即用新提示词
 	if strings.HasPrefix(req.Key, "prompt_") {
-		promptcfg.RefreshPromptCache()
+		prompt.RefreshPromptCache()
 	}
 
 	// 其余热刷新走键订阅: telegram_/超时/smtp_/s3_/rag_/tts_* 各业务在构造时向
@@ -79,7 +79,7 @@ func (h *SystemConfigHandler) Update(c *gin.Context) {
 
 // HandleListPrompts 内置 AI 提示词列表 (当前生效值 + 内置默认值, 供配置页管理)
 func (h *SystemConfigHandler) HandleListPrompts(c *gin.Context) {
-	SendSuccess(c, promptcfg.ListPrompts())
+	SendSuccess(c, prompt.ListPrompts())
 }
 
 // GetRegisterStatus 公开接口，供登录页检查注册是否开启

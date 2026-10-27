@@ -12,7 +12,7 @@ import (
 	iface "backend/interface"
 	"backend/model"
 	"backend/service/ai/llmjson"
-	"backend/service/ai/promptcfg"
+	"backend/service/ai/prompt"
 )
 
 type VocabularyService struct {
@@ -528,7 +528,7 @@ func (s *VocabularyService) AssistForgetfulWord(userID, id uint) (*model.Vocabul
 		return nil, errors.New("AI 服务未启用")
 	}
 
-	system := promptcfg.GetPrompt(promptcfg.PromptKeyVocabAssist)
+	system := prompt.GetPrompt(prompt.PromptKeyVocabAssist)
 	user := fmt.Sprintf("单词: %s\n释义: %s\n已有例句(请避开类似场景): %s",
 		word.Word, word.Definition, word.Example)
 	raw, err := s.agentSvc.GenerateText(userID, "", system, user)
@@ -628,7 +628,7 @@ func (s *VocabularyService) ExtractWordsFromDocument(userID, documentID uint, li
 		knownList = knownList[:6000]
 	}
 
-	system := promptcfg.GetPrompt(promptcfg.PromptKeyVocabExtract)
+	system := prompt.GetPrompt(prompt.PromptKeyVocabExtract)
 	user := fmt.Sprintf("文章:\n%s\n\n用户已有的生词本单词 (这些不要重复提取):\n%s\n\n最多提取 %d 个生词。",
 		chunk, knownList, limit)
 	raw, err := s.agentSvc.GenerateText(userID, "", system, user)

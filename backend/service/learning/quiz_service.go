@@ -11,7 +11,7 @@ import (
 	iface "backend/interface"
 	"backend/model"
 	"backend/service/ai/llmjson"
-	"backend/service/ai/promptcfg"
+	"backend/service/ai/prompt"
 )
 
 // QuizService 自动出题引擎: 词汇选择/例句挖空/原文语境/易混词辨析/听音拼写/句子翻译 (模板确定性出题)
@@ -629,7 +629,7 @@ func (s *QuizService) SentencePractice(userID uint, req model.SentencePracticeRe
 		return nil, errors.New("生词不存在")
 	}
 
-	system := promptcfg.GetPrompt(promptcfg.PromptKeySentenceReview)
+	system := prompt.GetPrompt(prompt.PromptKeySentenceReview)
 	user := fmt.Sprintf("目标单词: %s\n释义: %s\n用户造句: %s", word.Word, word.Definition, req.Sentence)
 	raw, err := s.agentSvc.GenerateText(userID, "", system, user)
 	if err != nil {

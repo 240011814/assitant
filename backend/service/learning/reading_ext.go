@@ -17,7 +17,7 @@ import (
 
 	"backend/model"
 	"backend/service/ai/llmjson"
-	"backend/service/ai/promptcfg"
+	"backend/service/ai/prompt"
 	"backend/service/kernel"
 )
 
@@ -228,7 +228,7 @@ func (s *ReadingService) TranslateText(userID uint, text string) (string, error)
 	if s.agentSvc == nil {
 		return "", errors.New("AI 服务未启用")
 	}
-	system := promptcfg.GetPrompt(promptcfg.PromptKeyTranslate)
+	system := prompt.GetPrompt(prompt.PromptKeyTranslate)
 	raw, err := s.agentSvc.GenerateText(userID, "", system, text)
 	if err != nil {
 		return "", fmt.Errorf("翻译失败: %w", err)
@@ -269,7 +269,7 @@ func (s *ReadingService) StartVocabTest(userID uint) (*model.AITextJob, error) {
 }
 
 func (s *ReadingService) generateVocabTest(userID uint) ([]model.VocabTestQuestion, error) {
-	system := promptcfg.GetPrompt(promptcfg.PromptKeyVocabTest)
+	system := prompt.GetPrompt(prompt.PromptKeyVocabTest)
 	raw, err := s.agentSvc.GenerateTextWithTimeout(userID, "", system, "请出题。", slowGenTimeout)
 	if err != nil {
 		return nil, err

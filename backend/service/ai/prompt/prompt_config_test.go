@@ -1,4 +1,4 @@
-package promptcfg
+package prompt
 
 import (
 	"os"

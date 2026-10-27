@@ -4,7 +4,7 @@ import (
 	iface "backend/interface"
 	"backend/model"
 	"backend/service/ai/llmjson"
-	"backend/service/ai/promptcfg"
+	"backend/service/ai/prompt"
 	"backend/service/kernel"
 	"backend/service/sys/systemconfig"
 	"encoding/json"
@@ -794,7 +794,7 @@ func (s *UserMemoryService) extractWithLLM(userID uint, title, transcript string
 		sessionTime.Format("2006-01-02 15:04"),
 		transcript,
 	)
-	raw, err := s.agentSvc.GenerateText(userID, modelOverride, promptcfg.GetPrompt(promptcfg.PromptKeyMemoryExtract), userPrompt)
+	raw, err := s.agentSvc.GenerateText(userID, modelOverride, prompt.GetPrompt(prompt.PromptKeyMemoryExtract), userPrompt)
 	if err != nil {
 		return nil, err
 	}
@@ -833,7 +833,7 @@ func (s *UserMemoryService) MergeProfileFacts(userID uint, facts []model.Profile
 	factsJSON, _ := json.Marshal(facts)
 	userPrompt := fmt.Sprintf("【当前画像】\n%s\n\n【新增事实】\n%s", string(curJSON), string(factsJSON))
 
-	raw, err := s.agentSvc.GenerateText(userID, cfg.Model, promptcfg.GetPrompt(promptcfg.PromptKeyMemoryMerge), userPrompt)
+	raw, err := s.agentSvc.GenerateText(userID, cfg.Model, prompt.GetPrompt(prompt.PromptKeyMemoryMerge), userPrompt)
 	if err != nil {
 		return err
 	}

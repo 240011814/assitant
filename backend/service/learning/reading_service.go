@@ -17,7 +17,7 @@ import (
 	iface "backend/interface"
 	"backend/model"
 	"backend/service/ai/llmjson"
-	"backend/service/ai/promptcfg"
+	"backend/service/ai/prompt"
 	"backend/service/aitools"
 	"backend/service/kernel"
 )
@@ -589,7 +589,7 @@ func (s *ReadingService) AnnotateWordsForText(userID uint, text string) ([]model
 	if s.agentSvc == nil {
 		return nil, errors.New("AI 服务未启用")
 	}
-	system := promptcfg.GetPrompt(promptcfg.PromptKeyReadingAnnotate)
+	system := prompt.GetPrompt(prompt.PromptKeyReadingAnnotate)
 	user := fmt.Sprintf("文章:\n%s\n\n最多标注 40 个。", text)
 	raw, err := s.agentSvc.GenerateTextWithTimeout(userID, "", system, user, slowGenTimeout)
 	if err != nil {
@@ -642,7 +642,7 @@ func (s *ReadingService) LookupWord(userID uint, word string) (*LookupWordRespon
 			// 免费词典命中: LLM 只补一句中文释义 (短调用, 秒级)
 			translation := ""
 			if s.agentSvc != nil {
-				if raw, err := s.agentSvc.GenerateText(userID, "", promptcfg.GetPrompt(promptcfg.PromptKeyDictTranslate), definition); err == nil {
+				if raw, err := s.agentSvc.GenerateText(userID, "", prompt.GetPrompt(prompt.PromptKeyDictTranslate), definition); err == nil {
 					translation = strings.TrimSpace(raw)
 				}
 			}
@@ -656,7 +656,7 @@ func (s *ReadingService) LookupWord(userID uint, word string) (*LookupWordRespon
 			if s.agentSvc == nil {
 				return nil, errors.New("AI 服务未启用")
 			}
-			system := promptcfg.GetPrompt(promptcfg.PromptKeyDictLLM)
+			system := prompt.GetPrompt(prompt.PromptKeyDictLLM)
 			raw, err := s.agentSvc.GenerateText(userID, "", system, "单词: "+word)
 			if err != nil {
 				return nil, fmt.Errorf("查词失败: %w", err)
@@ -752,7 +752,7 @@ func (s *ReadingService) generatePassageSync(userID uint, req model.GeneratePass
 		level = a.CEFR
 	}
 	// 难度占位符 {level} 替换 (不用 fmt.Sprintf: 提示词可配置, 用户文本里的 % 会被 Sprintf 破坏)
-	system := strings.ReplaceAll(promptcfg.GetPrompt(promptcfg.PromptKeyReadingPassage), "{level}", level)
+	system := strings.ReplaceAll(prompt.GetPrompt(prompt.PromptKeyReadingPassage), "{level}", level)
 	user := fmt.Sprintf("必须使用的单词: %s\n句子数量: %d 句左右。", strings.Join(wordList, ", "), count)
 	raw, err := s.agentSvc.GenerateTextWithTimeout(userID, "", system, user, slowGenTimeout)
 	if err != nil {

@@ -3,7 +3,7 @@ package interfaces
 import "backend/model"
 
 // 本文件定义 learning 集群 (分级阅读/RSS/词汇/测验/课程/错题本/FSRS) 对集群外服务
-// 所需的最小能力面。learning 只 import model + 已下沉的共享包 (kernel/llmjson/promptcfg),
+// 所需的最小能力面。learning 只 import model + 已下沉的共享包 (kernel/llmjson/prompt),
 // 通过这些接口解耦对 ai/user/system-config 具体服务的依赖, 从而可独立成包且不成环。
 
 // PreferenceGetter 用户偏好读取能力 (由 service.UserPreferenceService 实现)。
