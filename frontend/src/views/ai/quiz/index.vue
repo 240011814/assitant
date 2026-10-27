@@ -15,6 +15,9 @@ import { useAppStore } from "@/store/modules/app";
 const appStore = useAppStore();
 const message = useMessage();
 
+// 页顶 Tab: 练习 / 造句批改
+const activeTab = ref("quiz");
+
 // ===================== 配置 =====================
 const typeOptions: Array<{ value: QuizType; label: string; icon: string }> = [
   { value: "word2def", label: "看词选义", icon: "mdi:book-open-variant" },
@@ -224,6 +227,7 @@ const nextQuestion = () => {
 
 // ===================== 键盘流: 1-4/a-d 选选项, Enter 提交/下一题 =====================
 const handleKeydown = (e: KeyboardEvent) => {
+  if (activeTab.value !== "quiz") return;
   if (!currentQuestion.value || showSummary.value) return;
   const target = e.target as HTMLElement | null;
   if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) return;
@@ -257,7 +261,6 @@ const spSubmitting = ref(false);
 const spResult = ref<{ score: number; correct: boolean; grammar: string[]; improved: string; comment: string; word: string } | null>(null);
 const vocabOptions = ref<{ label: string; value: number }[]>([]);
 const vocabSearching = ref(false);
-const showSentencePractice = ref(false);
 
 // 远程搜索目标词 (大词库不再截断前 200)
 const searchVocabOptions = async (keyword: string) => {
@@ -304,7 +307,7 @@ onActivated(() => {
 <template>
   <div class="h-full flex-col flex gap-4 overflow-auto" :class="appStore.isMobile ? 'p-2' : 'p-4'">
     <!-- 未完成会话恢复横幅 -->
-    <NAlert v-if="resumable && !session" type="info" :bordered="false">
+    <NAlert v-if="activeTab === 'quiz' && resumable && !session" type="info" :bordered="false">
       <div class="flex items-center justify-between gap-4 w-full flex-wrap">
         <span>有一轮练习进行中 ({{ resumable.session.answered }}/{{ resumable.session.total }} 题), 要继续吗?</span>
         <span class="flex gap-2 shrink-0">
@@ -314,8 +317,29 @@ onActivated(() => {
       </div>
     </NAlert>
 
+    <!-- 顶部模式切换: 练习 / 造句批改 -->
+    <NTabs
+      v-model:value="activeTab"
+      type="segment"
+      :size="appStore.isMobile ? 'small' : 'medium'"
+      class="mx-auto w-full md:max-w-360px"
+    >
+      <NTab name="quiz">
+        <div class="flex items-center justify-center gap-2">
+          <IconMdiBookOpenVariant class="text-16px" />
+          <span>练习</span>
+        </div>
+      </NTab>
+      <NTab name="sentence">
+        <div class="flex items-center justify-center gap-2">
+          <IconMdiSpellcheck class="text-16px" />
+          <span>造句批改</span>
+        </div>
+      </NTab>
+    </NTabs>
+
     <!-- 配置 -->
-    <template v-if="!session">
+    <template v-if="activeTab === 'quiz' && !session">
       <NCard :bordered="false" :shadow="appStore.isMobile ? false : 'sm'" class="flex-1">
         <div class="flex flex-col items-center gap-8 py-4 md:py-8 max-w-3xl mx-auto w-full">
           <div class="text-center">
@@ -365,51 +389,10 @@ onActivated(() => {
           </div>
         </div>
       </NCard>
-
-      <!-- 造句批改 (默认折叠的次要入口) -->
-      <NCard :bordered="false" :shadow="false" size="small">
-        <div class="flex items-center justify-between cursor-pointer select-none" @click="showSentencePractice = !showSentencePractice">
-          <div class="flex items-center gap-2 text-sm font-bold">
-            <SvgIcon :icon="showSentencePractice ? 'mdi:chevron-down' : 'mdi:chevron-right'" class="text-18px text-gray-400" />
-            造句批改 (AI)
-          </div>
-          <span class="text-xs text-gray-400">用生词造句, AI 打分与批改</span>
-        </div>
-        <div v-if="showSentencePractice" class="flex flex-col gap-4 pt-4">
-          <div class="flex flex-wrap gap-3 md:gap-4 items-center">
-            <NSelect
-              v-model:value="spWordId"
-              :options="vocabOptions"
-              :loading="vocabSearching"
-              filterable
-              remote
-              clearable
-              placeholder="搜索目标词"
-              class="w-full md:w-300px"
-              @search="searchVocabOptions"
-            />
-            <NInput
-              v-model:value="spSentence"
-              placeholder="用这个词造一个英文句子"
-              class="flex-1 min-w-0 md:min-w-240px"
-              @keyup.enter="handleSentencePractice"
-            />
-            <NButton type="primary" :loading="spSubmitting" @click="handleSentencePractice">批改</NButton>
-          </div>
-          <NAlert v-if="spResult" :type="spResult.correct ? 'success' : 'warning'" :bordered="false">
-            <div class="font-bold mb-1">{{ spResult.word }} — 得分 {{ spResult.score }}/100</div>
-            <ul v-if="spResult.grammar?.length" class="list-disc pl-5 text-sm">
-              <li v-for="(g, i) in spResult.grammar" :key="i">{{ g }}</li>
-            </ul>
-            <div class="text-sm mt-1">改进: {{ spResult.improved }}</div>
-            <div class="text-xs mt-1 text-gray-500">{{ spResult.comment }}</div>
-          </NAlert>
-        </div>
-      </NCard>
     </template>
 
     <!-- 答题 -->
-    <NCard v-else-if="currentQuestion && !showSummary" :bordered="false" :shadow="appStore.isMobile ? false : 'sm'" class="flex-1">
+    <NCard v-else-if="activeTab === 'quiz' && session && currentQuestion && !showSummary" :bordered="false" :shadow="appStore.isMobile ? false : 'sm'" class="flex-1">
       <template #header>
         <div class="flex items-center gap-2 md:gap-4 min-w-0">
           <span class="shrink-0 text-sm md:text-base">第 {{ qIndex + 1 }} / {{ questions.length }} 题</span>
@@ -514,7 +497,7 @@ onActivated(() => {
     </NCard>
 
     <!-- 完成 -->
-    <NCard v-else :bordered="false" :shadow="appStore.isMobile ? false : 'sm'" class="flex-1">
+    <NCard v-else-if="activeTab === 'quiz'" :bordered="false" :shadow="appStore.isMobile ? false : 'sm'" class="flex-1">
       <div class="flex flex-col items-center gap-7 py-6 md:py-10 max-w-xl mx-auto w-full">
         <div class="text-center">
           <div class="text-lg font-bold">练习完成</div>
@@ -564,6 +547,50 @@ onActivated(() => {
         </div>
       </div>
     </NCard>
+
+    <!-- Tab: 造句批改 -->
+    <template v-if="activeTab === 'sentence'">
+      <NCard :bordered="false" :shadow="appStore.isMobile ? false : 'sm'" class="flex-1">
+        <div class="flex flex-col items-center gap-6 md:gap-8 py-4 md:py-8 max-w-3xl mx-auto w-full">
+          <div class="text-center">
+            <div class="text-2xl font-bold">造句批改</div>
+            <div class="text-sm text-gray-400 mt-1">用生词造句, AI 打分与批改</div>
+          </div>
+
+          <!-- 输入区 -->
+          <div class="w-full flex flex-col md:flex-row md:items-center md:flex-wrap gap-3">
+            <NSelect
+              v-model:value="spWordId"
+              :options="vocabOptions"
+              :loading="vocabSearching"
+              filterable
+              remote
+              clearable
+              placeholder="搜索目标词"
+              class="w-full md:w-320px"
+              @search="searchVocabOptions"
+            />
+            <NInput
+              v-model:value="spSentence"
+              placeholder="用这个词造一个英文句子"
+              class="w-full md:flex-1 md:min-w-200px"
+              @keyup.enter="handleSentencePractice"
+            />
+            <NButton type="primary" :loading="spSubmitting" class="w-full md:w-auto" @click="handleSentencePractice">批改</NButton>
+          </div>
+
+          <!-- 批改结果 -->
+          <NAlert v-if="spResult" :type="spResult.correct ? 'success' : 'warning'" :bordered="false" class="w-full">
+            <div class="font-bold mb-1">{{ spResult.word }} — 得分 {{ spResult.score }}/100</div>
+            <ul v-if="spResult.grammar?.length" class="list-disc pl-5 text-sm">
+              <li v-for="(g, i) in spResult.grammar" :key="i">{{ g }}</li>
+            </ul>
+            <div class="text-sm mt-1">改进: {{ spResult.improved }}</div>
+            <div class="text-xs mt-1 text-gray-500">{{ spResult.comment }}</div>
+          </NAlert>
+        </div>
+      </NCard>
+    </template>
   </div>
 </template>
 
