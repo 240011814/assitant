@@ -595,7 +595,7 @@ onActivated(() => {
 </template>
 
 <style scoped>
-/* 题型选择块: 图标+文字的胶囊, 选中主题色 */
+/* 题型选择块: 图标+文字的胶囊, 选中用主题色实底+白字, 区分明显 */
 .quiz-type-chip {
   display: inline-flex;
   align-items: center;
@@ -609,13 +609,14 @@ onActivated(() => {
   color: inherit;
   background: transparent;
 }
-.quiz-type-chip:hover {
-  border-color: var(--primary-color);
+.quiz-type-chip:not(.quiz-type-chip-on):hover {
+  border-color: rgb(var(--primary-color) / 0.6);
+  background: rgb(var(--primary-color) / 0.08);
 }
 .quiz-type-chip-on {
-  border-color: var(--primary-color);
-  background: rgba(var(--primary-color-rgb, 100 108 255), 0.08);
-  color: var(--primary-color);
+  border-color: rgb(var(--primary-color));
+  background: rgb(var(--primary-color));
+  color: #fff;
   font-weight: 600;
 }
 
