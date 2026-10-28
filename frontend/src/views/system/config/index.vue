@@ -428,6 +428,16 @@ function clearRowOverride(r: ApiRouteTimeout) {
   apiTimeoutEdits.value[apiTimeoutKey(r)] = 0;
 }
 
+/** 按路由覆盖列表: 已覆盖项 + 本次编辑将新增的覆盖项 (编辑为 0 = 待恢复默认, 不算覆盖) */
+const apiTimeoutOverrideRows = computed(() =>
+  apiTimeoutRoutes.value.filter(r => r.custom || (apiTimeoutEdits.value[apiTimeoutKey(r)] ?? 0) > 0)
+);
+
+/** 该行是否有未保存的修改 (覆盖列表与全量表共用) */
+function rowPending(r: ApiRouteTimeout): boolean {
+  return apiTimeoutEdits.value[apiTimeoutKey(r)] !== undefined;
+}
+
 async function saveApiTimeoutDefault() {
   savingApiTimeoutDefault.value = true;
   try {
@@ -1042,6 +1052,62 @@ onUnmounted(() => {
                 </span>
               </NFormItem>
             </NForm>
+            <!-- 按路由覆盖 (只列非默认项: 已保存的覆盖 + 本次编辑将新增的覆盖) -->
+            <div class="mt-2 mb-4">
+              <div class="text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+                {{ $t("page.system.config.apiTimeoutOverridesTitle") }} ({{ apiTimeoutOverrideRows.length }})
+              </div>
+              <div v-if="apiTimeoutOverrideRows.length > 0" class="rounded border border-gray-100 dark:border-gray-800">
+                <table class="w-full text-sm">
+                  <tbody>
+                    <tr
+                      v-for="r in apiTimeoutOverrideRows"
+                      :key="r.method + r.path"
+                      class="border-t border-gray-100 dark:border-gray-800 first:border-t-0 align-middle"
+                    >
+                      <td class="px-3 py-1.5 w-20">
+                        <NTag
+                          size="tiny"
+                          :type="r.method === 'GET' ? 'success' : r.method === 'POST' ? 'info' : 'warning'"
+                          :bordered="false"
+                        >
+                          {{ r.method }}
+                        </NTag>
+                      </td>
+                      <td class="px-3 py-1.5 font-mono text-xs break-all">
+                        {{ r.path }}
+                        <NTag v-if="rowPending(r)" size="tiny" type="warning" :bordered="false" class="ml-1">
+                          {{ $t("page.system.config.apiTimeoutPending") }}
+                        </NTag>
+                      </td>
+                      <td class="px-3 py-1.5 w-48">
+                        <div v-if="!r.streaming" class="flex items-center gap-1">
+                          <NInputNumber
+                            :value="rowSec(r)"
+                            size="tiny"
+                            :min="0"
+                            :max="600"
+                            :show-button="false"
+                            class="w-24"
+                            @update:value="(v: number | null) => setRowSec(r, v)"
+                          />
+                          <span class="text-xs text-gray-400">{{ $t("page.system.config.seconds") }}</span>
+                          <NButton size="tiny" quaternary :title="$t('page.system.config.apiTimeoutRowHint')" @click="clearRowOverride(r)">
+                            ↺
+                          </NButton>
+                        </div>
+                        <span v-else class="text-xs text-gray-400">—</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-else class="text-xs text-gray-400 py-2">{{ $t("page.system.config.apiTimeoutOverridesEmpty") }}</div>
+            </div>
+            <!-- 全部路由 (搜索定位, 修改某行并保存即生成覆盖) -->
+            <div class="text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+              {{ $t("page.system.config.apiTimeoutAllRoutes") }} ({{ apiTimeoutRoutes.length }})
+            </div>
             <div class="max-h-96 overflow-auto rounded border border-gray-100 dark:border-gray-800">
               <table class="w-full text-sm">
                 <thead class="sticky top-0 bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
@@ -1071,6 +1137,9 @@ onUnmounted(() => {
                       <NTag v-if="r.streaming" size="tiny" :bordered="false" class="ml-1">SSE</NTag>
                       <NTag v-if="r.custom" size="tiny" type="primary" :bordered="false" class="ml-1">
                         {{ $t("page.system.config.custom") }}
+                      </NTag>
+                      <NTag v-if="rowPending(r)" size="tiny" type="warning" :bordered="false" class="ml-1">
+                        {{ $t("page.system.config.apiTimeoutPending") }}
                       </NTag>
                     </td>
                     <td class="px-3 py-1.5">

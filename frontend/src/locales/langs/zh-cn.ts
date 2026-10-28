@@ -527,6 +527,10 @@ const local: App.I18n.Schema = {
         apiTimeoutSaveRows: "保存修改",
         apiTimeoutRowHint: "填 0 并保存 = 清除覆盖恢复默认; 流式接口不经 axios, 无需配置",
         apiTimeoutSaved: "接口超时配置已保存",
+        apiTimeoutOverridesTitle: "按路由覆盖",
+        apiTimeoutOverridesEmpty: "暂无覆盖项——在下方路由列表里修改某个接口并保存, 即生成一条覆盖",
+        apiTimeoutAllRoutes: "全部路由",
+        apiTimeoutPending: "待保存",
         custom: "自定义",
         memory: "用户画像 / 经历抽取",
         memoryDesc:

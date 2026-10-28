@@ -743,6 +743,10 @@ declare namespace App {
             apiTimeoutSaveRows: string;
             apiTimeoutRowHint: string;
             apiTimeoutSaved: string;
+            apiTimeoutOverridesTitle: string;
+            apiTimeoutOverridesEmpty: string;
+            apiTimeoutAllRoutes: string;
+            apiTimeoutPending: string;
             custom: string;
             memory: string;
             memoryDesc: string;

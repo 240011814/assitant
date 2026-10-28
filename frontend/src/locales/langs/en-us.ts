@@ -540,6 +540,10 @@ const local: App.I18n.Schema = {
         apiTimeoutSaveRows: "Save Changes",
         apiTimeoutRowHint: "Set 0 and save to clear an override; streaming endpoints bypass axios and need no config",
         apiTimeoutSaved: "API timeout settings saved",
+        apiTimeoutOverridesTitle: "Route Overrides",
+        apiTimeoutOverridesEmpty: "No overrides yet — change a route below and save to create one",
+        apiTimeoutAllRoutes: "All Routes",
+        apiTimeoutPending: "Pending",
         custom: "Custom",
         memory: "User Profile / Experience Extraction",
         memoryDesc:
