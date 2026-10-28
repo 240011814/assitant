@@ -29,10 +29,13 @@ http {
     index index.html index.htm;
 
     # CSP 只写一次, 各 location 经变量引用 (location 内出现任何 add_header 都不再继承 server 级头, 需重复声明)
-    # connect-src 放行 api.iconify.design: SvgIcon 的 iconify 图标运行时从该 API 拉取数据
-    # script-src 允许 Cloudflare Insights beacon/遥测脚本, 该站点在生产环境中使用其会话统计
+    # connect-src 放行 api.iconify.design + api.simplesvg.com + api.unisvg.com:
+    #   SvgIcon 的 iconify 图标运行时会依次回退尝试这三个图标 API, 只放行第一家仍会被拦
+    # script hash: 站点托管 Cloudflare 并开启安全/优化功能后, 边缘会往 HTML 注入 inline 脚本
+    #   (典型是 Rocket Loader 加载器), 源码/构建产物里并无 inline script; hash 取自浏览器
+    #   控制台报错提示值, CF 换注入脚本版本时 hash 会变, 按新报错里的提示替换即可
     # media-src 放行 blob:: TTS 语音合成经 fetch 拿到音频后用 blob URL 播放
-    set $csp "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; script-src-elem 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' https://api.iconify.design https://static.cloudflareinsights.com; worker-src 'self' blob:; frame-src https://quote.eastmoney.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
+    set $csp "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com 'sha256-OGoMKKLimr/nzp3e/OWB9+wRvCXzZVKsWivexC6epAw='; script-src-elem 'self' https://static.cloudflareinsights.com 'sha256-OGoMKKLimr/nzp3e/OWB9+wRvCXzZVKsWivexC6epAw='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' https://api.iconify.design https://api.simplesvg.com https://api.unisvg.com https://static.cloudflareinsights.com; worker-src 'self' blob:; frame-src https://quote.eastmoney.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
 
     # ---- 安全响应头 ----
     add_header X-Content-Type-Options "nosniff" always;
