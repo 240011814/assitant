@@ -18,6 +18,7 @@ import (
 	"backend/model"
 	"backend/service/ai/prompt"
 	"backend/service/kernel"
+	"backend/service/sys/asynctask"
 )
 
 // ===== 阅读↔记忆闭环 / 难度预估 / 划词翻译 / 词汇量测试 / 阅读埋点 =====
@@ -241,30 +242,19 @@ var vocabTestBands = []string{"A1", "A2", "B1", "B2", "C1", "C2"}
 var vocabTestAnchors = map[string]int{"A1": 500, "A2": 1500, "B1": 3000, "B2": 5000, "C1": 8000, "C2": 15000}
 
 // StartVocabTest 异步生成一套分层词汇量测试题 (6 频段 × 4 题)
-func (s *ReadingService) StartVocabTest(userID uint) (*model.AITextJob, error) {
+func (s *ReadingService) StartVocabTest(userID uint) (*model.AsyncJob, error) {
 	if s.agentSvc == nil {
 		return nil, errors.New("AI 服务未启用")
 	}
-	job := &model.AITextJob{UserID: userID, Kind: "vocab_test", Status: "running"}
-	if err := DB.Create(job).Error; err != nil {
-		return nil, err
-	}
-	kernel.SafeGo("reading:vocab-test", func() {
-		updates := map[string]interface{}{}
-		questions, err := s.generateVocabTest(userID)
-		if err != nil {
-			updates["status"] = "failed"
-			updates["error"] = err.Error()
-		} else {
+	return asynctask.Start(asynctask.KindVocabTest, userID, 0, "", "reading:vocab-test",
+		func(report func(string)) (uint, string, error) {
+			questions, err := s.generateVocabTest(userID)
+			if err != nil {
+				return 0, "", err
+			}
 			raw, _ := json.Marshal(questions)
-			updates["status"] = "done"
-			updates["result_json"] = string(raw)
-		}
-		if err := DB.Model(&model.AITextJob{}).Where("id = ?", job.ID).Updates(updates).Error; err != nil {
-			log.Printf("vocab test job #%d update failed: %v", job.ID, err)
-		}
-	})
-	return job, nil
+			return 0, string(raw), nil
+		})
 }
 
 func (s *ReadingService) generateVocabTest(userID uint) ([]model.VocabTestQuestion, error) {
@@ -297,8 +287,8 @@ type VocabTestResult struct {
 
 // SubmitVocabTest 提交答卷: 按频段正确率取"最高达标频段"定级, 锚点插值估算词汇量
 func (s *ReadingService) SubmitVocabTest(userID uint, req model.VocabTestSubmitRequest) (*VocabTestResult, error) {
-	var job model.AITextJob
-	if err := DB.Where("id = ? AND user_id = ? AND kind = ?", req.JobID, userID, "vocab_test").First(&job).Error; err != nil {
+	var job model.AsyncJob
+	if err := DB.Where("id = ? AND user_id = ? AND kind = ?", req.JobID, userID, asynctask.KindVocabTest).First(&job).Error; err != nil {
 		return nil, errors.New("测试不存在")
 	}
 	if job.Status != "done" || job.ResultJSON == "" {
@@ -375,4 +365,15 @@ func stripVocabTestQuestions(resultJSON string) []map[string]interface{} {
 		})
 	}
 	return out
+}
+
+// RedactVocabTestResult 词汇量测试任务的结果脱敏器: 轮询下发前剥离正确答案。
+// 注册到 asynctask (main.go 接线), 由通用轮询端点按 kind 调用。
+func RedactVocabTestResult(resultJSON string) string {
+	questions := stripVocabTestQuestions(resultJSON)
+	if questions == nil {
+		return resultJSON
+	}
+	raw, _ := json.Marshal(map[string]interface{}{"questions": questions})
+	return string(raw)
 }

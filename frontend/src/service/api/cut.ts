@@ -12,9 +12,8 @@ export function cutBin(data: Api.Cut.BinRequest) {
   return request<Api.Cut.PlaneCutResponse>({
     url: '/api/cut/plane',
     method: 'post',
-    data,
-    // 精确模式 (OR-Tools) 服务端预算 45s, 放宽到 90s 留出传输余量
-    timeout: 90 * 1000
+    data
+    // 超时走后台配置 (system_config api_timeout_overrides, 种子 90s: 精确模式 OR-Tools 服务端预算 45s)
   });
 }
 

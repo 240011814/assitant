@@ -18,6 +18,7 @@ import (
 	"backend/model"
 	"backend/service/aitools"
 	"backend/service/kernel"
+	"backend/service/sys/asynctask"
 )
 
 // RSSService RSS 订阅: gofeed 解析 feed, 条目按 GUID 去重入库, 正文按需抓取缓存
@@ -468,6 +469,10 @@ func (s *RSSService) GetItemContent(userID, id uint) (*model.RSSItem, error) {
 	if item.ContentHTML == "" && strings.TrimSpace(item.Summary) != "" {
 		item.ContentHTML = sanitizeArticleHTML(item.Link, item.Summary)
 	}
+	// 译文过期标记: 原文重新抓取后内容指纹与翻译时不一致 (读路径计算, 不落库)
+	if item.BilingualHTML != "" && item.TranslationHash != "" {
+		item.TranslationStale = item.TranslationHash != rssContentHash(item.ContentHTML)
+	}
 	return &item, nil
 }
 
@@ -529,14 +534,18 @@ func (s *RSSService) ImportToReading(userID, id uint) (*model.ReadingDoc, error)
 
 // StartItemAnnotate 一键提取本文生词 (异步 job): 结果缓存在条目上, 与分级阅读标注同源。
 // 正文未缓存时先抓正文; 都没有用摘要兜底。
-func (s *RSSService) StartItemAnnotate(userID, id uint) (*model.AITextJob, error) {
+func (s *RSSService) StartItemAnnotate(userID, id uint) (*model.AsyncJob, error) {
 	var item model.RSSItem
 	if err := DB.Where("id = ? AND user_id = ?", id, userID).First(&item).Error; err != nil {
 		return nil, errors.New("文章不存在")
 	}
 	if item.DifficultWords != "" {
 		// 已提取过: 返回一个即时完成的 job, 前端直接刷新详情
-		return &model.AITextJob{UserID: userID, Kind: "rss_annotate", Status: "done", ResultID: item.ID}, nil
+		return asynctask.InstantDone(asynctask.KindRSSAnnotate, userID, item.ID), nil
+	}
+	// 同一条目已在提取中: 复用进行中的任务, 不重复起 LLM
+	if running, err := asynctask.FindRunning(asynctask.KindRSSAnnotate, userID, item.ID); err == nil && running != nil {
+		return running, nil
 	}
 	// 确保正文可用 (利用 GetItemContent 的缓存/抓取/摘要兜底链路)
 	full, err := s.GetItemContent(userID, id)
@@ -553,17 +562,14 @@ func (s *RSSService) StartItemAnnotate(userID, id uint) (*model.AITextJob, error
 	if len(text) > 15000 {
 		text = kernel.TruncateRunes(text, 15000)
 	}
-	job := &model.AITextJob{UserID: userID, Kind: "rss_annotate", Status: "running", ResultID: item.ID}
-	if err := DB.Create(job).Error; err != nil {
-		return nil, err
-	}
-	kernel.SafeGo("rss:annotate-item", func() {
-		updates := map[string]interface{}{}
-		flagged, err := s.readingSvc.AnnotateWordsForText(userID, text)
-		if err != nil {
-			updates["status"] = "failed"
-			updates["error"] = err.Error()
-		} else {
+	itemID := item.ID
+	return asynctask.Start(asynctask.KindRSSAnnotate, userID, itemID, "", "rss:annotate-item",
+		func(report func(string)) (uint, string, error) {
+			report("提取生词中")
+			flagged, err := s.readingSvc.AnnotateWordsForText(userID, text)
+			if err != nil {
+				return 0, "", err
+			}
 			// 标记已在生词本中的词
 			var known []string
 			if e := DB.Model(&model.Vocabulary{}).Where("user_id = ?", userID).Pluck("word", &known).Error; e == nil {
@@ -576,17 +582,10 @@ func (s *RSSService) StartItemAnnotate(userID, id uint) (*model.AITextJob, error
 				}
 			}
 			raw, _ := json.Marshal(flagged)
-			if e := DB.Model(&model.RSSItem{}).Where("id = ?", item.ID).
+			if e := DB.Model(&model.RSSItem{}).Where("id = ?", itemID).
 				Update("difficult_words", string(raw)).Error; e != nil {
-				updates["status"] = "failed"
-				updates["error"] = e.Error()
-			} else {
-				updates["status"] = "done"
+				return 0, "", e
 			}
-		}
-		if err := DB.Model(&model.AITextJob{}).Where("id = ?", job.ID).Updates(updates).Error; err != nil {
-			log.Printf("rss annotate job #%d update failed: %v", job.ID, err)
-		}
-	})
-	return job, nil
+			return itemID, "", nil
+		})
 }

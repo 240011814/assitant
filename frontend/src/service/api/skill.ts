@@ -47,8 +47,8 @@ export interface SkillDiscoverResult {
 }
 
 export function fetchDiscoverGithubSkills(data: { repo: string; ref?: string; path?: string }) {
-  // 扫描仓库需逐个拉取 SKILL.md, 覆盖默认 10s 超时(大仓库较慢)
-  return request<SkillDiscoverResult>({ url: '/api/skills/discover/github', method: 'post', data, timeout: 600 * 1000 });
+  // 超时走后台配置 (system_config api_timeout_overrides, 种子 600s: 扫描仓库需逐个拉取 SKILL.md)
+  return request<SkillDiscoverResult>({ url: '/api/skills/discover/github', method: 'post', data });
 }
 
 // 读取上次扫描成功的内存缓存 (不触发扫描)

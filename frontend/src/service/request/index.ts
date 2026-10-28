@@ -5,6 +5,7 @@ import { localStg } from '@/utils/storage';
 import { $t } from '@/locales';
 import { useAuthStore } from '@/store/modules/auth';
 import { getAuthorization, handleExpiredRequest, showErrorMsg } from './shared';
+import { applyRequestTimeout, ensureTimeoutConfigLoaded } from './timeout';
 import type { RequestInstanceState } from './type';
 
 const isHttpProxy = import.meta.env.DEV && import.meta.env.VITE_HTTP_PROXY === 'Y';
@@ -30,7 +31,11 @@ export const request = createFlatRequest(
       const Authorization = getAuthorization();
       if (Authorization) {
         Object.assign(config.headers, { Authorization });
+        // 首个带凭证的请求触发拉取超时配置 (幂等; 未登录不拉, 避免 401 弹错)
+        ensureTimeoutConfigLoaded();
       }
+      // 优先级: 单请求显式 timeout > 路由覆盖 (后台配置) > 默认
+      applyRequestTimeout(config);
 
       return config;
     },

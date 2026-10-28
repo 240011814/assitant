@@ -2,7 +2,8 @@
 import { computed, h, onBeforeUnmount, ref } from 'vue';
 import { NButton, NDataTable, NInput, NModal, NScrollbar, NSpace, NTag, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
-import { fetchOrchestrationDebugRun, fetchResolveOrchestrationApproval, fetchOrchestrationRuns, type OrchRunItem } from '@/service/api';
+import { fetchOrchestrationDebugRun, fetchResolveOrchestrationApproval, fetchOrchestrationRuns } from '@/service/api';
+import type { OrchRunItem } from '@/service/api';
 import { consumeSSEStream, extractSSEResponseError } from '@/utils/sse';
 
 // 节点调试摘要 (与后端 OrchNodeTrace 对应)

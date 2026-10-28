@@ -14,7 +14,7 @@ import {
   fetchAssistVocabulary,
   fetchImportVocabularyFile,
   fetchStartVocabTest,
-  fetchGetGenerationJob,
+  fetchGetAsyncJob,
   fetchSubmitVocabTest,
   fetchLatestVocabTest,
 } from "@/service/api";
@@ -88,7 +88,7 @@ const startVocabTest = async () => {
   }
   vocabTestJobId.value = job.id;
   vocabTestPollTimer = window.setInterval(async () => {
-    const { data: j, error: jErr } = await fetchGetGenerationJob(job.id);
+    const { data: j, error: jErr } = await fetchGetAsyncJob(job.id);
     if (jErr || !j) {
       stopVocabTestPoll();
       vocabTestLoading.value = false;

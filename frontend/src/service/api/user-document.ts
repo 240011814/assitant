@@ -55,9 +55,8 @@ export function fetchUploadDocument(file: File) {
     url: '/api/documents/upload',
     method: 'post',
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' },
-    // 覆盖默认超时: 大文件 + 解析耗时较长
-    timeout: 120000
+    headers: { 'Content-Type': 'multipart/form-data' }
+    // 超时走后台配置 (system_config api_timeout_overrides, 种子 120s: 大文件 + 解析耗时)
   });
 }
 

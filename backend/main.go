@@ -22,6 +22,7 @@ import (
 	"backend/service/notify/reminder"
 	"backend/service/stock"
 	"backend/service/sys/admin"
+	"backend/service/sys/asynctask"
 	"backend/service/sys/auth"
 	"backend/service/sys/dashboard"
 	"backend/service/sys/systemconfig"
@@ -93,9 +94,15 @@ func main() {
 	stock.DB = db
 	userdoc.DB = db
 	mihoyo.DB = db
+	asynctask.DB = db
 
 	// 操作审计日志异步写入 (需在 DB 初始化后启动)
 	api.InitAuditLogger()
+
+	// 异步任务重启清扫: 旧进程遗留的 running 任务不可能再有结果, 置 failed 供重新触发
+	asynctask.SweepInterrupted()
+	// 词汇量测试题面下发前剥离正确答案 (async_jobs 通用轮询端点按 kind 调用)
+	asynctask.RegisterRedactor(asynctask.KindVocabTest, learning.RedactVocabTestResult)
 
 	// ClickHouse (分析库, 可选): 初始化失败不阻断启动, 相关同步自动跳过
 	if err := service.InitClickHouse(cfg); err != nil {
@@ -232,6 +239,12 @@ func main() {
 	rssService := learning.NewRSSService(readingService)
 	rssHandler := api.NewRSSHandler(rssService)
 
+	// 通用异步任务轮询 (owner 校验与结果脱敏在 service 内)
+	asyncJobHandler := api.NewAsyncJobHandler()
+
+	// 接口超时配置 (默认值+覆盖项存 system_config, 全量路由清单由 gin 枚举)
+	apiTimeoutHandler := api.NewApiTimeoutHandler(systemConfigService)
+
 	stockService := stock.NewStockService()
 	// baostock 同步服务: handler 的手动同步端点与 tasks 包的定时任务共用同一实例 (互斥锁同源)
 	stockSyncService := stock.NewStockSyncService(cfg.Baostock.URL)
@@ -308,6 +321,8 @@ func main() {
 		rssHandler:           rssHandler,
 		noteHandler:          noteHandler,
 		reminderHandler:      reminderHandler,
+		asyncJobHandler:      asyncJobHandler,
+		apiTimeoutHandler:    apiTimeoutHandler,
 		systemConfigHandler:  systemConfigHandler,
 		ttsHandler:           ttsHandler,
 		telegramHandler:      telegramHandler,

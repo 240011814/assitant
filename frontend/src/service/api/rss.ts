@@ -30,6 +30,12 @@ export interface RSSItem {
   contentHtml?: string;
   /** AI 提取的生词 JSON 字符串 (仅详情接口返回, 一键提取结果) */
   difficultWords?: string;
+  /** 中英对照 HTML: 原文块 + <div class="rss-zh">译文块 (仅详情接口返回) */
+  bilingualHtml?: string;
+  /** 对照翻译完成时间 */
+  translatedAt?: string | null;
+  /** 原文重新抓取后内容已变化, 译文过期需重新翻译 */
+  translationStale?: boolean;
 }
 
 /** 添加订阅 (先验证 feed 可解析) */
@@ -98,7 +104,7 @@ export function fetchRSSMarkRead(id: number) {
   });
 }
 
-/** 取条目正文 (按需抓取原文页并缓存, 返回纯文本 + 净化 HTML 双格式) */
+/** 取条目正文 (按需抓取原文页并缓存, 返回纯文本 + 净化 HTML + 中英对照双格式) */
 export function fetchRSSItemContent(id: number) {
   return request<RSSItem & { content: string; contentHtml?: string }>({
     url: `/api/rss/items/${id}/content`,
@@ -114,10 +120,18 @@ export function fetchRSSImportItem(id: number) {
   });
 }
 
-/** 一键提取本文生词 (异步 job, 轮询 /api/reading/generation-jobs/:id) */
+/** 一键提取本文生词 (异步任务, 轮询 /api/async-jobs/:id) */
 export function fetchRSSAnnotateItem(id: number) {
   return request<{ id: number; kind: string; status: string; resultId: number }>({
     url: `/api/rss/items/${id}/annotate`,
+    method: 'post'
+  });
+}
+
+/** 生成中英对照 (段落级异步翻译任务, 轮询 /api/async-jobs/:id; 已有未过期译文时直接返回 done) */
+export function fetchRSSTranslateItem(id: number) {
+  return request<{ id: number; kind: string; status: string; resultId: number; progress?: string }>({
+    url: `/api/rss/items/${id}/translate`,
     method: 'post'
   });
 }

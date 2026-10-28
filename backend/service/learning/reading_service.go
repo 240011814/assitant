@@ -19,6 +19,7 @@ import (
 	"backend/service/ai/prompt"
 	"backend/service/aitools"
 	"backend/service/kernel"
+	"backend/service/sys/asynctask"
 )
 
 // ReadingService 分级阅读: 导入文章 → LLM 标注生词 → 点词即查即加 → AI 生成个性化课文
@@ -673,47 +674,21 @@ func (s *ReadingService) LookupWord(userID uint, word string) (*LookupWordRespon
 	return resp, nil
 }
 
-// StartGeneratePassage 异步启动 AI 写课文: 建 ai_text_jobs 任务行后立即返回,
-// LLM 在后台执行, 前端轮询任务状态 (Cloudflare 100s 源站响应上限, 不能同步等)
-func (s *ReadingService) StartGeneratePassage(userID uint, req model.GeneratePassageRequest) (*model.AITextJob, error) {
+// StartGeneratePassage 异步启动 AI 写课文: 建异步任务行后立即返回,
+// LLM 在后台执行, 前端轮询 /api/async-jobs/:id (Cloudflare 100s 源站响应上限, 不能同步等)
+func (s *ReadingService) StartGeneratePassage(userID uint, req model.GeneratePassageRequest) (*model.AsyncJob, error) {
 	if s.agentSvc == nil || s.courseSvc == nil {
 		return nil, errors.New("AI 服务未启用")
 	}
-	job := &model.AITextJob{UserID: userID, Kind: "passage", Status: "running"}
-	if err := DB.Create(job).Error; err != nil {
-		return nil, err
-	}
-	kernel.SafeGo("reading:generate-passage", func() {
-		updates := map[string]interface{}{}
-		course, _, err := s.generatePassageSync(userID, req)
-		if err != nil {
-			updates["status"] = "failed"
-			updates["error"] = err.Error()
-		} else {
-			updates["status"] = "done"
-			updates["result_id"] = course.ID
-		}
-		if err := DB.Model(&model.AITextJob{}).Where("id = ?", job.ID).Updates(updates).Error; err != nil {
-			log.Printf("reading passage job #%d update failed: %v", job.ID, err)
-		}
-	})
-	return job, nil
-}
-
-// GetGenerationJob 查询慢生成任务状态 (前端轮询)
-func (s *ReadingService) GetGenerationJob(userID, jobID uint) (*model.AITextJob, error) {
-	var job model.AITextJob
-	if err := DB.Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
-		return nil, errors.New("任务不存在")
-	}
-	// 词汇量测试的题面下发前剥离正确答案 (result_json 替换为无答案版)
-	if job.Kind == "vocab_test" && job.ResultJSON != "" {
-		if questions := stripVocabTestQuestions(job.ResultJSON); questions != nil {
-			raw, _ := json.Marshal(map[string]interface{}{"questions": questions})
-			job.ResultJSON = string(raw)
-		}
-	}
-	return &job, nil
+	raw, _ := json.Marshal(req)
+	return asynctask.Start(asynctask.KindPassage, userID, 0, string(raw), "reading:generate-passage",
+		func(report func(string)) (uint, string, error) {
+			course, _, err := s.generatePassageSync(userID, req)
+			if err != nil {
+				return 0, "", err
+			}
+			return course.ID, "", nil
+		})
 }
 
 // generatePassageSync 课文生成主体 (后台协程执行): 把指定新词自然织入短文, 落成课程包

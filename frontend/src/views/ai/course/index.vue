@@ -2,7 +2,7 @@
 import { ref, onMounted, onActivated, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, NCard, NButton, NTag, NEmpty, NSpin, NModal, NForm, NFormItem, NInput, NSwitch, NSpace, NPopconfirm, NPagination, NSelect, NInputNumber } from 'naive-ui'
-import { fetchCourseList, fetchCreateCourse, fetchUpdateCourse, fetchDeleteCourse, fetchTrainingStatus, fetchUpdateTrainingStatus, fetchGeneratePassage, fetchGetGenerationJob, fetchGetVocabularyList } from '@/service/api';
+import { fetchCourseList, fetchCreateCourse, fetchUpdateCourse, fetchDeleteCourse, fetchTrainingStatus, fetchUpdateTrainingStatus, fetchGeneratePassage, fetchGetAsyncJob, fetchGetVocabularyList } from '@/service/api';
 import type { Course, UserCourseTraining } from '@/service/api';
 import { useAuth } from '@/hooks/business/auth'
 
@@ -41,7 +41,7 @@ const pollPassageJob = () => {
       message.info('课文仍在后台生成, 稍后刷新列表查看')
       return
     }
-    const { data: job, error } = await fetchGetGenerationJob(passageJobId.value)
+    const { data: job, error } = await fetchGetAsyncJob(passageJobId.value)
     if (error || !job) return
     if (job.status === 'running') return
     stopPassagePolling()

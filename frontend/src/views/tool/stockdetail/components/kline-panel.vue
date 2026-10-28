@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { NDataTable, NSpin, NTabPane, NTabs } from "naive-ui";
-import { useMessage } from "naive-ui";
+import { NDataTable, NSpin, NTabPane, NTabs, useMessage } from "naive-ui";
 import { stockKline } from "@/service/api";
 import { useEcharts } from "@/hooks/common/echarts";
 import type { ECOption } from "@/hooks/common/echarts";

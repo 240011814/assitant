@@ -22,6 +22,7 @@ const (
 	PromptKeyDictTranslate   = "prompt_dict_translate"   // 免费词典命中后 LLM 补中文释义
 	PromptKeyDictLLM         = "prompt_dict_llm"         // LLM 全量查词 (免费词典未命中时)
 	PromptKeyTranslate       = "prompt_translate"        // 划词翻译
+	PromptKeyRSSTranslate    = "prompt_rss_translate"    // RSS 中英对照翻译 (段落级分批)
 	PromptKeyVocabTest       = "prompt_vocab_test"       // 词汇量测试出题
 	PromptKeyVocabAssist     = "prompt_vocab_assist"     // 生词记忆辅助 (新例句 + 助记)
 	PromptKeyVocabExtract    = "prompt_vocab_extract"    // 文章生词提取
@@ -40,6 +41,7 @@ var promptOrder = []string{
 	PromptKeyDictTranslate,
 	PromptKeyDictLLM,
 	PromptKeyTranslate,
+	PromptKeyRSSTranslate,
 	PromptKeyReadingAnnotate,
 	PromptKeyReadingPassage,
 	PromptKeyVocabExtract,
@@ -63,6 +65,15 @@ var builtinPrompts = map[string]promptDef{
 	PromptKeyTranslate: {
 		Remark:  "划词翻译 (选中文本双向翻译)",
 		Default: `你是翻译助手。判断输入语言: 中文译成英文, 其他语言译成简体中文。只输出译文本身, 不要解释。`,
+	},
+	PromptKeyRSSTranslate: {
+		Remark: "RSS 中英对照翻译 (文章标题+编号段落, 段落级分批)",
+		Default: `你是英译汉翻译助手。输入是同一篇文章的若干编号段落, 请把每段翻译成自然、地道的简体中文。
+要求:
+- 只输出 JSON 数组, 不要解释: [{"i": <段落编号>, "zh": "<该段中文译文>"}]
+- i 必须与输入编号一致, 一一对应, 不许遗漏、合并或拆分段落
+- 专有名词、产品名、代码保留原文; 数字/单位/URL 保持原样
+- 语气与原文一致 (新闻/技术文章等), 不要添加解释、总结或译者注`,
 	},
 	PromptKeyReadingAnnotate: {
 		Remark: "分级阅读生词标注 (RSS 一键提取共用)",

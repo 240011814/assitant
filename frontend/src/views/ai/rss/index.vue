@@ -1,24 +1,10 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from "vue";
-import { NButton, NEmpty, NPopconfirm, NTag, useMessage } from "naive-ui";
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from "vue";
+import { NButton, NButtonGroup, NEmpty, NPopconfirm, NTag, useMessage } from "naive-ui";
 import { useRouterPush } from "@/hooks/common/router";
 import ReaderView from "@/components/custom/reader-view.vue";
-import {
-  fetchRSSAddSource,
-  fetchRSSListSources,
-  fetchRSSUpdateSource,
-  fetchRSSDeleteSource,
-  fetchRSSFetchSource,
-  fetchRSSListItems,
-  fetchRSSMarkRead,
-  fetchRSSItemContent,
-  fetchRSSImportItem,
-  fetchRSSAnnotateItem,
-  fetchGetGenerationJob,
-  fetchAddVocabulary,
-} from "@/service/api";
-import type { DifficultWord } from "@/service/api";
-import type { RSSItem, RSSSource } from "@/service/api";
+import { fetchRSSAddSource, fetchRSSListSources, fetchRSSUpdateSource, fetchRSSDeleteSource, fetchRSSFetchSource, fetchRSSListItems, fetchRSSMarkRead, fetchRSSItemContent, fetchRSSImportItem, fetchRSSAnnotateItem, fetchRSSTranslateItem, fetchGetAsyncJob, fetchAddVocabulary } from "@/service/api";
+import type { DifficultWord, RSSItem, RSSSource } from "@/service/api";
 import { useAppStore } from "@/store/modules/app";
 
 const appStore = useAppStore();
@@ -42,6 +28,7 @@ const easyOnly = ref(false);
 const selectStatus = (value: "all" | "read" | "unread") => {
   if (statusFilter.value === value) return;
   statusFilter.value = value;
+  // eslint-disable-next-line @typescript-eslint/no-use-before-define -- 既有写法 (分页声明在下方)
   pagination.value.page = 1;
   loadItems();
 };
@@ -281,7 +268,7 @@ const applyHighlight = () => {
 
 const pollAnnotateJob = (jobId: number) => {
   const timer = window.setInterval(async () => {
-    const { data: job, error } = await fetchGetGenerationJob(jobId);
+    const { data: job, error } = await fetchGetAsyncJob(jobId);
     if (error || !job) {
       window.clearInterval(timer);
       annotatingItem.value = false;
@@ -332,6 +319,108 @@ const handleAnnotateItem = async () => {
   pollAnnotateJob(job.id);
 };
 
+// feed 正文常自带与文章标题重复的 H1/H2, 阅读视图下去重 (内容已经服务端净化, 这里只删不加)。
+// 双语 HTML 里被删标题若已生成译文 (.rss-zh 兄弟块), 一并删掉避免残留孤儿译文
+const stripDuplicateHeading = (html: string, title: string) => {
+  if (!html || !title) return html;
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const first = doc.body.querySelector("h1, h2");
+    const norm = (s: string) => s.replace(/\s+/g, "").toLowerCase();
+    if (first) {
+      const heading = norm(first.textContent || "");
+      const artTitle = norm(title);
+      if (heading && (artTitle.includes(heading) || heading.includes(artTitle))) {
+        const zhSibling = first.nextElementSibling;
+        first.remove();
+        if (zhSibling?.classList.contains("rss-zh")) zhSibling.remove();
+        return doc.body.innerHTML;
+      }
+    }
+  } catch {
+    // 解析失败按原文渲染
+  }
+  return html;
+};
+
+// ===================== 中英对照 (段落级异步翻译, 三态: 对照/仅译文/仅原文) =====================
+// 后端把译文 <div class="rss-zh"> 插回原文树、已翻译原文块带 class="rss-src" 标记,
+// "仅译文"靠容器 class 隐藏 .rss-src 实现 (图片等未翻译块保持可见)
+type BilingualMode = "bi" | "zh" | "en";
+const viewMode = ref<BilingualMode>("en");
+const viewBilingualHtml = ref("");
+const hasBilingual = computed(() => !!viewItem.value?.bilingualHtml);
+const translationStale = computed(() => !!viewItem.value?.translationStale);
+const translating = ref(false);
+const translateProgress = ref("");
+
+// 展示 HTML: 对照/仅译文用双语版, 仅原文用原始净化 HTML (高亮与段落归一化只对它做过)
+const viewDisplayHtml = computed(() => {
+  if (hasBilingual.value && viewMode.value !== "en") return viewBilingualHtml.value;
+  return viewHtml.value;
+});
+const articleClass = computed(() => (hasBilingual.value ? [`rss-mode-${viewMode.value}`] : []));
+
+const refreshBilingual = async () => {
+  const itemId = viewItem.value?.id;
+  if (!itemId) return;
+  const { data: fresh } = await fetchRSSItemContent(itemId);
+  if (!fresh) return;
+  viewItem.value = fresh;
+  viewBilingualHtml.value = stripDuplicateHeading(fresh.bilingualHtml || "", fresh.title);
+  if (fresh.bilingualHtml) viewMode.value = "bi";
+};
+
+const pollTranslateJob = (jobId: number) => {
+  const timer = window.setInterval(async () => {
+    const { data: job, error } = await fetchGetAsyncJob(jobId);
+    if (error || !job) {
+      window.clearInterval(timer);
+      translating.value = false;
+      return;
+    }
+    if (job.status === "running") {
+      translateProgress.value = job.progress || "";
+      return;
+    }
+    window.clearInterval(timer);
+    translating.value = false;
+    if (job.status === "failed") {
+      message.error(`对照翻译失败: ${job.error || "未知错误"}`);
+      return;
+    }
+    await refreshBilingual();
+    message.success("中英对照已生成");
+  }, 2500);
+};
+
+const handleTranslateItem = async () => {
+  if (!viewItem.value || translating.value) return;
+  translating.value = true;
+  translateProgress.value = "";
+  const { data: job, error } = await fetchRSSTranslateItem(viewItem.value.id);
+  if (error || !job) {
+    translating.value = false;
+    message.error(`启动翻译失败: ${(error as any)?.message || "未知错误"}`);
+    return;
+  }
+  if (job.status === "done") {
+    // 已有未过期译文 (或同一条目任务刚完成): 直接刷新切对照视图
+    translating.value = false;
+    await refreshBilingual();
+    return;
+  }
+  pollTranslateJob(job.id);
+};
+
+// 模式切回"仅原文"时 DOM 重建, 生词高亮与段落归一化需要重做
+watch(viewMode, (mode) => {
+  nextTick(() => {
+    if (mode === "en") normalizeArticleHtml();
+    applyHighlight();
+  });
+});
+
 // 侧栏生词: 点击查词
 const lookupDw = (word: string) => {
   readerRef.value?.lookupWord(word);
@@ -365,33 +454,15 @@ const addAllDifficultWords = async () => {
   message.success(`已加入 ${added} 个生词${targets.length - added > 0 ? `, 跳过 ${targets.length - added} 个` : ""}`);
 };
 
-// feed 正文常自带与文章标题重复的 H1/H2, 阅读视图下去重 (内容已经服务端净化, 这里只删不加)
-const stripDuplicateHeading = (html: string, title: string) => {
-  if (!html || !title) return html;
-  try {
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    const first = doc.body.querySelector("h1, h2");
-    const norm = (s: string) => s.replace(/\s+/g, "").toLowerCase();
-    if (first) {
-      const heading = norm(first.textContent || "");
-      const artTitle = norm(title);
-      if (heading && (artTitle.includes(heading) || heading.includes(artTitle))) {
-        first.remove();
-        return doc.body.innerHTML;
-      }
-    }
-  } catch {
-    // 解析失败按原文渲染
-  }
-  return html;
-};
-
 const openItem = async (item: RSSItem) => {
   viewItem.value = item;
   viewContent.value = "";
   viewHtml.value = "";
   viewError.value = "";
   viewDifficultWords.value = [];
+  viewBilingualHtml.value = "";
+  viewMode.value = "en";
+  translateProgress.value = "";
   showViewer.value = true;
   readerRef.value?.scrollToTop();
   if (item.status === "unread") {
@@ -419,8 +490,12 @@ const openItem = async (item: RSSItem) => {
     viewHtml.value = stripDuplicateHeading(resp.contentHtml || "", resp.title);
   }
   viewItem.value = resp;
-  // 之前提取过的生词直接展示并高亮
+  // 之前提取过的生词直接展示并高亮; 已有对照译文则默认切对照视图
   viewDifficultWords.value = parseDifficultWords(resp.difficultWords);
+  if (resp.bilingualHtml) {
+    viewBilingualHtml.value = stripDuplicateHeading(resp.bilingualHtml, resp.title);
+    viewMode.value = "bi";
+  }
   await nextTick();
   // 结构标签剥壳产生的裸文本包进 <p>: 朗读按段落元素取块, 裸文本会被整体跳过
   normalizeArticleHtml();
@@ -858,6 +933,23 @@ onDeactivated(() => {
             <NButton
               size="tiny"
               class="mr-1"
+              :loading="translating"
+              :title="translateProgress || (translationStale ? '原文已更新, 重新生成对照' : 'AI 段落级翻译, 生成中英对照')"
+              @click="handleTranslateItem"
+            >
+              <template #icon>
+                <SvgIcon icon="mdi:translate" />
+              </template>
+              <span class="hidden sm:inline">{{ translationStale ? '重新对照' : '中英对照' }}</span>
+            </NButton>
+            <NButtonGroup v-if="hasBilingual" size="tiny" class="mr-1">
+              <NButton size="tiny" :type="viewMode === 'bi' ? 'primary' : 'default'" @click="viewMode = 'bi'">对照</NButton>
+              <NButton size="tiny" :type="viewMode === 'zh' ? 'primary' : 'default'" @click="viewMode = 'zh'">译文</NButton>
+              <NButton size="tiny" :type="viewMode === 'en' ? 'primary' : 'default'" @click="viewMode = 'en'">原文</NButton>
+            </NButtonGroup>
+            <NButton
+              size="tiny"
+              class="mr-1"
               :loading="annotatingItem"
               :disabled="viewDifficultWords.length > 0"
               :title="viewDifficultWords.length > 0 ? '本文已提取过生词' : 'AI 提取本文生词并高亮'"
@@ -918,9 +1010,9 @@ onDeactivated(() => {
           <NAlert v-if="viewError" type="warning" :bordered="false" class="my-5">
             正文抓取失败: {{ viewError }}<template v-if="viewHtml || viewerParagraphs.length">（以下为 feed 摘要）</template>
           </NAlert>
-          <!-- 净化 HTML 渲染 (服务端白名单过滤, 含图片/链接/表格) -->
+          <!-- 净化 HTML 渲染 (服务端白名单过滤, 含图片/链接/表格); 有对照译文时按三态切换显示 -->
           <!-- eslint-disable-next-line vue/no-v-html -- 内容为服务端白名单净化后的 HTML -->
-          <div v-if="viewHtml" class="article-html" v-html="viewHtml"></div>
+          <div v-if="viewHtml" class="article-html" :class="articleClass" v-html="viewDisplayHtml"></div>
           <div v-else class="flex flex-col">
             <p v-for="(p, i) in viewerParagraphs" :key="i">{{ p }}</p>
             <NEmpty
@@ -1006,6 +1098,34 @@ onDeactivated(() => {
 }
 .dark .article-html :deep(mark.rss-dw) {
   background: rgba(250, 204, 21, 0.22);
+}
+
+/* 中英对照: 译文块样式 (后端插在原文块后/内的 <div class="rss-zh">) */
+.article-html :deep(div.rss-zh) {
+  color: #4b5563;
+  background: rgba(99, 161, 122, 0.07);
+  border-left: 3px solid rgba(99, 161, 122, 0.55);
+  border-radius: 0 8px 8px 0;
+  padding: 0.4em 1em;
+  margin: -0.6em 0 1.5em;
+}
+.dark .article-html :deep(div.rss-zh) {
+  color: #9ca3af;
+  background: rgba(99, 161, 122, 0.1);
+}
+/* pre 块的译文: 与原文一致的等宽换行排版 */
+.article-html :deep(div.rss-zh-pre) {
+  white-space: pre-wrap;
+  font-family: Menlo, Consolas, monospace;
+  font-size: 0.85em;
+}
+/* 三态-仅译文: 隐藏已翻译的原文块 (图片等未翻译块保持可见) */
+.article-html.rss-mode-zh :deep(.rss-src) {
+  display: none;
+}
+/* 仅译文模式下 li 内的译文间距修正 (原文隐藏后译文成为 li 唯一内容) */
+.article-html.rss-mode-zh :deep(li > div.rss-zh:first-child) {
+  margin-top: 0.2em;
 }
 
 /* 净化 HTML 正文的富文本元素排版 (v-html 注入的节点须用 :deep);

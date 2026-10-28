@@ -90,22 +90,6 @@ func (h *ReadingHandler) HandleAnnotateReadingDoc(c *gin.Context) {
 	SendSuccess(c, doc)
 }
 
-// HandleGetGenerationJob 查询慢生成任务状态 (AI 写课文等, 前端轮询)
-func (h *ReadingHandler) HandleGetGenerationJob(c *gin.Context) {
-	userId := GetUserID(c)
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		SendError(c, "400", "任务 ID 不合法")
-		return
-	}
-	job, err := h.svc.GetGenerationJob(userId, uint(id))
-	if err != nil {
-		SendError(c, "500", "查询任务失败: "+err.Error())
-		return
-	}
-	SendSuccess(c, job)
-}
-
 // HandleLookupWord 点词即查 (词典缓存)
 func (h *ReadingHandler) HandleLookupWord(c *gin.Context) {
 	userId := GetUserID(c)

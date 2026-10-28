@@ -40,15 +40,17 @@ export interface DictionaryEntry {
   encounters?: number;
 }
 
-/** 慢 LLM 生成任务 (Cloudflare 对源站有 100s 上限, 此类操作一律异步 + 轮询) */
-export interface AITextJob {
+/** 通用异步任务 (Cloudflare 对源站有 100s 上限, 慢 LLM 操作一律异步 + 轮询 /api/async-jobs/:id) */
+export interface AsyncJob {
   id: number;
-  kind: 'passage' | 'vocab_test' | 'rss_annotate' | string;
+  kind: 'passage' | 'vocab_test' | 'rss_annotate' | 'rss_translate' | string;
   status: 'running' | 'done' | 'failed';
   resultId: number;
+  /** 进度文本 (如 "翻译中 12/30 批") */
+  progress?: string;
   /** 任务结果 JSON (vocab_test 下发前已剥离答案: {questions:[{id,band,word,options}]} ) */
   resultJson?: string;
-  error: string;
+  error?: string;
 }
 
 /** 词汇量测试题 (下发版, 无答案) */
@@ -126,19 +128,19 @@ export function fetchLookupWord(word: string) {
   });
 }
 
-/** AI 写课文 (异步任务, 立即返回; 轮询 fetchGetGenerationJob 取结果) */
+/** AI 写课文 (异步任务, 立即返回; 轮询 fetchGetAsyncJob 取结果) */
 export function fetchGeneratePassage(data: { wordIds?: number[]; sentenceCount?: number }) {
-  return request<AITextJob>({
+  return request<AsyncJob>({
     url: '/api/reading/generate-passage',
     method: 'post',
     data
   });
 }
 
-/** 查询慢生成任务状态 */
-export function fetchGetGenerationJob(id: number) {
-  return request<AITextJob>({
-    url: `/api/reading/generation-jobs/${id}`,
+/** 查询通用异步任务状态 (AI 写课文/词汇测试/RSS 生词提取/RSS 对照翻译等) */
+export function fetchGetAsyncJob(id: number) {
+  return request<AsyncJob>({
+    url: `/api/async-jobs/${id}`,
     method: 'get'
   });
 }
@@ -161,9 +163,9 @@ export function fetchReadingHeartbeat(seconds: number) {
   });
 }
 
-/** 启动词汇量测试 (异步出题, 轮询 fetchGetGenerationJob 取题面) */
+/** 启动词汇量测试 (异步出题, 轮询 fetchGetAsyncJob 取题面) */
 export function fetchStartVocabTest() {
-  return request<AITextJob>({
+  return request<AsyncJob>({
     url: '/api/reading/vocab-test/start',
     method: 'post'
   });

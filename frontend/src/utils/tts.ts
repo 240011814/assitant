@@ -499,7 +499,7 @@ const fetchAudio = async (text: string, lang: string, rate: number): Promise<Blo
         continue;
       }
       if (isNetworkError(err)) {
-        throw new Error('网络异常,无法获取语音');
+        throw new Error('网络异常,无法获取语音', { cause: err });
       }
       throw err;
     }
@@ -550,7 +550,9 @@ const playBlob = (blob: Blob, token: number) =>
     }
 
     // 持久元素必须用 on* 赋值 (addEventListener 会跨句叠加监听器)
+    // oxlint-disable-next-line unicorn/prefer-add-event-listener
     el.onended = finish;
+    // oxlint-disable-next-line unicorn/prefer-add-event-listener
     el.onerror = fail;
     el.src = url;
     el.play().catch(() => {

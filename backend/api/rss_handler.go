@@ -158,7 +158,7 @@ func (h *RSSHandler) HandleImportRSSItem(c *gin.Context) {
 	SendSuccess(c, doc)
 }
 
-// HandleAnnotateRSSItem 一键提取本文生词 (异步 job, 前端轮询 generation-jobs/:id)
+// HandleAnnotateRSSItem 一键提取本文生词 (异步任务, 前端轮询 /api/async-jobs/:id)
 func (h *RSSHandler) HandleAnnotateRSSItem(c *gin.Context) {
 	userId := GetUserID(c)
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
@@ -169,6 +169,22 @@ func (h *RSSHandler) HandleAnnotateRSSItem(c *gin.Context) {
 	job, err := h.svc.StartItemAnnotate(userId, uint(id))
 	if err != nil {
 		SendError(c, "500", "启动提取失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, job)
+}
+
+// HandleTranslateRSSItem 生成中英对照 (段落级异步翻译任务, 前端轮询 /api/async-jobs/:id)
+func (h *RSSHandler) HandleTranslateRSSItem(c *gin.Context) {
+	userId := GetUserID(c)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		SendError(c, "400", "文章 ID 不合法")
+		return
+	}
+	job, err := h.svc.StartItemTranslate(userId, uint(id))
+	if err != nil {
+		SendError(c, "500", "启动翻译失败: "+err.Error())
 		return
 	}
 	SendSuccess(c, job)

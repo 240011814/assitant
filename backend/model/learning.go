@@ -134,26 +134,7 @@ func (DictionaryCache) TableName() string {
 	return "dictionary_cache"
 }
 
-// ===== 慢 LLM 生成任务 =====
-
-// AITextJob 慢 LLM 生成任务 (AI 写课文等): Cloudflare 对源站响应有 100s 上限,
-// 此类操作必须异步执行, 任务行供前端轮询
-type AITextJob struct {
-	ID         uint      `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID     uint      `gorm:"not null;index:idx_ai_text_job_user,priority:1" json:"userId"`
-	Kind       string    `gorm:"size:30;not null" json:"kind"`                     // passage / vocab_test / rss_annotate
-	Status     string    `gorm:"size:20;not null;default:'running'" json:"status"` // running/done/failed
-	ResultID   uint      `gorm:"not null;default:0" json:"resultId"`
-	ResultJSON string    `gorm:"type:longtext" json:"resultJson"` // 任务结果 JSON (词汇量测试题面等)
-	Error      string    `gorm:"type:text" json:"error"`
-	CreatedAt  time.Time `gorm:"index:idx_ai_text_job_user,priority:2" json:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
-}
-
-// TableName 指定表名
-func (AITextJob) TableName() string {
-	return "ai_text_jobs"
-}
+// 慢 LLM 生成任务已通用化: model/async_job.go 的 AsyncJob (原 ai_text_jobs → async_jobs)
 
 // ===== 请求/响应结构 =====
 

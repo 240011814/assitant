@@ -732,6 +732,18 @@ declare namespace App {
             seconds: string;
             saveTimeout: string;
             timeoutSaved: string;
+            apiTimeout: string;
+            apiTimeoutDesc: string;
+            apiTimeoutSearch: string;
+            apiTimeoutDefaultLabel: string;
+            apiTimeoutCustomCount: string;
+            apiTimeoutMethod: string;
+            apiTimeoutPath: string;
+            apiTimeoutValue: string;
+            apiTimeoutSaveRows: string;
+            apiTimeoutRowHint: string;
+            apiTimeoutSaved: string;
+            custom: string;
             memory: string;
             memoryDesc: string;
             extractionModel: string;

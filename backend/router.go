@@ -44,6 +44,8 @@ type appDeps struct {
 	rssHandler           *api.RSSHandler
 	noteHandler          *api.NoteHandler
 	reminderHandler      *api.ReminderHandler
+	asyncJobHandler      *api.AsyncJobHandler
+	apiTimeoutHandler    *api.ApiTimeoutHandler
 	systemConfigHandler  *api.SystemConfigHandler
 	ttsHandler           *api.TtsHandler
 	telegramHandler      *api.TelegramHandler
@@ -54,6 +56,12 @@ type appDeps struct {
 
 // setupRouter 把全部 HTTP 路由挂载到 engine (与原 main.go 逐行等价, 仅依赖来源改为 appDeps)
 func setupRouter(r *gin.Engine, d *appDeps) {
+	// 接口超时管理的路由枚举器: 闭包 engine, 请求时才求值 (此刻全部路由已注册)。
+	// nil 容忍: router_test 用零值依赖只验证路由注册本身
+	if d.apiTimeoutHandler != nil {
+		d.apiTimeoutHandler.SetRouteLister(func() gin.RoutesInfo { return r.Routes() })
+	}
+
 	authService := d.authService
 	systemConfigHandler := d.systemConfigHandler
 	ttsHandler := d.ttsHandler
@@ -90,6 +98,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 	jobHandler := d.jobHandler
 	wolMqttHandler := d.wolMqttHandler
 	mihoyoHandler := d.mihoyoHandler
+	apiTimeoutHandler := d.apiTimeoutHandler
 
 	r.GET("/api/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -159,6 +168,12 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 		}
 		apiGroup.DELETE("/reminders/:id", reminderHandler.Delete)
 
+		// 通用异步任务轮询 (AI 写课文/词汇量测试/RSS 生词提取/RSS 对照翻译等; 仅需登录, service 做 owner 校验)
+		apiGroup.GET("/async-jobs/:id", d.asyncJobHandler.HandleGet)
+
+		// 前端接口请求超时配置下发 (仅需登录; 前端登录后拉一次, axios onRequest 钩子按路由匹配)
+		apiGroup.GET("/api-timeouts", d.apiTimeoutHandler.HandleGetTimeouts)
+
 		apiGroup.GET("/dashboard/stats", dashboardHandler.GetStats)
 		apiGroup.GET("/token-usages/my", api.HandleMyTokenUsage)
 		apiGroup.GET("/ai/models", api.RequirePermission("ai:model:view"), api.HandleListModels(aiAgentService))
@@ -216,7 +231,6 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			readingGroup.DELETE("/docs/:id", api.RequirePermission("ai:vocabulary:delete"), readingHandler.HandleDeleteReadingDoc)
 			readingGroup.POST("/docs/:id/annotate", readingHandler.HandleAnnotateReadingDoc)
 			readingGroup.GET("/lookup", readingHandler.HandleLookupWord)
-			readingGroup.GET("/generation-jobs/:id", readingHandler.HandleGetGenerationJob)
 			readingGroup.POST("/generate-passage", readingHandler.HandleGeneratePassage)
 			readingGroup.POST("/translate", readingHandler.HandleTranslate)
 			readingGroup.POST("/heartbeat", readingHandler.HandleReadingHeartbeat)
@@ -239,6 +253,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			rssGroup.GET("/items/:id/content", rssHandler.HandleGetRSSItemContent)
 			rssGroup.POST("/items/:id/import", rssHandler.HandleImportRSSItem)
 			rssGroup.POST("/items/:id/annotate", rssHandler.HandleAnnotateRSSItem)
+			rssGroup.POST("/items/:id/translate", rssHandler.HandleTranslateRSSItem)
 		}
 
 		noteGroup := apiGroup.Group("/notes")
@@ -588,6 +603,10 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 				configGroup.POST("/test-embedding", systemConfigHandler.HandleTestEmbedding)
 				configGroup.POST("/test-s3", systemConfigHandler.HandleTestS3)
 				configGroup.POST("/test-tts", ttsHandler.HandleTestTts)
+				// 接口超时配置 (全量路由清单由 gin 枚举生成, 编辑写 api_timeout_* 配置键)
+				configGroup.GET("/api-timeouts", apiTimeoutHandler.HandleListRoutes)
+				configGroup.PUT("/api-timeouts/route", apiTimeoutHandler.HandleUpdateRoute)
+				configGroup.PUT("/api-timeouts/default", apiTimeoutHandler.HandleUpdateDefault)
 			}
 
 			// Job Management (定时任务后台管理)
