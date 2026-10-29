@@ -13,3 +13,17 @@ export function fetchAuditLogs(params: Api.AuditLog.AuditLogListParams) {
     params
   })
 }
+
+/** 异步任务列表 (审计日志页「异步任务」Tab, 全量用户, 含输入快照) */
+export function fetchAdminAsyncJobs(params: Api.AsyncJob.AdminListParams) {
+  return request<{
+    list: Api.AsyncJob.AdminJob[]
+    total: number
+    page: number
+    page_size: number
+  }>({
+    url: '/api/admin/async-jobs',
+    method: 'get',
+    params
+  })
+}

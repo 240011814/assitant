@@ -99,6 +99,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 	wolMqttHandler := d.wolMqttHandler
 	mihoyoHandler := d.mihoyoHandler
 	apiTimeoutHandler := d.apiTimeoutHandler
+	asyncJobHandler := d.asyncJobHandler
 
 	r.GET("/api/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -623,6 +624,9 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 
 			// 操作审计日志 (只读查询)
 			adminGroup.GET("/audit-logs", api.RequirePermission("system:audit:view"), api.HandleListAuditLogs)
+
+			// 通用异步任务 (只读查询, 审计日志页「异步任务」Tab; 含输入快照, 仅管理员可见)
+			adminGroup.GET("/async-jobs", api.RequirePermission("system:audit:view"), asyncJobHandler.HandleAdminList)
 
 			// 系统概览 (管理员视角统计)
 			adminGroup.GET("/dashboard", api.RequirePermission("system:dashboard:view"), dashboardHandler.GetAdminStats)
