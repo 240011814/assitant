@@ -43,12 +43,12 @@ export interface DictionaryEntry {
 /** 通用异步任务 (Cloudflare 对源站有 100s 上限, 慢 LLM 操作一律异步 + 轮询 /api/async-jobs/:id) */
 export interface AsyncJob {
   id: number;
-  kind: 'passage' | 'vocab_test' | 'rss_annotate' | 'rss_translate' | string;
+  kind: 'passage' | 'vocab_test' | 'vocab_adaptive' | 'rss_annotate' | 'rss_translate' | string;
   status: 'running' | 'done' | 'failed';
   resultId: number;
-  /** 进度文本 (如 "翻译中 12/30 批") */
+  /** 进度文本 (如 "生成题目 8/25") */
   progress?: string;
-  /** 任务结果 JSON (vocab_test 下发前已剥离答案: {questions:[{id,band,word,options}]} ) */
+  /** 任务结果 JSON (vocab_adaptive 下发前已剥离答案: {questions:[...]}) */
   resultJson?: string;
   error?: string;
 }
@@ -163,20 +163,79 @@ export function fetchReadingHeartbeat(seconds: number) {
   });
 }
 
-/** 启动词汇量测试 (异步出题, 轮询 fetchGetAsyncJob 取题面) */
-export function fetchStartVocabTest() {
+/** 启动自适应词汇量测试 (锚定词库抽样 + 题目池生成, 异步出题) */
+export function fetchStartAdaptiveVocabTest() {
   return request<AsyncJob>({
-    url: '/api/reading/vocab-test/start',
+    url: '/api/reading/vocab-test/adaptive/start',
     method: 'post'
   });
 }
 
-/** 提交词汇量测试答卷, 返回 CEFR 与估算词汇量 */
-export function fetchSubmitVocabTest(jobId: number, answers: Record<string, number>) {
-  return request<VocabTestResult>({
-    url: '/api/reading/vocab-test/submit',
+/** 自适应测试: 单题下发版 (无答案) */
+export interface AdaptiveQuestion {
+  id: string;
+  band: string;
+  word: string;
+  options: string[];
+}
+
+/** 自适应测试: 单题作答 */
+export interface AdaptiveRoundAnswer {
+  questionId: string;
+  choice: number;
+}
+
+/** 自适应测试: 单档作答明细 */
+export interface VocabBandStat {
+  asked: number;
+  correct: number;
+}
+
+/** 自适应测试结果 (区间 + 中点, 不给假精度) */
+export interface AdaptiveVocabResult {
+  cefr: string;
+  estSize: number;
+  estLow: number;
+  estHigh: number;
+  bands: Record<string, VocabBandStat>;
+  rounds: number;
+  suspicious: boolean;
+}
+
+/** 自适应测试: 逐轮响应 (未收敛给下一轮题目, 收敛给最终结果) */
+export interface AdaptiveRoundResponse {
+  finished: boolean;
+  round: number;
+  probeBand: string;
+  questions?: AdaptiveQuestion[];
+  result?: AdaptiveVocabResult;
+}
+
+/** 自适应测试: 逐轮提交 (rounds 为历史各轮作答, 含本轮; 服务端重放二分路径) */
+export function fetchSubmitAdaptiveRound(data: { jobId: number; durationMs: number; rounds: AdaptiveRoundAnswer[][] }) {
+  return request<AdaptiveRoundResponse>({
+    url: '/api/reading/vocab-test/adaptive/round',
     method: 'post',
-    data: { jobId, answers }
+    data
+  });
+}
+
+/** 行为数据滚动校准结果 */
+export interface VocabBehaviorEstimate {
+  frontierBand: string;
+  estCefr: string;
+  confidence: 'low' | 'mid' | 'high' | string;
+  taggedCount: number;
+  bandCounts: Record<string, number>;
+  trend: '' | 'up' | 'down' | 'flat' | string;
+  note: string;
+}
+
+/** 行为数据滚动校准 (生词本档位分布 + 查词密度趋势) */
+export function fetchVocabBehavior() {
+  return request<VocabBehaviorEstimate>({
+    url: '/api/reading/vocab-test/behavior',
+    method: 'get'
   });
 }
 

@@ -13,12 +13,13 @@ import {
   fetchSubmitReviewFSRS,
   fetchAssistVocabulary,
   fetchImportVocabularyFile,
-  fetchStartVocabTest,
+  fetchStartAdaptiveVocabTest,
   fetchGetAsyncJob,
-  fetchSubmitVocabTest,
+  fetchSubmitAdaptiveRound,
+  fetchVocabBehavior,
   fetchLatestVocabTest,
 } from "@/service/api";
-import type { VocabTestQuestion } from "@/service/api";
+import type { AdaptiveQuestion, AdaptiveVocabResult, VocabBehaviorEstimate } from "@/service/api";
 import { onKeyStroke } from "@vueuse/core";
 import { speak } from "@/utils/tts";
 import { $t } from "@/locales";
@@ -50,14 +51,18 @@ const goSourceArticle = (row: any) => {
   }
 };
 
-// ===================== 词汇量测试 =====================
+// ===================== 自适应词汇量测试 (锚定词库 + 二分探针) =====================
 const showVocabTest = ref(false);
-const vocabTestQuestions = ref<VocabTestQuestion[]>([]);
 const vocabTestLoading = ref(false);
 const vocabTestJobId = ref(0);
-const vocabTestAnswers = ref<Record<string, number>>({});
-const vocabTestResult = ref<{ cefr: string; estSize: number; bands: Record<string, string> } | null>(null);
+// 已提交的轮次历史 (服务端无状态重放二分路径的依据)
+const vocabTestRounds = ref<{ questionId: string; choice: number }[][]>([]);
+const currentQuestions = ref<AdaptiveQuestion[]>([]);
+const currentChoices = ref<Record<string, number>>({});
+const vocabTestResult = ref<AdaptiveVocabResult | null>(null);
+const vocabTestBehavior = ref<VocabBehaviorEstimate | null>(null);
 const vocabTestLatest = ref<{ cefr: string; estSize: number; createdAt: string } | null>(null);
+let vocabTestStartedAt = 0;
 let vocabTestPollTimer: number | null = null;
 
 const stopVocabTestPoll = () => {
@@ -67,26 +72,37 @@ const stopVocabTestPoll = () => {
   }
 };
 
+const roundNumber = computed(() => vocabTestRounds.value.length + 1);
+const currentAnswered = computed(() => currentQuestions.value.filter(q => currentChoices.value[q.id] !== undefined).length);
+
+const loadVocabBehavior = async () => {
+  const { data: behavior } = await fetchVocabBehavior();
+  if (behavior) vocabTestBehavior.value = behavior;
+};
+
 const openVocabTest = async () => {
   showVocabTest.value = true;
   vocabTestResult.value = null;
-  vocabTestQuestions.value = [];
-  vocabTestAnswers.value = {};
+  currentQuestions.value = [];
+  currentChoices.value = {};
+  vocabTestRounds.value = [];
   if (!vocabTestLatest.value) {
     const { data: latest } = await fetchLatestVocabTest();
     vocabTestLatest.value = latest || null;
   }
+  loadVocabBehavior();
 };
 
 const startVocabTest = async () => {
   vocabTestLoading.value = true;
-  const { data: job, error } = await fetchStartVocabTest();
+  const { data: job, error } = await fetchStartAdaptiveVocabTest();
   if (error || !job) {
     vocabTestLoading.value = false;
     message.error(`启动测试失败: ${(error as any)?.message || "未知错误"}`);
     return;
   }
   vocabTestJobId.value = job.id;
+  vocabTestStartedAt = Date.now();
   vocabTestPollTimer = window.setInterval(async () => {
     const { data: j, error: jErr } = await fetchGetAsyncJob(job.id);
     if (jErr || !j) {
@@ -103,28 +119,45 @@ const startVocabTest = async () => {
     }
     try {
       const parsed = JSON.parse(j.resultJson || "{}");
-      vocabTestQuestions.value = parsed.questions || [];
+      // 首轮探针固定 B1 档 (区间 [-1,6] 的中点), 题目池已含全部档位
+      currentQuestions.value = (parsed.questions || []).filter((q: AdaptiveQuestion) => q.band === "B1");
+      currentChoices.value = {};
+      vocabTestRounds.value = [];
     } catch {
       message.error("测试题数据异常");
     }
   }, 2500);
 };
 
-const submitVocabTest = async () => {
-  const answered = Object.keys(vocabTestAnswers.value).length;
-  if (answered < vocabTestQuestions.value.length) {
-    message.warning(`还有 ${vocabTestQuestions.value.length - answered} 题未作答`);
+const submitRound = async () => {
+  if (currentAnswered.value < currentQuestions.value.length) {
+    message.warning(`还有 ${currentQuestions.value.length - currentAnswered.value} 题未作答`);
     return;
   }
   vocabTestLoading.value = true;
-  const { data: result, error } = await fetchSubmitVocabTest(vocabTestJobId.value, vocabTestAnswers.value);
+  const rounds = [
+    ...vocabTestRounds.value,
+    currentQuestions.value.map(q => ({ questionId: q.id, choice: currentChoices.value[q.id] }))
+  ];
+  const { data: resp, error } = await fetchSubmitAdaptiveRound({
+    jobId: vocabTestJobId.value,
+    durationMs: Date.now() - vocabTestStartedAt,
+    rounds
+  });
   vocabTestLoading.value = false;
-  if (error || !result) {
+  if (error || !resp) {
     message.error(`提交失败: ${(error as any)?.message || "未知错误"}`);
     return;
   }
-  vocabTestResult.value = result;
-  vocabTestLatest.value = { cefr: result.cefr, estSize: result.estSize, createdAt: new Date().toISOString() };
+  if (resp.finished && resp.result) {
+    vocabTestResult.value = resp.result;
+    vocabTestLatest.value = { cefr: resp.result.cefr, estSize: resp.result.estSize, createdAt: new Date().toISOString() };
+    loadVocabBehavior();
+    return;
+  }
+  vocabTestRounds.value = rounds;
+  currentQuestions.value = resp.questions || [];
+  currentChoices.value = {};
 };
 
 const columns = computed<DataTableColumns<any>>(() => {
@@ -976,58 +1009,89 @@ onMounted(() => {
       </NSpin>
     </NModal>
 
-    <!-- 词汇量测试 -->
+    <!-- 词汇量测试 (自适应: 锚定词库 + 二分探针) -->
     <NModal v-model:show="showVocabTest" preset="card" title="词汇量测试" :style="{ width: 'min(94vw, 640px)' }">
       <NSpin :show="vocabTestLoading">
         <!-- 结果页 -->
         <div v-if="vocabTestResult" class="flex flex-col gap-4 py-2">
           <div class="text-center">
             <div class="text-4xl font-bold text-primary">{{ vocabTestResult.cefr }}</div>
-            <div class="mt-2 text-gray-500">估算词汇量 ≈ {{ vocabTestResult.estSize }} 词</div>
+            <div class="mt-2 text-gray-500">
+              估算词汇量 <span class="font-bold text-gray-700 dark:text-gray-200">{{ vocabTestResult.estLow }} ~ {{ vocabTestResult.estHigh }}</span> 词
+              <span class="ml-1">(中位 ≈ {{ vocabTestResult.estSize }})</span>
+            </div>
           </div>
           <div class="flex justify-center gap-2 flex-wrap">
             <NTag v-for="(v, band) in vocabTestResult.bands" :key="band" size="small" :bordered="false">
-              {{ band }}: {{ v }}
+              {{ band }}: {{ v.correct }}/{{ v.asked }}
             </NTag>
+          </div>
+          <NAlert v-if="vocabTestResult.suspicious" type="warning" :bordered="false">
+            检测到作答速度异常偏快, 结果可能不准, 建议重新测试。
+          </NAlert>
+          <div v-if="vocabTestBehavior && vocabTestBehavior.taggedCount > 0" class="rounded-lg border border-gray-200 dark:border-gray-700 p-3 text-sm">
+            <div class="font-bold mb-1">阅读行为校准 (持续推断, 无需测试)</div>
+            <div class="text-gray-500 dark:text-gray-400">
+              你正在攻克 <span class="font-bold text-primary">{{ vocabTestBehavior.frontierBand }}</span> 档词汇
+              (生词本锚定 {{ vocabTestBehavior.taggedCount }} 词), 推断当前水平约
+              <span class="font-bold">{{ vocabTestBehavior.estCefr }}</span>
+              <NTag size="tiny" :bordered="false" class="ml-1" :type="vocabTestBehavior.confidence === 'high' ? 'success' : vocabTestBehavior.confidence === 'mid' ? 'info' : 'warning'">
+                可信度{{ vocabTestBehavior.confidence === 'high' ? '高' : vocabTestBehavior.confidence === 'mid' ? '中' : '低' }}
+              </NTag>
+            </div>
+            <div class="text-xs text-gray-400 mt-1">{{ vocabTestBehavior.note }}</div>
           </div>
           <div class="text-xs text-gray-400 text-center">
             结果会用于 AI 课文难度校准与文章难度预估。隔段时间可重新测试。
           </div>
           <NButton block @click="showVocabTest = false">完成</NButton>
         </div>
-        <!-- 答题页 -->
-        <div v-else-if="vocabTestQuestions.length > 0" class="flex flex-col gap-3 py-2 max-h-[70vh] overflow-auto">
+        <!-- 答题页 (每轮 4 题, 服务端按表现自适应调整下一轮难度) -->
+        <div v-else-if="currentQuestions.length > 0" class="flex flex-col gap-3 py-2 max-h-[70vh] overflow-auto">
+          <div class="text-xs text-gray-400">
+            第 {{ roundNumber }} 轮 · 每轮 4 题, 难度根据你的表现自动调整 (约 3~4 轮)
+          </div>
           <div
-            v-for="(q, qi) in vocabTestQuestions"
+            v-for="(q, qi) in currentQuestions"
             :key="q.id"
             class="rounded-lg border border-gray-200 dark:border-gray-700 p-3"
           >
             <div class="flex items-center gap-2">
-              <NTag size="tiny" :bordered="false">{{ q.band }}</NTag>
-              <span class="font-bold">{{ qi + 1 }}. {{ q.word }}</span>
+              <NTag size="tiny" :bordered="false">{{ qi + 1 }}</NTag>
+              <span class="font-bold">{{ q.word }}</span>
             </div>
-            <NRadioGroup v-model:value="vocabTestAnswers[q.id]" class="mt-2" size="small">
+            <NRadioGroup v-model:value="currentChoices[q.id]" class="mt-2" size="small">
               <div class="flex flex-col gap-1.5">
                 <NRadio v-for="(opt, oi) in q.options" :key="oi" :value="oi" :label="opt" />
               </div>
             </NRadioGroup>
           </div>
-          <NButton type="primary" block @click="submitVocabTest">
-            提交 ({{ Object.keys(vocabTestAnswers).length }}/{{ vocabTestQuestions.length }})
+          <NButton type="primary" block @click="submitRound">
+            提交本轮 ({{ currentAnswered }}/{{ currentQuestions.length }})
           </NButton>
         </div>
         <!-- 首屏 -->
         <div v-else class="flex flex-col gap-3 py-2">
           <div class="text-sm text-gray-500">
-            24 道分层单选题 (A1~C2 各 4 题), 根据各频段正确率估算词汇量与 CEFR 等级。
-            结果用于 AI 课文难度校准。
+            自适应测试: 考词取自分级锚定词库, 每轮 4 题, 难度根据你的表现自动调整, 约 3~4 轮即可定位水平。
+            结果给出词汇量区间与 CEFR 等级, 用于 AI 课文难度校准。
+          </div>
+          <div v-if="vocabTestBehavior && vocabTestBehavior.taggedCount > 0" class="rounded-lg border border-gray-200 dark:border-gray-700 p-3 text-sm">
+            <div class="font-bold mb-1">阅读行为校准 (测试前的粗略参考)</div>
+            <div class="text-gray-500 dark:text-gray-400">
+              你正在攻克 <span class="font-bold text-primary">{{ vocabTestBehavior.frontierBand }}</span> 档词汇,
+              推断当前水平约 <span class="font-bold">{{ vocabTestBehavior.estCefr }}</span>
+              (生词本锚定 {{ vocabTestBehavior.taggedCount }} 词,
+              可信度{{ vocabTestBehavior.confidence === 'high' ? '高' : vocabTestBehavior.confidence === 'mid' ? '中' : '低' }})
+            </div>
+            <div class="text-xs text-gray-400 mt-1">{{ vocabTestBehavior.note }}</div>
           </div>
           <div v-if="vocabTestLatest" class="text-xs text-gray-400">
             上次测试: {{ vocabTestLatest.cefr }} ≈ {{ vocabTestLatest.estSize }} 词
             ({{ new Date(vocabTestLatest.createdAt).toLocaleDateString() }})
           </div>
           <NButton type="primary" block :loading="vocabTestLoading" @click="startVocabTest">
-            {{ vocabTestLoading ? 'AI 出题中 (约半分钟)...' : '开始测试' }}
+            {{ vocabTestLoading ? '生成题目中...' : '开始测试' }}
           </NButton>
         </div>
       </NSpin>

@@ -3,6 +3,8 @@ package learning
 import (
 	"encoding/json"
 	"testing"
+
+	"backend/model"
 )
 
 // TestEstimateUnknownRateFromSet 难度预估: 生词本交集口径 + 长词兜底 + 短文本无意义
@@ -73,21 +75,29 @@ func countSegments(s string) int {
 	return n
 }
 
-// TestStripVocabTestQuestions 题面剥离: 下发无 answer 字段, 选项顺序不变
-func TestStripVocabTestQuestions(t *testing.T) {
-	questions := []map[string]interface{}{
-		{"id": "a1-1", "band": "A1", "word": "apple", "options": []string{"苹果", "香蕉", "橙子", "葡萄"}, "answer": 0},
+// TestRedactAdaptiveVocabResult 题面剥离: 下发无 answer 字段, 选项顺序不变
+func TestRedactAdaptiveVocabResult(t *testing.T) {
+	questions := []model.VocabTestQuestion{
+		{ID: "apple", Band: "A1", Word: "apple", Options: []string{"苹果", "香蕉", "橙子", "葡萄"}, Answer: 0},
+		{ID: "acquire", Band: "B2", Word: "acquire", Options: []string{"获得", "丢弃", "否认", "忽略"}, Answer: 0},
 	}
-	raw, _ := json.Marshal(questions)
-	stripped := stripVocabTestQuestions(string(raw))
-	if len(stripped) != 1 {
-		t.Fatalf("want 1 question, got %d", len(stripped))
+	raw, _ := json.Marshal(adaptivePool{Questions: questions})
+	redacted := RedactAdaptiveVocabResult(string(raw))
+
+	var out struct {
+		Questions []map[string]any `json:"questions"`
 	}
-	if _, has := stripped[0]["answer"]; has {
+	if err := json.Unmarshal([]byte(redacted), &out); err != nil {
+		t.Fatalf("redacted output must be valid JSON: %v", err)
+	}
+	if len(out.Questions) != 2 {
+		t.Fatalf("want 2 questions, got %d", len(out.Questions))
+	}
+	if _, has := out.Questions[0]["answer"]; has {
 		t.Fatal("answer must be stripped before sending to client")
 	}
-	opts, _ := stripped[0]["options"].([]string)
-	if len(opts) != 4 || opts[0] != "苹果" {
-		t.Fatalf("options order must be preserved, got %v", opts)
+	opts, ok := out.Questions[1]["options"].([]any)
+	if !ok || len(opts) != 4 || opts[0] != "获得" {
+		t.Fatalf("options order must be preserved, got %v", out.Questions[1]["options"])
 	}
 }

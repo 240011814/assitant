@@ -235,8 +235,10 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			readingGroup.POST("/generate-passage", readingHandler.HandleGeneratePassage)
 			readingGroup.POST("/translate", readingHandler.HandleTranslate)
 			readingGroup.POST("/heartbeat", readingHandler.HandleReadingHeartbeat)
-			readingGroup.POST("/vocab-test/start", readingHandler.HandleStartVocabTest)
-			readingGroup.POST("/vocab-test/submit", readingHandler.HandleSubmitVocabTest)
+			// 自适应词汇量测试 (锚定词库 + 二分探针; start 走异步 job, round 逐轮提交)
+			readingGroup.POST("/vocab-test/adaptive/start", readingHandler.HandleStartAdaptiveVocabTest)
+			readingGroup.POST("/vocab-test/adaptive/round", readingHandler.HandleAdaptiveRound)
+			readingGroup.GET("/vocab-test/behavior", readingHandler.HandleVocabBehavior)
 			readingGroup.GET("/vocab-test/latest", readingHandler.HandleLatestVocabTest)
 		}
 

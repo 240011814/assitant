@@ -203,19 +203,13 @@ type TranslateRequest struct {
 	Text string `json:"text" binding:"required,min=2,max=2000"`
 }
 
-// VocabTestQuestion 词汇量测试单题 (LLM 按频段分层生成)
+// VocabTestQuestion 词汇量测试单题 (服务端题池形态, 含答案; 下发前经 redactor 剥离)
 type VocabTestQuestion struct {
 	ID      string   `json:"id"`
 	Band    string   `json:"band"` // A1/A2/B1/B2/C1/C2
 	Word    string   `json:"word"`
 	Options []string `json:"options"` // 4 个中文释义 (含正确答案)
 	Answer  int      `json:"answer"`  // 正确选项下标 (仅存服务端)
-}
-
-// VocabTestSubmitRequest 词汇量测试提交
-type VocabTestSubmitRequest struct {
-	JobID   int            `json:"jobId" binding:"required"`
-	Answers map[string]int `json:"answers"` // 题目ID -> 选项下标
 }
 
 // GeneratePassageRequest AI 生成个性化课文 (把指定新词织进课文)

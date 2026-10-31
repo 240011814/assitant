@@ -101,8 +101,8 @@ func main() {
 
 	// 异步任务重启清扫: 旧进程遗留的 running 任务不可能再有结果, 置 failed 供重新触发
 	asynctask.SweepInterrupted()
-	// 词汇量测试题面下发前剥离正确答案 (async_jobs 通用轮询端点按 kind 调用)
-	asynctask.RegisterRedactor(asynctask.KindVocabTest, learning.RedactVocabTestResult)
+	// 自适应词汇量测试题面下发前剥离正确答案 (async_jobs 通用轮询端点按 kind 调用)
+	asynctask.RegisterRedactor(asynctask.KindVocabAdaptive, learning.RedactAdaptiveVocabResult)
 
 	// ClickHouse (分析库, 可选): 初始化失败不阻断启动, 相关同步自动跳过
 	if err := service.InitClickHouse(cfg); err != nil {

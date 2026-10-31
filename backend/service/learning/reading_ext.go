@@ -17,8 +17,6 @@ import (
 
 	"backend/model"
 	"backend/service/ai/prompt"
-	"backend/service/kernel"
-	"backend/service/sys/asynctask"
 )
 
 // ===== 阅读↔记忆闭环 / 难度预估 / 划词翻译 / 词汇量测试 / 阅读埋点 =====
@@ -236,111 +234,8 @@ func (s *ReadingService) TranslateText(userID uint, text string) (string, error)
 	return strings.TrimSpace(raw), nil
 }
 
-// ===== 词汇量测试 =====
-
-var vocabTestBands = []string{"A1", "A2", "B1", "B2", "C1", "C2"}
-var vocabTestAnchors = map[string]int{"A1": 500, "A2": 1500, "B1": 3000, "B2": 5000, "C1": 8000, "C2": 15000}
-
-// StartVocabTest 异步生成一套分层词汇量测试题 (6 频段 × 4 题)
-func (s *ReadingService) StartVocabTest(userID uint) (*model.AsyncJob, error) {
-	if s.agentSvc == nil {
-		return nil, errors.New("AI 服务未启用")
-	}
-	return asynctask.Start(asynctask.KindVocabTest, userID, 0, "", "reading:vocab-test",
-		func(report func(string)) (uint, string, error) {
-			questions, err := s.generateVocabTest(userID)
-			if err != nil {
-				return 0, "", err
-			}
-			raw, _ := json.Marshal(questions)
-			return 0, string(raw), nil
-		})
-}
-
-func (s *ReadingService) generateVocabTest(userID uint) ([]model.VocabTestQuestion, error) {
-	system := prompt.GetPrompt(prompt.PromptKeyVocabTest)
-	raw, err := s.agentSvc.GenerateTextWithTimeout(userID, "", system, "请出题。", slowGenTimeout)
-	if err != nil {
-		return nil, err
-	}
-	var questions []model.VocabTestQuestion
-	if err := kernel.DecodeLLMArray(raw, &questions); err != nil {
-		return nil, errors.New("出题格式异常 (详见后端日志)")
-	}
-	if len(questions) < 12 {
-		return nil, fmt.Errorf("出题数量不足: %d", len(questions))
-	}
-	for i := range questions {
-		if questions[i].ID == "" {
-			questions[i].ID = fmt.Sprintf("q-%d", i)
-		}
-	}
-	return questions, nil
-}
-
-// VocabTestResult 测试结果
-type VocabTestResult struct {
-	CEFR    string            `json:"cefr"`
-	EstSize int               `json:"estSize"`
-	Bands   map[string]string `json:"bands"` // band -> "正确数/总数"
-}
-
-// SubmitVocabTest 提交答卷: 按频段正确率取"最高达标频段"定级, 锚点插值估算词汇量
-func (s *ReadingService) SubmitVocabTest(userID uint, req model.VocabTestSubmitRequest) (*VocabTestResult, error) {
-	var job model.AsyncJob
-	if err := DB.Where("id = ? AND user_id = ? AND kind = ?", req.JobID, userID, asynctask.KindVocabTest).First(&job).Error; err != nil {
-		return nil, errors.New("测试不存在")
-	}
-	if job.Status != "done" || job.ResultJSON == "" {
-		return nil, errors.New("测试题尚未生成完成")
-	}
-	var questions []model.VocabTestQuestion
-	if err := json.Unmarshal([]byte(job.ResultJSON), &questions); err != nil {
-		return nil, errors.New("测试数据损坏")
-	}
-	bandCorrect := map[string]int{}
-	bandTotal := map[string]int{}
-	for _, q := range questions {
-		bandTotal[q.Band]++
-		if ans, ok := req.Answers[q.ID]; ok && ans == q.Answer {
-			bandCorrect[q.Band]++
-		}
-	}
-	// 从高到低找第一个正确率 >= 50% 的频段
-	cefr := "A1"
-	acc := 0.0
-	for i := len(vocabTestBands) - 1; i >= 0; i-- {
-		b := vocabTestBands[i]
-		if bandTotal[b] == 0 {
-			continue
-		}
-		rate := float64(bandCorrect[b]) / float64(bandTotal[b])
-		if rate >= 0.5 {
-			cefr = b
-			acc = rate
-			break
-		}
-	}
-	anchor := vocabTestAnchors[cefr]
-	est := int(float64(anchor) * (0.7 + 0.3*acc))
-	if cefr == "A1" && acc < 0.5 {
-		est = int(float64(anchor) * 0.6)
-	}
-
-	bands := map[string]string{}
-	for _, b := range vocabTestBands {
-		if bandTotal[b] > 0 {
-			bands[b] = fmt.Sprintf("%d/%d", bandCorrect[b], bandTotal[b])
-		}
-	}
-	detail, _ := json.Marshal(bands)
-	if err := DB.Create(&model.VocabularyAssessment{
-		UserID: userID, CEFR: cefr, EstSize: est, Detail: string(detail),
-	}).Error; err != nil {
-		return nil, err
-	}
-	return &VocabTestResult{CEFR: cefr, EstSize: est, Bands: bands}, nil
-}
+// 词汇量测试已重做为自适应版 (vocab_adaptive.go): 锚定词库 + 二分探针 + 区间计分。
+// GetLatestVocabTest 保留: AI 写课文的 {level} 难度校准继续读 vocabulary_assessments。
 
 // GetLatestVocabTest 最近一次词汇量评估 (课文生成难度校准也用它)
 func GetLatestVocabTest(userID uint) (*model.VocabularyAssessment, error) {
@@ -349,31 +244,4 @@ func GetLatestVocabTest(userID uint) (*model.VocabularyAssessment, error) {
 		return nil, errors.New("还没有测试记录")
 	}
 	return &a, nil
-}
-
-// stripVocabTestAnswers 下发题面前剥离正确答案 (选项顺序保持与 answer 下标一致, 不重排)
-func stripVocabTestQuestions(resultJSON string) []map[string]interface{} {
-	var questions []model.VocabTestQuestion
-	if err := json.Unmarshal([]byte(resultJSON), &questions); err != nil {
-		return nil
-	}
-	out := make([]map[string]interface{}, 0, len(questions))
-	for _, q := range questions {
-		options := append([]string(nil), q.Options...)
-		out = append(out, map[string]interface{}{
-			"id": q.ID, "band": q.Band, "word": q.Word, "options": options,
-		})
-	}
-	return out
-}
-
-// RedactVocabTestResult 词汇量测试任务的结果脱敏器: 轮询下发前剥离正确答案。
-// 注册到 asynctask (main.go 接线), 由通用轮询端点按 kind 调用。
-func RedactVocabTestResult(resultJSON string) string {
-	questions := stripVocabTestQuestions(resultJSON)
-	if questions == nil {
-		return resultJSON
-	}
-	raw, _ := json.Marshal(map[string]interface{}{"questions": questions})
-	return string(raw)
 }

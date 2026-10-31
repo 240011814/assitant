@@ -23,7 +23,7 @@ const (
 	PromptKeyDictLLM         = "prompt_dict_llm"         // LLM 全量查词 (免费词典未命中时)
 	PromptKeyTranslate       = "prompt_translate"        // 划词翻译
 	PromptKeyRSSTranslate    = "prompt_rss_translate"    // RSS 中英对照翻译 (段落级分批)
-	PromptKeyVocabTest       = "prompt_vocab_test"       // 词汇量测试出题
+	PromptKeyVocabItem       = "prompt_vocab_item"       // 词汇量测试考题的干扰释义生成 (锚定词库抽样, LLM 只出释义)
 	PromptKeyVocabAssist     = "prompt_vocab_assist"     // 生词记忆辅助 (新例句 + 助记)
 	PromptKeyVocabExtract    = "prompt_vocab_extract"    // 文章生词提取
 	PromptKeySentenceReview  = "prompt_sentence_review"  // 造句批改
@@ -47,7 +47,7 @@ var promptOrder = []string{
 	PromptKeyVocabExtract,
 	PromptKeyVocabAssist,
 	PromptKeySentenceReview,
-	PromptKeyVocabTest,
+	PromptKeyVocabItem,
 	PromptKeyMemoryExtract,
 	PromptKeyMemoryMerge,
 }
@@ -100,12 +100,15 @@ var builtinPrompts = map[string]promptDef{
 		Default: `你是英语写作批改助手。批改用户用指定单词造的句子, 从语法正确性、单词用法、地道程度打分。只输出 JSON:
 {"score": <0-100 整数>, "correct": <score>=60 时为 true, 否则 false>, "grammar": ["<语法/用词问题, 无则空数组>"], "improved": "<改进后的句子, 满分时给原句>", "comment": "<一句中文点评>"}`,
 	},
-	PromptKeyVocabTest: {
-		Remark: "词汇量测试出题 (6 频段 × 4 题)",
-		Default: `你是英语词汇量测试出题人。按 CEFR 频段各出 4 道单选题: A1(最常用基础词) A2 B1 B2 C1(学术/低频) C2(生僻词)。
-每题: 该频段的一个代表性英文单词 + 4 个中文释义选项 (1 个正确, 3 个为近义/同频段干扰项, 选项顺序打乱, 正确答案位置随机)。
-只输出 JSON 数组, 共 24 题:
-[{"id":"a1-1","band":"A1","word":"apple","options":["苹果","香蕉","橙子","葡萄"],"answer":0}]`,
+	PromptKeyVocabItem: {
+		Remark: "词汇测试考题·干扰释义生成 (考词由词库锚定, LLM 只出释义, 缓存复用)",
+		Default: `你是英语词汇测试出题助手。对给定单词各写 1 条简明中文释义和 3 条干扰释义。
+要求:
+- 正确释义: 该词最常见含义的简明中文 (不超过 15 字)
+- 干扰项: 3 条**确定错误**的中文释义, 与正确释义主题相近、词性相同, 但语义明显不同
+- 禁止同义词或"两个选项都说得通"的模糊干扰, 禁止编造该词没有的含义作为正确释义
+- 只输出 JSON 数组, 不要解释:
+[{"word":"<原词>","definition":"<正确中文释义>","distractors":["<错误释义1>","<错误释义2>","<错误释义3>"]}]`,
 	},
 	PromptKeyMemoryExtract: {
 		Remark: "长期记忆抽取 (对话→用户经历/画像事实)",

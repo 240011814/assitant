@@ -21,10 +21,11 @@ var DB *gorm.DB
 
 // 任务类型 (跨包共用, 业务侧 Kind 值必须从这里取)
 const (
-	KindPassage      = "passage"       // AI 写课文 (结果 = 课程包 ID)
-	KindVocabTest    = "vocab_test"    // 词汇量测试出题 (结果 = 题面 JSON)
-	KindRSSAnnotate  = "rss_annotate"  // RSS 一键生词提取 (结果写回 rss_items)
-	KindRSSTranslate = "rss_translate" // RSS 中英对照翻译 (结果写回 rss_items)
+	KindPassage       = "passage"        // AI 写课文 (结果 = 课程包 ID)
+	KindVocabTest     = "vocab_test"     // 词汇量测试出题 (旧版固定 24 题, 已被 vocab_adaptive 取代)
+	KindVocabAdaptive = "vocab_adaptive" // 自适应词汇量测试出题 (锚定词库抽样 + 干扰释义生成)
+	KindRSSAnnotate   = "rss_annotate"   // RSS 一键生词提取 (结果写回 rss_items)
+	KindRSSTranslate  = "rss_translate"  // RSS 中英对照翻译 (结果写回 rss_items)
 )
 
 // 任务状态

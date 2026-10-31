@@ -152,10 +152,10 @@ func (h *ReadingHandler) HandleReadingHeartbeat(c *gin.Context) {
 	SendSuccess(c, nil)
 }
 
-// HandleStartVocabTest 启动词汇量测试 (异步出题, 返回 job 前端轮询)
-func (h *ReadingHandler) HandleStartVocabTest(c *gin.Context) {
+// HandleStartAdaptiveVocabTest 启动自适应词汇量测试 (锚定词库抽样 + 题目池生成, 异步 job)
+func (h *ReadingHandler) HandleStartAdaptiveVocabTest(c *gin.Context) {
 	userId := GetUserID(c)
-	job, err := h.svc.StartVocabTest(userId)
+	job, err := h.svc.StartAdaptiveVocabTest(userId)
 	if err != nil {
 		SendError(c, "500", "启动测试失败: "+err.Error())
 		return
@@ -163,20 +163,31 @@ func (h *ReadingHandler) HandleStartVocabTest(c *gin.Context) {
 	SendSuccess(c, job)
 }
 
-// HandleSubmitVocabTest 提交词汇量测试答卷, 返回 CEFR 与估算词汇量
-func (h *ReadingHandler) HandleSubmitVocabTest(c *gin.Context) {
+// HandleAdaptiveRound 自适应测试逐轮作答 (服务端重放二分路径, 返回下一轮题目或最终结果)
+func (h *ReadingHandler) HandleAdaptiveRound(c *gin.Context) {
 	userId := GetUserID(c)
-	var req model.VocabTestSubmitRequest
+	var req learning.AdaptiveRoundRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		SendError(c, "400", "请求参数错误")
 		return
 	}
-	result, err := h.svc.SubmitVocabTest(userId, req)
+	resp, err := h.svc.SubmitAdaptiveRound(userId, req)
 	if err != nil {
-		SendError(c, "500", "提交失败: "+err.Error())
+		SendError(c, "500", err.Error())
 		return
 	}
-	SendSuccess(c, result)
+	SendSuccess(c, resp)
+}
+
+// HandleVocabBehavior 行为数据滚动校准 (生词本档位分布 + 查词密度趋势)
+func (h *ReadingHandler) HandleVocabBehavior(c *gin.Context) {
+	userId := GetUserID(c)
+	est, err := h.svc.VocabBehaviorEstimate(userId)
+	if err != nil {
+		SendError(c, "500", "行为校准失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, est)
 }
 
 // HandleLatestVocabTest 最近一次词汇量评估 (无记录返回 null)

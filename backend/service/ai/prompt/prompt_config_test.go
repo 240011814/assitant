@@ -77,17 +77,17 @@ func TestGetPromptLazyLoadAndNegativeCache(t *testing.T) {
 	}
 
 	// 无行的键: 首次访问后进负缓存, 之后删行/加行需靠 RefreshPromptCache 生效
-	if got := GetPrompt(PromptKeyVocabTest); got != builtinPrompts[PromptKeyVocabTest].Default {
+	if got := GetPrompt(PromptKeyVocabItem); got != builtinPrompts[PromptKeyVocabItem].Default {
 		t.Fatal("无行键应回落默认值")
 	}
-	if err := DB.Create(&model.SystemConfig{Key: PromptKeyVocabTest, Value: "后补的出题提示词"}).Error; err != nil {
+	if err := DB.Create(&model.SystemConfig{Key: PromptKeyVocabItem, Value: "后补的释义提示词"}).Error; err != nil {
 		t.Fatalf("insert config: %v", err)
 	}
-	if got := GetPrompt(PromptKeyVocabTest); got == "后补的出题提示词" {
+	if got := GetPrompt(PromptKeyVocabItem); got == "后补的释义提示词" {
 		t.Fatal("负缓存生效期间不应读到新行, 需 RefreshPromptCache")
 	}
 	RefreshPromptCache()
-	if got := GetPrompt(PromptKeyVocabTest); got != "后补的出题提示词" {
+	if got := GetPrompt(PromptKeyVocabItem); got != "后补的释义提示词" {
 		t.Fatalf("刷新后应读到新行, got %q", got)
 	}
 }

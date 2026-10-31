@@ -106,3 +106,39 @@ type UpdateVocabularyRequest struct {
 	ConfusingWords string `json:"confusingWords"`
 	IsMastered     *bool  `json:"isMastered"`
 }
+
+// WordBank 分级锚定词库 (word_bank 表): 自适应词汇量测试的考词来源。
+// 词的难度由分级数据锚定, 不由 LLM 判断; 种子 = 每档典型词, 后续可整档扩充。
+type WordBank struct {
+	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	Word      string    `gorm:"size:50;not null;uniqueIndex:uk_word_bank_word" json:"word"`
+	CEFR      string    `gorm:"size:4;not null;index:idx_word_bank_cefr,priority:1" json:"cefr"` // A1..C2
+	Source    string    `gorm:"size:30;not null;default:'band-seed'" json:"source"`
+	Enabled   bool      `gorm:"not null;default:true;index:idx_word_bank_cefr,priority:2" json:"enabled"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// TableName 指定表名
+func (WordBank) TableName() string {
+	return "word_bank"
+}
+
+// VocabTestItem 考题缓存 (vocab_test_items 表, 按词全局复用, 与 dictionary_cache 同模式):
+// 正确释义 + 3 个干扰项由 LLM 生成一次后永久复用, 选项顺序在生成时打乱落库。
+type VocabTestItem struct {
+	ID                uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	Word              string    `gorm:"size:50;not null;uniqueIndex:uk_vti_word" json:"word"`
+	CEFR              string    `gorm:"size:4;not null" json:"cefr"`
+	CorrectDefinition string    `gorm:"size:255;not null" json:"correctDefinition"`
+	Distractors       string    `gorm:"size:900;not null" json:"-"`  // 3 个干扰释义 JSON 数组
+	OptionsJSON       string    `gorm:"size:1200;not null" json:"-"` // 打乱后的 4 选项
+	Answer            int       `gorm:"not null" json:"-"`           // 正确选项下标 0-3
+	Model             string    `gorm:"size:100;not null;default:''" json:"model"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
+}
+
+// TableName 指定表名
+func (VocabTestItem) TableName() string {
+	return "vocab_test_items"
+}
