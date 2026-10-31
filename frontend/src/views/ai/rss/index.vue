@@ -3,7 +3,7 @@ import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMoun
 import { NButton, NButtonGroup, NEmpty, NPopconfirm, NTag, useMessage } from "naive-ui";
 import { useRouterPush } from "@/hooks/common/router";
 import ReaderView from "@/components/custom/reader-view.vue";
-import { fetchRSSAddSource, fetchRSSListSources, fetchRSSUpdateSource, fetchRSSDeleteSource, fetchRSSFetchSource, fetchRSSListItems, fetchRSSMarkRead, fetchRSSItemContent, fetchRSSImportItem, fetchRSSAnnotateItem, fetchRSSTranslateItem, fetchGetAsyncJob, fetchAddVocabulary } from "@/service/api";
+import { fetchRSSAddSource, fetchRSSListSources, fetchRSSUpdateSource, fetchRSSDeleteSource, fetchRSSFetchSource, fetchRSSListItems, fetchRSSMarkRead, fetchRSSItemContent, fetchRSSImportItem, fetchRSSAnnotateItem, fetchRSSTranslateItem, fetchRSSRewriteItem, fetchGetAsyncJob, fetchAddVocabulary } from "@/service/api";
 import type { DifficultWord, RSSItem, RSSSource } from "@/service/api";
 import { useAppStore } from "@/store/modules/app";
 
@@ -354,12 +354,17 @@ const translationStale = computed(() => !!viewItem.value?.translationStale);
 const translating = ref(false);
 const translateProgress = ref("");
 
-// 展示 HTML: 对照/仅译文用双语版, 仅原文用原始净化 HTML (高亮与段落归一化只对它做过)
+// 展示 HTML: 改写视图 > 对照/仅译文 > 原始净化 HTML (高亮与段落归一化只对原文视图做过)
+const viewSource = ref<"original" | "rewrite">("original");
+const viewRewriteHtml = ref("");
+const hasRewrite = computed(() => !!viewItem.value?.rewriteHtml);
+const rewriteStale = computed(() => !!viewItem.value?.rewriteStale);
 const viewDisplayHtml = computed(() => {
+  if (viewSource.value === "rewrite" && viewRewriteHtml.value) return viewRewriteHtml.value;
   if (hasBilingual.value && viewMode.value !== "en") return viewBilingualHtml.value;
   return viewHtml.value;
 });
-const articleClass = computed(() => (hasBilingual.value ? [`rss-mode-${viewMode.value}`] : []));
+const articleClass = computed(() => (hasBilingual.value && viewSource.value === "original" ? [`rss-mode-${viewMode.value}`] : []));
 
 const refreshBilingual = async () => {
   const itemId = viewItem.value?.id;
@@ -413,13 +418,68 @@ const handleTranslateItem = async () => {
   pollTranslateJob(job.id);
 };
 
-// 模式切回"仅原文"时 DOM 重建, 生词高亮与段落归一化需要重做
-watch(viewMode, (mode) => {
+// 模式切回"仅原文"时 DOM 重建, 生词高亮与段落归一化需要重做; 切改写视图同样重建 DOM
+watch([viewMode, viewSource], ([, src]) => {
   nextTick(() => {
-    if (mode === "en") normalizeArticleHtml();
+    if (src === "original" && viewMode.value === "en") normalizeArticleHtml();
     applyHighlight();
   });
 });
+
+// ===================== 分级改写 (按用户档位, 异步任务) =====================
+const rewriting = ref(false);
+const rewriteProgress = ref("");
+
+const refreshRewrite = async () => {
+  const itemId = viewItem.value?.id;
+  if (!itemId) return;
+  const { data: fresh } = await fetchRSSItemContent(itemId);
+  if (!fresh) return;
+  viewItem.value = fresh;
+  viewRewriteHtml.value = stripDuplicateHeading(fresh.rewriteHtml || "", fresh.title);
+  if (fresh.rewriteHtml) viewSource.value = "rewrite";
+};
+
+const pollRewriteJob = (jobId: number) => {
+  const timer = window.setInterval(async () => {
+    const { data: job, error } = await fetchGetAsyncJob(jobId);
+    if (error || !job) {
+      window.clearInterval(timer);
+      rewriting.value = false;
+      return;
+    }
+    if (job.status === "running") {
+      rewriteProgress.value = job.progress || "";
+      return;
+    }
+    window.clearInterval(timer);
+    rewriting.value = false;
+    if (job.status === "failed") {
+      message.error(`改写失败: ${job.error || "未知错误"}`);
+      return;
+    }
+    await refreshRewrite();
+    message.success(`已生成改写 (目标 ${viewItem.value?.rewriteLevel || ""})`);
+  }, 2500);
+};
+
+const handleRewriteItem = async () => {
+  if (!viewItem.value || rewriting.value) return;
+  rewriting.value = true;
+  rewriteProgress.value = "";
+  const { data: job, error } = await fetchRSSRewriteItem(viewItem.value.id);
+  if (error || !job) {
+    rewriting.value = false;
+    message.error(`启动改写失败: ${(error as any)?.message || "未知错误"}`);
+    return;
+  }
+  if (job.status === "done") {
+    rewriting.value = false;
+    await refreshRewrite();
+    return;
+  }
+  pollRewriteJob(job.id);
+};
 
 // 侧栏生词: 点击查词
 const lookupDw = (word: string) => {
@@ -463,6 +523,9 @@ const openItem = async (item: RSSItem) => {
   viewBilingualHtml.value = "";
   viewMode.value = "en";
   translateProgress.value = "";
+  viewSource.value = "original";
+  viewRewriteHtml.value = "";
+  rewriteProgress.value = "";
   showViewer.value = true;
   readerRef.value?.scrollToTop();
   if (item.status === "unread") {
@@ -490,8 +553,11 @@ const openItem = async (item: RSSItem) => {
     viewHtml.value = stripDuplicateHeading(resp.contentHtml || "", resp.title);
   }
   viewItem.value = resp;
-  // 之前提取过的生词直接展示并高亮; 已有对照译文则默认切对照视图
+  // 之前提取过的生词直接展示并高亮; 已有对照译文/改写则预填 (默认仍显示原文)
   viewDifficultWords.value = parseDifficultWords(resp.difficultWords);
+  if (resp.rewriteHtml) {
+    viewRewriteHtml.value = stripDuplicateHeading(resp.rewriteHtml, resp.title);
+  }
   if (resp.bilingualHtml) {
     viewBilingualHtml.value = stripDuplicateHeading(resp.bilingualHtml, resp.title);
     viewMode.value = "bi";
@@ -942,10 +1008,28 @@ onDeactivated(() => {
               </template>
               <span class="hidden sm:inline">{{ translationStale ? '重新对照' : '中英对照' }}</span>
             </NButton>
-            <NButtonGroup v-if="hasBilingual" size="tiny" class="mr-1">
+            <NButtonGroup v-if="hasBilingual && viewSource === 'original'" size="tiny" class="mr-1">
               <NButton size="tiny" :type="viewMode === 'bi' ? 'primary' : 'default'" @click="viewMode = 'bi'">对照</NButton>
               <NButton size="tiny" :type="viewMode === 'zh' ? 'primary' : 'default'" @click="viewMode = 'zh'">译文</NButton>
               <NButton size="tiny" :type="viewMode === 'en' ? 'primary' : 'default'" @click="viewMode = 'en'">原文</NButton>
+            </NButtonGroup>
+            <NButton
+              size="tiny"
+              class="mr-1"
+              :loading="rewriting"
+              :title="rewriteProgress || (rewriteStale ? '原文已更新, 重新生成改写' : '把本文改写成你当前档位可读的英文')"
+              @click="handleRewriteItem"
+            >
+              <template #icon>
+                <SvgIcon icon="mdi:book-open-variant" />
+              </template>
+              <span class="hidden sm:inline">{{ rewriteStale ? '重新改写' : '按水平改写' }}</span>
+            </NButton>
+            <NButtonGroup v-if="hasRewrite" size="tiny" class="mr-1">
+              <NButton size="tiny" :type="viewSource === 'original' ? 'primary' : 'default'" @click="viewSource = 'original'">原文</NButton>
+              <NButton size="tiny" :type="viewSource === 'rewrite' ? 'primary' : 'default'" @click="viewSource = 'rewrite'">
+                改写{{ viewItem?.rewriteLevel ? `·${viewItem.rewriteLevel}` : '' }}
+              </NButton>
             </NButtonGroup>
             <NButton
               size="tiny"

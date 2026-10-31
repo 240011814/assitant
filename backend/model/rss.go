@@ -35,6 +35,9 @@ type RSSItem struct {
 	BilingualHTML   string     `gorm:"type:mediumtext" json:"bilingualHtml,omitempty"`  // 中英对照 HTML: 原文块 + <div class="rss-zh">译文块
 	TranslationHash string     `gorm:"size:64" json:"-"`                                // 翻译时的 content_html 指纹 (内容漂移检测)
 	TranslatedAt    *time.Time `json:"translatedAt,omitempty"`                          // 对照翻译完成时间
+	RewriteHTML     string     `gorm:"type:mediumtext" json:"rewriteHtml,omitempty"`    // 按用户档位改写后的 HTML (p/pre 段落序列)
+	RewriteLevel    string     `gorm:"size:4" json:"rewriteLevel,omitempty"`            // 改写目标 CEFR 档位
+	RewriteHash     string     `gorm:"size:64" json:"-"`                                // 改写时的 content_html 指纹 (内容漂移检测)
 	DifficultWords  string     `gorm:"type:mediumtext" json:"difficultWords,omitempty"` // AI 提取的生词 JSON (一键提取, 与分级阅读同源)
 	EstUnknownRate  float64    `gorm:"not null;default:0" json:"estUnknownRate"`        // 摘要预估生词率 (生词本交集+长词启发)
 	PublishedAt     *time.Time `json:"publishedAt"`
@@ -44,6 +47,9 @@ type RSSItem struct {
 
 	// TranslationStale 原文重新抓取后内容已变化, 译文过期需重新翻译 (读路径计算, 不落库)
 	TranslationStale bool `gorm:"-" json:"translationStale,omitempty"`
+
+	// RewriteStale 原文重新抓取后内容已变化, 改写过期需重新生成 (读路径计算, 不落库)
+	RewriteStale bool `gorm:"-" json:"rewriteStale,omitempty"`
 }
 
 // TableName 指定表名

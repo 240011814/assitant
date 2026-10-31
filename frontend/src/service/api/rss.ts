@@ -36,6 +36,12 @@ export interface RSSItem {
   translatedAt?: string | null;
   /** 原文重新抓取后内容已变化, 译文过期需重新翻译 */
   translationStale?: boolean;
+  /** 按用户档位改写后的 HTML (仅详情接口返回) */
+  rewriteHtml?: string;
+  /** 改写目标 CEFR 档位 */
+  rewriteLevel?: string;
+  /** 原文重新抓取后内容已变化, 改写过期需重新生成 */
+  rewriteStale?: boolean;
 }
 
 /** 添加订阅 (先验证 feed 可解析) */
@@ -132,6 +138,14 @@ export function fetchRSSAnnotateItem(id: number) {
 export function fetchRSSTranslateItem(id: number) {
   return request<{ id: number; kind: string; status: string; resultId: number; progress?: string }>({
     url: `/api/rss/items/${id}/translate`,
+    method: 'post'
+  });
+}
+
+/** 按用户档位生成分级改写 (异步任务, 轮询 /api/async-jobs/:id; 已有未过期改写时直接返回 done) */
+export function fetchRSSRewriteItem(id: number) {
+  return request<{ id: number; kind: string; status: string; resultId: number; progress?: string }>({
+    url: `/api/rss/items/${id}/rewrite`,
     method: 'post'
   });
 }

@@ -257,6 +257,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			rssGroup.POST("/items/:id/import", rssHandler.HandleImportRSSItem)
 			rssGroup.POST("/items/:id/annotate", rssHandler.HandleAnnotateRSSItem)
 			rssGroup.POST("/items/:id/translate", rssHandler.HandleTranslateRSSItem)
+			rssGroup.POST("/items/:id/rewrite", rssHandler.HandleRewriteRSSItem)
 		}
 
 		noteGroup := apiGroup.Group("/notes")

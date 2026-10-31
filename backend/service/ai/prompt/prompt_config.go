@@ -23,6 +23,7 @@ const (
 	PromptKeyDictLLM         = "prompt_dict_llm"         // LLM 全量查词 (免费词典未命中时)
 	PromptKeyTranslate       = "prompt_translate"        // 划词翻译
 	PromptKeyRSSTranslate    = "prompt_rss_translate"    // RSS 中英对照翻译 (段落级分批)
+	PromptKeyRSSRewrite      = "prompt_rss_rewrite"      // RSS 分级改写 (按用户 CEFR 档位, {level} 占位符)
 	PromptKeyVocabItem       = "prompt_vocab_item"       // 词汇量测试考题的干扰释义生成 (锚定词库抽样, LLM 只出释义)
 	PromptKeyVocabAssist     = "prompt_vocab_assist"     // 生词记忆辅助 (新例句 + 助记)
 	PromptKeyVocabExtract    = "prompt_vocab_extract"    // 文章生词提取
@@ -42,6 +43,7 @@ var promptOrder = []string{
 	PromptKeyDictLLM,
 	PromptKeyTranslate,
 	PromptKeyRSSTranslate,
+	PromptKeyRSSRewrite,
 	PromptKeyReadingAnnotate,
 	PromptKeyReadingPassage,
 	PromptKeyVocabExtract,
@@ -74,6 +76,16 @@ var builtinPrompts = map[string]promptDef{
 - i 必须与输入编号一致, 一一对应, 不许遗漏、合并或拆分段落
 - 专有名词、产品名、代码保留原文; 数字/单位/URL 保持原样
 - 语气与原文一致 (新闻/技术文章等), 不要添加解释、总结或译者注`,
+	},
+	PromptKeyRSSRewrite: {
+		Remark: "RSS 分级改写 ({level} 为用户 CEFR 档位占位符, 段落级分批)",
+		Default: `你是英语分级阅读改写助手。把编号段落改写成 CEFR {level} 档读者能顺畅读懂的英文。
+要求:
+- 词汇控制在 {level} 档及以下: 超纲词换成简单说法或日常短语, 不降低原意
+- 句子拆短 (每句尽量不超过 15 词), 语法从简, 语序自然
+- 专有名词、数字、单位、代码保留原样; 可省略次要细节, 但不得新增原文没有的信息
+- i 必须与输入编号一致, 一段不改写成多段也不合并段落
+- 只输出 JSON 数组, 不要解释: [{"i": <段落编号>, "text": "<改写后的英文段落>"}]`,
 	},
 	PromptKeyReadingAnnotate: {
 		Remark: "分级阅读生词标注 (RSS 一键提取共用)",

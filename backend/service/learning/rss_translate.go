@@ -187,26 +187,36 @@ func (s *RSSService) translateBatch(userID uint, title string, segments []string
 	return out, nil
 }
 
-// translateItemSync 对照翻译主体 (后台协程执行): 切段 → 分批翻译 → 组装双语 HTML
-func (s *RSSService) translateItemSync(userID uint, title, htmlSrc string, report func(string)) (string, int, error) {
-	root, err := xhtml.Parse(strings.NewReader(htmlSrc))
-	if err != nil {
-		return "", 0, fmt.Errorf("正文 HTML 解析失败: %w", err)
+// prepareRSSBatches 公共骨架 (翻译/改写共用): 解析净化 HTML → 块级切段 → 按 rune 预算分批。
+// 返回 body 节点 (组装时需要回插/序列化)、翻译单元与分批下标。
+func prepareRSSBatches(htmlSrc string) (body *xhtml.Node, units []*rssTranslateUnit, batches [][]int, err error) {
+	root, perr := xhtml.Parse(strings.NewReader(htmlSrc))
+	if perr != nil {
+		return nil, nil, nil, fmt.Errorf("正文 HTML 解析失败: %w", perr)
 	}
-	body := findHTMLBody(root)
+	body = findHTMLBody(root)
 	if body == nil {
-		return "", 0, errors.New("正文 HTML 无 body 节点")
+		return nil, nil, nil, errors.New("正文 HTML 无 body 节点")
 	}
-	units := collectRSSUnits(body)
+	units = collectRSSUnits(body)
 	if len(units) > rssTranslateMaxUnits {
-		return "", 0, fmt.Errorf("文章段落过多 (%d, 上限 %d), 暂不支持对照翻译", len(units), rssTranslateMaxUnits)
+		return nil, nil, nil, fmt.Errorf("文章段落过多 (%d, 上限 %d), 暂不支持处理", len(units), rssTranslateMaxUnits)
 	}
 	if len(units) == 0 {
-		return "", 0, errors.New("没有可翻译的段落")
+		return nil, nil, nil, errors.New("没有可处理的段落")
 	}
-	batches := buildTranslateBatches(units)
+	batches = buildTranslateBatches(units)
 	if len(batches) > rssTranslateMaxBatches {
-		return "", 0, fmt.Errorf("文章过长 (%d 批, 上限 %d), 暂不支持对照翻译", len(batches), rssTranslateMaxBatches)
+		return nil, nil, nil, fmt.Errorf("文章过长 (%d 批, 上限 %d), 暂不支持处理", len(batches), rssTranslateMaxBatches)
+	}
+	return body, units, batches, nil
+}
+
+// translateItemSync 对照翻译主体 (后台协程执行): 切段 → 分批翻译 → 组装双语 HTML
+func (s *RSSService) translateItemSync(userID uint, title, htmlSrc string, report func(string)) (string, int, error) {
+	body, units, batches, err := prepareRSSBatches(htmlSrc)
+	if err != nil {
+		return "", 0, err
 	}
 
 	zh := make([]string, len(units))

@@ -473,6 +473,10 @@ func (s *RSSService) GetItemContent(userID, id uint) (*model.RSSItem, error) {
 	if item.BilingualHTML != "" && item.TranslationHash != "" {
 		item.TranslationStale = item.TranslationHash != rssContentHash(item.ContentHTML)
 	}
+	// 改写过期标记: 同上
+	if item.RewriteHTML != "" && item.RewriteHash != "" {
+		item.RewriteStale = item.RewriteHash != rssContentHash(item.ContentHTML)
+	}
 	return &item, nil
 }
 

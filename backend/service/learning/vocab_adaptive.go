@@ -477,6 +477,11 @@ func (s *ReadingService) VocabBehaviorEstimate(userID uint) (*VocabBehaviorEstim
 		return nil, err
 	}
 	for _, b := range bank {
+		// COM 行 (Oxford 3000 常用词标记) 不计入档位画像: 生词本含常用词是正常现象,
+		// 只有带 A1..C2 档位的词才表达"这个难度的词不认识"
+		if bandIndexOf(b.CEFR) < 0 {
+			continue
+		}
 		out.BandCounts[b.CEFR]++
 		out.TaggedCount++
 	}
