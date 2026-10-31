@@ -48,6 +48,11 @@ export function fetchCreateRole(data: Partial<Api.Admin.Role>) {
   return request({ url: '/api/admin/roles', method: 'post', data });
 }
 
+/** 编辑角色 (仅名称/描述, 编码不可改) */
+export function fetchUpdateRole(roleCode: string, data: Api.Admin.UpdateRoleParams) {
+  return request({ url: `/api/admin/roles/${roleCode}`, method: 'put', data });
+}
+
 export function fetchDeleteRole(roleCode: string) {
   return request({ url: `/api/admin/roles/${roleCode}`, method: 'delete' });
 }

@@ -624,6 +624,8 @@ declare namespace App {
             superAdminTip: string;
             permissionSaveSuccess: string;
             roleCreateSuccess: string;
+            roleEdit: string;
+            roleEditSuccess: string;
             roleDeleteSuccess: string;
             permissionCreateSuccess: string;
             permissionUpdateSuccess: string;

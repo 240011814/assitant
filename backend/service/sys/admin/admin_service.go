@@ -313,6 +313,81 @@ func (s *AdminService) CreateRole(role model.Role) error {
 	return DB.Create(&role).Error
 }
 
+// 内置角色编码: 被前后端逻辑硬编码引用, 不可修改
+var builtInRoleCodes = map[string]bool{"R_SUPER": true, "R_ADMIN": true, "R_USER": true}
+
+// isValidRoleCode 编码格式: 字母/数字/下划线/中划线, 1~50 字符
+func isValidRoleCode(code string) bool {
+	if len(code) == 0 || len(code) > 50 {
+		return false
+	}
+	for _, r := range code {
+		isAlnum := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9'
+		if !isAlnum && r != '_' && r != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+// UpdateRole 编辑角色: 名称/描述; 自定义角色可改编码 (级联更新 role_permissions
+// 与 user_roles 关联并失效权限缓存), 内置角色编码锁死
+func (s *AdminService) UpdateRole(roleCode string, req model.UpdateRoleRequest) error {
+	var role model.Role
+	if err := DB.Where("code = ?", roleCode).First(&role).Error; err != nil {
+		return errors.New("角色不存在")
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return errors.New("角色名称不能为空")
+	}
+	newCode := strings.TrimSpace(req.Code)
+	codeChanged := newCode != "" && newCode != roleCode
+	if codeChanged {
+		if builtInRoleCodes[roleCode] {
+			return errors.New("内置角色编码不可修改")
+		}
+		if builtInRoleCodes[newCode] {
+			return errors.New("新编码与内置角色冲突")
+		}
+		if !isValidRoleCode(newCode) {
+			return errors.New("编码仅允许字母/数字/下划线/中划线, 1~50 字符")
+		}
+		var count int64
+		if err := DB.Model(&model.Role{}).Where("code = ?", newCode).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return errors.New("新编码已被其他角色使用")
+		}
+	}
+	updates := map[string]interface{}{
+		"name":        kernel.TruncateRunes(name, 100),
+		"description": kernel.TruncateRunes(strings.TrimSpace(req.Description), 255),
+	}
+	if !codeChanged {
+		return DB.Model(&role).Updates(updates).Error
+	}
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		// 编码是 role_permissions / user_roles 的关联键, 三表级联重命名
+		if err := tx.Model(&model.Role{}).Where("code = ?", roleCode).Update("code", newCode).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&model.RolePermission{}).Where("role_code = ?", roleCode).Update("role_code", newCode).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&model.UserRole{}).Where("role_code = ?", roleCode).Update("role_code", newCode).Error; err != nil {
+			return err
+		}
+		return tx.Model(&model.Role{}).Where("code = ?", newCode).Updates(updates).Error
+	})
+	if err == nil {
+		// 持有该角色的用户权限集合关联已变化, 清全部权限缓存
+		auth.InvalidatePermissionCache(0)
+	}
+	return err
+}
+
 func (s *AdminService) DeleteRole(roleCode string) error {
 	if roleCode == "R_SUPER" || roleCode == "R_ADMIN" || roleCode == "R_USER" {
 		return errors.New("内置角色不可删除")

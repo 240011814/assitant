@@ -411,6 +411,8 @@ const local: App.I18n.Schema = {
         superAdminTip: "Super admin has all permissions by default",
         permissionSaveSuccess: "Permission saved successfully",
         roleCreateSuccess: "Role created successfully",
+        roleEdit: "Edit Role",
+        roleEditSuccess: "Role updated successfully",
         roleDeleteSuccess: "Role deleted",
         permissionCreateSuccess: "Permission created successfully",
         permissionUpdateSuccess: "Permission updated successfully",

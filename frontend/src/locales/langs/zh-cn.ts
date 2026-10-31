@@ -405,6 +405,8 @@ const local: App.I18n.Schema = {
         superAdminTip: "超级管理员默认拥有所有权限，无需配置",
         permissionSaveSuccess: "权限保存成功",
         roleCreateSuccess: "角色创建成功",
+        roleEdit: "编辑角色",
+        roleEditSuccess: "角色更新成功",
         roleDeleteSuccess: "角色已删除",
         permissionCreateSuccess: "权限点创建成功",
         permissionUpdateSuccess: "权限点更新成功",

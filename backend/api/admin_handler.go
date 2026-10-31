@@ -145,6 +145,21 @@ func (h *AdminHandler) HandleCreateRole(c *gin.Context) {
 	SendSuccess(c, nil)
 }
 
+// HandleUpdateRole 编辑角色 (名称/描述, 编码不可改)
+func (h *AdminHandler) HandleUpdateRole(c *gin.Context) {
+	roleCode := c.Param("roleCode")
+	var req model.UpdateRoleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请求参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.UpdateRole(roleCode, req); err != nil {
+		SendError(c, "500", "更新角色失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, nil)
+}
+
 func (h *AdminHandler) HandleDeleteRole(c *gin.Context) {
 	roleCode := c.Param("roleCode")
 	if err := h.svc.DeleteRole(roleCode); err != nil {

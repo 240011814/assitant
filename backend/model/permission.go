@@ -43,6 +43,13 @@ type RolePermissionRequest struct {
 	Permissions []string `json:"permissions"`
 }
 
+// UpdateRoleRequest 编辑角色请求 (内置角色编码不可改, 自定义角色可改码并级联更新关联)
+type UpdateRoleRequest struct {
+	Code        string `json:"code"`
+	Name        string `json:"name" binding:"required"`
+	Description string `json:"description"`
+}
+
 // UserRole 用户-角色关联 (user_roles 表): 用户可拥有多个角色, 角色归属的唯一真相源。
 // users.role 列保留为"主角色"兼容字段 (始终与第一项同步)。
 type UserRole struct {

@@ -554,6 +554,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			// Role Management
 			adminGroup.GET("/roles", api.RequirePermission("system:role:list"), adminHandler.HandleListRoles)
 			adminGroup.POST("/roles", api.RequirePermission("system:role:create"), adminHandler.HandleCreateRole)
+			adminGroup.PUT("/roles/:roleCode", api.RequirePermission("system:role:edit"), adminHandler.HandleUpdateRole)
 			adminGroup.DELETE("/roles/:roleCode", api.RequirePermission("system:role:delete"), adminHandler.HandleDeleteRole)
 
 			// Permission Management

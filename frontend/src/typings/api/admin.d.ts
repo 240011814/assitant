@@ -89,6 +89,14 @@ declare namespace Api {
       description: string;
     }
 
+    /** 编辑角色: 内置角色编码不可改, 自定义角色可改码并级联更新关联 */
+    interface UpdateRoleParams {
+      /** 新编码 (与原编码相同或为空 = 不改码) */
+      code?: string;
+      name: string;
+      description: string;
+    }
+
     interface Permission {
       id: number;
       code: string;

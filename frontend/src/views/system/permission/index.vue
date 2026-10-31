@@ -7,6 +7,7 @@ import {
   fetchGetRoles,
   fetchUpdateRolePermissions,
   fetchCreateRole,
+  fetchUpdateRole,
   fetchDeleteRole,
   fetchCreatePermission,
   fetchUpdatePermission,
@@ -32,6 +33,44 @@ const newRole = ref({
   name: "",
   description: "",
 });
+
+// 角色编辑 (名称/描述; 内置角色编码锁死, 自定义角色可改码)
+const BUILT_IN_ROLE_CODES = ["R_SUPER", "R_ADMIN", "R_USER"];
+const isBuiltInCode = (code: string) => BUILT_IN_ROLE_CODES.includes(code);
+const showEditRoleModal = ref(false);
+const editRoleSaving = ref(false);
+const editRoleForm = ref({ originalCode: "", code: "", name: "", description: "" });
+
+function openEditRole(role: Api.Admin.Role) {
+  editRoleForm.value = { originalCode: role.code, code: role.code, name: role.name, description: role.description || "" };
+  showEditRoleModal.value = true;
+}
+
+async function handleUpdateRole() {
+  if (!editRoleForm.value.name.trim()) {
+    message.warning($t("page.system.permission.roleInfoRequired"));
+    return;
+  }
+  const form = editRoleForm.value;
+  const codeChanged = form.code !== form.originalCode && !isBuiltInCode(form.originalCode);
+  editRoleSaving.value = true;
+  const { error } = await fetchUpdateRole(form.originalCode, {
+    name: form.name.trim(),
+    description: form.description.trim(),
+    // 编码仅在自定义角色改码时下发
+    ...(codeChanged ? { code: form.code.trim() } : {}),
+  });
+  editRoleSaving.value = false;
+  if (!error) {
+    message.success($t("page.system.permission.roleEditSuccess"));
+    // 当前选中的角色若已改码, 选中态跟随新编码
+    if (selectedRole.value === form.originalCode && codeChanged) {
+      selectedRole.value = form.code.trim();
+    }
+    showEditRoleModal.value = false;
+    await loadBaseData();
+  }
+}
 
 const showPermissionModal = ref(false);
 const permissionLoading = ref(false);
@@ -248,23 +287,38 @@ onMounted(async () => {
               <span class="text-12px opacity-60">{{ role.code }}</span>
             </div>
 
-            <NButton
-              v-if="
-                role.code !== 'R_SUPER' &&
-                  role.code !== 'R_ADMIN' &&
-                  role.code !== 'R_USER'
-              "
-              size="tiny"
-              type="error"
-              quaternary
-              circle
-              class="opacity-0 group-hover:opacity-100"
-              @click.stop="confirmDeleteRole(role)"
-            >
-              <template #icon>
-                <SvgIcon icon="mdi:trash-can-outline" />
-              </template>
-            </NButton>
+            <div class="flex items-center gap-1">
+              <NButton
+                size="tiny"
+                type="primary"
+                quaternary
+                circle
+                class="opacity-0 group-hover:opacity-100"
+                :title="$t('page.system.permission.roleEdit')"
+                @click.stop="openEditRole(role)"
+              >
+                <template #icon>
+                  <SvgIcon icon="mdi:pencil-outline" />
+                </template>
+              </NButton>
+              <NButton
+                v-if="
+                  role.code !== 'R_SUPER' &&
+                    role.code !== 'R_ADMIN' &&
+                    role.code !== 'R_USER'
+                "
+                size="tiny"
+                type="error"
+                quaternary
+                circle
+                class="opacity-0 group-hover:opacity-100"
+                @click.stop="confirmDeleteRole(role)"
+              >
+                <template #icon>
+                  <SvgIcon icon="mdi:trash-can-outline" />
+                </template>
+              </NButton>
+            </div>
           </div>
         </div>
       </NScrollbar>
@@ -429,6 +483,45 @@ onMounted(async () => {
         <div class="flex justify-end gap-3">
           <NButton @click="showAddRoleModal = false">{{ $t("common.cancel") }}</NButton>
           <NButton type="primary" :loading="addRoleLoading" @click="handleAddRole">
+            {{ $t("common.confirm") }}
+          </NButton>
+        </div>
+      </template>
+    </NModal>
+
+    <!-- Edit Role Modal (编码不可改) -->
+    <NModal
+      v-model:show="showEditRoleModal"
+      preset="card"
+      :title="$t('page.system.permission.roleEdit')"
+      class="w-450px"
+      :segmented="{ content: true, footer: true }"
+    >
+      <NForm>
+        <NFormItem :label="$t('page.system.permission.roleCode')" path="code">
+          <NInput
+            v-model:value="editRoleForm.code"
+            :disabled="isBuiltInCode(editRoleForm.code)"
+          />
+        </NFormItem>
+        <NFormItem :label="$t('page.system.permission.roleName')" path="name">
+          <NInput
+            v-model:value="editRoleForm.name"
+            :placeholder="$t('page.system.permission.roleNamePlaceholder')"
+          />
+        </NFormItem>
+        <NFormItem :label="$t('page.system.permission.description')" path="description">
+          <NInput
+            v-model:value="editRoleForm.description"
+            type="textarea"
+            :placeholder="$t('page.system.permission.descriptionPlaceholder')"
+          />
+        </NFormItem>
+      </NForm>
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <NButton @click="showEditRoleModal = false">{{ $t("common.cancel") }}</NButton>
+          <NButton type="primary" :loading="editRoleSaving" @click="handleUpdateRole">
             {{ $t("common.confirm") }}
           </NButton>
         </div>
