@@ -39,7 +39,7 @@ const form = reactive({
   userName: "",
   password: "",
   nickname: "",
-  role: "R_USER",
+  roles: ["R_USER"] as string[],
   tokenQuotaMonth: null as number | null,
 });
 
@@ -80,8 +80,12 @@ const rules: FormRules = {
   ],
   role: [
     {
-      required: true,
-      message: $t("page.system.user.roleRequired"),
+      validator() {
+        if (form.roles.length === 0) {
+          return new Error($t("page.system.user.roleRequired"));
+        }
+        return true;
+      },
       trigger: ["change", "blur"],
     },
   ],
@@ -100,10 +104,9 @@ const roleTagType = (roleCode: string) => {
 
 const userStats = computed(() => {
   const total = users.value.length;
-  const superCount = users.value.filter(u => u.role === "R_SUPER").length;
-  const adminCount = users.value.filter(u => u.role === "R_ADMIN").length;
-  const userCount = users.value.filter(u => u.role === "R_USER").length;
-  return { total, superCount, adminCount, userCount };
+  // 多角色: 按"持有该角色"统计 (一个用户可同时计入多档)
+  const has = (code: string) => users.value.filter(u => (u.roles || []).includes(code)).length;
+  return { total, superCount: has("R_SUPER"), adminCount: has("R_ADMIN"), userCount: has("R_USER") };
 });
 
 // pagination 需在 columns (render 回调内引用) 与 loadUsers 之前定义
@@ -140,10 +143,18 @@ const columns = computed<DataTableColumns<Api.Admin.User>>(() => [
           key: "role",
           width: 140,
           render(row: Api.Admin.User) {
+            // 多角色: 逐个渲染角色标签
+            const userRoles = row.roles || [];
             return h(
-              NTag,
-              { type: roleTagType(row.role), bordered: false, round: true, size: "small" },
-              { default: () => roleNameMap.value.get(row.role) || row.role }
+              "div",
+              { class: "flex flex-wrap gap-1" },
+              userRoles.map(code =>
+                h(
+                  NTag,
+                  { type: roleTagType(code), bordered: false, round: true, size: "small" },
+                  { default: () => roleNameMap.value.get(code) || code }
+                )
+              )
             );
           },
         },
@@ -268,7 +279,7 @@ function handleSearch() {
 
 function resetForm() {
   editingUserId.value = null;
-  Object.assign(form, { userName: "", password: "", nickname: "", role: "R_USER", tokenQuotaMonth: null });
+  Object.assign(form, { userName: "", password: "", nickname: "", roles: ["R_USER"], tokenQuotaMonth: null });
 }
 
 function openCreate() {
@@ -282,7 +293,7 @@ function openEdit(row: Api.Admin.User) {
     userName: row.userName,
     password: "",
     nickname: row.nickname,
-    role: row.role,
+    roles: row.roles ? [...row.roles] : [],
     tokenQuotaMonth: row.token_quota_month ?? null,
   });
   showModal.value = true;
@@ -299,13 +310,13 @@ async function handleSubmit() {
   const payload: Api.Admin.UpdateUserParams = {
     password: form.password || undefined,
     nickname: form.nickname,
-    role: form.role,
+    roles: [...form.roles],
     // null = 保持不变; 0 = 不限; 正数 = 每月上限
     ...(form.tokenQuotaMonth !== null ? { token_quota_month: form.tokenQuotaMonth } : {}),
   };
   const result =
     editingUserId.value === null
-      ? await fetchCreateUser({ userName: form.userName, password: form.password, nickname: form.nickname, role: form.role })
+      ? await fetchCreateUser({ userName: form.userName, password: form.password, nickname: form.nickname, roles: [...form.roles] })
       : await fetchUpdateUser(editingUserId.value, payload);
   if (!result.error) {
     message.success(editingUserId.value === null ? $t("page.system.user.createSuccess") : $t("page.system.user.updateSuccess"));
@@ -565,15 +576,18 @@ onMounted(async () => {
                     <span class="text-xs text-gray-400">{{ row.nickname }}</span>
                   </div>
                 </div>
-                <NTag
-                  v-if="hasRolePermission"
-                  :type="roleTagType(row.role)"
-                  bordered
-                  round
-                  size="small"
-                >
-                  {{ roleNameMap.get(row.role) || row.role }}
-                </NTag>
+                <div v-if="hasRolePermission" class="flex flex-wrap gap-1 justify-end max-w-[50%]">
+                  <NTag
+                    v-for="code in row.roles || []"
+                    :key="code"
+                    :type="roleTagType(code)"
+                    bordered
+                    round
+                    size="small"
+                  >
+                    {{ roleNameMap.get(code) || code }}
+                  </NTag>
+                </div>
               </div>
               <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
                 <span class="text-xs text-gray-400">{{ new Date(row.createdAt).toLocaleDateString() }}</span>
@@ -686,7 +700,7 @@ onMounted(async () => {
           </NInput>
         </NFormItem>
         <NFormItem v-if="hasRolePermission" :label="$t('page.system.user.role')" path="role">
-          <NSelect v-model:value="form.role" :options="roleOptions" />
+          <NSelect v-model:value="form.roles" :options="roleOptions" multiple />
         </NFormItem>
         <NFormItem :label="$t('page.system.user.quotaMonth')" label-placement="left">
           <NInputNumber

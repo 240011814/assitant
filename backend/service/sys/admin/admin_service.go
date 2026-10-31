@@ -29,7 +29,8 @@ func (s *AdminService) ListUsers(keyword, role string, page, pageSize int) ([]mo
 		query = query.Where("username LIKE ? OR nickname LIKE ?", like, like)
 	}
 	if role != "" {
-		query = query.Where("role = ?", role)
+		// 多角色: 按任一持有角色过滤
+		query = query.Where("EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = users.id AND ur.role_code = ?)", role)
 	}
 
 	var total int64
@@ -47,13 +48,32 @@ func (s *AdminService) ListUsers(keyword, role string, page, pageSize int) ([]mo
 		return nil, 0, err
 	}
 
+	// 批量加载角色 (按页一次 IN 查询)
+	ids := make([]uint, 0, len(users))
+	for _, user := range users {
+		ids = append(ids, user.ID)
+	}
+	rolesByUser := make(map[uint][]string, len(users))
+	if len(ids) > 0 {
+		var rows []model.UserRole
+		if err := DB.Where("user_id IN ?", ids).Order("role_code ASC").Find(&rows).Error; err == nil {
+			for _, r := range rows {
+				rolesByUser[r.UserID] = append(rolesByUser[r.UserID], r.RoleCode)
+			}
+		}
+	}
+
 	list := make([]model.UserListItem, 0, len(users))
 	for _, user := range users {
+		roles := rolesByUser[user.ID]
+		if len(roles) == 0 {
+			roles = []string{}
+		}
 		list = append(list, model.UserListItem{
 			UserId:          user.ID,
 			UserName:        user.Username,
 			Nickname:        user.Nickname,
-			Role:            user.Role,
+			Roles:           roles,
 			TokenQuotaMonth: user.TokenQuotaMonth,
 			TwoFAEnabled:    user.TotpSecret != nil && *user.TotpSecret != "",
 			CreatedAt:       user.CreatedAt,
@@ -63,11 +83,26 @@ func (s *AdminService) ListUsers(keyword, role string, page, pageSize int) ([]mo
 	return list, total, nil
 }
 
+// syncUserRoles 重建用户的角色集合 (事务内调用): 全删全插。
+// users.role 列已删除, 角色归属只存在于 user_roles。返回排序后的角色列表。
+func syncUserRoles(tx *gorm.DB, userID uint, roles []string) ([]string, error) {
+	if err := tx.Where("user_id = ?", userID).Delete(&model.UserRole{}).Error; err != nil {
+		return nil, err
+	}
+	for _, role := range roles {
+		if err := tx.Create(&model.UserRole{UserID: userID, RoleCode: role}).Error; err != nil {
+			return nil, err
+		}
+	}
+	return roles, nil
+}
+
 func (s *AdminService) CreateUser(req model.CreateUserRequest) error {
 	if err := auth.ValidatePasswordStrength(req.Password); err != nil {
 		return err
 	}
-	if err := s.ensureRoleExists(req.Role); err != nil {
+	roles := req.Roles
+	if err := s.ensureRolesExist(roles); err != nil {
 		return err
 	}
 
@@ -88,19 +123,27 @@ func (s *AdminService) CreateUser(req model.CreateUserRequest) error {
 		Username:     req.UserName,
 		PasswordHash: string(hash),
 		Nickname:     req.Nickname,
-		Role:         req.Role,
 	}
-	return DB.Create(&user).Error
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&user).Error; err != nil {
+			return err
+		}
+		_, err := syncUserRoles(tx, user.ID, roles)
+		return err
+	})
 }
 
 func (s *AdminService) UpdateUser(id uint, req model.UpdateUserRequest) error {
-	if err := s.ensureRoleExists(req.Role); err != nil {
-		return err
+	// 角色未提供时保持原角色不动; 提供则全量替换
+	roles := req.Roles
+	if len(roles) > 0 {
+		if err := s.ensureRolesExist(roles); err != nil {
+			return err
+		}
 	}
 
 	updates := map[string]interface{}{
 		"nickname": req.Nickname,
-		"role":     req.Role,
 	}
 	// 月度 Token 限额: nil=不修改, 0=不限, 正数=每月上限
 	if req.TokenQuotaMonth != nil {
@@ -120,12 +163,23 @@ func (s *AdminService) UpdateUser(id uint, req model.UpdateUserRequest) error {
 		updates["password_hash"] = string(hash)
 	}
 
-	result := DB.Model(&model.User{}).Where("id = ?", id).Updates(updates)
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return errors.New("用户不存在")
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&model.User{}).Where("id = ?", id).Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return errors.New("用户不存在")
+		}
+		if len(roles) > 0 {
+			if _, err := syncUserRoles(tx, id, roles); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	// 用户角色可能被修改, 失效该用户权限缓存
 	auth.InvalidatePermissionCache(id)
@@ -226,14 +280,20 @@ func (s *AdminService) DeleteUser(id, currentUserID uint) error {
 	if id == currentUserID {
 		return errors.New("不能删除当前登录用户")
 	}
-	result := DB.Delete(&model.User{}, id)
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return errors.New("用户不存在")
-	}
-	return nil
+	return DB.Transaction(func(tx *gorm.DB) error {
+		// 先删角色关联再删用户 (外键语义靠应用层维护)
+		if err := tx.Where("user_id = ?", id).Delete(&model.UserRole{}).Error; err != nil {
+			return err
+		}
+		result := tx.Delete(&model.User{}, id)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return errors.New("用户不存在")
+		}
+		return nil
+	})
 }
 
 func (s *AdminService) ListRoles() ([]model.Role, error) {
@@ -258,9 +318,13 @@ func (s *AdminService) DeleteRole(roleCode string) error {
 		return errors.New("内置角色不可删除")
 	}
 
-	return DB.Transaction(func(tx *gorm.DB) error {
+	err := DB.Transaction(func(tx *gorm.DB) error {
 		// 删除角色权限关联
 		if err := tx.Where("role_code = ?", roleCode).Delete(&model.RolePermission{}).Error; err != nil {
+			return err
+		}
+		// 删除用户-角色关联 (持有该角色的用户失去它)
+		if err := tx.Where("role_code = ?", roleCode).Delete(&model.UserRole{}).Error; err != nil {
 			return err
 		}
 		// 删除角色
@@ -273,8 +337,12 @@ func (s *AdminService) DeleteRole(roleCode string) error {
 		}
 		return nil
 	})
+	if err == nil {
+		// 持有该角色的用户权限集合已变化, 清全部权限缓存
+		auth.InvalidatePermissionCache(0)
+	}
+	return err
 }
-
 func (s *AdminService) ListPermissions() ([]model.Permission, error) {
 	var permissions []model.Permission
 	err := DB.Order("group_name ASC, id ASC").Find(&permissions).Error
@@ -373,6 +441,18 @@ func (s *AdminService) UpdateRolePermissions(roleCode string, permissions []stri
 func (s *AdminService) ensureRoleExists(roleCode string) error {
 	var role model.Role
 	if err := DB.Where("code = ?", roleCode).First(&role).Error; err != nil {
+		return errors.New("角色不存在")
+	}
+	return nil
+}
+
+// ensureRolesExist 校验全部角色存在 (多角色创建/更新前的防手滑检查)
+func (s *AdminService) ensureRolesExist(roleCodes []string) error {
+	var count int64
+	if err := DB.Model(&model.Role{}).Where("code IN ?", roleCodes).Count(&count).Error; err != nil {
+		return err
+	}
+	if int(count) != len(roleCodes) {
 		return errors.New("角色不存在")
 	}
 	return nil

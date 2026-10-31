@@ -7,12 +7,12 @@ import (
 	"backend/model"
 )
 
-// 权限检查短 TTL 缓存: RequirePermission 每请求原本要查 2 次 DB (user + role_permissions),
+// 权限检查短 TTL 缓存: RequirePermission 每请求原本要查 2 次 DB (user roles + role_permissions),
 // 高频接口开销可观; 缓存后权限变更最迟 60s 生效 (权限是低频管理操作, 可接受)
 const permissionCacheTTL = 60 * time.Second
 
 type permissionCacheEntry struct {
-	role      string
+	roles     []string
 	expiresAt time.Time
 }
 
@@ -32,38 +32,58 @@ func InvalidatePermissionCache(userID uint) {
 	delete(permissionCache, userID)
 }
 
-func getCachedUserRole(userID uint) (string, bool) {
+func getCachedUserRoles(userID uint) ([]string, bool) {
 	permissionCacheMu.RLock()
 	defer permissionCacheMu.RUnlock()
 	entry, ok := permissionCache[userID]
 	if !ok || time.Now().After(entry.expiresAt) {
-		return "", false
+		return nil, false
 	}
-	return entry.role, true
+	return entry.roles, true
 }
 
-func cacheUserRole(userID uint, role string) {
+func cacheUserRoles(userID uint, roles []string) {
 	permissionCacheMu.Lock()
 	defer permissionCacheMu.Unlock()
-	permissionCache[userID] = permissionCacheEntry{role: role, expiresAt: time.Now().Add(permissionCacheTTL)}
+	permissionCache[userID] = permissionCacheEntry{roles: roles, expiresAt: time.Now().Add(permissionCacheTTL)}
 }
 
-// CheckUserPermission 检查用户是否拥有所需权限中的任意一个
+// GetUserRoles 用户的全部角色 (user_roles 表为真相源; 无行时回落 users.role 主角色,
+// 兜住手改库/旧数据等边界)。空角色列表视为 R_USER 语义由调用方决定, 这里只返回事实。
+func GetUserRoles(userID uint) ([]string, error) {
+	if roles, ok := getCachedUserRoles(userID); ok {
+		return roles, nil
+	}
+	var rows []model.UserRole
+	if err := DB.Where("user_id = ?", userID).Order("role_code ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	roles := make([]string, 0, len(rows))
+	for _, r := range rows {
+		roles = append(roles, r.RoleCode)
+	}
+	cacheUserRoles(userID, roles)
+	return roles, nil
+}
+
+// CheckUserPermission 检查用户是否拥有所需权限中的任意一个 (多角色取权限并集)
 func CheckUserPermission(userID uint, permissions []string) (bool, error) {
-	role, ok := getCachedUserRole(userID)
+	roles, ok := getCachedUserRoles(userID)
 	if !ok {
-		var user model.User
-		if err := DB.First(&user, userID).Error; err != nil {
+		var err error
+		roles, err = GetUserRoles(userID)
+		if err != nil {
 			return false, err
 		}
-		role = user.Role
-		cacheUserRole(userID, role)
+	}
+	if len(roles) == 0 {
+		return false, nil
 	}
 
-	// 查询用户角色拥有的权限
+	// 查询用户全部角色拥有的权限 (并集)
 	var count int64
 	err := DB.Table("role_permissions").
-		Where("role_code = ? AND permission_code IN ?", role, permissions).
+		Where("role_code IN ? AND permission_code IN ?", roles, permissions).
 		Count(&count).Error
 	if err != nil {
 		return false, err

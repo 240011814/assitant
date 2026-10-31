@@ -4,7 +4,8 @@ declare namespace Api {
       userId: number;
       userName: string;
       nickname: string;
-      role: string;
+      /** 全部角色 (多角色) */
+      roles: string[];
       token_quota_month: number | null;
       /** 两步验证 (TOTP) 是否已开启 */
       twoFAEnabled: boolean;
@@ -30,13 +31,17 @@ declare namespace Api {
       userName: string;
       password: string;
       nickname: string;
-      role: string;
+      /** 多角色 (优先); 兼容旧字段 role */
+      roles?: string[];
+      role?: string;
     }
 
     interface UpdateUserParams {
       password?: string;
       nickname: string;
-      role: string;
+      /** 多角色 (优先); 不传=保持不变; 兼容旧字段 role */
+      roles?: string[];
+      role?: string;
       /** 月度 Token 限额: 不传=不修改, 0=不限, 正数=每月上限 */
       token_quota_month?: number | null;
     }
@@ -58,6 +63,8 @@ declare namespace Api {
       nickname: string;
       email: string;
       role: string;
+      /** 全部角色 (多角色; role 为第一项) */
+      roles: string[];
       /** 两步验证 (TOTP) 是否已开启 */
       twoFAEnabled: boolean;
       lastLoginAt: string | null;

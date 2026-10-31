@@ -96,10 +96,6 @@ func NewHTTPClient(timeout time.Duration, config ...TimeoutConfig) *http.Client 
 	}
 }
 
-
-
-
-
 // DecodeLLMArray 解析 LLM 输出中的 JSON 数组到 v (v 必须是切片指针)
 func DecodeLLMArray(raw string, v any) error {
 	s := stripJSONFence(raw)
@@ -197,4 +193,3 @@ func logLLMParseFailure(err error, raw string) {
 	}
 	log.Printf("LLM 输出解析失败: %v; 模型原文: %s", err, string(runes))
 }
-

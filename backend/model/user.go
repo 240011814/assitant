@@ -5,13 +5,13 @@ import (
 )
 
 // User 用户实体类 (GORM Model)
+// 角色归属在 user_roles 表 (多角色), 本表不再有 role 列
 type User struct {
 	ID           uint   `gorm:"primaryKey;autoIncrement" json:"userId"`
 	Username     string `gorm:"size:50;not null;unique" json:"userName"`
 	PasswordHash string `gorm:"size:255;not null" json:"-"`
 	Nickname     string `gorm:"size:100" json:"nickname"`
 	Email        string `gorm:"size:255;default:''" json:"email"`
-	Role         string `gorm:"size:20;default:'R_USER'" json:"role"`
 	// TokenQuotaMonth 月度 Token 限额 (NULL/0=不限), 按自然月统计 ai_token_usages
 	TokenQuotaMonth           *int       `gorm:"column:token_quota_month" json:"token_quota_month"`
 	TotpSecret                *string    `gorm:"column:totp_secret;size:64" json:"-"` // TOTP secret, nil = not set up
@@ -53,10 +53,10 @@ type UserInfoResponseData struct {
 
 // UserListItem 用户列表项
 type UserListItem struct {
-	UserId   uint   `json:"userId"`
-	UserName string `json:"userName"`
-	Nickname string `json:"nickname"`
-	Role     string `json:"role"`
+	UserId   uint     `json:"userId"`
+	UserName string   `json:"userName"`
+	Nickname string   `json:"nickname"`
+	Roles    []string `json:"roles"` // 全部角色
 	// TokenQuotaMonth 月度 Token 限额 (NULL/0=不限)
 	TokenQuotaMonth *int      `json:"token_quota_month"`
 	TwoFAEnabled    bool      `json:"twoFAEnabled"`
@@ -65,16 +65,17 @@ type UserListItem struct {
 }
 
 type CreateUserRequest struct {
-	UserName string `json:"userName" binding:"required"`
-	Password string `json:"password" binding:"required"`
-	Nickname string `json:"nickname"`
-	Role     string `json:"role" binding:"required"`
+	UserName string   `json:"userName" binding:"required"`
+	Password string   `json:"password" binding:"required"`
+	Nickname string   `json:"nickname"`
+	Roles    []string `json:"roles" binding:"required,min=1"`
 }
 
 type UpdateUserRequest struct {
 	Password string `json:"password"`
 	Nickname string `json:"nickname"`
-	Role     string `json:"role" binding:"required"`
+	// Roles 不传=保持不变, 传则全量替换
+	Roles []string `json:"roles"`
 	// TokenQuotaMonth 月度 Token 限额: nil=不修改, 0=不限, 正数=每月 token 上限
 	TokenQuotaMonth *int `json:"token_quota_month"`
 }
@@ -85,7 +86,7 @@ type UserProfileResponse struct {
 	UserName     string     `json:"userName"`
 	Nickname     string     `json:"nickname"`
 	Email        string     `json:"email"`
-	Role         string     `json:"role"`
+	Roles        []string   `json:"roles"` // 全部角色 (多角色)
 	TwoFAEnabled bool       `json:"twoFAEnabled"`
 	LastLoginAt  *time.Time `json:"lastLoginAt"`
 	CreatedAt    time.Time  `json:"createdAt"`

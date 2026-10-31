@@ -29,6 +29,23 @@ const profile = ref<Api.Admin.UserProfile | null>(null);
 const activeTab = ref('profile');
 const themeTab = ref('appearance');
 
+// 多角色展示: 内置角色用中文名, 自定义角色回落显示代码
+const roleLabels: Record<string, string> = {
+  R_SUPER: '超级管理员',
+  R_ADMIN: '管理员',
+  R_USER: '普通用户'
+};
+const roleTagType = (code: string) => {
+  const map: Record<string, 'error' | 'warning' | 'info'> = {
+    R_SUPER: 'error',
+    R_ADMIN: 'warning',
+    R_USER: 'info'
+  };
+  return map[code] || 'info';
+};
+/** 展示角色列表 (多角色) */
+const profileRoles = computed<string[]>(() => profile.value?.roles || []);
+
 // Telegram binding state
 const telegramConfigured = ref(false);
 const telegramStatus = ref<Api.Telegram.StatusResponse>({ isBound: false });
@@ -354,7 +371,12 @@ loadNotificationPreference();
               <SvgIcon icon="ph:user-circle" class="text-60px" />
             </NAvatar>
             <h2 class="text-24px font-bold mb-2">{{ profile?.nickname || profile?.userName }}</h2>
-            <NTag type="info">{{ profile?.role }}</NTag>
+            <!-- 多角色: 全部渲染 (role 为兼容字段, roles 缺失时回落) -->
+            <div class="flex flex-wrap justify-center gap-1">
+              <NTag v-for="code in profileRoles" :key="code" :type="roleTagType(code)">
+                {{ roleLabels[code] || code }}
+              </NTag>
+            </div>
 
             <NDivider />
 

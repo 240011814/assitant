@@ -46,11 +46,16 @@ func (s *AuthService) Register(username, password string) (*model.LoginResponseD
 		Username:     username,
 		PasswordHash: string(hashedPassword),
 		Nickname:     username,
-		Role:         "R_USER",
 	}
 
-	if err := DB.Create(&user).Error; err != nil {
-		return nil, errors.New("注册失败: " + err.Error())
+	// 用户行 + 默认角色行同事务落库 (user_roles 是角色归属的真相源)
+	if err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&user).Error; err != nil {
+			return errors.New("注册失败: " + err.Error())
+		}
+		return tx.Create(&model.UserRole{UserID: user.ID, RoleCode: "R_USER"}).Error
+	}); err != nil {
+		return nil, err
 	}
 
 	token, err := s.generateToken(user, 2*time.Hour)
@@ -135,10 +140,14 @@ func (s *AuthService) recordLoginFailure(keys ...string) {
 }
 
 func (s *AuthService) generateToken(user model.User, duration time.Duration) (string, error) {
+	roles, err := GetUserRoles(user.ID)
+	if err != nil {
+		return "", err
+	}
 	claims := jwt.MapClaims{
 		"userId":   user.ID,
 		"userName": user.Username,
-		"role":     user.Role,
+		"roles":    roles,
 		"typ":      "access",
 		"exp":      time.Now().Add(duration).Unix(),
 		"iat":      time.Now().Unix(),
@@ -151,10 +160,14 @@ func (s *AuthService) generateToken(user model.User, duration time.Duration) (st
 // generateRefreshToken 生成专用刷新令牌 (typ=refresh), 与访问令牌区分,
 // 防止 7 天有效期的 refresh token 泄露后被直接当作 access token 调用业务接口
 func (s *AuthService) generateRefreshToken(user model.User) (string, error) {
+	roles, err := GetUserRoles(user.ID)
+	if err != nil {
+		return "", err
+	}
 	claims := jwt.MapClaims{
 		"userId":   user.ID,
 		"userName": user.Username,
-		"role":     user.Role,
+		"roles":    roles,
 		"typ":      "refresh",
 		"exp":      time.Now().Add(7 * 24 * time.Hour).Unix(),
 		"iat":      time.Now().Unix(),
@@ -170,7 +183,12 @@ func (s *AuthService) GetUserInfo(userId uint) (*model.UserInfoResponseData, err
 		return nil, errors.New("用户不存在")
 	}
 
-	permissions, err := s.getPermissionsByRole(user.Role)
+	roles, err := GetUserRoles(userId)
+	if err != nil {
+		return nil, err
+	}
+
+	permissions, err := s.getPermissionsByRoles(roles)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +197,7 @@ func (s *AuthService) GetUserInfo(userId uint) (*model.UserInfoResponseData, err
 		UserId:      fmt.Sprintf("%d", user.ID),
 		UserName:    user.Username,
 		Nickname:    user.Nickname,
-		Roles:       []string{user.Role},
+		Roles:       roles,
 		Buttons:     permissions,
 		Permissions: permissions,
 	}, nil
@@ -236,10 +254,16 @@ func (s *AuthService) RefreshToken(refreshTokenStr string) (*model.LoginResponse
 	}, nil
 }
 
+// GetUserProfile 用户详细信息 (个人中心); role 为主角色 (角色列表第一项, 展示用)
 func (s *AuthService) GetUserProfile(userId uint) (*model.UserProfileResponse, error) {
 	var user model.User
 	if err := DB.First(&user, userId).Error; err != nil {
 		return nil, errors.New("用户不存在")
+	}
+
+	roles, err := GetUserRoles(userId)
+	if err != nil {
+		return nil, err
 	}
 
 	return &model.UserProfileResponse{
@@ -247,7 +271,7 @@ func (s *AuthService) GetUserProfile(userId uint) (*model.UserProfileResponse, e
 		UserName:     user.Username,
 		Nickname:     user.Nickname,
 		Email:        user.Email,
-		Role:         user.Role,
+		Roles:        roles,
 		TwoFAEnabled: user.TotpSecret != nil && *user.TotpSecret != "",
 		LastLoginAt:  user.LastLoginAt,
 		CreatedAt:    user.CreatedAt,
@@ -469,26 +493,33 @@ func (s *AuthService) ProxyLogin(targetUserId uint) (*model.LoginResponseData, e
 	}, nil
 }
 
-func (s *AuthService) getPermissionsByRole(role string) ([]string, error) {
-	if role == "R_SUPER" {
-		var permissions []model.Permission
-		if err := DB.Find(&permissions).Error; err != nil {
-			return nil, err
+// getPermissionsByRoles 多角色权限并集: 任一角色为 R_SUPER 即拥有全部权限
+func (s *AuthService) getPermissionsByRoles(roles []string) ([]string, error) {
+	for _, role := range roles {
+		if role == "R_SUPER" {
+			var permissions []model.Permission
+			if err := DB.Find(&permissions).Error; err != nil {
+				return nil, err
+			}
+			codes := make([]string, 0, len(permissions))
+			for _, permission := range permissions {
+				codes = append(codes, permission.Code)
+			}
+			return codes, nil
 		}
-		codes := make([]string, 0, len(permissions))
-		for _, permission := range permissions {
-			codes = append(codes, permission.Code)
-		}
-		return codes, nil
 	}
 
 	var rows []model.RolePermission
-	if err := DB.Where("role_code = ?", role).Find(&rows).Error; err != nil {
+	if err := DB.Where("role_code IN ?", roles).Find(&rows).Error; err != nil {
 		return nil, err
 	}
+	seen := make(map[string]bool, len(rows))
 	codes := make([]string, 0, len(rows))
 	for _, row := range rows {
-		codes = append(codes, row.PermissionCode)
+		if !seen[row.PermissionCode] {
+			seen[row.PermissionCode] = true
+			codes = append(codes, row.PermissionCode)
+		}
 	}
 	return codes, nil
 }

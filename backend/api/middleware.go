@@ -59,12 +59,54 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 			return
 		}
 
+		roles := rolesFromClaims(claims)
 		c.Set("userId", uint(userID))
-		if role, ok := claims["role"].(string); ok {
-			c.Set("role", role)
-		}
+		c.Set("roles", roles)
 		c.Next()
 	}
+}
+
+// rolesFromClaims 从 JWT claims 解析角色列表: 优先 roles 数组 (新版令牌),
+// 回落单一 role 字符串 (存量旧令牌, 换发前仍然有效)。纯函数, 可表驱动测试。
+func rolesFromClaims(claims jwt.MapClaims) []string {
+	if raw, ok := claims["roles"].([]any); ok {
+		roles := make([]string, 0, len(raw))
+		for _, item := range raw {
+			if s, ok := item.(string); ok && s != "" {
+				roles = append(roles, s)
+			}
+		}
+		if len(roles) > 0 {
+			return roles
+		}
+	}
+	if role, ok := claims["role"].(string); ok && role != "" {
+		return []string{role}
+	}
+	return nil
+}
+
+// rolesFromContext 读取当前请求用户的角色列表 (AuthMiddleware 注入)
+func rolesFromContext(c *gin.Context) []string {
+	roles, _ := c.Get("roles")
+	if list, ok := roles.([]string); ok {
+		return list
+	}
+	return nil
+}
+
+// hasAnyRole 用户角色与给定角色是否有交集
+func hasAnyRole(roles []string, targets ...string) bool {
+	set := make(map[string]struct{}, len(roles))
+	for _, r := range roles {
+		set[r] = struct{}{}
+	}
+	for _, t := range targets {
+		if _, ok := set[t]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func RequireRole(roles ...string) gin.HandlerFunc {
@@ -74,9 +116,8 @@ func RequireRole(roles ...string) gin.HandlerFunc {
 	}
 
 	return func(c *gin.Context) {
-		role, _ := c.Get("role")
-		roleValue, _ := role.(string)
-		if _, ok := allowed[roleValue]; !ok {
+		// 多角色: 拥有任一允许角色即通过
+		if !hasAnyRole(rolesFromContext(c), roles...) {
 			SendError(c, "403", "无权限访问")
 			c.Abort()
 			return
@@ -87,11 +128,8 @@ func RequireRole(roles ...string) gin.HandlerFunc {
 
 func RequirePermission(permissions ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role, _ := c.Get("role")
-		roleValue, _ := role.(string)
-
-		// 超级管理员拥有所有权限
-		if roleValue == "R_SUPER" {
+		// 超级管理员拥有所有权限 (多角色: 任一角色为 R_SUPER 即放行)
+		if hasAnyRole(rolesFromContext(c), "R_SUPER") {
 			c.Next()
 			return
 		}
@@ -124,8 +162,7 @@ func RequirePermission(permissions ...string) gin.HandlerFunc {
 // 超级管理员始终拥有; 未登录/查询失败一律视为无权限。
 // 供"字段级/资源级"权限判断复用 (RequirePermission 是整条路由的拦截)。
 func HasPermission(c *gin.Context, permissions ...string) bool {
-	role, _ := c.Get("role")
-	if roleValue, _ := role.(string); roleValue == "R_SUPER" {
+	if hasAnyRole(rolesFromContext(c), "R_SUPER") {
 		return true
 	}
 

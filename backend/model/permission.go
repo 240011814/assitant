@@ -42,3 +42,16 @@ func (RolePermission) TableName() string {
 type RolePermissionRequest struct {
 	Permissions []string `json:"permissions"`
 }
+
+// UserRole 用户-角色关联 (user_roles 表): 用户可拥有多个角色, 角色归属的唯一真相源。
+// users.role 列保留为"主角色"兼容字段 (始终与第一项同步)。
+type UserRole struct {
+	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID    uint      `gorm:"not null;uniqueIndex:uk_user_role,priority:1" json:"userId"`
+	RoleCode  string    `gorm:"size:50;not null;uniqueIndex:uk_user_role,priority:2;index" json:"roleCode"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+func (UserRole) TableName() string {
+	return "user_roles"
+}

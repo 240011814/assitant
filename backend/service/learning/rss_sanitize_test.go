@@ -97,13 +97,13 @@ func TestCleanImageCreditLines(t *testing.T) {
 	in := strings.Join([]string{
 		"Body first paragraph about the news.",
 		"Image source, Getty Images",
-		"IMAGE SOURCE: Reuters",           // 全大写 + 冒号
+		"IMAGE SOURCE: Reuters",                        // 全大写 + 冒号
 		"Image caption, People queue at a border post", // 图注
-		"Image copyright Reuters",         // 旧版 BBC 无标点格式
-		"图片来源，Getty Images",              // 中文站
+		"Image copyright Reuters",                      // 旧版 BBC 无标点格式
+		"图片来源，Getty Images",                            // 中文站
 		"图片版权：BBC News",
-		"Getty Images",                    // 图源孤儿行
-		"AP Photo",                        // 图源孤儿行
+		"Getty Images", // 图源孤儿行
+		"AP Photo",     // 图源孤儿行
 		"Body second paragraph mentioning the weather.",
 	}, "\n")
 	out := cleanImageCreditLines(in)
