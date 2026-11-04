@@ -27,12 +27,18 @@ func NewLotteryService() *LotteryService {
 
 // CreateActivity 创建抽奖活动
 func (s *LotteryService) CreateActivity(userID uint, req model.CreateLotteryActivityRequest) (*model.LotteryActivity, error) {
+	// 未显式指定时默认允许匿名, 保持存量"手输名字即可抽"的行为
+	allowAnonymous := true
+	if req.AllowAnonymous != nil {
+		allowAnonymous = *req.AllowAnonymous
+	}
 	activity := model.LotteryActivity{
 		Name:            req.Name,
 		Description:     req.Description,
 		StartTime:       req.StartTime,
 		EndTime:         req.EndTime,
 		DrawMode:        req.DrawMode,
+		AllowAnonymous:  allowAnonymous,
 		MaxParticipants: req.MaxParticipants,
 		DailyLimit:      req.DailyLimit,
 		TotalLimit:      req.TotalLimit,
@@ -132,6 +138,9 @@ func (s *LotteryService) UpdateActivity(id uint, req model.UpdateLotteryActivity
 	}
 	if req.DrawMode != nil {
 		updates["draw_mode"] = *req.DrawMode
+	}
+	if req.AllowAnonymous != nil {
+		updates["allow_anonymous"] = *req.AllowAnonymous
 	}
 	if req.MaxParticipants != nil {
 		updates["max_participants"] = *req.MaxParticipants
@@ -281,6 +290,11 @@ func (s *LotteryService) Draw(userID, activityID uint, userName string) (*model.
 		}
 		if activity.Status != 1 {
 			return errors.New("活动未进行中")
+		}
+
+		// 2.5 匿名闸门: 未登录 (公开路由无 JWT, userID=0) 时按活动开关放行
+		if userID == 0 && !activity.AllowAnonymous {
+			return errors.New("该活动不允许匿名抽奖, 请先登录")
 		}
 
 		// 3. 检查参与人数限制（从记录表计算实际参与人数）

@@ -439,6 +439,37 @@ func vocabReplayPath(pool *adaptivePool, rounds [][]AdaptiveRoundAnswer) (lo, hi
 
 // ===== 行为数据滚动校准 (方案 B): 零操作持续推断, 与测试结果互相印证 =====
 
+// SelfAssessVocab 用户自评水平: 跳过测试直接设定 CEFR 档位, 落评估记录
+// (Detail 标记 source=self, 与实测记录区分)。词汇量区间按档位锚点推算。
+func (s *ReadingService) SelfAssessVocab(userID uint, cefr string) (*VocabTestResult, error) {
+	idx := bandIndexOf(cefr)
+	if idx < 0 {
+		return nil, errors.New("档位不合法")
+	}
+	estLow := 200
+	if idx > 0 {
+		estLow = vocabBandAnchors[idx]
+	}
+	estHigh := 20000
+	if idx < len(vocabBandOrder)-1 {
+		estHigh = vocabBandAnchors[idx+1]
+	}
+	result := &VocabTestResult{
+		CEFR: vocabBandOrder[idx], EstLow: estLow, EstHigh: estHigh,
+		EstSize: (estLow + estHigh) / 2,
+		Bands:   map[string]VocabBandStat{},
+	}
+	detail, _ := json.Marshal(map[string]any{
+		"low": estLow, "high": estHigh, "source": "self", "rounds": 0,
+	})
+	if err := DB.Create(&model.VocabularyAssessment{
+		UserID: userID, CEFR: result.CEFR, EstSize: result.EstSize, Detail: string(detail),
+	}).Error; err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // VocabBehaviorEstimate 行为校准结果
 type VocabBehaviorEstimate struct {
 	FrontierBand string         `json:"frontierBand"` // 生词本主要分布的最高档 (学习边界)

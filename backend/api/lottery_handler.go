@@ -220,6 +220,13 @@ func (h *LotteryHandler) HandleDraw(c *gin.Context) {
 		return
 	}
 
+	// 登录用户强制记录账号用户名 (防冒名); 游客保留手输名字
+	if userID > 0 {
+		if accountName := currentUserName(c); accountName != "" {
+			req.UserName = accountName
+		}
+	}
+
 	prize, err := h.svc.Draw(userID, uint(activityID), req.UserName)
 	if err != nil {
 		SendError(c, "500", err.Error())

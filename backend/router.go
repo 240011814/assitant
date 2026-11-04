@@ -238,6 +238,7 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 			// 自适应词汇量测试 (锚定词库 + 二分探针; start 走异步 job, round 逐轮提交)
 			readingGroup.POST("/vocab-test/adaptive/start", readingHandler.HandleStartAdaptiveVocabTest)
 			readingGroup.POST("/vocab-test/adaptive/round", readingHandler.HandleAdaptiveRound)
+			readingGroup.POST("/vocab-test/self-assess", readingHandler.HandleSelfAssessVocab)
 			readingGroup.GET("/vocab-test/behavior", readingHandler.HandleVocabBehavior)
 			readingGroup.GET("/vocab-test/latest", readingHandler.HandleLatestVocabTest)
 		}
@@ -648,7 +649,8 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 		lotteryPublicGroup.GET("/activities/:id", lotteryHandler.HandleGetActivity)
 		lotteryPublicGroup.GET("/activities/:id/prizes", lotteryHandler.HandleListPrizes)
 		lotteryPublicGroup.GET("/activities/:id/limits", lotteryHandler.HandleGetDrawLimits)
-		lotteryPublicGroup.POST("/draw/:activityId", lotteryHandler.HandleDraw)
+		// 抽奖: 可选认证, 登录用户识别为实名身份 (活动关闭匿名时必需)
+		lotteryPublicGroup.POST("/draw/:activityId", api.OptionalAuthMiddleware(d.jwtSecret), lotteryHandler.HandleDraw)
 		lotteryPublicGroup.GET("/records", lotteryHandler.HandleListRecords)
 		lotteryPublicGroup.GET("/winners", lotteryHandler.HandleListWinners)
 	}

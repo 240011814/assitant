@@ -8,6 +8,9 @@ import {
   fetchDeleteReadingDoc,
 } from "@/service/api";
 import { useAppStore } from "@/store/modules/app";
+import { useReaderSessionStore } from "@/store/modules/reader-session";
+import type { ReaderSessionSnapshot } from "@/store/modules/reader-session";
+import { useReaderMiniLeaveSave } from "@/hooks/common/reader-mini-save";
 import ReadingDetailView from "./components/reading-detail-view.vue";
 
 const appStore = useAppStore();
@@ -40,9 +43,35 @@ const statusTag = (status: string) => {
 
 // ===================== 阅读弹窗 (与 RSS 阅读弹窗同款容器) =====================
 const activeDocId = ref<number | null>(null);
+const sessionStore = useReaderSessionStore();
+const detailRef = ref<InstanceType<typeof ReadingDetailView> | null>(null);
 
 const openDoc = (id: number) => {
   activeDocId.value = id;
+};
+
+// 弹窗打开中的阅读快照: 供小窗按钮与离开自动收窗使用 (标题从列表行取)
+const captureDocSession = (): ReaderSessionSnapshot | null => {
+  if (activeDocId.value === null) return null;
+  const row = docs.value.find((d) => d.id === activeDocId.value);
+  return {
+    kind: "reading",
+    itemId: activeDocId.value,
+    title: row?.title || `文档 #${activeDocId.value}`,
+    subtitle: "分级阅读",
+    scrollTop: detailRef.value?.getScrollTop() ?? 0,
+    progress: detailRef.value?.getReadProgress() ?? 0
+  };
+};
+
+// 切 tab / 路由跳转 / 关浏览器标签时弹窗仍开着 → 自动收入全局小窗
+useReaderMiniLeaveSave(captureDocSession);
+
+// 小窗按钮: 存全局会话并收起弹窗 (不刷新列表, 与 X 关闭区分)
+const minimizeDoc = () => {
+  const snapshot = captureDocSession();
+  if (snapshot) sessionStore.minimize(snapshot);
+  activeDocId.value = null;
 };
 
 const columns = ref<DataTableColumns<any>>([
@@ -297,7 +326,14 @@ onMounted(() => {
     <!-- 阅读弹窗 (与 RSS 阅读弹窗同款: 卡片容器 + ReaderView 排版) -->
     <NModal :show="activeDocId !== null" :auto-focus="false" @update:show="(v: boolean) => { if (!v) closeDoc(); }">
       <div class="w-full h-full md:w-[min(94vw,960px)] md:h-[88vh] flex flex-col rounded-none md:rounded-xl bg-white dark:bg-[#18181c] shadow-2xl overflow-hidden">
-        <ReadingDetailView v-if="activeDocId !== null" :doc-id="activeDocId" mode="modal" @close="closeDoc" />
+        <ReadingDetailView
+          v-if="activeDocId !== null"
+          ref="detailRef"
+          :doc-id="activeDocId"
+          mode="modal"
+          @close="closeDoc"
+          @minimize="minimizeDoc"
+        />
       </div>
     </NModal>
   </div>

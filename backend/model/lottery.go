@@ -13,6 +13,7 @@ type LotteryActivity struct {
 	EndTime             time.Time `gorm:"not null" json:"endTime"`
 	Status              int       `gorm:"default:0" json:"status"`   // 0-未开始, 1-进行中, 2-已结束
 	DrawMode            int       `gorm:"default:0" json:"drawMode"` // 0-转盘, 1-原神抽卡
+	AllowAnonymous      bool      `json:"allowAnonymous"`            // 是否允许匿名(未登录)抽奖, false 时登录用户强制记录账号用户名
 	MaxParticipants     int       `gorm:"default:0" json:"maxParticipants"`
 	CurrentParticipants int       `gorm:"default:0" json:"currentParticipants"`
 	DailyLimit          int       `gorm:"default:0" json:"dailyLimit"`
@@ -77,6 +78,7 @@ type CreateLotteryActivityRequest struct {
 	StartTime       time.Time `json:"startTime" binding:"required"`
 	EndTime         time.Time `json:"endTime" binding:"required"`
 	DrawMode        int       `json:"drawMode"`
+	AllowAnonymous  *bool     `json:"allowAnonymous"` // 缺省 true (兼容存量"手输名字即可抽"的行为)
 	MaxParticipants int       `json:"maxParticipants"`
 	DailyLimit      int       `json:"dailyLimit"`
 	TotalLimit      int       `json:"totalLimit"`
@@ -90,6 +92,7 @@ type UpdateLotteryActivityRequest struct {
 	EndTime         time.Time `json:"endTime"`
 	Status          *int      `json:"status"`
 	DrawMode        *int      `json:"drawMode"`
+	AllowAnonymous  *bool     `json:"allowAnonymous"`
 	MaxParticipants *int      `json:"maxParticipants"`
 	DailyLimit      *int      `json:"dailyLimit"`
 	TotalLimit      *int      `json:"totalLimit"`

@@ -9,6 +9,7 @@ declare namespace Api {
       endTime: string;
       status: number; // 0-未开始, 1-进行中, 2-已结束
       drawMode: number; // 0-转盘, 1-原神抽卡
+      allowAnonymous: boolean; // 是否允许匿名(未登录)抽奖
       maxParticipants: number;
       currentParticipants: number;
       dailyLimit: number;
@@ -56,6 +57,7 @@ declare namespace Api {
       startTime: string;
       endTime: string;
       drawMode?: number;
+      allowAnonymous?: boolean;
       maxParticipants?: number;
       dailyLimit?: number;
       totalLimit?: number;
@@ -69,6 +71,7 @@ declare namespace Api {
       endTime?: string;
       status?: number;
       drawMode?: number;
+      allowAnonymous?: boolean;
       maxParticipants?: number;
       dailyLimit?: number;
       totalLimit?: number;

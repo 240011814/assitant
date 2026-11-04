@@ -15,6 +15,7 @@ import {
   NSelect,
   NSpace,
   NSpin,
+  NSwitch,
   NTag,
   useMessage
 } from 'naive-ui'
@@ -79,6 +80,7 @@ const activityForm = reactive({
   startTime: null as number | null,
   endTime: null as number | null,
   drawMode: 0,
+  allowAnonymous: true,
   maxParticipants: 0,
   dailyLimit: 0,
   totalLimit: 0
@@ -209,6 +211,18 @@ const activityColumns = computed<DataTableColumns<Api.Lottery.Activity>>(() => [
         NTag,
         { type: row.drawMode === 1 ? 'warning' : 'info', bordered: false, size: 'small' },
         { default: () => drawModeLabel(row.drawMode) }
+      )
+    }
+  },
+  {
+    title: '匿名抽奖',
+    key: 'allowAnonymous',
+    width: 90,
+    render(row) {
+      return h(
+        NTag,
+        { type: row.allowAnonymous === false ? 'error' : 'success', bordered: false, size: 'small' },
+        { default: () => (row.allowAnonymous === false ? '需登录' : '允许') }
       )
     }
   },
@@ -428,6 +442,7 @@ function resetActivityForm() {
     startTime: null,
     endTime: null,
     drawMode: 0,
+    allowAnonymous: true,
     maxParticipants: 0,
     dailyLimit: 0,
     totalLimit: 0
@@ -447,6 +462,8 @@ function openEditActivity(row: Api.Lottery.Activity) {
     startTime: new Date(row.startTime).getTime(),
     endTime: new Date(row.endTime).getTime(),
     drawMode: row.drawMode || 0,
+    // 存量数据缺省视为允许 (迁移默认 1)
+    allowAnonymous: row.allowAnonymous !== false,
     maxParticipants: row.maxParticipants,
     dailyLimit: row.dailyLimit,
     totalLimit: row.totalLimit
@@ -466,6 +483,7 @@ async function handleActivitySubmit() {
     startTime: new Date(activityForm.startTime!).toISOString(),
     endTime: new Date(activityForm.endTime!).toISOString(),
     drawMode: activityForm.drawMode,
+    allowAnonymous: activityForm.allowAnonymous,
     maxParticipants: activityForm.maxParticipants,
     dailyLimit: activityForm.dailyLimit,
     totalLimit: activityForm.totalLimit
@@ -806,6 +824,14 @@ onMounted(() => {
         </NFormItem>
         <NFormItem label="抽奖模式" path="drawMode">
           <NSelect v-model:value="activityForm.drawMode" :options="drawModeOptions" />
+        </NFormItem>
+        <NFormItem label="允许匿名抽奖" path="allowAnonymous">
+          <div class="flex items-center gap-2">
+            <NSwitch v-model:value="activityForm.allowAnonymous" />
+            <span class="text-xs text-gray-400">
+              {{ activityForm.allowAnonymous ? '游客可输入姓名直接参与' : '需登录后才能参与, 记录强制使用账号用户名' }}
+            </span>
+          </div>
         </NFormItem>
         <NFormItem label="最大参与人数" path="maxParticipants">
           <NInputNumber v-model:value="activityForm.maxParticipants" :min="0" placeholder="0表示不限制" style="width: 100%" />

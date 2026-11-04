@@ -41,5 +41,14 @@ declare namespace StorageType {
     lastLoginUserId: string;
     /** Temporary token for 2FA verification */
     temp2faToken: string;
+    /** 全局阅读小窗会话快照 (RSS/分级阅读, 最小化时写入, 恢复或丢弃时清除) */
+    readerSession: {
+      kind: 'rss' | 'reading';
+      itemId: number;
+      title: string;
+      subtitle: string;
+      scrollTop: number;
+      progress: number;
+    } | null;
   }
 }

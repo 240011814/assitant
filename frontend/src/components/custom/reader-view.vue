@@ -223,7 +223,15 @@ async function handleAddToVocabulary() {
 
 defineExpose({
   lookupWord,
-  scrollToTop
+  scrollToTop,
+  // 小窗模式: 最小化前读、恢复后写, 续读位置不丢
+  getScrollTop: () => scrollRef.value?.scrollTop ?? 0,
+  setScrollTop: (top: number) => {
+    nextTick(() => {
+      if (scrollRef.value) scrollRef.value.scrollTop = top;
+    });
+  },
+  getReadProgress: () => readProgress.value
 });
 
 // ===================== 全文朗读 (逐块高亮跟随, 统一走 tts.ts) =====================

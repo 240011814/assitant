@@ -16,6 +16,7 @@ import {
   fetchStartAdaptiveVocabTest,
   fetchGetAsyncJob,
   fetchSubmitAdaptiveRound,
+  fetchSelfAssessVocab,
   fetchVocabBehavior,
   fetchLatestVocabTest,
 } from "@/service/api";
@@ -80,9 +81,46 @@ const loadVocabBehavior = async () => {
   if (behavior) vocabTestBehavior.value = behavior;
 };
 
+// 自评水平: 不做测试直接设定档位
+const selfAssessCefr = ref<string | null>(null);
+const selfAssessLoading = ref(false);
+const cefrOptions = [
+  { label: "A1 (入门)", value: "A1" },
+  { label: "A2 (基础)", value: "A2" },
+  { label: "B1 (中级)", value: "B1" },
+  { label: "B2 (中高级)", value: "B2" },
+  { label: "C1 (高级)", value: "C1" },
+  { label: "C2 (精通)", value: "C2" }
+];
+const selfAssessResult = ref<AdaptiveVocabResult | null>(null);
+// 结果来源: test=自适应实测 / self=手动自评 (结果页提示语区分)
+const resultSource = ref<"test" | "self">("test");
+
+const handleSelfAssess = async () => {
+  if (!selfAssessCefr.value) {
+    message.warning("请先选择档位");
+    return;
+  }
+  selfAssessLoading.value = true;
+  const { data: result, error } = await fetchSelfAssessVocab(selfAssessCefr.value);
+  selfAssessLoading.value = false;
+  if (error || !result) {
+    message.error(`设定失败: ${(error as any)?.message || "未知错误"}`);
+    return;
+  }
+  selfAssessResult.value = result;
+  resultSource.value = "self";
+  vocabTestResult.value = result;
+  vocabTestLatest.value = { cefr: result.cefr, estSize: result.estSize, createdAt: new Date().toISOString() };
+  loadVocabBehavior();
+};
+
 const openVocabTest = async () => {
   showVocabTest.value = true;
   vocabTestResult.value = null;
+  selfAssessResult.value = null;
+  selfAssessCefr.value = null;
+  resultSource.value = "test";
   currentQuestions.value = [];
   currentChoices.value = {};
   vocabTestRounds.value = [];
@@ -151,6 +189,7 @@ const submitRound = async () => {
   }
   if (resp.finished && resp.result) {
     vocabTestResult.value = resp.result;
+    resultSource.value = "test";
     vocabTestLatest.value = { cefr: resp.result.cefr, estSize: resp.result.estSize, createdAt: new Date().toISOString() };
     loadVocabBehavior();
     return;
@@ -1009,10 +1048,9 @@ onMounted(() => {
       </NSpin>
     </NModal>
 
-    <!-- 词汇量测试 (自适应: 锚定词库 + 二分探针) -->
+    <!-- 词汇量测试 (自适应: 锚定词库 + 二分探针; 加载态只用按钮内转圈, 不叠加 NSpin) -->
     <NModal v-model:show="showVocabTest" preset="card" title="词汇量测试" :style="{ width: 'min(94vw, 640px)' }">
-      <NSpin :show="vocabTestLoading">
-        <!-- 结果页 -->
+      <!-- 结果页 -->
         <div v-if="vocabTestResult" class="flex flex-col gap-4 py-2">
           <div class="text-center">
             <div class="text-4xl font-bold text-primary">{{ vocabTestResult.cefr }}</div>
@@ -1020,6 +1058,7 @@ onMounted(() => {
               估算词汇量 <span class="font-bold text-gray-700 dark:text-gray-200">{{ vocabTestResult.estLow }} ~ {{ vocabTestResult.estHigh }}</span> 词
               <span class="ml-1">(中位 ≈ {{ vocabTestResult.estSize }})</span>
             </div>
+            <div v-if="resultSource === 'self'" class="mt-1 text-xs text-gray-400">来自手动设定 (未做自适应测试)</div>
           </div>
           <div class="flex justify-center gap-2 flex-wrap">
             <NTag v-for="(v, band) in vocabTestResult.bands" :key="band" size="small" :bordered="false">
@@ -1066,7 +1105,7 @@ onMounted(() => {
               </div>
             </NRadioGroup>
           </div>
-          <NButton type="primary" block @click="submitRound">
+          <NButton type="primary" block :loading="vocabTestLoading" @click="submitRound">
             提交本轮 ({{ currentAnswered }}/{{ currentQuestions.length }})
           </NButton>
         </div>
@@ -1090,11 +1129,24 @@ onMounted(() => {
             上次测试: {{ vocabTestLatest.cefr }} ≈ {{ vocabTestLatest.estSize }} 词
             ({{ new Date(vocabTestLatest.createdAt).toLocaleDateString() }})
           </div>
+          <!-- 加载态唯一转圈 = 按钮内 loading 图标 -->
           <NButton type="primary" block :loading="vocabTestLoading" @click="startVocabTest">
             {{ vocabTestLoading ? '生成题目中...' : '开始测试' }}
           </NButton>
+          <NDivider class="!my-0"><span class="text-xs text-gray-300 dark:text-gray-600">或者</span></NDivider>
+          <div class="flex gap-2">
+            <NSelect
+              v-model:value="selfAssessCefr"
+              :options="cefrOptions"
+              placeholder="选择我的档位"
+              class="flex-1"
+            />
+            <NButton :loading="selfAssessLoading" :disabled="!selfAssessCefr" @click="handleSelfAssess">
+              直接设定
+            </NButton>
+          </div>
+          <div class="text-xs text-gray-400 -mt-1">对自己的水平有把握? 跳过测试直接设定, 效果等同 (可随时重新测试修正)。</div>
         </div>
-      </NSpin>
     </NModal>
   </div>
 </template>

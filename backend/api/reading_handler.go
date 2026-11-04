@@ -190,6 +190,24 @@ func (h *ReadingHandler) HandleVocabBehavior(c *gin.Context) {
 	SendSuccess(c, est)
 }
 
+// HandleSelfAssessVocab 自评水平 (跳过测试直接设定 CEFR, 落评估记录)
+func (h *ReadingHandler) HandleSelfAssessVocab(c *gin.Context) {
+	userId := GetUserID(c)
+	var req struct {
+		Cefr string `json:"cefr" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SendError(c, "400", "请求参数错误")
+		return
+	}
+	result, err := h.svc.SelfAssessVocab(userId, req.Cefr)
+	if err != nil {
+		SendError(c, "500", "设定失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, result)
+}
+
 // HandleLatestVocabTest 最近一次词汇量评估 (无记录返回 null)
 func (h *ReadingHandler) HandleLatestVocabTest(c *gin.Context) {
 	userId := GetUserID(c)

@@ -12,6 +12,7 @@ import GlobalSider from '../modules/global-sider/index.vue';
 import GlobalTab from '../modules/global-tab/index.vue';
 import ThemeDrawer from '../modules/theme-drawer/index.vue';
 import ProxyModeBanner from '../modules/proxy-mode-banner.vue';
+import MiniReaderCard from '../modules/mini-reader-card.vue';
 
 defineOptions({
   name: 'BaseLayout'
@@ -151,6 +152,7 @@ function getSiderAndCollapsedWidth(isCollapsed: boolean) {
     <GlobalMenu />
     <GlobalContent />
     <ThemeDrawer />
+    <MiniReaderCard />
     <template #footer>
       <GlobalFooter />
     </template>

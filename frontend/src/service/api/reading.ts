@@ -239,6 +239,15 @@ export function fetchVocabBehavior() {
   });
 }
 
+/** 自评水平: 跳过测试直接设定 CEFR 档位, 落评估记录 */
+export function fetchSelfAssessVocab(cefr: string) {
+  return request<AdaptiveVocabResult>({
+    url: '/api/reading/vocab-test/self-assess',
+    method: 'post',
+    data: { cefr }
+  });
+}
+
 /** 最近一次词汇量评估 (无记录返回 null) */
 export function fetchLatestVocabTest() {
   return request<{ cefr: string; estSize: number; createdAt: string } | null>({

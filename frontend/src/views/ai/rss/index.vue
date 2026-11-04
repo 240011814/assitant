@@ -2,10 +2,13 @@
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from "vue";
 import { NButton, NButtonGroup, NEmpty, NPopconfirm, NTag, useMessage } from "naive-ui";
 import { useRouterPush } from "@/hooks/common/router";
+import { useReaderMiniLeaveSave } from "@/hooks/common/reader-mini-save";
 import ReaderView from "@/components/custom/reader-view.vue";
 import { fetchRSSAddSource, fetchRSSListSources, fetchRSSUpdateSource, fetchRSSDeleteSource, fetchRSSFetchSource, fetchRSSListItems, fetchRSSMarkRead, fetchRSSItemContent, fetchRSSImportItem, fetchRSSAnnotateItem, fetchRSSTranslateItem, fetchRSSRewriteItem, fetchGetAsyncJob, fetchAddVocabulary } from "@/service/api";
 import type { DifficultWord, RSSItem, RSSSource } from "@/service/api";
 import { useAppStore } from "@/store/modules/app";
+import { useReaderSessionStore } from "@/store/modules/reader-session";
+import type { ReaderSessionSnapshot } from "@/store/modules/reader-session";
 
 const appStore = useAppStore();
 const message = useMessage();
@@ -481,7 +484,76 @@ const handleRewriteItem = async () => {
   pollRewriteJob(job.id);
 };
 
-// 侧栏生词: 点击查词
+// ===================== 全局阅读小窗 (store 驱动: 右下角卡片任意页面可见, 切 tab/关浏览器不丢) =====================
+const sessionStore = useReaderSessionStore();
+
+// 快照当前阅读会话 (弹窗打开中): 位置/进度 + 条目信息, 供全局小窗卡片与恢复使用; 无会话返回 null
+function captureViewerSession(): ReaderSessionSnapshot | null {
+  if (!showViewer.value || !viewItem.value) return null;
+  let scrollTop = 0;
+  let progress = 0;
+  try {
+    scrollTop = readerRef.value?.getScrollTop() || 0;
+    progress = readerRef.value?.getReadProgress() || 0;
+  } catch {
+    // 阅读器实例不可用时按 0 处理
+  }
+  return {
+    kind: "rss",
+    itemId: viewItem.value.id,
+    title: viewItem.value.title,
+    subtitle: sourceTitle(viewItem.value.sourceId),
+    scrollTop,
+    progress
+  };
+}
+
+// 切 tab / 路由跳转 / 关浏览器标签时弹窗仍开着 → 自动收入全局小窗
+useReaderMiniLeaveSave(captureViewerSession);
+
+function minimizeViewer() {
+  const snapshot = captureViewerSession();
+  if (snapshot) sessionStore.minimize(snapshot);
+  showViewer.value = false;
+}
+
+// 恢复待应用的滚动位置 (consumeRestore 后, 由 openItem 内容加载完成时写回)
+let pendingRestoreScroll = 0;
+
+// 全局小窗卡片"继续阅读": 找回条目并打开, 内容加载完成后恢复滚动位置
+async function tryConsumeRestore() {
+  const snapshot = sessionStore.consumeRestore();
+  if (!snapshot) return;
+  // 列表尚未加载时先拉一次 (整页刷新后直点小窗卡片的场景)
+  if (!items.value.length) {
+    await loadItems();
+  }
+  const target = items.value.find((i) => i.id === snapshot.itemId);
+  const item: RSSItem =
+    target ||
+    ({
+      id: snapshot.itemId,
+      title: snapshot.title,
+      link: "",
+      summary: "",
+      publishedAt: null,
+      status: "read",
+      importedDocId: 0,
+      createdAt: ""
+    } as RSSItem);
+  pendingRestoreScroll = snapshot.scrollTop;
+  await openItem(item);
+}
+
+// 小窗卡片在任意页面被点击 (restorePending 置位) → 本页消费恢复请求
+watch(
+  () => sessionStore.restorePending,
+  (pending) => {
+    if (pending) tryConsumeRestore();
+  }
+);
+
+// ===================== 侧栏生词: 点击查词
 const lookupDw = (word: string) => {
   readerRef.value?.lookupWord(word);
 };
@@ -526,6 +598,8 @@ const openItem = async (item: RSSItem) => {
   viewSource.value = "original";
   viewRewriteHtml.value = "";
   rewriteProgress.value = "";
+  // 打开新条目即丢弃当前小窗会话 (与旧 miniMode 语义一致)
+  sessionStore.dismiss();
   showViewer.value = true;
   readerRef.value?.scrollToTop();
   if (item.status === "unread") {
@@ -542,6 +616,7 @@ const openItem = async (item: RSSItem) => {
     // 抓取失败: 展示失败原因 + feed 摘要兜底
     viewError.value = (error as any)?.message || "未知错误";
     viewContent.value = item.summary || "";
+    pendingRestoreScroll = 0;
     return;
   }
   viewContent.value = resp.content;
@@ -566,6 +641,11 @@ const openItem = async (item: RSSItem) => {
   // 结构标签剥壳产生的裸文本包进 <p>: 朗读按段落元素取块, 裸文本会被整体跳过
   normalizeArticleHtml();
   applyHighlight();
+  // 全局小窗恢复: 内容渲染完成后写回续读位置
+  if (pendingRestoreScroll > 0) {
+    readerRef.value?.setScrollTop(pendingRestoreScroll);
+    pendingRestoreScroll = 0;
+  }
 };
 
 /**
@@ -705,6 +785,11 @@ onMounted(() => {
         message.info("该文章不在当前列表 (可能已翻页), 请手动查找");
       }
     });
+    return;
+  }
+  // 全局小窗卡片"继续阅读"跳转过来 (卡片点击先于本页挂载): 消费恢复请求
+  if (sessionStore.restorePending) {
+    tryConsumeRestore();
   }
 });
 
@@ -1075,6 +1160,17 @@ onDeactivated(() => {
             >
               <template #icon>
                 <SvgIcon icon="mdi:pencil-outline" />
+              </template>
+            </NButton>
+            <NButton
+              quaternary
+              circle
+              size="small"
+              title="最小化到右下角, 可稍后继续阅读"
+              @click="minimizeViewer"
+            >
+              <template #icon>
+                <SvgIcon icon="mdi:window-minimize" />
               </template>
             </NButton>
             <NButton quaternary circle size="small" title="关闭 (Esc)" @click="showViewer = false">

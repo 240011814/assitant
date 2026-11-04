@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { NButton, NSpin, NTag, useMessage } from "naive-ui";
 import {
   fetchDrawLottery,
@@ -10,6 +10,7 @@ import {
   fetchGetLotteryRecords,
   fetchGetLotteryWinners,
 } from "@/service/api";
+import { localStg } from "@/utils/storage";
 import { useAudioCue } from "./composables/use-audio-cue";
 import { useGachaAnimation } from "./composables/use-gacha-animation";
 import WheelPanel from "./components/wheel-panel.vue";
@@ -21,6 +22,7 @@ import ResultModal from "./components/result-modal.vue";
 import GachaAnimationModal from "./components/gacha-animation-modal.vue";
 
 const route = useRoute();
+const router = useRouter();
 const message = useMessage();
 
 const loading = ref(true);
@@ -35,6 +37,20 @@ const showPrizeModal = ref(false);
 const showWinnerModal = ref(false);
 const drawResult = ref<Api.Lottery.DrawResult | null>(null);
 const drawLimits = ref<Api.Lottery.DrawLimits | null>(null);
+
+// 登录态: 页面加载时判定 (与 request 实例附加 Authorization 的条件一致, token 存在即随请求带上)
+const token = localStg.get("token");
+const isLoggedIn = Boolean(token);
+
+// 从 JWT payload 取账号用户名 (登录用户实名预填; base64url 解析失败返回空串)
+function decodeJwtUserName(jwtToken: string): string {
+  try {
+    const payload = JSON.parse(atob(jwtToken.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof payload.userName === "string" ? payload.userName : "";
+  } catch {
+    return "";
+  }
+}
 
 // 音效管理
 const { playClickSound, playGachaSound, playWheelSpinSound, playWinSound, playLoseSound } = useAudioCue();
@@ -119,6 +135,15 @@ const isGachaMode = computed(() => {
   return activity.value?.drawMode === 1;
 });
 
+// 活动关闭匿名抽奖且未登录 → 用登录引导替换抽奖面板
+const needLogin = computed(() => {
+  return activity.value?.allowAnonymous === false && !isLoggedIn;
+});
+
+function goLogin() {
+  router.push({ path: "/login", query: { redirect: route.fullPath } });
+}
+
 const drawButtonText = computed(() => {
   if (drawing.value) return "抽奖中...";
   if (activity.value?.status === 0) return "活动未开始";
@@ -141,6 +166,13 @@ async function loadData() {
 
   if (!activityRes.error) {
     activity.value = activityRes.data;
+    // 关闭匿名且已登录: 预填账号用户名 (实名, 后端会以登录身份强制覆盖)
+    if (activity.value?.allowAnonymous === false && isLoggedIn && token && !userName.value.trim()) {
+      const accountName = decodeJwtUserName(token);
+      if (accountName) {
+        userName.value = accountName;
+      }
+    }
   }
   if (!prizesRes.error) {
     prizes.value = prizesRes.data;
@@ -198,6 +230,10 @@ watch(userName, (newVal) => {
 });
 
 async function handleDraw() {
+  if (needLogin.value) {
+    message.warning("该活动需要登录后参与");
+    return;
+  }
   if (!userName.value.trim()) {
     message.warning("请输入您的姓名");
     return;
@@ -329,9 +365,16 @@ onMounted(() => {
             </div>
           </div>
 
+          <!-- 关闭匿名抽奖且未登录: 登录引导 -->
+          <div v-if="needLogin" class="activity-card login-gate">
+            <div class="login-gate-icon">🔒</div>
+            <p class="login-gate-text">该活动不允许匿名参与, 请先登录后抽奖</p>
+            <NButton type="primary" block round @click="goLogin">去登录</NButton>
+          </div>
+
           <!-- 转盘模式 -->
           <WheelPanel
-            v-if="!isGachaMode"
+            v-else-if="!isGachaMode"
             v-model:user-name="userName"
             :wheel-items="wheelItems"
             :segment-colors="segmentColors"
@@ -487,6 +530,22 @@ onMounted(() => {
 .card-actions {
   display: flex;
   gap: 8px;
+}
+
+.login-gate {
+  text-align: center;
+  padding: 32px 20px;
+}
+
+.login-gate-icon {
+  font-size: 40px;
+  margin-bottom: 8px;
+}
+
+.login-gate-text {
+  font-size: 14px;
+  color: #4a5568;
+  margin: 0 0 16px;
 }
 
 .empty-tip {

@@ -12,3 +12,14 @@ func currentUserID(c *gin.Context) (uint, bool) {
 	uid, ok := v.(uint)
 	return uid, ok
 }
+
+// currentUserName 读取认证中间件写入的账号用户名 (OptionalAuthMiddleware c.Set("accountName", ...));
+// 未认证时返回空串
+func currentUserName(c *gin.Context) string {
+	v, exists := c.Get("accountName")
+	if !exists {
+		return ""
+	}
+	name, _ := v.(string)
+	return name
+}

@@ -9,59 +9,88 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// authError 认证失败原因 (错误码 + 文案), 由 parseAccessClaims 判定。
+// 错误码语义承载前端刷新令牌流程: 9999 触发静默换发, 401 仅提示。
+type authError struct {
+	code    string
+	message string
+}
+
+// parseAccessClaims 解析 Bearer 访问令牌并校验签名与令牌类型, 成功返回 claims。
+// 校验规则与失败文案与原 AuthMiddleware 逐条对应, 强制/可选认证中间件共用。
+func parseAccessClaims(jwtSecret, authHeader string) (jwt.MapClaims, *authError) {
+	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		return nil, &authError{code: "401", message: "未登录"}
+	}
+
+	tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+		// 固定 HMAC 签名算法, 防止算法混淆
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
+		return []byte(jwtSecret), nil
+	})
+	if err != nil || !token.Valid {
+		return nil, &authError{code: "9999", message: "无效的 Token"}
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, &authError{code: "401", message: "无效的 Token Claims"}
+	}
+
+	// 拒绝非访问令牌: 2FA 临时令牌 (purpose=2fa) 与刷新令牌 (typ=refresh)
+	// 不得直接调用业务接口; 旧版签发的访问令牌无 typ 字段, 保持兼容放行
+	if typ, _ := claims["typ"].(string); typ != "" && typ != "access" {
+		return nil, &authError{code: "401", message: "令牌类型错误"}
+	}
+	if purpose, _ := claims["purpose"].(string); purpose != "" {
+		return nil, &authError{code: "401", message: "令牌类型错误"}
+	}
+
+	if _, ok := claims["userId"].(float64); !ok {
+		return nil, &authError{code: "401", message: "无效的用户信息"}
+	}
+
+	return claims, nil
+}
+
 func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-			SendError(c, "401", "未登录")
+		claims, authErr := parseAccessClaims(jwtSecret, c.GetHeader("Authorization"))
+		if authErr != nil {
+			SendError(c, authErr.code, authErr.message)
 			c.Abort()
 			return
 		}
 
-		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-		token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
-			// 固定 HMAC 签名算法, 防止算法混淆
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, errors.New("unexpected signing method")
-			}
-			return []byte(jwtSecret), nil
-		})
-		if err != nil || !token.Valid {
-			SendError(c, "9999", "无效的 Token")
-			c.Abort()
-			return
-		}
-
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			SendError(c, "401", "无效的 Token Claims")
-			c.Abort()
-			return
-		}
-
-		// 拒绝非访问令牌: 2FA 临时令牌 (purpose=2fa) 与刷新令牌 (typ=refresh)
-		// 不得直接调用业务接口; 旧版签发的访问令牌无 typ 字段, 保持兼容放行
-		if typ, _ := claims["typ"].(string); typ != "" && typ != "access" {
-			SendError(c, "401", "令牌类型错误")
-			c.Abort()
-			return
-		}
-		if purpose, _ := claims["purpose"].(string); purpose != "" {
-			SendError(c, "401", "令牌类型错误")
-			c.Abort()
-			return
-		}
-
-		userID, ok := claims["userId"].(float64)
-		if !ok {
-			SendError(c, "401", "无效的用户信息")
-			c.Abort()
-			return
-		}
-
+		userID, _ := claims["userId"].(float64)
 		roles := rolesFromClaims(claims)
 		c.Set("userId", uint(userID))
 		c.Set("roles", roles)
+		c.Next()
+	}
+}
+
+// OptionalAuthMiddleware 可选认证 (公开路由): 带 Bearer 访问令牌且有效时注入
+// userId/roles/accountName (登录身份), 缺失或无效一律静默放行 (游客身份)。
+// 用于公开抽奖等"登录与否行为不同"的接口, 不做强制拦截。
+func OptionalAuthMiddleware(jwtSecret string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, authErr := parseAccessClaims(jwtSecret, c.GetHeader("Authorization"))
+		if authErr != nil {
+			c.Next()
+			return
+		}
+
+		if userID, ok := claims["userId"].(float64); ok {
+			c.Set("userId", uint(userID))
+			c.Set("roles", rolesFromClaims(claims))
+			if name, _ := claims["userName"].(string); name != "" {
+				c.Set("accountName", name)
+			}
+		}
 		c.Next()
 	}
 }

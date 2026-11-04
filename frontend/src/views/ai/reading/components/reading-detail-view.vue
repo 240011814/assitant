@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
 import { fetchGetReadingDoc, fetchAnnotateReadingDoc } from "@/service/api";
 import type { DifficultWord, ReadingDoc } from "@/service/api";
-import { useRouterPush } from "@/hooks/common/router";
 import ReaderView from "@/components/custom/reader-view.vue";
+import { useReaderSessionStore } from "@/store/modules/reader-session";
 
 /**
  * ReadingDetailView 分级阅读详情 (ReaderView 之上叠加文档业务):
  * 加载文档 + AI 标注 + 轮询 + 生词高亮 + 生词侧栏。
- * 两个使用方: 路由页 reading-detail/[id].vue (mode=page, 带返回按钮)
- * 与阅读列表页弹窗 (mode=modal, 带关闭按钮, emit close)。
+ * 两个使用方: 路由页 reading-detail/[id].vue (mode=page, emit back)
+ * 与阅读列表页弹窗 (mode=modal, emit minimize/close)。
+ * 最小化/返回均交给容器决定 (存全局小窗会话 + 跳转), 组件只上报意图。
  */
 defineOptions({
   name: "ReadingDetailView"
@@ -26,10 +27,12 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   close: [];
+  minimize: [];
+  back: [];
 }>();
 
 const message = useMessage();
-const { routerPushByKey } = useRouterPush();
+const sessionStore = useReaderSessionStore();
 
 const doc = ref<(ReadingDoc & { content: string }) | null>(null);
 const difficultWords = ref<DifficultWord[]>([]);
@@ -93,6 +96,23 @@ const onWordAdded = (word: string) => {
   if (hit) hit.known = true;
 };
 
+// 全局小窗"继续阅读": 卡片点击 (restorePending) 且指向本文档时, 内容加载完成后写回续读位置
+function tryConsumeScrollRestore() {
+  if (!sessionStore.restorePending) return;
+  const snapshot = sessionStore.consumeRestore();
+  if (snapshot && snapshot.kind === "reading" && snapshot.itemId === props.docId) {
+    nextTick(() => readerRef.value?.setScrollTop(snapshot.scrollTop));
+  }
+}
+
+// 小窗卡片在任意页面被点击后进入本组件 (含同组件换文档) → 尝试恢复
+watch(
+  () => sessionStore.restorePending,
+  (pending) => {
+    if (pending) tryConsumeScrollRestore();
+  }
+);
+
 const loadDoc = async () => {
   loading.value = true;
   const { data: resp, error } = await fetchGetReadingDoc(props.docId);
@@ -108,6 +128,7 @@ const loadDoc = async () => {
     // eslint-disable-next-line @typescript-eslint/no-use-before-define
     startAnnotatePolling();
   }
+  tryConsumeScrollRestore();
 };
 
 // 标注任务轮询: 3s 一次, 状态离开 annotating 即收口
@@ -173,6 +194,14 @@ onMounted(() => {
 onUnmounted(() => {
   stopAnnotatePolling();
 });
+
+// 暴露阅读位置与文档信息: 容器页 (列表弹窗/详情路由页) 在最小化、切页离开时组装全局小窗快照
+defineExpose({
+  getScrollTop: () => readerRef.value?.getScrollTop() ?? 0,
+  setScrollTop: (top: number) => readerRef.value?.setScrollTop(top),
+  getReadProgress: () => readerRef.value?.getReadProgress() ?? 0,
+  doc
+});
 </script>
 
 <template>
@@ -205,7 +234,7 @@ onUnmounted(() => {
         size="small"
         title="返回列表"
         aria-label="返回列表"
-        @click="routerPushByKey('ai_reading')"
+        @click="emit('back')"
       >
         <template #icon>
           <SvgIcon icon="mdi:arrow-left" />
@@ -214,6 +243,18 @@ onUnmounted(() => {
       <span class="font-bold truncate min-w-0">{{ doc?.title || '...' }}</span>
     </template>
     <template #toolbar-actions>
+      <!-- 收入全局小窗 (右下角卡片, 切页不丢, 稍后从卡片恢复续读); 容器决定存会话与跳转 -->
+      <NButton
+        quaternary
+        circle
+        size="small"
+        title="最小化到右下角, 可稍后继续阅读"
+        @click="emit('minimize')"
+      >
+        <template #icon>
+          <SvgIcon icon="mdi:window-minimize" />
+        </template>
+      </NButton>
       <NButton
         size="small"
         type="primary"
