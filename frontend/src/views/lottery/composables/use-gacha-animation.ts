@@ -2,15 +2,9 @@ import { computed, ref } from 'vue';
 import type { Ref } from 'vue';
 import type { MessageApi } from 'naive-ui';
 import { fetchDrawLottery } from '@/service/api';
+import { resolveRarity } from './rarity-theme';
 
 export type GachaPhase = 'idle' | 'meteor' | 'flash' | 'reveal' | 'result';
-
-export interface GachaParticle {
-  id: number;
-  x: number;
-  y: number;
-  delay: number;
-}
 
 export interface GachaAnimationOptions {
   /** 用户名（组件内共享，此处只读） */
@@ -25,39 +19,30 @@ export interface GachaAnimationOptions {
   message: MessageApi;
   /** 点击音效（来自 useAudioCue，保证全局共用同一个 AudioContext） */
   playClickSound: () => void;
-  /** 抽卡音效（来自 useAudioCue） */
-  playGachaSound: (rarity: number) => void;
+  /** 原神祈愿音效（WAV 采样整段播放, 来自 useAudioCue） */
+  playWishExecute: () => void;
   /** 抽奖完成后刷新页面数据（组件内的 loadData） */
   loadData: () => void;
 }
 
 /**
- * 抽奖动画状态机：转盘指针旋转角度 + 原神抽卡动画（粒子/流星/闪光/揭示/结果）
- * 从 views/lottery/[id].vue 原样抽取，setTimeout 分阶段时序与原实现一致
+ * 抽奖动画状态机：转盘指针旋转角度 + 原神抽卡动画阶段时序。
+ * three.js 视觉在 use-wish-scene / gacha-animation-modal 中渲染, 这里只管阶段推进。
+ * 各阶段 sleep 可被 skip() 打断, 直接进入结果阶段 (原神同款跳过)。
  */
 export function useGachaAnimation(options: GachaAnimationOptions) {
-  const { userName, drawing, drawResult, getActivityId, message, playClickSound, playGachaSound, loadData } = options;
+  const { userName, drawing, drawResult, getActivityId, message, playClickSound, playWishExecute, loadData } = options;
 
   const pointerRotation = ref(0);
 
   // 原神抽卡模式状态
   const showGachaAnimation = ref(false);
   const gachaPhase = ref<GachaPhase>('idle');
-  const gachaParticles = ref<GachaParticle[]>([]);
 
-  // 原神抽卡模式 - 根据奖品等级确定稀有度等级
+  // 原神抽卡模式 - 根据奖品等级确定稀有度等级 (与结果卡/彩带/场景配色共用一套映射)
   const gachaRarity = computed(() => {
     if (!drawResult.value?.isWinner || !drawResult.value.prize) return 1; // 未中奖用1星（明亮风格）
-    const level = drawResult.value.prize.prizeLevel;
-    // 奖品等级: 1-特等奖, 2-一等奖, 3-二等奖, 4-三等奖, 0-未设置
-    const levelMap: Record<number, number> = {
-      1: 5, // 特等奖 → 金色传说
-      2: 4, // 一等奖 → 紫色史诗
-      3: 3, // 二等奖 → 蓝色稀有
-      4: 2, // 三等奖 → 绿色普通
-      0: 2 // 未设置 → 绿色普通
-    };
-    return levelMap[level] || 2;
+    return resolveRarity(drawResult.value.prize.prizeLevel);
   });
 
   /** 转盘旋转：至少转5圈后停在目标扇区，写入 pointerRotation */
@@ -75,6 +60,31 @@ export function useGachaAnimation(options: GachaAnimationOptions) {
     pointerRotation.value = finalRotation;
   }
 
+  // ---- 可跳过的阶段 sleep: skip() 置位后, 未完成的 sleep 立刻放行 ----
+  let skipRequested = false;
+  let wakeSkip: (() => void) | null = null;
+
+  function phaseSleep(ms: number) {
+    return new Promise<void>(resolve => {
+      const timer = window.setTimeout(() => {
+        wakeSkip = null;
+        resolve();
+      }, ms);
+      wakeSkip = () => {
+        window.clearTimeout(timer);
+        wakeSkip = null;
+        resolve();
+      };
+    });
+  }
+
+  /** 跳过剩余动画阶段直达结果 (弹窗"跳过"按钮/点击任意处) */
+  function skip() {
+    if (gachaPhase.value === 'result' || gachaPhase.value === 'idle') return;
+    skipRequested = true;
+    wakeSkip?.();
+  }
+
   // 原神抽卡模式
   async function handleGachaDraw() {
     if (!userName.value.trim()) {
@@ -84,16 +94,9 @@ export function useGachaAnimation(options: GachaAnimationOptions) {
 
     playClickSound();
     drawing.value = true;
+    skipRequested = false;
     showGachaAnimation.value = true;
     gachaPhase.value = 'idle';
-
-    // 生成粒子效果
-    gachaParticles.value = Array.from({ length: 30 }, (_, i) => ({
-      id: i,
-      x: Math.random() * 100,
-      y: Math.random() * 100,
-      delay: Math.random() * 2
-    }));
 
     const activityId = getActivityId();
     const { data, error } = await fetchDrawLottery(activityId, userName.value.trim());
@@ -107,35 +110,27 @@ export function useGachaAnimation(options: GachaAnimationOptions) {
 
     drawResult.value = data;
 
-    // 计算稀有度
-    const rarity = data.isWinner && data.prize
-      ? data.prize.prizeValue >= 100
-        ? 5
-        : data.prize.prizeValue >= 50
-        ? 4
-        : data.prize.prizeValue >= 20
-        ? 3
-        : 2
-      : 2;
-
-    // 阶段1：流星下落
+    // 阶段1：流星划过 (原神祈愿音效整段起播 — 与游戏内一致, 采样自带流星/爆发/揭示节奏)
     gachaPhase.value = 'meteor';
-    playGachaSound(rarity);
+    playWishExecute();
 
-    await new Promise(resolve => setTimeout(resolve, 1200));
+    await phaseSleep(2600);
 
-    // 阶段2：闪光
-    gachaPhase.value = 'flash';
+    // 阶段2：爆发闪光 (跳过则直达结果)
+    if (!skipRequested) {
+      gachaPhase.value = 'flash';
+      await phaseSleep(650);
+    }
 
-    await new Promise(resolve => setTimeout(resolve, 400));
-
-    // 阶段3：揭示
-    gachaPhase.value = 'reveal';
-
-    await new Promise(resolve => setTimeout(resolve, 600));
+    // 阶段3：光柱 + 旋转光线揭示 (此刻才"炸色")
+    if (!skipRequested) {
+      gachaPhase.value = 'reveal';
+      await phaseSleep(1500);
+    }
 
     // 阶段4：显示结果
     gachaPhase.value = 'result';
+    skipRequested = false;
     drawing.value = false;
 
     loadData();
@@ -150,10 +145,10 @@ export function useGachaAnimation(options: GachaAnimationOptions) {
     pointerRotation,
     showGachaAnimation,
     gachaPhase,
-    gachaParticles,
     gachaRarity,
     spinToSegment,
     handleGachaDraw,
+    skip,
     closeGachaAnimation
   };
 }

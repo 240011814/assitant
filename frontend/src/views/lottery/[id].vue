@@ -11,8 +11,10 @@ import {
   fetchGetLotteryWinners,
 } from "@/service/api";
 import { localStg } from "@/utils/storage";
+import skyCloudsUrl from "@/assets/imgs/lottery/sky-clouds.jpg";
 import { useAudioCue } from "./composables/use-audio-cue";
 import { useGachaAnimation } from "./composables/use-gacha-animation";
+import { rarityTheme, resolveRarity } from "./composables/rarity-theme";
 import WheelPanel from "./components/wheel-panel.vue";
 import GachaGate from "./components/gacha-gate.vue";
 import RecordsPanel from "./components/records-panel.vue";
@@ -20,6 +22,7 @@ import PrizeModal from "./components/prize-modal.vue";
 import WinnerModal from "./components/winner-modal.vue";
 import ResultModal from "./components/result-modal.vue";
 import GachaAnimationModal from "./components/gacha-animation-modal.vue";
+import FxConfetti from "./components/fx-confetti.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -37,6 +40,7 @@ const showPrizeModal = ref(false);
 const showWinnerModal = ref(false);
 const drawResult = ref<Api.Lottery.DrawResult | null>(null);
 const drawLimits = ref<Api.Lottery.DrawLimits | null>(null);
+const confettiRef = ref<InstanceType<typeof FxConfetti> | null>(null);
 
 // 登录态: 页面加载时判定 (与 request 实例附加 Authorization 的条件一致, token 存在即随请求带上)
 const token = localStg.get("token");
@@ -53,17 +57,17 @@ function decodeJwtUserName(jwtToken: string): string {
 }
 
 // 音效管理
-const { playClickSound, playGachaSound, playWheelSpinSound, playWinSound, playLoseSound } = useAudioCue();
+const { playClickSound, playWishExecute, playWheelSpinSound, playWinSound, playLoseSound } = useAudioCue();
 
 // 转盘/原神抽卡动画状态机
 const {
   pointerRotation,
   showGachaAnimation,
   gachaPhase,
-  gachaParticles,
   gachaRarity,
   spinToSegment,
   handleGachaDraw,
+  skip,
   closeGachaAnimation
 } = useGachaAnimation({
   userName,
@@ -72,23 +76,24 @@ const {
   getActivityId: () => Number(route.params.id),
   message,
   playClickSound,
-  playGachaSound,
+  playWishExecute,
   loadData
 });
 
+// 奢华珠宝色转盘: 深酒红/香槟金/孔雀蓝/皇室紫交替, 与金色外圈呼应
 const segmentColors = [
-  "#FF6B6B",
-  "#4ECDC4",
-  "#45B7D1",
-  "#96CEB4",
-  "#FFEAA7",
-  "#DDA0DD",
-  "#98D8C8",
-  "#F7DC6F",
-  "#BB8FCE",
-  "#85C1E9",
-  "#F8C471",
-  "#82E0AA",
+  "#a03030",
+  "#e3c06a",
+  "#1f4e6b",
+  "#5e3a87",
+  "#275e4d",
+  "#b3742a",
+  "#822f4f",
+  "#2f6f9e",
+  "#c99244",
+  "#3d5a2f",
+  "#6d3060",
+  "#245a56",
 ];
 
 const wheelItems = computed(() => {
@@ -278,6 +283,8 @@ async function handleDraw() {
   // 播放结果音效
   if (data.isWinner) {
     playWinSound();
+    // 按奖品稀有度喷彩带 (结果弹窗弹出前)
+    confettiRef.value?.burst(rarityTheme(resolveRarity(data.prize?.prizeLevel ?? 0)).confetti);
   } else {
     playLoseSound();
   }
@@ -299,7 +306,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="lottery-page">
+  <div class="lottery-page" :style="{ backgroundImage: `url(${skyCloudsUrl})` }">
     <div class="bg-overlay" />
 
     <div class="lottery-container">
@@ -377,7 +384,6 @@ onMounted(() => {
             v-else-if="!isGachaMode"
             v-model:user-name="userName"
             :wheel-items="wheelItems"
-            :segment-colors="segmentColors"
             :pointer-rotation="pointerRotation"
             :drawing="drawing"
             :can-draw="canDraw"
@@ -412,13 +418,16 @@ onMounted(() => {
     <!-- 结果弹窗 -->
     <ResultModal v-model:show="showResultModal" :draw-result="drawResult" />
 
+    <!-- 中奖彩带 (转盘模式, 按稀有度配色) -->
+    <FxConfetti ref="confettiRef" />
+
     <!-- 原神抽卡动画弹窗 -->
     <GachaAnimationModal
       v-model:show="showGachaAnimation"
       :gacha-phase="gachaPhase"
-      :gacha-particles="gachaParticles"
       :gacha-rarity="gachaRarity"
       :draw-result="drawResult"
+      @skip="skip"
       @close="closeGachaAnimation"
     />
   </div>
@@ -427,14 +436,25 @@ onMounted(() => {
 <style scoped lang="scss">
 .lottery-page {
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  // 云海星空照片打底 (天空资产), 尺寸随视口
+  background-size: cover;
+  background-position: center top;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
   position: relative;
 }
 
+// 紫夜幕罩: 压暗天空照片, 营造参考图的紫金色夜晚氛围
 .bg-overlay {
   position: fixed;
   inset: 0;
-  background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Ccircle cx='30' cy='30' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  background: linear-gradient(
+    180deg,
+    rgba(28, 16, 66, 0.9) 0%,
+    rgba(56, 30, 108, 0.8) 42%,
+    rgba(40, 22, 84, 0.82) 70%,
+    rgba(20, 12, 48, 0.92) 100%
+  );
   pointer-events: none;
 }
 
@@ -466,11 +486,13 @@ onMounted(() => {
 }
 
 .activity-card {
-  background: white;
+  background: linear-gradient(160deg, rgba(26, 20, 58, 0.82), rgba(14, 10, 34, 0.88));
+  border: 1px solid rgba(255, 214, 110, 0.24);
+  backdrop-filter: blur(6px);
   border-radius: 16px;
   padding: 20px;
   margin-bottom: 20px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
 }
 
 .card-header {
@@ -484,12 +506,12 @@ onMounted(() => {
   font-size: 18px;
   font-weight: 600;
   margin: 0;
-  color: #1a1a1a;
+  color: #fff;
 }
 
 .card-desc {
   font-size: 13px;
-  color: #666;
+  color: rgba(255, 255, 255, 0.62);
   margin: 0 0 12px;
   line-height: 1.5;
 }
@@ -500,9 +522,9 @@ onMounted(() => {
   gap: 12px;
   margin-bottom: 12px;
   padding: 10px 14px;
-  background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+  background: rgba(255, 214, 110, 0.08);
   border-radius: 10px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid rgba(255, 214, 110, 0.18);
 }
 
 .limit-item {
@@ -518,12 +540,12 @@ onMounted(() => {
 .limit-text {
   font-size: 13px;
   font-weight: 500;
-  color: #4a5568;
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .limit-count {
   font-weight: 700;
-  color: #667eea;
+  color: #ffd76e;
   font-size: 15px;
 }
 
@@ -544,7 +566,7 @@ onMounted(() => {
 
 .login-gate-text {
   font-size: 14px;
-  color: #4a5568;
+  color: rgba(255, 255, 255, 0.78);
   margin: 0 0 16px;
 }
 

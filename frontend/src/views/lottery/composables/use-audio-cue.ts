@@ -1,8 +1,9 @@
 import { ref } from 'vue';
+import wishExecuteUrl from '@/assets/sound/genshin-wish-execute.ogg';
 
 /**
- * 抽奖音效：基于 Web AudioContext 合成音效
- * 从 views/lottery/[id].vue 原样抽取，AudioContext 为惰性创建，调用时序与原实现一致
+ * 抽奖音效：基于 Web AudioContext（合成音效 + 原神祈愿采样音）
+ * AudioContext 为惰性创建；祈愿音效为 WAV 采样, 首次播放时解码并缓存 AudioBuffer
  */
 export function useAudioCue() {
   // 音效管理
@@ -37,28 +38,46 @@ export function useAudioCue() {
     }
   }
 
-  function playGachaSound(rarity: number) {
-    // 流星下落音效
-    playSound(800, 0.3, 'sine', 0.2);
-    setTimeout(() => playSound(600, 0.2, 'sine', 0.15), 200);
+  // 原神祈愿完整音效采样 (WAV ~7s: 流星 → 爆发 → 揭示全流程), 解码结果跨抽奖缓存
+  let wishBuffer: AudioBuffer | null = null;
 
-    // 揭示音效（根据稀有度不同）
-    setTimeout(() => {
-      if (rarity >= 5) {
-        // 传说 - 华丽的和弦
-        playSound(523, 0.8, 'sine', 0.3);
-        setTimeout(() => playSound(659, 0.6, 'sine', 0.25), 100);
-        setTimeout(() => playSound(784, 0.6, 'sine', 0.25), 200);
-        setTimeout(() => playSound(1047, 0.8, 'sine', 0.3), 300);
-      } else if (rarity >= 4) {
-        // 史诗 - 双音
-        playSound(440, 0.6, 'sine', 0.25);
-        setTimeout(() => playSound(554, 0.5, 'sine', 0.2), 150);
-      } else {
-        // 普通 - 单音
-        playSound(349, 0.4, 'sine', 0.2);
+  async function loadWishBuffer(): Promise<AudioBuffer | null> {
+    if (wishBuffer) return wishBuffer;
+    try {
+      initAudio();
+      const context = audioContext.value;
+      if (!context) return null;
+      const resp = await fetch(wishExecuteUrl);
+      const arr = await resp.arrayBuffer();
+      wishBuffer = await context.decodeAudioData(arr);
+      return wishBuffer;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 原神祈愿音效: 祈愿动画开始时整段播放 (与游戏内一致, 音效自带全流程节奏) */
+  async function playWishExecute() {
+    try {
+      initAudio();
+      const context = audioContext.value;
+      if (!context) return;
+      // 自动播放策略兜底: 用户手势路径下通常已激活, 仍补一次 resume
+      if (context.state === 'suspended') {
+        await context.resume();
       }
-    }, 800);
+      const buffer = await loadWishBuffer();
+      if (!buffer) return;
+      const source = context.createBufferSource();
+      const gain = context.createGain();
+      source.buffer = buffer;
+      gain.gain.value = 0.85;
+      source.connect(gain);
+      gain.connect(context.destination);
+      source.start();
+    } catch {
+      // 静默处理音频错误
+    }
   }
 
   function playClickSound() {
@@ -97,7 +116,7 @@ export function useAudioCue() {
     audioContext,
     initAudio,
     playSound,
-    playGachaSound,
+    playWishExecute,
     playClickSound,
     playWheelSpinSound,
     playWinSound,
