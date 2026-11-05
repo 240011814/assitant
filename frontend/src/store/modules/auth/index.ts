@@ -160,8 +160,12 @@ export const useAuthStore = defineStore(SetupStoreId.Auth, () => {
         let needRedirect = redirect;
 
         if (isClear) {
-          // If the tab needs to be cleared,it means we don't need to redirect.
-          needRedirect = false;
+          // 换用户/首次登录会清空 tab 缓存, 默认回首页;
+          // 但登录页带显式 redirect (如抽奖分享链接的"去登录"引导) 时仍需回跳目标页
+          const explicitRedirect = Boolean(route.query?.redirect);
+          if (!explicitRedirect) {
+            needRedirect = false;
+          }
         }
         await redirectFromLogin(needRedirect);
 
