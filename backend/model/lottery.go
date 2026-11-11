@@ -61,6 +61,7 @@ type LotteryRecord struct {
 	PrizeID    *uint     `json:"prizeId"` // NULL-未中奖
 	PrizeName  string    `gorm:"size:100" json:"prizeName"`
 	IsWinner   bool      `gorm:"default:false" json:"isWinner"`
+	Redeemed   bool      `gorm:"default:false" json:"redeemed"` // 奖品核销状态
 	CreatedAt  time.Time `json:"createdAt"`
 }
 

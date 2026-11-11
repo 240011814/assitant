@@ -1,4 +1,5 @@
 import { request } from '../request';
+import { localStg } from '@/utils/storage';
 
 // ==================== 活动管理 ====================
 
@@ -161,6 +162,40 @@ export function fetchDeleteLotteryRecord(id: number) {
     url: `/api/lottery/records/${id}`,
     method: 'delete'
   });
+}
+
+/**
+ * 设置中奖记录核销状态 (缺省参数为取反)
+ * @param id 记录ID
+ * @param redeemed 目标状态, 不传则取反
+ */
+export function fetchSetRecordRedeemed(id: number, redeemed?: boolean) {
+  return request<{ id: number; redeemed: boolean }>({
+    url: `/api/lottery/records/${id}/redeemed`,
+    method: 'put',
+    data: redeemed === undefined ? {} : { redeemed }
+  });
+}
+
+/**
+ * 导出活动中奖名单 CSV (浏览器触发下载)
+ * @param activityId 活动ID
+ */
+export async function fetchExportLotteryWinners(activityId: number) {
+  const token = localStg.get('token');
+  const resp = await fetch(`/api/lottery/activities/${activityId}/winners/export`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {}
+  });
+  if (!resp.ok) {
+    throw new Error(`导出失败 (${resp.status})`);
+  }
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'winners.csv';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 /**

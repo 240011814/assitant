@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { NButton, NInput } from "naive-ui";
 
-/** 原神抽卡模式的祈愿入口: 星星装饰 + 祈愿按钮 + 姓名输入 */
+/** 原神抽卡模式的祈愿入口: 星星装饰 + 祈愿按钮 + 姓名输入 (紫夜深色玻璃卡) */
 defineProps<{
   drawing: boolean;
   canDraw: boolean;
@@ -62,11 +62,15 @@ const emit = defineEmits<{
 
 <style scoped lang="scss">
 .gacha-section {
-  background: white;
+  background:
+    radial-gradient(ellipse at 50% -10%, rgba(255, 214, 110, 0.14) 0%, transparent 55%),
+    linear-gradient(165deg, rgba(34, 24, 74, 0.72) 0%, rgba(22, 14, 52, 0.78) 55%, rgba(14, 8, 36, 0.84) 100%);
+  border: 1px solid rgba(255, 214, 110, 0.26);
+  backdrop-filter: blur(5px);
   border-radius: 16px;
   padding: 24px 20px;
   margin-bottom: 20px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
 }
 
 .gacha-container {
@@ -88,7 +92,8 @@ const emit = defineEmits<{
 
 .star {
   font-size: 24px;
-  color: #ffd700;
+  color: #ffd76e;
+  text-shadow: 0 0 12px rgba(255, 214, 110, 0.6);
   animation: twinkle 2s ease-in-out infinite;
 }
 
@@ -109,14 +114,14 @@ const emit = defineEmits<{
   padding: 0 48px;
   font-size: 18px;
   font-weight: 600;
-  background: linear-gradient(135deg, #ffd700 0%, #ffa500 100%);
+  background: linear-gradient(135deg, #f0c040 0%, #d99a1f 55%, #b97e10 100%);
   border: none;
-  color: #5d4e00;
-  box-shadow: 0 4px 20px rgba(255, 215, 0, 0.4);
+  color: #3d2e00;
+  box-shadow: 0 4px 22px rgba(240, 192, 64, 0.4);
 
   &:hover:not(:disabled) {
     transform: translateY(-2px);
-    box-shadow: 0 8px 30px rgba(255, 215, 0, 0.6);
+    box-shadow: 0 8px 30px rgba(240, 192, 64, 0.55);
   }
 
   &:active:not(:disabled) {
@@ -132,7 +137,7 @@ const emit = defineEmits<{
 .gacha-hint {
   margin-top: 12px;
   font-size: 12px;
-  color: #999;
+  color: rgba(255, 255, 255, 0.45);
 }
 
 .draw-form {

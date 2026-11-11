@@ -540,6 +540,8 @@ func setupRouter(r *gin.Engine, d *appDeps) {
 
 			// 记录管理
 			lotteryGroup.DELETE("/records/:id", api.RequirePermission("lottery:record:delete"), lotteryHandler.HandleDeleteRecord)
+			lotteryGroup.PUT("/records/:id/redeemed", api.RequirePermission("lottery:record:delete"), lotteryHandler.HandleSetRecordRedeemed)
+			lotteryGroup.GET("/activities/:id/winners/export", api.RequirePermission("lottery:winner:view"), lotteryHandler.HandleExportWinners)
 		}
 
 		adminGroup := apiGroup.Group("/admin")

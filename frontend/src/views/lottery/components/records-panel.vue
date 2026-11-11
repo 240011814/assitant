@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { NButton, NTag } from "naive-ui";
 
-/** 抽奖记录列表 (最近 20 条) */
+/** 抽奖记录列表 (深色玻璃卡, 首屏 20 条 + "加载更多" 追加) */
 defineProps<{
   records: Api.Lottery.Record[];
+  total: number;
+  hasMore: boolean;
+  loadingMore: boolean;
 }>();
 
 const emit = defineEmits<{
   refresh: [];
+  loadMore: [];
 }>();
 
 function formatTime(dateStr: string) {
@@ -29,7 +33,7 @@ function formatTime(dateStr: string) {
 <template>
   <div class="records-card">
     <div class="records-header">
-      <span>📋 抽奖记录 ({{ records.length }})</span>
+      <span>📋 抽奖记录 ({{ total }})</span>
       <NButton text type="primary" size="small" @click="emit('refresh')">
         刷新
       </NButton>
@@ -65,16 +69,33 @@ function formatTime(dateStr: string) {
         </div>
       </template>
       <div v-else class="empty-tip">暂无抽奖记录</div>
+
+      <!-- 加载更多 -->
+      <div v-if="records.length" class="load-more-wrap">
+        <NButton
+          v-if="hasMore"
+          text
+          type="primary"
+          size="small"
+          :loading="loadingMore"
+          @click="emit('loadMore')"
+        >
+          加载更多
+        </NButton>
+        <span v-else class="all-loaded">— 已加载全部 —</span>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped lang="scss">
 .records-card {
-  background: white;
+  background: linear-gradient(160deg, rgba(26, 20, 58, 0.82), rgba(14, 10, 34, 0.88));
+  border: 1px solid rgba(255, 214, 110, 0.18);
+  backdrop-filter: blur(6px);
   border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
 }
 
 .records-header {
@@ -84,11 +105,12 @@ function formatTime(dateStr: string) {
   padding: 16px 20px;
   font-weight: 600;
   font-size: 15px;
-  border-bottom: 1px solid #f0f0f0;
+  color: #fff;
+  border-bottom: 1px solid rgba(255, 214, 110, 0.14);
 }
 
 .records-list {
-  max-height: 300px;
+  max-height: 320px;
   overflow-y: auto;
 }
 
@@ -97,17 +119,17 @@ function formatTime(dateStr: string) {
   align-items: center;
   gap: 12px;
   padding: 12px 20px;
-  border-bottom: 1px solid #f5f5f5;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   transition: background 0.2s;
 
-  &:last-child {
+  &:last-of-type {
     border-bottom: none;
   }
   &:hover {
-    background: #fafafa;
+    background: rgba(255, 255, 255, 0.05);
   }
   &.is-winner {
-    background: #fffbeb;
+    background: rgba(255, 214, 110, 0.08);
   }
 }
 
@@ -125,11 +147,11 @@ function formatTime(dateStr: string) {
 .record-name {
   font-size: 14px;
   font-weight: 500;
-  color: #333;
+  color: rgba(255, 255, 255, 0.92);
 }
 .record-time {
   font-size: 12px;
-  color: #999;
+  color: rgba(255, 255, 255, 0.45);
 }
 
 .record-result {
@@ -141,13 +163,24 @@ function formatTime(dateStr: string) {
 
 .record-prize {
   font-size: 12px;
-  color: #666;
+  color: rgba(255, 255, 255, 0.55);
 }
 
 .empty-tip {
   text-align: center;
   padding: 40px 20px;
-  color: #999;
+  color: rgba(255, 255, 255, 0.45);
   font-size: 14px;
+}
+
+.load-more-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 12px;
+}
+
+.all-loaded {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.3);
 }
 </style>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from "vue";
 import { NButton, NInput } from "naive-ui";
+import { WHEEL_SPIN_MS } from "../composables/use-gacha-animation";
 
 /**
  * 转盘模式抽奖面板: SVG 扇区转盘 + 金属外圈 + 跑马灯 + 金色饰针指针 + 姓名输入/抽奖按钮。
@@ -50,6 +51,18 @@ function getTextPos(index: number, total: number) {
   };
 }
 
+/** 带图扇区: 图标位置 (半径 74) 与图下名称位置 (半径 114, 水平排布) */
+function getIconPos(index: number, total: number) {
+  const angle = 360 / total;
+  const midRad = ((index * angle + angle / 2 - 90) * Math.PI) / 180;
+  const cx = 150;
+  const cy = 150;
+  return {
+    icon: { x: cx + 74 * Math.cos(midRad), y: cy + 74 * Math.sin(midRad) },
+    label: { x: cx + 112 * Math.cos(midRad), y: cy + 112 * Math.sin(midRad) },
+  };
+}
+
 /** 跑马灯灯泡沿外圈百分比定位 (半径 51.5%, 随容器缩放) */
 function bulbStyle(i: number) {
   const angle = ((i - 1) * 22.5 - 90) * (Math.PI / 180);
@@ -61,7 +74,7 @@ function bulbStyle(i: number) {
   };
 }
 
-// 指针落定回弹: pointerRotation 每次抽奖更新一次, 旋转过渡 3.5s, 结束时触发 wobble
+// 指针落定回弹: pointerRotation 每次抽奖更新一次, 旋转过渡 WHEEL_SPIN_MS, 结束时触发 wobble
 const pointerLanded = ref(false);
 let landedTimer = 0;
 
@@ -74,7 +87,7 @@ watch(
       landedTimer = window.setTimeout(() => {
         pointerLanded.value = false;
       }, 900);
-    }, 3450);
+    }, WHEEL_SPIN_MS - 50);
   }
 );
 
@@ -130,7 +143,7 @@ onBeforeUnmount(() => {
             <stop offset="100%" stop-color="#9a6f18" />
           </radialGradient>
         </defs>
-        <!-- 扇区 (半透明玻璃渐变 + 金描边) -->
+        <!-- 扇区 (半透明玻璃渐变 + 金描边); 配了图片的奖品显示圆形图标 + 图下名称 -->
         <g
           v-for="(item, index) in wheelItems"
           :key="item.id"
@@ -142,7 +155,48 @@ onBeforeUnmount(() => {
             stroke="rgba(232, 184, 75, 0.85)"
             stroke-width="1.8"
           />
+          <template v-if="item.prize?.imageUrl">
+            <clipPath :id="`prize-clip-${item.id}`">
+              <circle
+                :cx="getIconPos(index, wheelItems.length).icon.x"
+                :cy="getIconPos(index, wheelItems.length).icon.y"
+                r="20"
+              />
+            </clipPath>
+            <image
+              :href="item.prize.imageUrl"
+              :x="getIconPos(index, wheelItems.length).icon.x - 20"
+              :y="getIconPos(index, wheelItems.length).icon.y - 20"
+              width="40"
+              height="40"
+              :clip-path="`url(#prize-clip-${item.id})`"
+              preserveAspectRatio="xMidYMid slice"
+            />
+            <circle
+              :cx="getIconPos(index, wheelItems.length).icon.x"
+              :cy="getIconPos(index, wheelItems.length).icon.y"
+              r="20"
+              fill="none"
+              stroke="rgba(255, 226, 130, 0.8)"
+              stroke-width="2"
+            />
+            <text
+              :x="getIconPos(index, wheelItems.length).label.x"
+              :y="getIconPos(index, wheelItems.length).label.y"
+              text-anchor="middle"
+              dominant-baseline="middle"
+              fill="#ffffff"
+              font-size="11"
+              font-weight="bold"
+              paint-order="stroke"
+              stroke="rgba(24, 14, 52, 0.65)"
+              stroke-width="2.5"
+            >
+              {{ item.name.length > 8 ? item.name.slice(0, 8) + ".." : item.name }}
+            </text>
+          </template>
           <text
+            v-else
             :x="getTextPos(index, wheelItems.length).x"
             :y="getTextPos(index, wheelItems.length).y"
             text-anchor="middle"
@@ -212,7 +266,7 @@ onBeforeUnmount(() => {
         :style="{
           transform: `rotate(${pointerRotation}deg)`,
           transition: drawing
-            ? 'transform 3.5s cubic-bezier(0.17, 0.67, 0.12, 0.99)'
+            ? `transform ${WHEEL_SPIN_MS}ms cubic-bezier(0.17, 0.67, 0.12, 0.99)`
             : 'none',
         }"
       >

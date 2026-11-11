@@ -436,6 +436,35 @@ func (s *LotteryService) Draw(userID, activityID uint, userName string) (*model.
 
 // ==================== 记录查询 ====================
 
+// SetRecordRedeemed 设置中奖记录核销状态 (中奖记录才可核销)
+func (s *LotteryService) SetRecordRedeemed(id uint, redeemed bool) error {
+	res := DB.Model(&model.LotteryRecord{}).
+		Where("id = ? AND is_winner = ?", id, true).
+		Update("redeemed", redeemed)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return errors.New("记录不存在或不是中奖记录")
+	}
+	return nil
+}
+
+// GetRecordByID 按 ID 查询单条抽奖记录
+func (s *LotteryService) GetRecordByID(id uint, out *model.LotteryRecord) error {
+	return DB.First(out, id).Error
+}
+
+// ListWinningRecords 导出用: 拉取活动全部中奖记录 (不分页, 按 ID 升序)
+func (s *LotteryService) ListWinningRecords(activityID uint) ([]model.LotteryRecord, error) {
+	var records []model.LotteryRecord
+	if err := DB.Where("activity_id = ? AND is_winner = ?", activityID, true).
+		Order("id ASC").Find(&records).Error; err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
 // DeleteRecord 删除抽奖记录并恢复奖品数量
 func (s *LotteryService) DeleteRecord(id uint) error {
 	return DB.Transaction(func(tx *gorm.DB) error {

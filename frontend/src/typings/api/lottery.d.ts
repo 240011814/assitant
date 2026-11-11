@@ -47,6 +47,8 @@ declare namespace Api {
       prizeId: number | null;
       prizeName: string;
       isWinner: boolean;
+      /** 奖品核销状态 (仅中奖记录有意义) */
+      redeemed: boolean;
       createdAt: string;
     }
 

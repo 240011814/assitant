@@ -14,6 +14,7 @@ const show = defineModel<boolean>("show", { required: true });
     v-model:show="show"
     preset="card"
     title="🏆 中奖名单"
+    class="lottery-dark-modal"
     style="width: 90%; max-width: 500px"
   >
     <NScrollbar style="max-height: 60vh">
@@ -41,6 +42,17 @@ const show = defineModel<boolean>("show", { required: true });
 </template>
 
 <style scoped lang="scss">
+// NModal teleport 到 body, 需 :global 覆盖卡片本体 (紫夜深色玻璃)
+:global(.lottery-dark-modal.n-card) {
+  background: linear-gradient(160deg, rgba(26, 20, 58, 0.97), rgba(14, 10, 34, 0.97)) !important;
+  border: 1px solid rgba(255, 214, 110, 0.24);
+
+  .n-card-header__main {
+    color: #fff;
+    font-weight: 600;
+  }
+}
+
 .winner-list {
   display: flex;
   flex-direction: column;
@@ -52,7 +64,8 @@ const show = defineModel<boolean>("show", { required: true });
   align-items: center;
   gap: 12px;
   padding: 12px;
-  background: #f9f9f9;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
 }
 
@@ -76,17 +89,17 @@ const show = defineModel<boolean>("show", { required: true });
 .winner-name {
   font-size: 14px;
   font-weight: 500;
-  color: #333;
+  color: rgba(255, 255, 255, 0.92);
 }
 .winner-time {
   font-size: 12px;
-  color: #999;
+  color: rgba(255, 255, 255, 0.45);
 }
 
 .empty-tip {
   text-align: center;
   padding: 40px 20px;
-  color: #999;
+  color: rgba(255, 255, 255, 0.45);
   font-size: 14px;
 }
 </style>

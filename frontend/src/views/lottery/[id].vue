@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { NButton, NSpin, NTag, useMessage } from "naive-ui";
 import {
@@ -14,6 +14,7 @@ import { localStg } from "@/utils/storage";
 import skyCloudsUrl from "@/assets/imgs/lottery/sky-clouds.jpg";
 import { useAudioCue } from "./composables/use-audio-cue";
 import { useGachaAnimation } from "./composables/use-gacha-animation";
+import { WHEEL_SPIN_MS } from "./composables/use-gacha-animation";
 import { rarityTheme, resolveRarity } from "./composables/rarity-theme";
 import WheelPanel from "./components/wheel-panel.vue";
 import GachaGate from "./components/gacha-gate.vue";
@@ -21,8 +22,14 @@ import RecordsPanel from "./components/records-panel.vue";
 import PrizeModal from "./components/prize-modal.vue";
 import WinnerModal from "./components/winner-modal.vue";
 import ResultModal from "./components/result-modal.vue";
-import GachaAnimationModal from "./components/gacha-animation-modal.vue";
 import FxConfetti from "./components/fx-confetti.vue";
+
+// three.js 抽卡动画很重 (独立 ~580KB chunk): 异步加载让转盘用户不下载, 抽卡活动数据到位后预热
+const GachaAnimationModal = defineAsyncComponent(() => import("./components/gacha-animation-modal.vue"));
+
+function preloadGachaChunk() {
+  void import("./components/gacha-animation-modal.vue");
+}
 
 const route = useRoute();
 const router = useRouter();
@@ -34,6 +41,10 @@ const activity = ref<Api.Lottery.Activity | null>(null);
 const prizes = ref<Api.Lottery.Prize[]>([]);
 const winners = ref<Api.Lottery.Record[]>([]);
 const records = ref<Api.Lottery.Record[]>([]);
+const recordsTotal = ref(0);
+const recordsPage = ref(1);
+const recordsLoadingMore = ref(false);
+const RECORDS_PAGE_SIZE = 20;
 const userName = ref("");
 const showResultModal = ref(false);
 const showPrizeModal = ref(false);
@@ -178,6 +189,10 @@ async function loadData() {
         userName.value = accountName;
       }
     }
+    // 抽卡活动: 后台预热 three.js 动画 chunk (用户点祈愿时零等待)
+    if (activity.value?.drawMode === 1) {
+      preloadGachaChunk();
+    }
   }
   if (!prizesRes.error) {
     prizes.value = prizesRes.data;
@@ -201,14 +216,29 @@ async function loadWinners() {
   }
 }
 
-async function loadRecords() {
+async function loadRecords(append = false) {
   const activityId = Number(route.params.id);
   if (!activityId) return;
 
-  const { data, error } = await fetchGetLotteryRecords({ activityId, pageSize: 20 });
-  if (!error) {
-    records.value = data.list;
+  if (!append) recordsPage.value = 1;
+  if (append) recordsLoadingMore.value = true;
+  const { data, error } = await fetchGetLotteryRecords({
+    activityId,
+    page: recordsPage.value,
+    pageSize: RECORDS_PAGE_SIZE,
+  });
+  recordsLoadingMore.value = false;
+  if (!error && data) {
+    records.value = append ? [...records.value, ...data.list] : data.list;
+    recordsTotal.value = data.total;
   }
+}
+
+const hasMoreRecords = computed(() => records.value.length < recordsTotal.value);
+
+function loadMoreRecords() {
+  recordsPage.value += 1;
+  loadRecords(true);
 }
 
 async function loadDrawLimits() {
@@ -257,8 +287,8 @@ async function handleDraw() {
   const { data, error } = await fetchDrawLottery(activityId, userName.value.trim());
 
   if (error) {
+    // 具体原因 (如"今日抽奖次数已用完") 由 request 层统一弹出, 这里不重复提示
     drawing.value = false;
-    message.error("抽奖失败");
     return;
   }
 
@@ -278,7 +308,7 @@ async function handleDraw() {
   // 播放旋转音效
   playWheelSpinSound();
 
-  await new Promise((resolve) => setTimeout(resolve, 3500));
+  await new Promise((resolve) => setTimeout(resolve, WHEEL_SPIN_MS));
 
   // 播放结果音效
   if (data.isWinner) {
@@ -402,7 +432,14 @@ onMounted(() => {
           />
 
           <!-- 抽奖记录 -->
-          <RecordsPanel :records="records" @refresh="loadRecords" />
+          <RecordsPanel
+            :records="records"
+            :total="recordsTotal"
+            :has-more="hasMoreRecords"
+            :loading-more="recordsLoadingMore"
+            @refresh="() => loadRecords()"
+            @load-more="loadMoreRecords"
+          />
         </template>
 
         <div v-else-if="!loading" class="empty-tip" style="padding: 60px">活动不存在</div>

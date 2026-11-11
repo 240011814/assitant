@@ -6,6 +6,9 @@ import { resolveRarity } from './rarity-theme';
 
 export type GachaPhase = 'idle' | 'meteor' | 'flash' | 'reveal' | 'result';
 
+/** 转盘旋转时长 (ms): CSS transition、指针落定回弹计时、旋转咔哒声间隔三处共用 */
+export const WHEEL_SPIN_MS = 3500;
+
 export interface GachaAnimationOptions {
   /** 用户名（组件内共享，此处只读） */
   userName: Ref<string>;
@@ -102,9 +105,9 @@ export function useGachaAnimation(options: GachaAnimationOptions) {
     const { data, error } = await fetchDrawLottery(activityId, userName.value.trim());
 
     if (error) {
+      // 具体原因由 request 层统一弹出
       drawing.value = false;
       showGachaAnimation.value = false;
-      message.error('祈愿失败');
       return;
     }
 

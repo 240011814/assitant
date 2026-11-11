@@ -38,6 +38,7 @@ function getPrizeLevelColor(level: number): string {
     v-model:show="show"
     preset="card"
     title="🎁 奖品列表"
+    class="lottery-dark-modal"
     style="width: 90%; max-width: 500px"
   >
     <NScrollbar style="max-height: 60vh">
@@ -80,6 +81,17 @@ function getPrizeLevelColor(level: number): string {
 </template>
 
 <style scoped lang="scss">
+// NModal teleport 到 body, 需 :global 覆盖卡片本体 (紫夜深色玻璃)
+:global(.lottery-dark-modal.n-card) {
+  background: linear-gradient(160deg, rgba(26, 20, 58, 0.97), rgba(14, 10, 34, 0.97)) !important;
+  border: 1px solid rgba(255, 214, 110, 0.24);
+
+  .n-card-header__main {
+    color: #fff;
+    font-weight: 600;
+  }
+}
+
 .prize-list {
   display: flex;
   flex-direction: column;
@@ -91,12 +103,13 @@ function getPrizeLevelColor(level: number): string {
   align-items: center;
   gap: 12px;
   padding: 12px;
-  background: #f9f9f9;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
   transition: all 0.2s;
 
   &:hover {
-    background: #f0f0f0;
+    background: rgba(255, 255, 255, 0.11);
   }
 }
 
@@ -125,7 +138,7 @@ function getPrizeLevelColor(level: number): string {
 .prize-name {
   font-size: 15px;
   font-weight: 600;
-  color: #333;
+  color: rgba(255, 255, 255, 0.92);
   margin-bottom: 4px;
   display: flex;
   align-items: center;
@@ -137,12 +150,12 @@ function getPrizeLevelColor(level: number): string {
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.05);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .prize-meta {
   font-size: 12px;
-  color: #999;
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .prize-remain {
@@ -153,17 +166,17 @@ function getPrizeLevelColor(level: number): string {
   display: block;
   font-size: 20px;
   font-weight: 700;
-  color: #667eea;
+  color: #ffd76e;
 }
 .remain-label {
   font-size: 11px;
-  color: #999;
+  color: rgba(255, 255, 255, 0.45);
 }
 
 .empty-tip {
   text-align: center;
   padding: 40px 20px;
-  color: #999;
+  color: rgba(255, 255, 255, 0.45);
   font-size: 14px;
 }
 </style>

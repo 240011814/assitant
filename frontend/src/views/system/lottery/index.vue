@@ -27,10 +27,12 @@ import {
   fetchDeleteLotteryPrize,
   fetchDeleteLotteryRecord,
   fetchDeleteLotteryRecordsByActivity,
+  fetchExportLotteryWinners,
   fetchGetLotteryActivities,
   fetchGetLotteryPrizes,
   fetchGetLotteryRecords,
   fetchGetLotteryWinners,
+  fetchSetRecordRedeemed,
   fetchUpdateLotteryActivity,
   fetchUpdateLotteryPrize
 } from '@/service/api'
@@ -361,6 +363,30 @@ const recordColumns = computed<DataTableColumns<Api.Lottery.Record>>(() => [
     }
   },
   {
+    title: '核销',
+    key: 'redeemed',
+    width: 120,
+    render(row) {
+      if (!row.isWinner) return '-'
+      return h(NSpace, { size: 4, wrap: false, align: 'center' }, {
+        default: () => [
+          h(
+            NTag,
+            { type: row.redeemed ? 'success' : 'warning', bordered: false, size: 'small' },
+            { default: () => (row.redeemed ? '已核销' : '未核销') }
+          ),
+          hasAuth('lottery:record:delete')
+            ? h(
+                NButton,
+                { size: 'tiny', text: true, type: 'primary', onClick: () => handleRedeemToggle(row) },
+                { default: () => (row.redeemed ? '撤销' : '核销') }
+              )
+            : null
+        ].filter(Boolean)
+      })
+    }
+  },
+  {
     title: '时间',
     key: 'createdAt',
     width: 180,
@@ -388,6 +414,12 @@ const recordColumns = computed<DataTableColumns<Api.Lottery.Record>>(() => [
 ])
 
 // ==================== 数据加载 ====================
+// 奖品实际概率总和 (编辑中的奖品按表单值实时替换): 后端创建/更新奖品时校验总和 ≤ 1
+const prizeProbSum = computed(() => {
+  const saved = prizes.value.reduce((sum, p) => sum + (p.id === editingPrizeId.value ? 0 : p.probability), 0)
+  return saved + (prizeForm.probability || 0)
+})
+
 async function loadActivities() {
   loading.value = true
   const { data, error } = await fetchGetLotteryActivities({
@@ -592,6 +624,27 @@ async function handleDeleteRecord(id: number) {
   if (!error) {
     message.success('删除成功')
     loadRecords()
+  }
+}
+
+// 核销/撤销核销 (取反); 中奖名单与记录列表共用, 两个列表都要刷新
+async function handleRedeemToggle(row: Api.Lottery.Record) {
+  const { data, error } = await fetchSetRecordRedeemed(row.id)
+  if (!error) {
+    message.success(data.redeemed ? '已标记核销' : '已撤销核销')
+    row.redeemed = data.redeemed
+    loadRecords()
+    if (showWinnerModal.value) loadWinners()
+  }
+}
+
+// 导出中奖名单 CSV
+async function handleExportWinners() {
+  if (!currentActivityId.value) return
+  try {
+    await fetchExportLotteryWinners(currentActivityId.value)
+  } catch {
+    message.error('导出失败')
   }
 }
 
@@ -915,6 +968,11 @@ onMounted(() => {
         </NCard>
 
         <!-- 奖品列表 -->
+        <div class="text-xs" :class="prizeProbSum > 1 ? 'text-red-500 font-bold' : 'text-gray-400'">
+          实际概率总和: {{ (prizeProbSum * 100).toFixed(1) }}% / 100%
+          <span v-if="prizeProbSum > 1">— 已超上限, 保存奖品会被后端拒绝</span>
+          <span v-else-if="prizeProbSum < 1">— 未分配的概率将落入"谢谢惠顾"</span>
+        </div>
         <NDataTable
           :columns="prizeColumns"
           :data="prizes"
@@ -966,6 +1024,9 @@ onMounted(() => {
       :style="{ width: appStore.isMobile ? '95vw' : '800px' }"
       :segmented="{ content: true, footer: true }"
     >
+      <template #header-extra>
+        <NButton size="small" type="primary" ghost @click="handleExportWinners">导出 CSV</NButton>
+      </template>
       <NDataTable
         :columns="recordColumns"
         :data="winners"

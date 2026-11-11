@@ -1,7 +1,11 @@
 package api
 
 import (
+	"fmt"
+	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 
 	"backend/model"
 	"backend/service/kernel"
@@ -365,6 +369,103 @@ func (h *LotteryHandler) HandleListWinners(c *gin.Context) {
 		"page":     page,
 		"pageSize": pageSize,
 	})
+}
+
+// HandleSetRecordRedeemed 设置中奖记录核销状态 (body 可选 {redeemed: bool}, 缺省为取反)
+func (h *LotteryHandler) HandleSetRecordRedeemed(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		SendError(c, "400", "无效的记录ID")
+		return
+	}
+
+	var req struct {
+		Redeemed *bool `json:"redeemed"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	var target bool
+	if req.Redeemed != nil {
+		target = *req.Redeemed
+	} else {
+		var record model.LotteryRecord
+		if err := h.svc.GetRecordByID(uint(id), &record); err != nil {
+			SendError(c, "404", "记录不存在")
+			return
+		}
+		target = !record.Redeemed
+	}
+
+	if err := h.svc.SetRecordRedeemed(uint(id), target); err != nil {
+		SendError(c, "500", "核销失败: "+err.Error())
+		return
+	}
+	SendSuccess(c, gin.H{"id": uint(id), "redeemed": target})
+}
+
+// HandleExportWinners 导出活动中奖名单 CSV (带 BOM, Excel 直接打开不乱码)
+func (h *LotteryHandler) HandleExportWinners(c *gin.Context) {
+	activityIDStr := c.Param("id")
+	activityID, err := strconv.Atoi(activityIDStr)
+	if err != nil {
+		SendError(c, "400", "无效的活动ID")
+		return
+	}
+
+	activity, err := h.svc.GetActivity(uint(activityID))
+	if err != nil {
+		SendError(c, "404", "活动不存在")
+		return
+	}
+	records, err := h.svc.ListWinningRecords(uint(activityID))
+	if err != nil {
+		SendError(c, "500", "获取中奖记录失败: "+err.Error())
+		return
+	}
+
+	var buf strings.Builder
+	buf.WriteString("\uFEFF") // UTF-8 BOM
+	buf.WriteString("记录ID,用户ID,姓名,奖品,价值,核销状态,抽奖时间\n")
+	for _, r := range records {
+		value := fmt.Sprintf("%.2f", winnerPrizeValue(r.PrizeID, uint(activityID), c, h))
+		redeemed := "未核销"
+		if r.Redeemed {
+			redeemed = "已核销"
+		}
+		buf.WriteString(fmt.Sprintf("%d,%d,%s,%s,%s,%s,%s\n",
+			r.ID, r.UserID, csvEscape(r.UserName), csvEscape(r.PrizeName), value, redeemed,
+			r.CreatedAt.Format("2006-01-02 15:04:05")))
+	}
+
+	filename := fmt.Sprintf("winners-%s.csv", activity.Name)
+	c.Header("Content-Disposition", `attachment; filename="winners.csv"; filename*=UTF-8''`+url.PathEscape(filename))
+	c.Data(http.StatusOK, "text/csv; charset=utf-8", []byte(buf.String()))
+}
+
+// winnerPrizeValue 查询中奖记录对应奖品的价值 (奖品被删后回落 0)
+func winnerPrizeValue(prizeID *uint, activityID uint, c *gin.Context, h *LotteryHandler) float64 {
+	if prizeID == nil {
+		return 0
+	}
+	prizes, err := h.svc.ListPrizes(activityID)
+	if err != nil {
+		return 0
+	}
+	for _, p := range prizes {
+		if p.ID == *prizeID {
+			return p.PrizeValue
+		}
+	}
+	return 0
+}
+
+// csvEscape CSV 字段转义: 含逗号/引号/换行时加引号包裹
+func csvEscape(s string) string {
+	if strings.ContainsAny(s, ",\"\n\r") {
+		return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+	}
+	return s
 }
 
 // HandleGetDrawLimits 获取抽奖次数限制信息

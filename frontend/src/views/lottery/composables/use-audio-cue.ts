@@ -1,5 +1,6 @@
 import { ref } from 'vue';
 import wishExecuteUrl from '@/assets/sound/genshin-wish-execute.ogg';
+import { WHEEL_SPIN_MS } from '@/views/lottery/composables/use-gacha-animation';
 
 /**
  * 抽奖音效：基于 Web AudioContext（合成音效 + 原神祈愿采样音）
@@ -84,18 +85,19 @@ export function useAudioCue() {
     playSound(1200, 0.1, 'square', 0.1);
   }
 
-  // 转盘旋转音效
+  // 转盘旋转音效: 咔哒声频率逐渐升高, 间隔与转盘旋转时长精确同步
   function playWheelSpinSound() {
-    // 模拟转盘咔哒声
+    const clicks = 20;
+    const intervalMs = WHEEL_SPIN_MS / clicks;
     let count = 0;
-    const interval = setInterval(() => {
-      if (count >= 20) {
-        clearInterval(interval);
+    const timer = setInterval(() => {
+      if (count >= clicks) {
+        clearInterval(timer);
         return;
       }
       playSound(800 + count * 50, 0.05, 'square', 0.1);
       count++;
-    }, 150);
+    }, intervalMs);
   }
 
   // 中奖音效
