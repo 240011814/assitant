@@ -424,40 +424,34 @@ func (h *LotteryHandler) HandleExportWinners(c *gin.Context) {
 		return
 	}
 
+	// 奖品价值表: 一次拉取建索引, 避免逐行查询; 奖品已删除的记录回落 0
+	prizeValues := map[uint]float64{}
+	if prizes, err := h.svc.ListPrizes(uint(activityID)); err == nil {
+		for _, p := range prizes {
+			prizeValues[p.ID] = p.PrizeValue
+		}
+	}
+
 	var buf strings.Builder
 	buf.WriteString("\uFEFF") // UTF-8 BOM
 	buf.WriteString("记录ID,用户ID,姓名,奖品,价值,核销状态,抽奖时间\n")
 	for _, r := range records {
-		value := fmt.Sprintf("%.2f", winnerPrizeValue(r.PrizeID, uint(activityID), c, h))
 		redeemed := "未核销"
 		if r.Redeemed {
 			redeemed = "已核销"
 		}
-		buf.WriteString(fmt.Sprintf("%d,%d,%s,%s,%s,%s,%s\n",
-			r.ID, r.UserID, csvEscape(r.UserName), csvEscape(r.PrizeName), value, redeemed,
-			r.CreatedAt.Format("2006-01-02 15:04:05")))
+		var prizeValue float64
+		if r.PrizeID != nil {
+			prizeValue = prizeValues[*r.PrizeID]
+		}
+		fmt.Fprintf(&buf, "%d,%d,%s,%s,%.2f,%s,%s\n",
+			r.ID, r.UserID, csvEscape(r.UserName), csvEscape(r.PrizeName), prizeValue, redeemed,
+			r.CreatedAt.Format("2006-01-02 15:04:05"))
 	}
 
 	filename := fmt.Sprintf("winners-%s.csv", activity.Name)
 	c.Header("Content-Disposition", `attachment; filename="winners.csv"; filename*=UTF-8''`+url.PathEscape(filename))
 	c.Data(http.StatusOK, "text/csv; charset=utf-8", []byte(buf.String()))
-}
-
-// winnerPrizeValue 查询中奖记录对应奖品的价值 (奖品被删后回落 0)
-func winnerPrizeValue(prizeID *uint, activityID uint, c *gin.Context, h *LotteryHandler) float64 {
-	if prizeID == nil {
-		return 0
-	}
-	prizes, err := h.svc.ListPrizes(activityID)
-	if err != nil {
-		return 0
-	}
-	for _, p := range prizes {
-		if p.ID == *prizeID {
-			return p.PrizeValue
-		}
-	}
-	return 0
 }
 
 // csvEscape CSV 字段转义: 含逗号/引号/换行时加引号包裹
