@@ -29,6 +29,7 @@ type RSSItem struct {
 	GUID            string     `gorm:"size:255;not null;uniqueIndex:uk_rss_user_guid,priority:2" json:"-"`
 	Title           string     `gorm:"size:500;not null" json:"title"`
 	Link            string     `gorm:"size:500;not null" json:"link"`
+	AudioURL        string     `gorm:"size:500" json:"audioUrl,omitempty"`              // 播客音频地址 (feed 的 mp3/m4a enclosure, 播客节目条目才有)
 	Summary         string     `gorm:"type:text" json:"summary"`
 	Content         string     `gorm:"type:mediumtext" json:"content,omitempty"`        // 纯文本正文: 列表查询不 SELECT 此列, 详情接口返回; 供导入/标注/听写
 	ContentHTML     string     `gorm:"type:mediumtext" json:"contentHtml,omitempty"`    // 净化后的 HTML 正文: 阅读视图渲染

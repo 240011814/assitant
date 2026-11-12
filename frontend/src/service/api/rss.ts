@@ -19,6 +19,8 @@ export interface RSSItem {
   sourceId: number;
   title: string;
   link: string;
+  /** 播客音频地址 (feed 的 mp3/m4a enclosure, 播客节目条目才有; 阅读器据此显示收听条) */
+  audioUrl?: string;
   summary: string;
   /** 摘要预估生词率 (个性化难度, 0=未算) */
   estUnknownRate?: number;

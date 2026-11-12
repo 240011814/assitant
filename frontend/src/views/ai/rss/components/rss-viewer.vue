@@ -56,6 +56,12 @@ const viewHtml = ref("");
 const viewError = ref("");
 const importing = ref(false);
 const readerRef = ref<InstanceType<typeof ReaderView> | null>(null);
+// 播客收听条 (独立于 tts.ts 的音源元素, 二者互斥: 一方开始即暂停另一方)
+const episodeAudio = ref<HTMLAudioElement | null>(null);
+
+const pauseEpisodeAudio = () => {
+  episodeAudio.value?.pause();
+};
 
 // ===================== 生词提取 =====================
 const viewDifficultWords = ref<DifficultWord[]>([]);
@@ -563,6 +569,7 @@ defineExpose({
     source-kind="rss"
     :source-ref="viewItem?.id || 0"
     @word-added="onWordAdded"
+    @speak-start="pauseEpisodeAudio"
   >
     <template #toolbar-left>
       <span
@@ -705,6 +712,22 @@ defineExpose({
       <span class="hidden md:inline text-gray-300 dark:text-gray-600">
         {{ $t('page.ai.rss.jkHint') }}
       </span>
+    </template>
+
+    <!-- 播客条目 (feed 带 mp3 enclosure): 顶部提示 + 收听条, 避免简介被误读为"没加载全" -->
+    <template v-if="viewItem?.audioUrl">
+      <NAlert type="info" :bordered="false" class="my-5">
+        {{ $t('page.ai.rss.podcastHint') }}
+      </NAlert>
+      <audio
+        ref="episodeAudio"
+        controls
+        preload="none"
+        class="w-full mb-4 rounded-lg"
+        :src="viewItem.audioUrl"
+        :aria-label="$t('page.ai.rss.podcastHint')"
+        @play="readerRef?.stopSpeaking()"
+      />
     </template>
 
     <NAlert v-if="viewError" type="warning" :bordered="false" class="my-5">

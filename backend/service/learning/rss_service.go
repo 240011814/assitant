@@ -152,18 +152,41 @@ func fetchRSSFeed(feedURL string, allowPrivate bool) (*gofeed.Feed, error) {
 }
 
 // upsertItems 按 (user, guid) 去重插入条目, 返回新增条数
+// podcastAudioURL 取 feed 条目的音频 enclosure 地址 (播客节目条目才有), 阅读器据此显示收听条
+func podcastAudioURL(item *gofeed.Item) string {
+	for _, enc := range item.Enclosures {
+		if enc == nil || enc.URL == "" {
+			continue
+		}
+		t := strings.ToLower(enc.Type)
+		u := strings.ToLower(enc.URL)
+		if strings.HasPrefix(t, "audio/") || strings.HasSuffix(u, ".mp3") || strings.HasSuffix(u, ".m4a") {
+			return kernel.TruncateRunes(enc.URL, 500)
+		}
+	}
+	return ""
+}
+
 func (s *RSSService) upsertItems(userID, sourceID uint, feed *gofeed.Feed) int {
 	items := feed.Items
 	if len(items) > rssFetchMaxItems {
 		items = items[:rssFetchMaxItems]
 	}
 
-	// 预载该源已有 GUID, 批量判重
-	var existing []string
-	DB.Model(&model.RSSItem{}).Where("user_id = ? AND source_id = ?", userID, sourceID).Pluck("guid", &existing)
+	// 预载该源已有 GUID/音频地址: 批量判重 + 为旧条目回填 audio_url (播客识别上线前抓的条目没有)
+	type existingItem struct {
+		ID       uint
+		GUID     string
+		AudioURL string
+	}
+	var existing []existingItem
+	DB.Model(&model.RSSItem{}).Where("user_id = ? AND source_id = ?", userID, sourceID).
+		Select("id, guid, audio_url").Scan(&existing)
 	seen := make(map[string]bool, len(existing))
-	for _, g := range existing {
-		seen[g] = true
+	audioURLByGUID := make(map[string]string, len(existing))
+	for _, e := range existing {
+		seen[e.GUID] = true
+		audioURLByGUID[e.GUID] = e.AudioURL
 	}
 
 	inserted := 0
@@ -179,7 +202,17 @@ func (s *RSSService) upsertItems(userID, sourceID uint, feed *gofeed.Feed) int {
 			guid = item.Link
 		}
 		guid = kernel.TruncateRunes(guid, 255)
-		if guid == "" || seen[guid] {
+		if guid == "" {
+			continue
+		}
+		audioURL := podcastAudioURL(item)
+
+		// 已有条目: 仅当缺 audio_url 而 feed 现在带音频时回填 (其余元数据保持不动)
+		if seen[guid] {
+			if audioURL != "" && audioURLByGUID[guid] == "" {
+				DB.Model(&model.RSSItem{}).Where("user_id = ? AND source_id = ? AND guid = ?", userID, sourceID, guid).
+					Update("audio_url", audioURL)
+			}
 			continue
 		}
 		seen[guid] = true
@@ -197,6 +230,7 @@ func (s *RSSService) upsertItems(userID, sourceID uint, feed *gofeed.Feed) int {
 			GUID:           guid,
 			Title:          kernel.TruncateRunes(title, 500),
 			Link:           kernel.TruncateRunes(item.Link, 500),
+			AudioURL:       audioURL,
 			Summary:        summary,
 			PublishedAt:    item.PublishedParsed,
 			EstUnknownRate: estimateUnknownRateFromSet(summary+"\n"+title, unknownSet),

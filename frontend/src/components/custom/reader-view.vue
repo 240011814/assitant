@@ -41,6 +41,8 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   wordAdded: [word: string];
+  /** 开始全文朗读 (外层用于暂停其他音源, 如播客收听条) */
+  speakStart: [];
 }>();
 
 const slots = defineSlots<{
@@ -361,6 +363,7 @@ const toggleSpeaking = () => {
   speakQueue = blocks;
   speakIndex = 0;
   speaking.value = true;
+  emit("speakStart");
   speakNext();
 };
 

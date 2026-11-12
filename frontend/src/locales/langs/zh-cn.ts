@@ -1061,6 +1061,7 @@ const local: App.I18n.Schema = {
         openOriginal: "打开原文",
         importToReading: "导入分级阅读",
         moreActions: "更多操作",
+        podcastHint: "本期为播客节目 (音频 + 节目简介), 无长文正文, 可直接收听",
         translatingProgress: "翻译中 {progress}",
         rewritingProgress: "改写中 {progress}",
       },

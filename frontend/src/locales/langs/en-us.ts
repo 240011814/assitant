@@ -1086,6 +1086,7 @@ const local: App.I18n.Schema = {
         openOriginal: "Open original",
         importToReading: "Import to Graded Reading",
         moreActions: "More actions",
+        podcastHint: "This is a podcast episode (audio + show notes), no long-form article — listen below",
         translatingProgress: "Translating {progress}",
         rewritingProgress: "Rewriting {progress}",
       },
