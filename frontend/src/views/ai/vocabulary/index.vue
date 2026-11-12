@@ -40,11 +40,10 @@ const activeTab = ref<"new" | "mastered">("new");
 const showRandomPractice = ref(false);
 const practiceCount = ref(10);
 
-// 回到原文: RSS 条目 → RSS 页并自动打开该文章; 分级阅读文档 → 详情页
+// 回到原文: RSS 条目 → RSS 页并自动打开该文章 (路由 query 传递); 分级阅读文档 → 详情页
 const goSourceArticle = (row: any) => {
   if (row.sourceKind === "rss" && row.sourceRef) {
-    localStorage.setItem("rss_open_item", String(row.sourceRef));
-    routerPushByKey("ai_rss");
+    routerPushByKey("ai_rss", { query: { openItem: String(row.sourceRef) } });
     return;
   }
   if (row.sourceKind === "reading" && row.sourceRef) {

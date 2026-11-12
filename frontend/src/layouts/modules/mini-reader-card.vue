@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { useRouterPush } from '@/hooks/common/router';
 import { useReaderSessionStore } from '@/store/modules/reader-session';
 import { useThemeStore } from '@/store/modules/theme';
+import { $t } from '@/locales';
 
 /**
  * 全局阅读小窗卡片 (固定右下角, 挂载于 base-layout, 任意管理页可见):
@@ -44,7 +45,7 @@ function restore() {
       v-if="sessionStore.session && !sessionStore.restorePending"
       class="mini-reader fixed right-4 z-96 w-300px overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-[#18181c] cursor-pointer transition-shadow hover:shadow-[0_8px_30px_rgba(0,0,0,0.18)]"
       :style="{ bottom: cardBottom }"
-      title="点击继续阅读"
+      :title="$t('page.ai.reader.continueHint')"
       @click="restore"
     >
       <div class="flex items-center gap-2.5 px-3 py-2.5">
@@ -54,10 +55,10 @@ function restore() {
             {{ sessionStore.session.title }}
           </div>
           <div class="text-11px text-gray-400 mt-0.5">
-            {{ sessionStore.session.subtitle }} · 已读 {{ sessionStore.session.progress }}%
+            {{ sessionStore.session.subtitle }} · {{ $t('page.ai.reader.progress', { progress: sessionStore.session.progress }) }}
           </div>
         </div>
-        <NButton size="tiny" quaternary circle title="丢弃小窗" @click.stop="sessionStore.dismiss()">
+        <NButton size="tiny" quaternary circle :title="$t('page.ai.reader.discardHint')" @click.stop="sessionStore.dismiss()">
           <template #icon>
             <SvgIcon icon="mdi:close" />
           </template>

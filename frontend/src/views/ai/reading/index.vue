@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, onMounted, ref } from "vue";
+import { h, onDeactivated, onMounted, ref } from "vue";
 import { NButton, NEmpty, NPopconfirm, NSpin, NTag, useMessage } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
 import {
@@ -7,17 +7,20 @@ import {
   fetchGetReadingDocs,
   fetchDeleteReadingDoc,
 } from "@/service/api";
+import type { ReadingDoc } from "@/service/api";
 import { useAppStore } from "@/store/modules/app";
 import { useReaderSessionStore } from "@/store/modules/reader-session";
 import type { ReaderSessionSnapshot } from "@/store/modules/reader-session";
 import { useReaderMiniLeaveSave } from "@/hooks/common/reader-mini-save";
+import { $t } from "@/locales";
 import ReadingDetailView from "./components/reading-detail-view.vue";
+import { difficultyTag, readingStatusTag } from "./shared";
 
 const appStore = useAppStore();
 const message = useMessage();
 
 const loading = ref(false);
-const docs = ref<any[]>([]);
+const docs = ref<ReadingDoc[]>([]);
 const keyword = ref("");
 
 // 导入
@@ -27,19 +30,6 @@ const importType = ref<"url" | "text">("url");
 const importUrl = ref("");
 const importText = ref("");
 const importing = ref(false);
-
-const statusTag = (status: string) => {
-  switch (status) {
-    case "annotated":
-      return { type: "success" as const, label: "已标注" };
-    case "annotating":
-      return { type: "info" as const, label: "标注中" };
-    case "failed":
-      return { type: "error" as const, label: "标注失败" };
-    default:
-      return { type: "default" as const, label: "待标注" };
-  }
-};
 
 // ===================== 阅读弹窗 (与 RSS 阅读弹窗同款容器) =====================
 const activeDocId = ref<number | null>(null);
@@ -67,6 +57,12 @@ const captureDocSession = (): ReaderSessionSnapshot | null => {
 // 切 tab / 路由跳转 / 关浏览器标签时弹窗仍开着 → 自动收入全局小窗
 useReaderMiniLeaveSave(captureDocSession);
 
+// 失活时关闭阅读弹窗: NModal teleport 到 body 不随 KeepAlive 失活隐藏 (视觉残留),
+// 弹窗内 ReaderView 收不到 onDeactivated 心跳不会停; 注册在 leave-save 之后, 先存快照再关弹窗
+onDeactivated(() => {
+  activeDocId.value = null;
+});
+
 // 小窗按钮: 存全局会话并收起弹窗 (不刷新列表, 与 X 关闭区分)
 const minimizeDoc = () => {
   const snapshot = captureDocSession();
@@ -74,9 +70,9 @@ const minimizeDoc = () => {
   activeDocId.value = null;
 };
 
-const columns = ref<DataTableColumns<any>>([
+const columns = ref<DataTableColumns<ReadingDoc>>([
   {
-    title: "标题",
+    title: $t("page.ai.reading.title"),
     key: "title",
     minWidth: 200,
     render(row) {
@@ -91,27 +87,25 @@ const columns = ref<DataTableColumns<any>>([
     },
   },
   {
-    title: "来源",
+    title: $t("page.ai.reading.sourceCol"),
     key: "sourceType",
     width: 90,
-    render: (row) => (row.sourceType === "url" ? "网页" : "文本"),
+    render: (row) => (row.sourceType === "url" ? $t("page.ai.reading.web") : $t("page.ai.reading.text")),
   },
-  { title: "词数", key: "wordCount", width: 90 },
+  { title: $t("page.ai.reading.wordCountCol"), key: "wordCount", width: 90 },
   {
-    title: "预估难度",
+    title: $t("page.ai.reading.estDifficulty"),
     key: "estUnknownRate",
     width: 90,
     render(row) {
-      const rate = row.estUnknownRate;
-      if (!rate || rate <= 0) return "—";
-      const pct = Math.round(rate * 1000) / 10;
-      const type = rate < 0.03 ? "success" : rate <= 0.08 ? "info" : "warning";
-      const label = rate < 0.03 ? "易" : rate <= 0.08 ? "适中" : "难";
-      return h(NTag, { size: "small", type, bordered: false }, { default: () => `${label} ${pct}%` });
+      const tag = difficultyTag(row.estUnknownRate);
+      if (!tag) return "—";
+      const pct = Math.round(row.estUnknownRate * 1000) / 10;
+      return h(NTag, { size: "small", type: tag.type, bordered: false }, { default: () => `${tag.label} ${pct}%` });
     },
   },
   {
-    title: "生词率",
+    title: $t("page.ai.reading.unknownRateCol"),
     key: "unknownRate",
     width: 110,
     render(row) {
@@ -122,16 +116,16 @@ const columns = ref<DataTableColumns<any>>([
     },
   },
   {
-    title: "状态",
+    title: $t("page.ai.reading.statusCol"),
     key: "status",
     width: 100,
     render(row) {
-      const s = statusTag(row.status);
+      const s = readingStatusTag(row.status);
       return h(NTag, { size: "small", type: s.type, bordered: false }, { default: () => s.label });
     },
   },
   {
-    title: "操作",
+    title: $t("page.ai.reading.actionsCol"),
     key: "actions",
     width: 150,
     render(row) {
@@ -139,7 +133,7 @@ const columns = ref<DataTableColumns<any>>([
         h(
           NButton,
           { size: "small", quaternary: true, type: "primary", onClick: () => openDoc(row.id) },
-          { default: () => "阅读" }
+          { default: () => $t("page.ai.reading.read") }
         ),
         h(
           NPopconfirm,
@@ -148,8 +142,8 @@ const columns = ref<DataTableColumns<any>>([
             onPositiveClick: () => handleDelete(row.id)
           },
           {
-            trigger: () => h(NButton, { size: "small", quaternary: true, type: "error" }, { default: () => "删除" }),
-            default: () => "确认删除该文档?",
+            trigger: () => h(NButton, { size: "small", quaternary: true, type: "error" }, { default: () => $t("page.ai.reading.deleteBtn") }),
+            default: () => $t("page.ai.reading.deleteConfirm"),
           }
         ),
       ]);
@@ -163,7 +157,7 @@ const loadData = async () => {
   const { data: resp, error } = await fetchGetReadingDocs({ keyword: keyword.value.trim() || undefined });
   loading.value = false;
   if (error) {
-    message.error("获取文档列表失败");
+    message.error($t("page.ai.reading.fetchListFailed"));
     return;
   }
   docs.value = resp || [];
@@ -177,11 +171,11 @@ const closeDoc = () => {
 
 const handleImport = async () => {
   if (importType.value === "url" && !importUrl.value.trim()) {
-    message.warning("请输入 URL");
+    message.warning($t("page.ai.reading.urlRequired"));
     return;
   }
   if (importType.value === "text" && !importText.value.trim()) {
-    message.warning("请输入正文");
+    message.warning($t("page.ai.reading.textRequired"));
     return;
   }
   importing.value = true;
@@ -193,10 +187,10 @@ const handleImport = async () => {
   });
   importing.value = false;
   if (error || !resp) {
-    message.error("导入失败");
+    message.error($t("page.ai.reading.importFailed"));
     return;
   }
-  message.success("导入成功, 进入详情页可一键标注生词");
+  message.success($t("page.ai.reading.importSuccess"));
   showImportModal.value = false;
   importTitle.value = "";
   importUrl.value = "";
@@ -207,7 +201,7 @@ const handleImport = async () => {
 const handleDelete = async (id: number) => {
   const { error } = await fetchDeleteReadingDoc(id);
   if (error) {
-    message.error("删除失败");
+    message.error($t("page.ai.reading.deleteFailed"));
     return;
   }
   loadData();
@@ -223,9 +217,9 @@ onMounted(() => {
     <NCard :bordered="false" :shadow="appStore.isMobile ? false : 'sm'" class="flex-1">
       <template #header>
         <div class="flex items-center justify-between w-full">
-          <span class="font-bold text-18px">分级阅读</span>
+          <span class="font-bold text-18px">{{ $t('page.ai.reading.title') }}</span>
           <div class="flex gap-2">
-            <NButton type="primary" @click="showImportModal = true">导入文章</NButton>
+            <NButton type="primary" @click="showImportModal = true">{{ $t('page.ai.reading.importArticle') }}</NButton>
           </div>
         </div>
       </template>
@@ -233,7 +227,7 @@ onMounted(() => {
       <div class="flex gap-2 mb-4" :class="appStore.isMobile ? '' : 'w-96'">
         <NInput
           v-model:value="keyword"
-          placeholder="搜索标题或正文关键词"
+          :placeholder="$t('page.ai.reading.searchPlaceholder')"
           clearable
           @keyup.enter="loadData"
           @clear="loadData"
@@ -265,62 +259,62 @@ onMounted(() => {
           >
             <div class="flex items-center justify-between gap-2">
               <span class="font-bold text-15px truncate">{{ row.title }}</span>
-              <NTag size="tiny" :type="statusTag(row.status).type" :bordered="false" class="shrink-0">
-                {{ statusTag(row.status).label }}
+              <NTag size="tiny" :type="readingStatusTag(row.status).type" :bordered="false" class="shrink-0">
+                {{ readingStatusTag(row.status).label }}
               </NTag>
             </div>
             <div class="flex items-center gap-2 text-xs text-gray-400 flex-wrap">
-              <span>{{ row.sourceType === "url" ? "网页" : "文本" }}</span>
-              <span>· {{ row.wordCount }} 词</span>
+              <span>{{ row.sourceType === "url" ? $t('page.ai.reading.web') : $t('page.ai.reading.text') }}</span>
+              <span>· {{ row.wordCount }} {{ $t('page.ai.reading.wordUnit') }}</span>
               <NTag
-                v-if="row.estUnknownRate > 0"
+                v-if="difficultyTag(row.estUnknownRate)"
                 size="tiny"
                 :bordered="false"
-                :type="row.estUnknownRate < 0.03 ? 'success' : row.estUnknownRate <= 0.08 ? 'info' : 'warning'"
+                :type="difficultyTag(row.estUnknownRate)!.type"
                 class="shrink-0"
               >
-                {{ row.estUnknownRate < 0.03 ? "易" : row.estUnknownRate <= 0.08 ? "适中" : "难" }}
+                {{ difficultyTag(row.estUnknownRate)!.label }}
                 {{ Math.round(row.estUnknownRate * 1000) / 10 }}%
               </NTag>
               <NTag v-if="row.status === 'annotated'" size="tiny" type="warning" :bordered="false" class="shrink-0">
-                生词率 {{ Math.round(row.unknownRate * 1000) / 10 }}%
+                {{ $t('page.ai.reading.unknownRateText', { rate: `${Math.round(row.unknownRate * 1000) / 10}%` }) }}
               </NTag>
             </div>
             <div class="flex items-center justify-between">
               <span class="text-xs text-gray-400">{{ row.createdAt ? new Date(row.createdAt).toLocaleDateString() : "" }}</span>
               <span class="flex gap-1" @click.stop>
-                <NButton size="tiny" quaternary type="primary" @click="openDoc(row.id)">阅读</NButton>
+                <NButton size="tiny" quaternary type="primary" @click="openDoc(row.id)">{{ $t('page.ai.reading.read') }}</NButton>
                 <NPopconfirm @positive-click="handleDelete(row.id)">
                   <template #trigger>
-                    <NButton size="tiny" quaternary type="error">删除</NButton>
+                    <NButton size="tiny" quaternary type="error">{{ $t('page.ai.reading.deleteBtn') }}</NButton>
                   </template>
-                  确认删除该文档?
+                  {{ $t('page.ai.reading.deleteConfirm') }}
                 </NPopconfirm>
               </span>
             </div>
           </div>
         </NSpin>
-        <NEmpty v-if="docs.length === 0 && !loading" class="py-10" description="暂无文档, 点右上角导入" />
+        <NEmpty v-if="docs.length === 0 && !loading" class="py-10" :description="$t('page.ai.reading.noDocs')" />
       </div>
     </NCard>
 
     <!-- 导入 -->
-    <NModal v-model:show="showImportModal" preset="card" title="导入阅读材料" :style="{ width: appStore.isMobile ? '92%' : '560px' }">
+    <NModal v-model:show="showImportModal" preset="card" :title="$t('page.ai.reading.importTitle')" :style="{ width: appStore.isMobile ? '92%' : '560px' }">
       <div class="flex flex-col gap-4 py-2">
         <NTabs v-model:value="importType" type="segment">
-          <NTab name="url">网页 URL</NTab>
-          <NTab name="text">粘贴文本</NTab>
+          <NTab name="url">{{ $t('page.ai.reading.tabUrl') }}</NTab>
+          <NTab name="text">{{ $t('page.ai.reading.tabText') }}</NTab>
         </NTabs>
-        <NInput v-model:value="importTitle" placeholder="标题 (可选)" />
-        <NInput v-if="importType === 'url'" v-model:value="importUrl" placeholder="https://example.com/article" />
+        <NInput v-model:value="importTitle" :placeholder="$t('page.ai.reading.titlePlaceholder')" />
+        <NInput v-if="importType === 'url'" v-model:value="importUrl" :placeholder="$t('page.ai.reading.urlPlaceholder')" />
         <NInput
           v-else
           v-model:value="importText"
           type="textarea"
-          placeholder="粘贴英文文章, 空行分段"
+          :placeholder="$t('page.ai.reading.textPlaceholder')"
           :autosize="{ minRows: 8 }"
         />
-        <NButton type="primary" block :loading="importing" @click="handleImport">导入</NButton>
+        <NButton type="primary" block :loading="importing" @click="handleImport">{{ $t('page.ai.reading.importBtn') }}</NButton>
       </div>
     </NModal>
     <!-- 阅读弹窗 (与 RSS 阅读弹窗同款: 卡片容器 + ReaderView 排版) -->

@@ -4,7 +4,10 @@ import { useMessage } from "naive-ui";
 import { fetchGetReadingDoc, fetchAnnotateReadingDoc } from "@/service/api";
 import type { DifficultWord, ReadingDoc } from "@/service/api";
 import ReaderView from "@/components/custom/reader-view.vue";
+import DifficultWordsAside from "@/components/custom/difficult-words-aside.vue";
 import { useReaderSessionStore } from "@/store/modules/reader-session";
+import { $t } from "@/locales";
+import { readingStatusTag } from "../shared";
 
 /**
  * ReadingDetailView 分级阅读详情 (ReaderView 之上叠加文档业务):
@@ -41,19 +44,6 @@ const loading = ref(false);
 const annotating = computed(() => doc.value?.status === "annotating");
 
 const readerRef = ref<InstanceType<typeof ReaderView> | null>(null);
-
-const statusTag = (status: string) => {
-  switch (status) {
-    case "annotated":
-      return { type: "success" as const, label: "已标注" };
-    case "annotating":
-      return { type: "info" as const, label: "标注中" };
-    case "failed":
-      return { type: "error" as const, label: "标注失败" };
-    default:
-      return { type: "default" as const, label: "待标注" };
-  }
-};
 
 // 生词集合 (小写) 用于高亮
 const difficultSet = computed(() => {
@@ -96,12 +86,13 @@ const onWordAdded = (word: string) => {
   if (hit) hit.known = true;
 };
 
-// 全局小窗"继续阅读": 卡片点击 (restorePending) 且指向本文档时, 内容加载完成后写回续读位置
+// 全局小窗"继续阅读": 卡片点击 (restorePending) 且指向本文档时, 内容加载完成后写回续读位置。
+// 只消费本文档的快照 (kind+itemId 过滤): 卡片指向其他文档/类型时不动, 留给路由切换后的加载流程消费
 function tryConsumeScrollRestore() {
   if (!sessionStore.restorePending) return;
-  const snapshot = sessionStore.consumeRestore();
-  if (snapshot && snapshot.kind === "reading" && snapshot.itemId === props.docId) {
-    nextTick(() => readerRef.value?.setScrollTop(snapshot.scrollTop));
+  const snapshot = sessionStore.consumeRestore({ kind: "reading", itemId: props.docId });
+  if (snapshot) {
+    nextTick(() => readerRef.value?.setScrollTop(snapshot.scrollTop, snapshot.progress));
   }
 }
 
@@ -118,7 +109,7 @@ const loadDoc = async () => {
   const { data: resp, error } = await fetchGetReadingDoc(props.docId);
   loading.value = false;
   if (error || !resp) {
-    message.error("获取文档失败");
+    message.error($t("page.ai.reading.fetchDocFailed"));
     return;
   }
   doc.value = resp.doc;
@@ -149,7 +140,7 @@ const startAnnotatePolling = () => {
     // 上限 ~8 分钟: 超过则停轮询 (后端 10 分钟后会自动解锁该文档, 可手动重试)
     if (attempts > 160) {
       stopAnnotatePolling();
-      message.info("标注仍在后台进行, 稍后刷新页面查看结果");
+      message.info($t("page.ai.reading.annotateStillRunning"));
       return;
     }
     const { data: resp, error } = await fetchGetReadingDoc(props.docId);
@@ -158,9 +149,9 @@ const startAnnotatePolling = () => {
     doc.value = resp.doc;
     difficultWords.value = resp.difficultWords || [];
     if (resp.doc.status === "annotated") {
-      message.success("标注完成");
+      message.success($t("page.ai.reading.annotateDone"));
     } else if (resp.doc.status === "failed") {
-      message.error("标注失败, 可点击重试");
+      message.error($t("page.ai.reading.annotateFailedMsg"));
     }
   }, 3000);
 };
@@ -168,13 +159,13 @@ const startAnnotatePolling = () => {
 const handleAnnotate = async () => {
   const { data: resp, error } = await fetchAnnotateReadingDoc(props.docId);
   if (error || !resp) {
-    message.error("启动标注失败");
+    message.error($t("page.ai.reading.annotateStartFailed"));
     return;
   }
   if (doc.value) {
     doc.value.status = resp.status;
   }
-  message.info("已开始标注, 完成后自动刷新");
+  message.info($t("page.ai.reading.annotateStarted"));
   startAnnotatePolling();
 };
 
@@ -198,7 +189,7 @@ onUnmounted(() => {
 // 暴露阅读位置与文档信息: 容器页 (列表弹窗/详情路由页) 在最小化、切页离开时组装全局小窗快照
 defineExpose({
   getScrollTop: () => readerRef.value?.getScrollTop() ?? 0,
-  setScrollTop: (top: number) => readerRef.value?.setScrollTop(top),
+  setScrollTop: (top: number, progress = 0) => readerRef.value?.setScrollTop(top, progress),
   getReadProgress: () => readerRef.value?.getReadProgress() ?? 0,
   doc
 });
@@ -219,8 +210,8 @@ defineExpose({
         quaternary
         circle
         size="small"
-        title="关闭"
-        aria-label="关闭"
+        :title="$t('page.ai.reading.closeBtn')"
+        :aria-label="$t('page.ai.reading.closeBtn')"
         @click="emit('close')"
       >
         <template #icon>
@@ -232,8 +223,8 @@ defineExpose({
         quaternary
         circle
         size="small"
-        title="返回列表"
-        aria-label="返回列表"
+        :title="$t('page.ai.reader.backToList')"
+        :aria-label="$t('page.ai.reader.backToList')"
         @click="emit('back')"
       >
         <template #icon>
@@ -248,7 +239,7 @@ defineExpose({
         quaternary
         circle
         size="small"
-        title="最小化到右下角, 可稍后继续阅读"
+        :title="$t('page.ai.reader.minimizeTitle')"
         @click="emit('minimize')"
       >
         <template #icon>
@@ -263,29 +254,34 @@ defineExpose({
         :disabled="annotating"
         @click="handleAnnotate"
       >
-        {{ annotating ? `标注中 ${doc?.annotateProgress || 0}%` : (doc?.status === 'annotated' ? '重新标注生词' : doc?.status === 'failed' ? '重试标注' : 'AI 标注生词') }}
+        {{ annotating ? $t('page.ai.reading.annotating', { progress: doc?.annotateProgress || 0 }) : (doc?.status === 'annotated' ? $t('page.ai.reading.reAnnotate') : doc?.status === 'failed' ? $t('page.ai.reading.retryAnnotate') : $t('page.ai.reading.annotate')) }}
       </NButton>
     </template>
     <template #meta>
       <span v-if="doc?.createdAt">{{ new Date(doc.createdAt).toLocaleString() }}</span>
-      <NTag v-if="doc" size="tiny" :bordered="false">{{ doc.wordCount }} 词</NTag>
+      <NTag v-if="doc" size="tiny" :bordered="false">{{ doc.wordCount }} {{ $t('page.ai.reading.wordUnit') }}</NTag>
       <NTag v-if="doc && doc.status === 'annotated'" size="tiny" type="warning" :bordered="false">
-        生词率 {{ Math.round(doc.unknownRate * 1000) / 10 }}%
+        {{ $t('page.ai.reading.unknownRateText', { rate: `${Math.round(doc.unknownRate * 1000) / 10}%` }) }}
       </NTag>
-      <NTag v-if="doc" size="tiny" :type="statusTag(doc.status).type" :bordered="false">
-        {{ statusTag(doc.status).label }}
+      <NTag v-if="doc" size="tiny" :type="readingStatusTag(doc.status).type" :bordered="false">
+        {{ readingStatusTag(doc.status).label }}
       </NTag>
       <span class="hidden md:inline text-gray-300 dark:text-gray-600">
-        点击任意单词即可查词; 高亮为 AI 标注的生词 (灰色为已在生词本)
+        {{ $t('page.ai.reading.lookupHint') }}
       </span>
     </template>
 
     <p v-for="(tokens, pi) in tokenizedParagraphs" :key="pi">
       <template v-for="(tk, ti) in tokens" :key="ti">
+        <!-- 生词 token 可键盘访问 (Tab 聚焦 + Enter/Space 查词); 普通词保持纯鼠标 -->
         <a
           v-if="tk.isDifficult"
-          class="cursor-pointer rounded px-0.5 font-bold"
+          role="button"
+          tabindex="0"
+          class="cursor-pointer rounded px-0.5 font-bold focus:outline-none focus-visible:ring-1 focus-visible:ring-primary"
           :class="tk.known ? 'bg-gray-200 dark:bg-gray-700 text-gray-500' : 'bg-warning/20 text-warning hover:bg-warning/40'"
+          @keydown.enter.prevent="readerRef?.lookupWord(tk.word)"
+          @keydown.space.prevent="readerRef?.lookupWord(tk.word)"
         >
           {{ tk.text }}
         </a>
@@ -295,31 +291,19 @@ defineExpose({
         <span v-else>{{ tk.text }}</span>
       </template>
     </p>
-    <NEmpty v-if="paragraphs.length === 0 && !loading" description="文档为空" />
+    <NEmpty v-if="paragraphs.length === 0 && !loading" :description="$t('page.ai.reading.docEmpty')" />
 
     <template #aside>
-      <!-- 生词侧栏 (桌面右侧 / 移动端正文下方) -->
-      <aside
+      <!-- 生词侧栏 (桌面右侧 / 移动端抽屉, 与 RSS 阅读弹窗共用组件) -->
+      <DifficultWordsAside
         v-if="difficultWords.length > 0"
-        class="w-full md:w-64 md:shrink-0 md:sticky md:top-4 md:self-start max-h-[40vh] md:max-h-[calc(100vh-220px)] overflow-auto"
-      >
-        <div class="font-bold mb-2 text-15px text-gray-900 dark:text-gray-50">标注生词 ({{ difficultWords.length }})</div>
-        <div class="flex flex-col gap-2">
-          <div
-            v-for="w in difficultWords"
-            :key="w.word"
-            class="rounded-lg border border-gray-200 dark:border-gray-700 p-2 text-sm"
-          >
-            <div class="flex items-center justify-between">
-              <a class="cursor-pointer font-bold text-primary" @click="readerRef?.lookupWord(w.word)">{{ w.word }}</a>
-              <NTag size="tiny" :type="w.known ? 'default' : 'warning'" :bordered="false">
-                {{ w.known ? '已收藏' : '生词' }}
-              </NTag>
-            </div>
-            <div class="text-xs text-gray-500 mt-1">{{ w.meaning }}</div>
-          </div>
-        </div>
-      </aside>
+        :words="difficultWords"
+        :heading="$t('page.ai.reader.annotatedWords')"
+        source-kind="reading"
+        :source-ref="doc?.id || 0"
+        :source-context="doc?.title || '阅读'"
+        @lookup="(word: string) => readerRef?.lookupWord(word)"
+      />
     </template>
   </ReaderView>
 </template>

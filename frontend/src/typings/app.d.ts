@@ -946,6 +946,9 @@ declare namespace App {
           history: Record<string, string>;
           share: Record<string, string>;
           vocabulary: Record<string, string>;
+          reader: Record<string, string>;
+          reading: Record<string, string>;
+          rss: Record<string, string>;
           note: {
             title: string;
             noteTitle: string;

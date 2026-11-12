@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
 import { fetchLookupWord, fetchAddVocabulary, fetchTranslateText, fetchReadingHeartbeat } from "@/service/api";
 import type { DictionaryEntry } from "@/service/api";
-import { speak, stopSpeak } from "@/utils/tts";
+import { speak, stopSpeak, detectChunkLang } from "@/utils/tts";
 import { useReaderPreferences } from "@/hooks/common/reader-preferences";
+import { $t } from "@/locales";
 
 /**
  * ReaderView 共享阅读组件 (Folo 风格): RSS 阅读弹窗与分级阅读详情页共用。
@@ -53,13 +54,20 @@ const slots = defineSlots<{
 
 const message = useMessage();
 
-// 阅读偏好: 字号 + 版宽 (与另一个使用方共享 localStorage)
+// 阅读偏好: 字号/版宽/行距/衬线/语速/对照模式 (与另一个使用方共享 localStorage)
 const {
   fontSize: readerFontSize,
   width: readerWidth,
   maxWidth: readerMaxWidth,
+  lineHeight: readerLineHeight,
+  lineHeightValue: readerLineHeightValue,
+  serif: readerSerif,
+  speechRate: readerSpeechRate,
   setFontSize: setReaderFontSize,
-  toggleWidth: toggleReaderWidth
+  toggleWidth: toggleReaderWidth,
+  setLineHeight: setReaderLineHeight,
+  setSerif: setReaderSerif,
+  setSpeechRate: setReaderSpeechRate
 } = useReaderPreferences();
 
 // 阅读进度条
@@ -96,12 +104,26 @@ const wordEntry = ref<DictionaryEntry | null>(null);
 const addingWord = ref(false);
 // 请求序号: 连续点词时慢的旧请求返回后直接丢弃, 避免覆盖新词的弹窗内容/误关弹窗
 let lookupSeq = 0;
+// 查词缓存 (LRU): 本次会话内重复点同一个词直接复用结果, 不再请求——
+// 后端在查词命中生词本时顺带计一次"阅读相遇", 缓存命中不上报, 避免重复点词虚增 encounters
+const lookupCache = new Map<string, DictionaryEntry>();
+const LOOKUP_CACHE_MAX = 200;
 
 async function lookupWord(word: string) {
   const w = word.trim();
   if (!w) return;
-  const seq = ++lookupSeq;
   activeWord.value = w;
+  const cached = lookupCache.get(w);
+  if (cached) {
+    // 刷新到队尾 (LRU)
+    lookupCache.delete(w);
+    lookupCache.set(w, cached);
+    wordEntry.value = cached;
+    wordLoading.value = false;
+    showWordModal.value = true;
+    return;
+  }
+  const seq = ++lookupSeq;
   wordEntry.value = null;
   showWordModal.value = true;
   wordLoading.value = true;
@@ -109,11 +131,16 @@ async function lookupWord(word: string) {
   if (seq !== lookupSeq) return; // 已被更新的点击取代
   wordLoading.value = false;
   if (error || !resp) {
-    message.error("查词失败");
+    message.error($t("page.ai.reader.lookupFailed"));
     showWordModal.value = false;
     return;
   }
   wordEntry.value = resp;
+  lookupCache.set(w, resp);
+  if (lookupCache.size > LOOKUP_CACHE_MAX) {
+    const oldest = lookupCache.keys().next().value;
+    if (oldest) lookupCache.delete(oldest);
+  }
 }
 
 /** 从点击坐标取所在文本节点里的英文单词与所在句子 (caretRangeFromPoint 双实现) */
@@ -172,7 +199,7 @@ const translateSelection = async (text: string) => {
   const { data: resp, error } = await fetchTranslateText(text);
   translating.value = false;
   if (error || !resp) {
-    message.error("翻译失败");
+    message.error($t("page.ai.reader.translateFailed"));
     showTranslateModal.value = false;
     return;
   }
@@ -213,22 +240,72 @@ async function handleAddToVocabulary() {
   });
   addingWord.value = false;
   if (error) {
-    message.error((error as any)?.message || "添加失败 (可能已存在)");
+    message.error((error as any)?.message || $t("page.ai.reader.addFailed"));
     return;
   }
-  message.success("已加入生词本");
-  if (wordEntry.value) wordEntry.value.inVocabulary = true;
+  message.success($t("page.ai.reader.addedToVocabulary"));
+  if (wordEntry.value) {
+    wordEntry.value.inVocabulary = true;
+    // 同步缓存 (下次点同一个词展示的也是已收藏态)
+    lookupCache.set(wordEntry.value.word, { ...wordEntry.value });
+  }
   emit("wordAdded", wordEntry.value.word);
 }
 
 defineExpose({
   lookupWord,
   scrollToTop,
+  // 切视图 (对照/译文/改写) 重建 DOM 前由外层调用: 旧朗读队列节点已脱离文档, 继续读会错位
+  stopSpeaking,
+  // 查词/翻译弹窗是否开着 (外层 j/k 快捷键守卫用, 避免弹窗底下悄悄切文章)
+  isModalOpen: () => showWordModal.value || showTranslateModal.value,
   // 小窗模式: 最小化前读、恢复后写, 续读位置不丢
   getScrollTop: () => scrollRef.value?.scrollTop ?? 0,
-  setScrollTop: (top: number) => {
+  // 有 progress 读数时按比例恢复 (字号/设备变化导致总高不同也能落回相对位置), 否则用绝对值。
+  // 恢复瞬间图片 (BBC 图床等) 往往还没加载完、总高与快照时不同, 图片就绪后再重定位一次;
+  // 等待期间用户手动滚动 (滚轮/触摸) 则视为接管, 不再重定位
+  setScrollTop: (top: number, progress = 0) => {
     nextTick(() => {
-      if (scrollRef.value) scrollRef.value.scrollTop = top;
+      const el = scrollRef.value;
+      if (!el) return;
+      const apply = () => {
+        const max = el.scrollHeight - el.clientHeight;
+        el.scrollTop = progress > 0 && max > 10 ? Math.round((max * Math.min(100, progress)) / 100) : top;
+      };
+      apply();
+      const imgs = Array.from(el.querySelectorAll("img")).filter((im) => !im.complete);
+      if (imgs.length === 0) return;
+      let touched = false;
+      const markTouched = () => {
+        touched = true;
+      };
+      el.addEventListener("wheel", markTouched, { once: true, capture: true });
+      el.addEventListener("touchmove", markTouched, { once: true, capture: true });
+      let settled = false;
+      const resettle = () => {
+        if (settled || touched) {
+          el.removeEventListener("wheel", markTouched, { capture: true });
+          el.removeEventListener("touchmove", markTouched, { capture: true });
+          return;
+        }
+        settled = true;
+        el.removeEventListener("wheel", markTouched, { capture: true });
+        el.removeEventListener("touchmove", markTouched, { capture: true });
+        apply();
+      };
+      const timer = window.setTimeout(resettle, 4000);
+      let pending = imgs.length;
+      const one = () => {
+        pending -= 1;
+        if (pending <= 0) {
+          window.clearTimeout(timer);
+          resettle();
+        }
+      };
+      imgs.forEach((im) => {
+        im.addEventListener("load", one, { once: true });
+        im.addEventListener("error", one, { once: true });
+      });
     });
   },
   getReadProgress: () => readProgress.value
@@ -239,14 +316,7 @@ const speaking = ref(false);
 let speakQueue: HTMLElement[] = [];
 let speakIndex = 0;
 
-const contentLang = () => {
-  const text = (scrollRef.value?.textContent || "").slice(0, 2000);
-  let cjk = 0;
-  for (const ch of text) {
-    if (ch >= "\u4e00" && ch <= "\u9fff") cjk += 1;
-  }
-  return cjk * 2 > text.length ? "zh-CN" : "en-US";
-};
+const contentLang = () => detectChunkLang((scrollRef.value?.textContent || "").slice(0, 2000), "en-US");
 
 const clearSpeakingHighlight = () => {
   scrollRef.value?.querySelectorAll(".reader-speaking").forEach((el) => el.classList.remove("reader-speaking"));
@@ -262,11 +332,11 @@ const speakNext = async () => {
   el.classList.add("reader-speaking");
   el.scrollIntoView({ behavior: "smooth", block: "center" });
   try {
-    await speak(el.textContent || "", { lang: contentLang(), rate: 0.95 });
+    await speak(el.textContent || "", { lang: contentLang(), rate: readerSpeechRate.value });
   } catch (err: any) {
     console.error("朗读失败:", err);
     // 中断原因必须可见: 音频加载失败 (如生产 CSP 拦截) 时静默停止会被当成"读一句就停"
-    message.error(`朗读中断: ${err?.message || "未知错误"}`);
+    message.error($t("page.ai.reader.speakInterrupted", { msg: err?.message || $t("page.ai.reader.unknownError") }));
     stopSpeaking();
     return;
   }
@@ -285,7 +355,7 @@ const toggleSpeaking = () => {
     scrollRef.value?.querySelectorAll(".reader-content p, .reader-content h1, .reader-content h2, .reader-content h3, .reader-content li, .reader-content blockquote") || []
   ).filter((el) => (el.textContent || "").trim() !== "") as HTMLElement[];
   if (blocks.length === 0) {
-    message.info("没有可朗读的内容");
+    message.info($t("page.ai.reader.speakEmpty"));
     return;
   }
   speakQueue = blocks;
@@ -308,24 +378,43 @@ watch(
   }
 );
 
-// ===================== 阅读时长心跳 (30s 一次, 组件挂载期间有效) =====================
+// ===================== 阅读时长心跳 (30s 一次; 页面可见且组件活跃时才计) =====================
 let heartbeatTimer: number | null = null;
-heartbeatTimer = window.setInterval(() => {
-  // 标题非空视为正在阅读 (弹窗关闭时 RSS 场景组件会被 v-if 销毁, 不用额外判断)
-  if (props.title) {
-    fetchReadingHeartbeat(30);
-  }
-}, 30_000);
 
-onBeforeUnmount(() => {
-  stopSpeaking();
+const startHeartbeat = () => {
+  if (heartbeatTimer !== null) return;
+  heartbeatTimer = window.setInterval(() => {
+    // 标题非空视为正在阅读 (弹窗关闭时 RSS 场景组件会被 v-if 销毁, 不用额外判断);
+    // 标签页切到后台不计入, 避免挂机虚增时长
+    if (props.title && !document.hidden) {
+      fetchReadingHeartbeat(30);
+    }
+  }, 30_000);
+};
+
+const stopHeartbeat = () => {
   if (heartbeatTimer !== null) {
     window.clearInterval(heartbeatTimer);
     heartbeatTimer = null;
   }
+};
+
+startHeartbeat();
+// KeepAlive 失活 (切 tab/路由) 时组件仍存活但不可见, 心跳要停——
+// 否则与另一个存活中的阅读器 (如 RSS 弹窗 + 分级阅读页) 双计时长
+onActivated(startHeartbeat);
+onDeactivated(stopHeartbeat);
+
+onBeforeUnmount(() => {
+  stopSpeaking();
+  stopHeartbeat();
 });
 
-const contentStyle = computed(() => ({ fontSize: `${readerFontSize.value}px` }));
+const contentStyle = computed(() => ({
+  fontSize: `${readerFontSize.value}px`,
+  lineHeight: String(readerLineHeightValue.value),
+  fontFamily: readerSerif.value ? 'Georgia, "Times New Roman", "Songti SC", serif' : undefined
+}));
 </script>
 
 <template>
@@ -339,8 +428,8 @@ const contentStyle = computed(() => ({ fontSize: `${readerFontSize.value}px` }))
           quaternary
           circle
           size="small"
-          :title="speaking ? '停止朗读' : '朗读全文'"
-          :aria-label="speaking ? '停止朗读' : '朗读全文'"
+          :title="speaking ? $t('page.ai.reader.stopSpeakTitle') : $t('page.ai.reader.speakTitle')"
+          :aria-label="speaking ? $t('page.ai.reader.stopSpeakTitle') : $t('page.ai.reader.speakTitle')"
           @click="toggleSpeaking"
         >
           <template #icon>
@@ -351,8 +440,8 @@ const contentStyle = computed(() => ({ fontSize: `${readerFontSize.value}px` }))
           quaternary
           size="tiny"
           class="!px-1.5"
-          title="减小字号"
-          aria-label="减小字号"
+          :title="$t('page.ai.reader.fontSizeDown')"
+          :aria-label="$t('page.ai.reader.fontSizeDown')"
           @click="setReaderFontSize(readerFontSize - 1)"
         >
           A-
@@ -362,19 +451,84 @@ const contentStyle = computed(() => ({ fontSize: `${readerFontSize.value}px` }))
           quaternary
           size="tiny"
           class="!px-1.5"
-          title="增大字号"
-          aria-label="增大字号"
+          :title="$t('page.ai.reader.fontSizeUp')"
+          :aria-label="$t('page.ai.reader.fontSizeUp')"
           @click="setReaderFontSize(readerFontSize + 1)"
         >
           A+
         </NButton>
+        <!-- 排版设置: 行距 / 衬线 / 朗读语速 (偏好持久化, 双页共享) -->
+        <NPopover trigger="click" :show-arrow="false">
+          <template #trigger>
+            <NButton
+              quaternary
+              circle
+              size="small"
+              :title="$t('page.ai.reader.typography')"
+              :aria-label="$t('page.ai.reader.typography')"
+            >
+              <template #icon>
+                <SvgIcon icon="mdi:format-line-spacing" />
+              </template>
+            </NButton>
+          </template>
+          <div class="flex flex-col gap-4 w-56 p-1">
+            <div>
+              <div class="text-xs text-gray-400 mb-1.5">{{ $t('page.ai.reader.lineHeight') }}</div>
+              <NButtonGroup size="tiny" class="w-full">
+                <NButton
+                  size="tiny"
+                  class="flex-1"
+                  :type="readerLineHeight === 'compact' ? 'primary' : 'default'"
+                  @click="setReaderLineHeight('compact')"
+                >
+                  {{ $t('page.ai.reader.lineHeightCompact') }}
+                </NButton>
+                <NButton
+                  size="tiny"
+                  class="flex-1"
+                  :type="readerLineHeight === 'normal' ? 'primary' : 'default'"
+                  @click="setReaderLineHeight('normal')"
+                >
+                  {{ $t('page.ai.reader.lineHeightNormal') }}
+                </NButton>
+                <NButton
+                  size="tiny"
+                  class="flex-1"
+                  :type="readerLineHeight === 'loose' ? 'primary' : 'default'"
+                  @click="setReaderLineHeight('loose')"
+                >
+                  {{ $t('page.ai.reader.lineHeightLoose') }}
+                </NButton>
+              </NButtonGroup>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-gray-400">{{ $t('page.ai.reader.serifFont') }}</span>
+              <NSwitch :value="readerSerif" size="small" @update:value="(v: boolean) => setReaderSerif(v)" />
+            </div>
+            <div>
+              <div class="text-xs text-gray-400 mb-1.5 flex items-center justify-between">
+                <span>{{ $t('page.ai.reader.speechRate') }}</span>
+                <span class="text-primary tabular-nums">{{ readerSpeechRate.toFixed(2) }}x</span>
+              </div>
+              <NSlider
+                :value="readerSpeechRate"
+                :min="0.6"
+                :max="1.5"
+                :step="0.05"
+                :format-tooltip="(v: number) => `${v.toFixed(2)}x`"
+                @update:value="(v: number) => setReaderSpeechRate(v)"
+              />
+            </div>
+          </div>
+        </NPopover>
         <NButton
           quaternary
           circle
           size="small"
           class="hidden sm:inline-flex"
-          :title="readerWidth === 'cozy' ? '切换宽敞版式' : '切换舒适版式'"
-          :aria-label="readerWidth === 'cozy' ? '切换宽敞版式' : '切换舒适版式'"
+          :title="readerWidth === 'cozy' ? $t('page.ai.reader.toggleWideTitle') : $t('page.ai.reader.toggleCozyTitle')"
+          :aria-label="readerWidth === 'cozy' ? $t('page.ai.reader.toggleWideTitle') : $t('page.ai.reader.toggleCozyTitle')"
           @click="toggleReaderWidth"
         >
           <template #icon>
@@ -439,22 +593,22 @@ const contentStyle = computed(() => ({ fontSize: `${readerFontSize.value}px` }))
             {{ wordEntry.example }}
           </div>
           <NButton v-if="wordEntry.inVocabulary" disabled block>
-            已在生词本<span v-if="(wordEntry.encounters || 0) > 1" class="ml-1 text-xs opacity-70">· 阅读中已遇 {{ wordEntry.encounters }} 次</span>
+            {{ $t('page.ai.reader.inVocabulary') }}<span v-if="(wordEntry.encounters || 0) > 1" class="ml-1 text-xs opacity-70">· {{ $t('page.ai.reader.encounters', { count: wordEntry.encounters }) }}</span>
           </NButton>
-          <NButton v-else type="primary" block :loading="addingWord" @click="handleAddToVocabulary">加入生词本</NButton>
+          <NButton v-else type="primary" block :loading="addingWord" @click="handleAddToVocabulary">{{ $t('page.ai.reader.addToVocabulary') }}</NButton>
         </div>
       </NSpin>
     </NModal>
 
     <!-- 划词翻译弹窗 -->
-    <NModal v-model:show="showTranslateModal" preset="card" title="翻译" :style="{ width: 'min(92vw, 480px)' }">
+    <NModal v-model:show="showTranslateModal" preset="card" :title="$t('page.ai.reader.translate')" :style="{ width: 'min(92vw, 480px)' }">
       <div class="flex flex-col gap-3 py-2">
         <div class="text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-lg p-3 max-h-40 overflow-auto">
           {{ translateSource }}
         </div>
         <NSpin :show="translating">
           <div v-if="translateResult" class="text-15px leading-relaxed">{{ translateResult }}</div>
-          <div v-else class="text-xs text-gray-400 py-2">翻译中...</div>
+          <div v-else class="text-xs text-gray-400 py-2">{{ $t('page.ai.reader.translating') }}</div>
         </NSpin>
       </div>
     </NModal>

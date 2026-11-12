@@ -21,10 +21,11 @@ export const useReaderSessionStore = defineStore(SetupStoreId.ReaderSession, () 
     return localStg.get('readerSession') || null;
   }
 
-  /** 收入小窗: 覆盖当前会话并持久化 */
+  /** 收入小窗: 覆盖当前会话并持久化; 恢复请求进行中 (卡片刚被点击)时不覆盖——
+   *  正在恢复的会话优先, 避免导航途中被旧页面 (弹窗还开着) 的自动收窗顶掉导致恢复落空 */
   function minimize(snapshot: ReaderSessionSnapshot) {
+    if (restorePending.value) return;
     session.value = snapshot;
-    restorePending.value = false;
     localStg.set('readerSession', snapshot);
   }
 
@@ -43,9 +44,13 @@ export const useReaderSessionStore = defineStore(SetupStoreId.ReaderSession, () 
   /**
    * 目标页面消费恢复请求: 返回快照并清空会话 (恢复即弹窗接管, 卡片退场);
    * 仅在 restorePending 时返回快照, 否则返回 null (幂等, 重复调用安全)。
+   * 传 match 时只消费匹配的会话——kind/itemId 不符返回 null 且不清除,
+   * 留给目标页面消费: 避免 RSS 页的 restorePending 监听误吞分级阅读的恢复请求 (反之亦然)。
    */
-  function consumeRestore(): ReaderSessionSnapshot | null {
-    if (!restorePending.value) return null;
+  function consumeRestore(match?: { kind?: 'rss' | 'reading'; itemId?: number }): ReaderSessionSnapshot | null {
+    if (!restorePending.value || !session.value) return null;
+    if (match?.kind && session.value.kind !== match.kind) return null;
+    if (match?.itemId !== undefined && session.value.itemId !== match.itemId) return null;
     const snapshot = session.value;
     session.value = null;
     restorePending.value = false;

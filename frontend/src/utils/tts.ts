@@ -380,8 +380,9 @@ const splitSentences = (text: string, maxLen: number): string[] => {
 /** 每次调用 speak 递增，用于让「已取消/已过时」的播放任务作废 */
 let speakToken = 0;
 
-/** 块级语言检测: CJK 字符占比高视为中文, 否则用调用方默认语言 (支持中英混排逐句切音色) */
-const detectChunkLang = (text: string, fallback: string): string => {
+/** 块级语言检测: CJK 字符占比高视为中文, 否则用调用方默认语言 (支持中英混排逐句切音色);
+ *  阅读器全文朗读的语言探测 (reader-view contentLang) 也复用这一份 */
+export const detectChunkLang = (text: string, fallback: string): string => {
   let cjk = 0;
   for (const ch of text) {
     if (ch >= '\u4e00' && ch <= '\u9fff') cjk += 1;
