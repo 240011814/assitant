@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, onMounted, ref, resolveComponent, computed } from "vue";
+import { h, onMounted, onUnmounted, ref, resolveComponent, computed } from "vue";
 import { NButton, NPopconfirm, NModal, NInputNumber, useMessage, useDialog } from "naive-ui";
 import type { DataTableColumns, DataTableRowKey } from "naive-ui";
 import { useRouterPush } from "@/hooks/common/router";
@@ -71,6 +71,9 @@ const stopVocabTestPoll = () => {
     vocabTestPollTimer = null;
   }
 };
+
+// 离开页面时测试可能仍在出题, 组件卸载必须停掉轮询, 否则定时器在后台空跑
+onUnmounted(stopVocabTestPoll);
 
 const roundNumber = computed(() => vocabTestRounds.value.length + 1);
 const currentAnswered = computed(() => currentQuestions.value.filter(q => currentChoices.value[q.id] !== undefined).length);

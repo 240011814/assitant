@@ -1,6 +1,6 @@
 # 后端服务 (Go + Gin, 端口 8080)
-# 独立 compose; 与 frontend/baostock 共用外部网络 assitant-net (先创建一次, 见下)
-#   docker network create assitant-net
+# 独立 compose; 与 frontend/baostock 共用外部网络 assistant-net (先创建一次, 见下)
+#   docker network create assistant-net
 #
 # 说明:
 #   1. 镜像由 CI (backend-release.yml) 构建并推送到 ghcr.io, 这里只拉取运行;
@@ -13,13 +13,13 @@
 #   5. JWT_SECRET 不能为空或默认值 (soybean-admin-secret), 否则拒绝启动
 #
 # 用法:
-#   docker network create assitant-net   # 首次部署只执行一次
+#   docker network create assistant-net   # 首次部署只执行一次
 #   docker compose pull && docker compose up -d
 
 services:
   backend:
     image: ghcr.io/240011814/english_tools_backend:latest
-    container_name: assitant-backend
+    container_name: assistant-backend
     restart: unless-stopped
     ports:
       - "21000:8080"
@@ -50,8 +50,8 @@ services:
       retries: 3
       start_period: 30s
     networks:
-      - assitant-net
+      - assistant-net
 
 networks:
-  assitant-net:
+  assistant-net:
     external: true
